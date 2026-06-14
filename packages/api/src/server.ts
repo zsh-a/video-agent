@@ -580,6 +580,43 @@ function renderStudioHtml(): string {
       overflow-wrap: anywhere;
     }
 
+    .preview {
+      max-height: 260px;
+      overflow: auto;
+      margin-top: 12px;
+      border: 1px solid #d9dee5;
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 10px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 12px;
+    }
+
+    .sample-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .sample {
+      border: 1px solid #d9dee5;
+      border-radius: 6px;
+      background: #f8fafc;
+      padding: 8px;
+    }
+
+    .sample img {
+      display: block;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      object-fit: contain;
+      background: #111820;
+      border-radius: 4px;
+    }
+
     table {
       border-collapse: collapse;
       width: 100%;
@@ -665,9 +702,14 @@ function renderStudioHtml(): string {
       <div class="panel">
         <h2>Artifacts</h2>
         <table>
-          <thead><tr><th>Name</th><th>Kind</th><th>Size</th></tr></thead>
+          <thead><tr><th>Name</th><th>Kind</th><th>Size</th><th></th></tr></thead>
           <tbody id="artifacts"></tbody>
         </table>
+        <pre class="preview" id="artifact-preview">Select an artifact to preview.</pre>
+      </div>
+      <div class="panel">
+        <h2>Visual Samples</h2>
+        <div class="sample-grid" id="visual-samples"></div>
       </div>
       <div class="panel">
         <h2>Recent Events</h2>
@@ -711,6 +753,51 @@ function renderStudioHtml(): string {
       }
       return row;
     };
+    const artifactRow = (artifact) => {
+      const row = tableRow([artifact.name, artifact.kind, artifact.size]);
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Preview";
+      button.addEventListener("click", () => void previewArtifact(artifact.name));
+      actionCell.append(button);
+      row.append(actionCell);
+      return row;
+    };
+    const formatPreview = (value) => typeof value === "string" ? value : JSON.stringify(value, null, 2);
+    const previewArtifact = async (name) => {
+      byId("artifact-preview").textContent = "Loading " + name + "...";
+      try {
+        const artifact = await api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts/" + encodeURIComponent(name));
+        byId("artifact-preview").textContent = formatPreview(artifact.content);
+      } catch (error) {
+        byId("artifact-preview").textContent = error instanceof Error ? error.message : String(error);
+      }
+    };
+    const renderVisualSamples = (samples) => {
+      const target = byId("visual-samples");
+      target.textContent = "";
+      const available = samples.filter((sample) => sample.exists && sample.contentBase64 !== undefined);
+      if (available.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "No visual samples";
+        target.append(empty);
+        return;
+      }
+      for (const sample of available) {
+        const card = document.createElement("div");
+        card.className = "sample";
+        const image = document.createElement("img");
+        image.alt = "Frame sample at " + sample.timestamp + "s";
+        image.src = "data:image/jpeg;base64," + sample.contentBase64;
+        const meta = document.createElement("p");
+        meta.className = "muted";
+        meta.textContent = sample.timestamp + "s " + (sample.relativePath ?? "");
+        card.append(image, meta);
+        target.append(card);
+      }
+    };
     const renderProjects = (projects) => {
       const list = byId("projects");
       list.textContent = "";
@@ -748,8 +835,10 @@ function renderStudioHtml(): string {
         byId("action-status").textContent = "Select a project to run actions.";
         actionButtons.forEach((button) => { button.disabled = true; });
         setRows("stages", [], 3);
-        setRows("artifacts", [], 3);
+        setRows("artifacts", [], 4);
         setRows("events", [], 3);
+        byId("artifact-preview").textContent = "Select an artifact to preview.";
+        renderVisualSamples([]);
         return;
       }
       actionButtons.forEach((button) => { button.disabled = false; });
@@ -762,8 +851,15 @@ function renderStudioHtml(): string {
       byId("quality").textContent = status.summary.quality.issues + " issues";
       byId("render").textContent = status.summary.render.rendered ? "rendered" : "none";
       setRows("stages", status.job.stages.map((stage) => tableRow([stage.name, stage.status, stage.attempt ?? ""])), 3);
-      setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => tableRow([artifact.name, artifact.kind, artifact.size])), 3);
+      setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => artifactRow(artifact)), 4);
       setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
+      byId("artifact-preview").textContent = "Select an artifact to preview.";
+      try {
+        const visual = await api("/projects/" + encodeURIComponent(state.projectId) + "/visual?includeContent=true");
+        renderVisualSamples(visual.samples);
+      } catch {
+        renderVisualSamples([]);
+      }
     };
     const runAction = async (label, action) => {
       if (state.projectId === undefined) return;
