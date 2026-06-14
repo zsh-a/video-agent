@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video Agent"
+  short_description: "Run video-agent CLI/MCP workflows from an agent shell"
+  default_prompt: "Use video-agent to inspect, run, render, export, or recover a local video project."

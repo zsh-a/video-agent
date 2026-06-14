@@ -1,0 +1,17 @@
+import {expect} from 'chai'
+import {readFile} from 'node:fs/promises'
+import {resolve} from 'node:path'
+
+describe('Claude Code skill adapter', () => {
+  it('documents the video-agent CLI, MCP, and Studio workflows', async () => {
+    const skill = await readFile(resolve('adapters', 'claude-code-skill', 'video-agent', 'SKILL.md'), 'utf8')
+
+    expect(skill).to.include('name: video-agent')
+    expect(skill).to.include('description: Operate the video-agent Bun/TypeScript video workflow')
+    expect(skill).to.not.include('TODO')
+    expect(skill).to.include('bun run dev run ./input.mp4')
+    expect(skill).to.include('bun run dev worker --dry-run')
+    expect(skill).to.include('bun run dev mcp --print-config')
+    expect(skill).to.include('http://127.0.0.1:4317/studio')
+  })
+})

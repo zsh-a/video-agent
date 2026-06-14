@@ -100,7 +100,7 @@ adapters/
   mcp/
 ```
 
-These folders should call `@video-agent/core` and `@video-agent/runtime` instead of duplicating workflow behavior. The first MCP adapter currently lives in `packages/mcp` and can later move under `adapters/mcp` if the repository is reorganized around app packages.
+These folders should call `@video-agent/core` and `@video-agent/runtime` instead of duplicating workflow behavior. The first Claude Code skill adapter lives in `adapters/claude-code-skill/video-agent` and documents CLI/MCP workflows for agent shells. The first MCP adapter currently lives in `packages/mcp` and can later move under `adapters/mcp` if the repository is reorganized around app packages.
 
 ## Pipeline Stages
 
@@ -192,5 +192,5 @@ Concrete providers can wrap remote APIs or local services. Local model inference
 2. Add Clack prompts for provider `config`.
 3. Replace mock ASR/VLM/TTS providers with real provider adapters behind the existing config contract.
 4. Add richer TUI interactions for guided command selection.
-5. Add richer queue scheduling and artifact recovery policies over the configurable `JobStore`.
-6. Expand MCP/client integration examples.
+5. Expand Web Studio actions over the existing API surface.
+6. Expand MCP/client integration examples and Claude Code skill distribution docs.
