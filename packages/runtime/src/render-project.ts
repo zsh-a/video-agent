@@ -6,7 +6,7 @@ import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 import {NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {extractVideoFrame, inspectAudioVolume, inspectVideoBlackDetect, probeMedia} from '@video-agent/media'
 import {
-  addVisualFrameSample,
+  addVisualFrameSamples,
   checkAudioLoudness,
   checkRenderedMedia,
   checkSrtSubtitles,
@@ -143,7 +143,7 @@ async function renderProjectWithFfmpeg(workspace: Awaited<ReturnType<typeof crea
     expectedDuration: timeline.duration,
   })
   const audioQuality = outputQuality.audioStreams > 0 ? await inspectRenderedAudio(result.outputPath) : undefined
-  const visualQuality = outputQuality.videoStreams > 0 ? await inspectRenderedVisual(result.outputPath, resolve(workspace.rendersDir, 'final-first-frame.jpg'), outputQuality.duration) : undefined
+  const visualQuality = outputQuality.videoStreams > 0 ? await inspectRenderedVisual(result.outputPath, workspace.rendersDir, outputQuality.duration) : undefined
   const artifactPath = await workspace.store.writeJson('render-output.json', {
     audio: audioPlan.audio,
     audioDiagnostics: audioPlan.diagnostics,
@@ -194,10 +194,10 @@ async function inspectRenderedAudio(outputPath: string): Promise<AudioLoudnessQu
   }
 }
 
-async function inspectRenderedVisual(outputPath: string, frameSamplePath: string, duration?: number): Promise<VisualSmokeQualityResult> {
+async function inspectRenderedVisual(outputPath: string, rendersDir: string, duration?: number): Promise<VisualSmokeQualityResult> {
   const smokeQuality = await inspectRenderedBlackFrames(outputPath, duration)
 
-  return addVisualFrameSample(smokeQuality, await captureVisualFrameSample(outputPath, frameSamplePath))
+  return addVisualFrameSamples(smokeQuality, await captureVisualFrameSamples(outputPath, rendersDir, duration))
 }
 
 async function inspectRenderedBlackFrames(outputPath: string, duration?: number): Promise<VisualSmokeQualityResult> {
@@ -208,29 +208,77 @@ async function inspectRenderedBlackFrames(outputPath: string, duration?: number)
   }
 }
 
-async function captureVisualFrameSample(outputPath: string, frameSamplePath: string): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>> {
-  const timestamp = 0
+async function captureVisualFrameSamples(outputPath: string, rendersDir: string, duration?: number): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>[]> {
+  return Promise.all(createFrameSampleTargets(rendersDir, duration).map((target) => captureVisualFrameSample(outputPath, target)))
+}
 
+async function captureVisualFrameSample(outputPath: string, target: VisualFrameSampleTarget): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>> {
   try {
-    await extractVideoFrame(outputPath, frameSamplePath, timestamp)
-    const info = await stat(frameSamplePath)
+    await extractVideoFrame(outputPath, target.path, target.timestamp)
+    const info = await stat(target.path)
 
     return {
       capturedAt: new Date().toISOString(),
       ok: true,
-      path: frameSamplePath,
+      path: target.path,
       size: info.size,
-      timestamp,
+      timestamp: target.timestamp,
     }
   } catch (error) {
     return {
       capturedAt: new Date().toISOString(),
       error: error instanceof Error ? error.message : String(error),
       ok: false,
-      path: frameSamplePath,
-      timestamp,
+      path: target.path,
+      timestamp: target.timestamp,
     }
   }
+}
+
+interface VisualFrameSampleTarget {
+  path: string
+  timestamp: number
+}
+
+function createFrameSampleTargets(rendersDir: string, duration?: number): VisualFrameSampleTarget[] {
+  return createFrameSampleTimes(duration).map(({label, timestamp}) => ({
+    path: resolve(rendersDir, `final-frame-${label}.jpg`),
+    timestamp,
+  }))
+}
+
+function createFrameSampleTimes(duration?: number): Array<{label: string; timestamp: number}> {
+  if (duration === undefined || duration <= 0.2) {
+    return [
+      {
+        label: 'first',
+        timestamp: 0,
+      },
+    ]
+  }
+
+  const endTimestamp = Math.max(0, duration - 0.1)
+  const middleTimestamp = Math.max(0, duration / 2)
+  const samples = [
+    {
+      label: 'first',
+      timestamp: 0,
+    },
+    {
+      label: 'middle',
+      timestamp: roundTimestamp(middleTimestamp),
+    },
+    {
+      label: 'end',
+      timestamp: roundTimestamp(endTimestamp),
+    },
+  ]
+
+  return samples.filter((sample, index) => samples.findIndex((other) => other.timestamp === sample.timestamp) === index)
+}
+
+function roundTimestamp(value: number): number {
+  return Math.round(value * 1000) / 1000
 }
 
 async function renderProjectWithHyperframes(workspace: Awaited<ReturnType<typeof createProjectWorkspace>>, options: RenderProjectOptions): Promise<HyperframesProjectRenderResult> {

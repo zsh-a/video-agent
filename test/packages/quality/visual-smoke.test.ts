@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {addVisualFrameSample, checkVisualSmoke, createVisualSmokeProbeFailure} from '../../../packages/quality/src/index.js'
+import {addVisualFrameSample, addVisualFrameSamples, checkVisualSmoke, createVisualSmokeProbeFailure} from '../../../packages/quality/src/index.js'
 
 describe('visual smoke quality', () => {
   it('passes when black-frame ratio is low', () => {
@@ -103,6 +103,36 @@ describe('visual smoke quality', () => {
         },
       ).issues.map((issue) => issue.code),
     ).to.deep.equal(['visual.frame_sample.failed'])
+  })
+
+  it('records multiple frame samples while keeping the first sample compatibility field', () => {
+    const result = addVisualFrameSamples(
+      checkVisualSmoke({
+        blackDuration: 0,
+        blackSegments: [],
+        duration: 2,
+      }),
+      [
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-first.jpg',
+          size: 123,
+          timestamp: 0,
+        },
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-middle.jpg',
+          size: 456,
+          timestamp: 1,
+        },
+      ],
+    )
+
+    expect(result.frameSample?.path).to.equal('/tmp/final-frame-first.jpg')
+    expect(result.frameSamples?.map((sample) => sample.path)).to.deep.equal(['/tmp/final-frame-first.jpg', '/tmp/final-frame-middle.jpg'])
+    expect(result.issues).to.deep.equal([])
   })
 
   it('creates a probe failure warning', () => {

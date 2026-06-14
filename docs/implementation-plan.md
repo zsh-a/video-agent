@@ -77,7 +77,7 @@ Acceptance criteria:
 - The run writes `media-info.json`, `storyboard.json`, `timeline.json`, `narration.json`, `tts-segments.json`, and `quality-report.json`.
 - The pipeline can resume from a later stage when required artifacts already exist.
 
-Status: completed for the first mock-provider slice, including timeline bounds, narration timing, TTS coverage, generated SRT subtitle quality checks, rendered media stream/duration diagnostics, ffmpeg audio loudness diagnostics, ffmpeg black-frame smoke checks, and rendered first-frame sampling.
+Status: completed for the first mock-provider slice, including timeline bounds, narration timing, TTS coverage, generated SRT subtitle quality checks, rendered media stream/duration diagnostics, ffmpeg audio loudness diagnostics, ffmpeg black-frame smoke checks, and rendered first/middle/end thumbnail sampling.
 
 ## Phase 2: Usable CLI Surface
 
@@ -220,7 +220,7 @@ Recommended order:
 2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
 3. Add worker-oriented retry scheduling and finer artifact recovery policies over the `JobStore` contract.
 4. Add MCP client configuration examples and expand tool schemas as external clients are tested.
-5. Expand render quality checks around additional thumbnail sampling and deeper visual smoke tests.
+5. Expand render quality checks around deeper visual smoke tests.
 
 ## v0 Completion Definition
 

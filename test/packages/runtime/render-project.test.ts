@@ -91,7 +91,15 @@ describe('render project', () => {
         audioQuality?: {errors: number; maxVolumeDb?: number; meanVolumeDb?: number; probed: boolean; warnings: number}
         outputQuality?: {errors: number; probed: boolean; videoStreams: number; warnings: number}
         subtitleQuality?: {cues: number; errors: number; warnings: number}
-        visualQuality?: {blackDuration: number; blackRatio?: number; errors: number; frameSample?: {ok: boolean; path?: string; size?: number; timestamp: number}; probed: boolean; warnings: number}
+        visualQuality?: {
+          blackDuration: number
+          blackRatio?: number
+          errors: number
+          frameSample?: {ok: boolean; path?: string; size?: number; timestamp: number}
+          frameSamples?: Array<{ok: boolean; path?: string; size?: number; timestamp: number}>
+          probed: boolean
+          warnings: number
+        }
       }
 
       expect(renderOutput.outputQuality).to.include({
@@ -119,6 +127,7 @@ describe('render project', () => {
       expect(renderOutput.visualQuality?.frameSample?.path).to.be.a('string')
       expect(renderOutput.visualQuality?.frameSample?.size).to.be.greaterThan(0)
       expect((await stat(renderOutput.visualQuality?.frameSample?.path ?? '')).size).to.equal(renderOutput.visualQuality?.frameSample?.size)
+      await expectFrameSamples(renderOutput.visualQuality?.frameSamples)
 
       expect(renderOutput.subtitleQuality).to.deep.equal({
         cues: 1,
@@ -287,6 +296,27 @@ async function createRenderableProject(root: string, projectId: string): Promise
       })}\n`,
     ),
   ])
+}
+
+interface TestVisualFrameSample {
+  ok: boolean
+  path?: string
+  size?: number
+  timestamp: number
+}
+
+async function expectFrameSamples(samples: TestVisualFrameSample[] | undefined): Promise<void> {
+  expect(samples).to.have.length(3)
+  expect(samples?.[0]?.timestamp).to.equal(0)
+  expect(samples?.[1]?.timestamp ?? 0).to.be.greaterThan(0)
+  expect(samples?.[2]?.timestamp ?? 0).to.be.greaterThan(samples?.[1]?.timestamp ?? 0)
+
+  await Promise.all((samples ?? []).map(async (sample) => {
+    expect(sample.ok).to.equal(true)
+    expect(sample.path).to.be.a('string')
+    expect(sample.size).to.be.greaterThan(0)
+    expect((await stat(sample.path ?? '')).size).to.equal(sample.size)
+  }))
 }
 
 async function hasFfmpeg(): Promise<boolean> {
