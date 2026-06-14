@@ -309,9 +309,10 @@ export function formatTuiActionResult(result: TuiActionResult): string {
 
 function formatTuiWorkerIssue(result: RecoverWorkspaceJobResult): string[] {
   const summary = `  ${result.projectId} ${result.status}${result.fromStage === undefined ? '' : ` from ${result.fromStage}`}${result.skipReason === undefined ? '' : ` (${result.skipReason})`}${result.error === undefined ? '' : ` - ${result.error}`}`
+  const schemaInvalid = result.schemaInvalidArtifacts?.map((artifact) => `    schema invalid: ${artifact}`) ?? []
   const validationIssues = result.validationIssues?.map((issue) => `    ${issue.path.join('.') || '<root>'}: ${issue.message}`) ?? []
 
-  return [summary, ...validationIssues]
+  return [summary, ...schemaInvalid, ...validationIssues]
 }
 
 export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnapshotOptions): string {

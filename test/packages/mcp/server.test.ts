@@ -413,14 +413,15 @@ describe('mcp server', () => {
           name: 'video_agent_rerun',
         },
       })
-      const data = response?.error?.data as {code?: string; issues?: Array<{path: string[]}>; name?: string}
+      const data = response?.error?.data as {code?: string; fromStage?: string; name?: string; schemaInvalidArtifacts?: string[]}
 
-      expect(response?.error?.message).to.equal('Validation failed.')
+      expect(response?.error?.message).to.include('schema invalid: clip-plan.json')
       expect(data).to.deep.include({
-        code: 'validation_error',
-        name: 'ZodError',
+        code: 'checkpoint_invalid',
+        fromStage: 'quality',
+        name: 'PipelineCheckpointError',
       })
-      expect(data.issues?.map((issue) => issue.path.join('.'))).to.include('source')
+      expect(data.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }

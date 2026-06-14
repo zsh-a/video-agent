@@ -2,7 +2,6 @@ import {expect} from 'chai'
 import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {ZodError} from 'zod'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
@@ -143,7 +142,9 @@ describe('rerun project', () => {
         error = error_
       }
 
-      expect(error).to.be.instanceOf(ZodError)
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
+      expect((error as PipelineCheckpointError).schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }

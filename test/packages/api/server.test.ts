@@ -346,12 +346,12 @@ describe('api server handler', () => {
           method: 'POST',
         }),
       )
-      const result = (await response.json()) as {error: {code: string; issues: Array<{path: string[]}>; message: string}}
+      const result = (await response.json()) as {error: {fromStage: string; message: string; schemaInvalidArtifacts: string[]}}
 
-      expect(response.status).to.equal(422)
-      expect(result.error.code).to.equal('validation_error')
-      expect(result.error.message).to.equal('Validation failed.')
-      expect(result.error.issues.map((issue) => issue.path.join('.'))).to.include('source')
+      expect(response.status).to.equal(409)
+      expect(result.error.fromStage).to.equal('quality')
+      expect(result.error.message).to.include('schema invalid: clip-plan.json')
+      expect(result.error.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }

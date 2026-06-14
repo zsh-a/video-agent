@@ -37,7 +37,7 @@ describe('artifacts', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await writeFile(join(artifactsDir, 'media-info.json'), `${JSON.stringify(createMediaInfoArtifact())}\n`)
       await writeFile(join(artifactsDir, 'pipeline-events.jsonl'), '{}\n')
       await refreshArtifactManifest(artifactsDir)
 
@@ -61,6 +61,26 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports known JSON artifacts that fail their schemas', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['media-info.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('inputPath')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('rejects paths outside the artifact directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
@@ -79,3 +99,13 @@ describe('artifacts', () => {
     }
   })
 })
+
+function createMediaInfoArtifact(): Record<string, unknown> {
+  return {
+    duration: 1,
+    inputPath: '/tmp/input.mp4',
+    probedAt: '2026-01-01T00:00:00.000Z',
+    streams: [],
+    version: 1,
+  }
+}

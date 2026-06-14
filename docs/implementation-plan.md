@@ -186,16 +186,16 @@ Deliverables:
 - Runtime configuration for selecting `json` or `sqlite` job state storage.
 - Stage checkpoint metadata.
 - Stage retry policy and resumability rules.
-- Artifact manifest, content hash tracking, and integrity checks.
+- Artifact manifest, content hash tracking, integrity checks, and known IR artifact schema checks.
 - Worker recovery attempt limits and skip reasons.
 
 Acceptance criteria:
 
 - JSON-backed storage can still be used for simple local runs or tests.
 - SQLite job state can be selected through runtime config and recover after process interruption.
-- Artifact files have a manifest with stable sha256 hashes and a CLI/API integrity check for recovery decisions.
+- Artifact files have a manifest with stable sha256 hashes and a CLI/API integrity/schema check for recovery decisions.
 - Stage retries can be configured and emit attempt-aware events.
-- Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, or untracked by the artifact manifest.
+- Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, untracked by the artifact manifest, or invalid against their IR schema.
 - Worker recovery can skip jobs that reached a configured stage attempt ceiling and explain skipped jobs.
 - Re-running a stage does not corrupt unrelated artifacts.
 

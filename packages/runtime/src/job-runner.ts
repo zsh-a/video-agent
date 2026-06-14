@@ -108,15 +108,18 @@ export class PipelineCheckpointError extends Error {
   readonly changedArtifacts: string[]
   readonly fromStage: InitialPipelineStage
   readonly missingArtifacts: string[]
+  readonly schemaInvalidArtifacts: string[]
   readonly untrackedArtifacts: string[]
 
-  constructor(fromStage: InitialPipelineStage, issues: {changedArtifacts?: string[]; missingArtifacts?: string[]; untrackedArtifacts?: string[]}) {
+  constructor(fromStage: InitialPipelineStage, issues: {changedArtifacts?: string[]; missingArtifacts?: string[]; schemaInvalidArtifacts?: string[]; untrackedArtifacts?: string[]}) {
     const changedArtifacts = issues.changedArtifacts ?? []
     const missingArtifacts = issues.missingArtifacts ?? []
+    const schemaInvalidArtifacts = issues.schemaInvalidArtifacts ?? []
     const untrackedArtifacts = issues.untrackedArtifacts ?? []
     const issueMessages = [
       ...(missingArtifacts.length === 0 ? [] : [`missing: ${missingArtifacts.join(', ')}`]),
       ...(changedArtifacts.length === 0 ? [] : [`changed: ${changedArtifacts.join(', ')}`]),
+      ...(schemaInvalidArtifacts.length === 0 ? [] : [`schema invalid: ${schemaInvalidArtifacts.join(', ')}`]),
       ...(untrackedArtifacts.length === 0 ? [] : [`untracked: ${untrackedArtifacts.join(', ')}`]),
     ]
 
@@ -124,6 +127,7 @@ export class PipelineCheckpointError extends Error {
     this.changedArtifacts = changedArtifacts
     this.fromStage = fromStage
     this.missingArtifacts = missingArtifacts
+    this.schemaInvalidArtifacts = schemaInvalidArtifacts
     this.untrackedArtifacts = untrackedArtifacts
     this.name = 'PipelineCheckpointError'
   }
@@ -547,39 +551,17 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
   const required = new Set(requiredArtifacts)
   const changedArtifacts = integrity.changed.map((issue) => issue.name).filter((artifact) => required.has(artifact))
   const missingManifestArtifacts = integrity.missing.map((issue) => issue.name).filter((artifact) => required.has(artifact))
+  const schemaInvalidArtifacts = integrity.schemaInvalid.map((issue) => issue.name).filter((artifact) => required.has(artifact))
   const untrackedArtifacts = integrity.untracked.filter((artifact) => required.has(artifact))
   const missingArtifacts = [...new Set([...missing, ...missingManifestArtifacts])]
 
-  if (missingArtifacts.length > 0 || changedArtifacts.length > 0 || untrackedArtifacts.length > 0) {
+  if (missingArtifacts.length > 0 || changedArtifacts.length > 0 || schemaInvalidArtifacts.length > 0 || untrackedArtifacts.length > 0) {
     throw new PipelineCheckpointError(fromStage, {
       changedArtifacts,
       missingArtifacts,
+      schemaInvalidArtifacts,
       untrackedArtifacts,
     })
-  }
-
-  await assertCheckpointArtifactSchemas(workspace, required)
-}
-
-async function assertCheckpointArtifactSchemas(workspace: ProjectWorkspace, required: Set<string>): Promise<void> {
-  if (required.has('media-info.json')) {
-    MediaInfoSchema.parse(await workspace.store.readJson('media-info.json'))
-  }
-
-  if (required.has('storyboard.json')) {
-    StoryboardSchema.parse(await workspace.store.readJson('storyboard.json'))
-  }
-
-  if (required.has('clip-plan.json')) {
-    ClipPlanSchema.parse(await workspace.store.readJson('clip-plan.json'))
-  }
-
-  if (required.has('timeline.json')) {
-    TimelineSchema.parse(await workspace.store.readJson('timeline.json'))
-  }
-
-  if (required.has('narration.json')) {
-    NarrationSchema.parse(await workspace.store.readJson('narration.json'))
   }
 }
 

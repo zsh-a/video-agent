@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
 import {recoverWorkspaceJobs} from '../../../packages/runtime/src/worker.js'
 
 describe('workspace worker recovery', () => {
@@ -215,8 +216,8 @@ describe('workspace worker recovery', () => {
         skipReason: 'checkpoint-invalid',
         status: 'skipped',
       })
-      expect(result?.error).to.equal('Checkpoint IR validation failed.')
-      expect(result?.validationIssues?.map((issue) => issue.path.join('.'))).to.include('source')
+      expect(result?.error).to.include('schema invalid: clip-plan.json')
+      expect(result?.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -294,6 +295,7 @@ async function createRecoverableProject(root: string, projectId: string, options
     }),
     writeJson(artifactsDir, 'tts-segments.json', []),
   ])
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function patchJobUpdatedAt(path: string, updatedAt: string): Promise<void> {

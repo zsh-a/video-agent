@@ -1370,6 +1370,7 @@ function errorResponse(error: unknown): Response {
           fromStage: error.fromStage,
           message: error.message,
           missingArtifacts: error.missingArtifacts,
+          schemaInvalidArtifacts: error.schemaInvalidArtifacts,
           untrackedArtifacts: error.untrackedArtifacts,
         },
       },

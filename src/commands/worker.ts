@@ -43,9 +43,11 @@ export default class Worker extends Command {
 }
 
 function formatWorkerResult(result: RecoverWorkspaceJobResult): string {
+  const schemaInvalid = result.schemaInvalidArtifacts === undefined || result.schemaInvalidArtifacts.length === 0 ? undefined : `schema invalid: ${result.schemaInvalidArtifacts.join(', ')}`
   const validationIssues = result.validationIssues?.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ')
+  const diagnostics = [result.error, schemaInvalid, validationIssues].filter((item): item is string => item !== undefined).join('; ')
 
-  return `${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.skipReason === undefined ? '' : `\t${result.skipReason}`}${result.error === undefined ? '' : `\t${result.error}`}${validationIssues === undefined ? '' : `\t${validationIssues}`}`
+  return `${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.skipReason === undefined ? '' : `\t${result.skipReason}`}${diagnostics === '' ? '' : `\t${diagnostics}`}`
 }
 
 function resolveRecoverableStatuses(status: string): RecoverableJobStatus[] {

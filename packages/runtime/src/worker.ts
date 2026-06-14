@@ -34,6 +34,7 @@ export interface RecoverWorkspaceJobResult {
   missingArtifacts?: string[]
   projectId: string
   result?: RunInitialPipelineResult
+  schemaInvalidArtifacts?: string[]
   skipReason?: 'attempt-limit' | 'checkpoint-invalid' | 'limit' | 'not-recoverable' | 'running-active'
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
   untrackedArtifacts?: string[]
@@ -140,6 +141,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
       jobStatus,
       missingArtifacts: checkpointIssue.missingArtifacts,
       projectId,
+      schemaInvalidArtifacts: checkpointIssue.schemaInvalidArtifacts,
       skipReason: 'checkpoint-invalid',
       status: 'skipped',
       untrackedArtifacts: checkpointIssue.untrackedArtifacts,
@@ -252,6 +254,7 @@ interface CheckpointIssue {
   changedArtifacts: string[]
   message: string
   missingArtifacts: string[]
+  schemaInvalidArtifacts: string[]
   untrackedArtifacts: string[]
   validationIssues?: CheckpointValidationIssue[]
 }
@@ -272,6 +275,7 @@ async function readCheckpointIssue(projectId: string, workspaceDir: string, from
         changedArtifacts: error.changedArtifacts,
         message: error.message,
         missingArtifacts: error.missingArtifacts,
+        schemaInvalidArtifacts: error.schemaInvalidArtifacts,
         untrackedArtifacts: error.untrackedArtifacts,
       }
     }
@@ -281,6 +285,7 @@ async function readCheckpointIssue(projectId: string, workspaceDir: string, from
         changedArtifacts: [],
         message: 'Checkpoint IR validation failed.',
         missingArtifacts: [],
+        schemaInvalidArtifacts: [],
         untrackedArtifacts: [],
         validationIssues: error.issues.map((issue) => ({
           code: issue.code,

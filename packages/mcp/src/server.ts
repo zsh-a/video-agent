@@ -94,7 +94,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     type: enumSchema(['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start'], 'Pipeline event type filter.'),
   }),
   createTool('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {artifactName: stringSchema('Optional artifact filename, such as media-info.json or quality-report.json.'), projectId: projectIdSchema()}),
-  createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes for a project.', {projectId: projectIdSchema()}),
+  createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes and known IR schemas for a project.', {projectId: projectIdSchema()}),
   createTool('video_agent_run', 'Run the initial pipeline from an input media path.', {
     fromStage: enumSchema(STAGE_VALUES, 'Optional checkpoint stage. Defaults to ingest for a full run.'),
     inputPath: stringSchema('Path to the source media file to inspect and process.'),
@@ -398,6 +398,7 @@ function createJsonRpcError(id: JsonRpcId, error: unknown): JsonRpcResponse {
           fromStage: error.fromStage,
           missingArtifacts: error.missingArtifacts,
           name: error.name,
+          schemaInvalidArtifacts: error.schemaInvalidArtifacts,
           untrackedArtifacts: error.untrackedArtifacts,
         },
         message: error.message,

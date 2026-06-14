@@ -38,6 +38,14 @@ export default class Artifacts extends Command {
         this.log(`Changed: ${issue.name}`)
       }
 
+      for (const issue of result.schemaInvalid) {
+        this.log(`Schema invalid: ${issue.name}`)
+
+        for (const schemaIssue of issue.issues) {
+          this.log(`  ${schemaIssue.path.join('.') || '<root>'}: ${schemaIssue.message}`)
+        }
+      }
+
       for (const artifact of result.untracked) {
         this.log(`Untracked: ${artifact}`)
       }

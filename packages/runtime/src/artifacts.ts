@@ -1,3 +1,6 @@
+import type {ZodType} from 'zod'
+
+import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createHash} from 'node:crypto'
 import {readdir, readFile, stat} from 'node:fs/promises'
 import {extname, resolve} from 'node:path'
@@ -33,13 +36,33 @@ export interface ArtifactIntegrityMissingIssue {
   reason: 'missing'
 }
 
+export interface ArtifactSchemaInvalidIssue {
+  issues: ArtifactSchemaIssue[]
+  name: string
+}
+
+export interface ArtifactSchemaIssue {
+  code: string
+  message: string
+  path: string[]
+}
+
 export interface ArtifactIntegrityResult {
   changed: ArtifactIntegrityChangedIssue[]
   checked: number
   manifestPath: string
   missing: ArtifactIntegrityMissingIssue[]
   ok: boolean
+  schemaInvalid: ArtifactSchemaInvalidIssue[]
   untracked: string[]
+}
+
+const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
+  'clip-plan.json': ClipPlanSchema,
+  'media-info.json': MediaInfoSchema,
+  'narration.json': NarrationSchema,
+  'storyboard.json': StoryboardSchema,
+  'timeline.json': TimelineSchema,
 }
 
 export async function listProjectArtifacts(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectArtifact[]> {
@@ -112,12 +135,14 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
       manifestPath,
       missing: [{name: ARTIFACT_MANIFEST_NAME, reason: 'missing'}],
       ok: false,
+      schemaInvalid: [],
       untracked: [],
     }
   }
 
   const changed: ArtifactIntegrityChangedIssue[] = []
   const missing: ArtifactIntegrityMissingIssue[] = []
+  const schemaInvalid: ArtifactSchemaInvalidIssue[] = []
   const manifestNames = new Set(manifest.artifacts.map((artifact) => artifact.name))
 
   await Promise.all(manifest.artifacts.map(async (artifact) => {
@@ -126,6 +151,7 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     try {
       const [content, metadata] = await Promise.all([readFile(path), stat(path)])
       const sha256 = createHash('sha256').update(content).digest('hex')
+      const schemaIssue = validateKnownArtifactSchema(artifact.name, content)
 
       if (sha256 !== artifact.sha256 || metadata.size !== artifact.size) {
         changed.push({
@@ -135,6 +161,10 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
           expectedSize: artifact.size,
           name: artifact.name,
         })
+      }
+
+      if (schemaIssue !== undefined) {
+        schemaInvalid.push(schemaIssue)
       }
     } catch (error) {
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
@@ -153,11 +183,12 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     .sort((a, b) => a.localeCompare(b))
 
   return {
-    changed,
+    changed: changed.sort((a, b) => a.name.localeCompare(b.name)),
     checked: manifest.artifacts.length,
     manifestPath,
-    missing,
-    ok: changed.length === 0 && missing.length === 0 && untracked.length === 0,
+    missing: missing.sort((a, b) => a.name.localeCompare(b.name)),
+    ok: changed.length === 0 && missing.length === 0 && schemaInvalid.length === 0 && untracked.length === 0,
+    schemaInvalid: schemaInvalid.sort((a, b) => a.name.localeCompare(b.name)),
     untracked,
   }
 }
@@ -184,4 +215,42 @@ function inferArtifactKind(name: string): ProjectArtifact['kind'] {
   }
 
   return 'other'
+}
+
+function validateKnownArtifactSchema(name: string, content: Buffer): ArtifactSchemaInvalidIssue | undefined {
+  const schema = ARTIFACT_SCHEMAS[name]
+
+  if (schema === undefined) {
+    return undefined
+  }
+
+  let value: unknown
+
+  try {
+    value = JSON.parse(content.toString('utf8'))
+  } catch (error) {
+    return {
+      issues: [{
+        code: 'invalid_json',
+        message: error instanceof Error ? error.message : 'Invalid JSON',
+        path: [],
+      }],
+      name,
+    }
+  }
+
+  const result = schema.safeParse(value)
+
+  if (result.success) {
+    return undefined
+  }
+
+  return {
+    issues: result.error.issues.map((issue) => ({
+      code: issue.code,
+      message: issue.message,
+      path: issue.path.map(String),
+    })),
+    name,
+  }
 }
