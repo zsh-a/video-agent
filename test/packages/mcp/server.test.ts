@@ -23,6 +23,7 @@ describe('mcp server', () => {
       'video_agent_quality',
       'video_agent_provider_env',
       'video_agent_provider_test',
+      'video_agent_guided_actions',
       'video_agent_visual_samples',
       'video_agent_status',
       'video_agent_run',
@@ -49,6 +50,7 @@ describe('mcp server', () => {
     const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const runProperties = toolsByName.get('video_agent_run')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+    const guidedActionProperties = toolsByName.get('video_agent_guided_actions')?.inputSchema.properties as Record<string, {description?: string}> | undefined
 
     expect(renderProperties?.projectId.description).to.equal('Project id inside the video-agent workspace.')
     expect(renderProperties?.hyperframesCommand.description).to.include('External HyperFrames command prefix')
@@ -57,6 +59,7 @@ describe('mcp server', () => {
     expect(workerProperties?.orderBy.description).to.include('Recovery candidate ordering')
     expect(runProperties?.inputPath.description).to.include('source media file')
     expect(runProperties?.workspaceDir.description).to.include('Workspace directory override')
+    expect(guidedActionProperties?.commandPrefix.description).to.include('Command prefix')
   })
 
   it('calls runtime tools and returns text content', async () => {
@@ -279,6 +282,39 @@ describe('mcp server', () => {
         provider: 'mock',
         role: 'asr',
         status: 'succeeded',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('calls the guided actions tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'guided-actions-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            commandPrefix: 'bun run dev',
+            projectId: 'demo',
+          },
+          name: 'video_agent_guided_actions',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {actions: Array<{category: string; command: string; id: string}>; projectId: string}
+
+      expect(result.projectId).to.equal('demo')
+      expect(result.actions.find((action) => action.id === 'inspect-status')).to.include({
+        category: 'inspect',
+        command: `bun run dev status demo --workspace ${root}`,
+        id: 'inspect-status',
       })
     } finally {
       await rm(root, {force: true, recursive: true})

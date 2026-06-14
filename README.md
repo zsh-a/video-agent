@@ -446,6 +446,7 @@ video_agent_doctor
 video_agent_list_projects
 video_agent_provider_env
 video_agent_provider_test
+video_agent_guided_actions
 video_agent_status
 video_agent_quality
 video_agent_visual_samples
@@ -602,7 +603,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact/schema 预检、attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、进入 guided selector、运行 provider smoke test、触发 rerun 或 worker recovery
 - `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、provider env shell template、provider-test、config、projects、guided actions、status、events、artifacts、artifact preview、visual sample preview、render option controls、render quality diagnostics、template quality diagnostics、artifact integrity diagnostics、stage rerun、workflow actions 和 worker recovery
-- `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/provider-test/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
+- `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/provider-test/guided-actions/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - Claude Code skill adapter：`adapters/claude-code-skill/video-agent/SKILL.md` 提供 agent shell 使用 CLI/MCP 的操作流程
 - Claude Code skill 分发说明：见 [docs/claude-code-skill.md](docs/claude-code-skill.md)
 - Agent client 安装检查：见 [docs/agent-client-checks.md](docs/agent-client-checks.md)

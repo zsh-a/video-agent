@@ -123,7 +123,7 @@ bun run dev mcp --print-config --workspace .video-agent
 bun run dev mcp --print-config --config-mode installed --workspace .video-agent
 ```
 
-Use MCP tools for agent-to-agent calls when available; use the CLI for shell workflows and reproducible logs.
+Use MCP tools for agent-to-agent calls when available; use `video_agent_guided_actions` to discover copyable next-step commands, and use the CLI for shell workflows and reproducible logs.
 
 ## Safety Rules
 

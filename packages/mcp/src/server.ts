@@ -14,6 +14,7 @@ import {
   readProjectStatus,
   readProjectVisualSamples,
   readProviderEnvironment,
+  readVideoAgentGuidedActions,
   recoverWorkspaceJobs,
   renderProject,
   rerunProject,
@@ -85,6 +86,10 @@ const TOOL_DEFINITIONS: McpTool[] = [
     mediaPath: stringSchema('Sample media path for ASR smoke tests. Defaults to a synthetic placeholder path.'),
     role: enumSchema(PROVIDER_TEST_ROLES, 'Provider role to test. Defaults to all.'),
     text: stringSchema('Sample narration text for TTS smoke tests.'),
+  }),
+  createTool('video_agent_guided_actions', 'Read reusable guided action metadata for a workspace or focused project.', {
+    commandPrefix: stringSchema('Command prefix for generated copyable commands, for example "vagent" or "bun run dev". Defaults to vagent.'),
+    projectId: stringSchema('Optional project id to focus. Defaults to the most recently updated project when one exists.'),
   }),
   createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: projectIdSchema()}),
   createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: projectIdSchema()}),
@@ -214,6 +219,8 @@ async function handleRequest(request: JsonRpcRequest, options: McpServerOptions)
   throw new Error(`Unsupported MCP method: ${request.method}`)
 }
 
+// MCP tool dispatch stays centralized so tool behavior is easy to audit.
+// eslint-disable-next-line complexity
 async function callTool(params: ToolCallParams, options: McpServerOptions): Promise<unknown> {
   const args = params.arguments
   const workspaceDir = readOptionalString(args, 'workspaceDir') ?? options.workspaceDir
@@ -248,6 +255,14 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         outputPath: readOptionalString(args, 'outputPath'),
         projectId: readRequiredString(args, 'projectId'),
         requireQuality: readOptionalBoolean(args, 'requireQuality'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_guided_actions': {
+      return readVideoAgentGuidedActions({
+        commandPrefix: readOptionalString(args, 'commandPrefix'),
+        projectId: readOptionalString(args, 'projectId'),
         workspaceDir,
       })
     }
