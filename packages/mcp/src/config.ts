@@ -1,7 +1,9 @@
 export type McpClientConfigMode = 'dev' | 'installed'
+export type McpClientConfigPreset = 'claude-desktop' | 'cursor' | 'generic' | 'server-entry'
 export type McpClientConfigShape = 'full' | 'server'
 
 export interface McpClientConfigOptions {
+  client?: McpClientConfigPreset
   env?: Record<string, string>
   mode?: McpClientConfigMode
   serverName?: string
@@ -31,11 +33,23 @@ export function createMcpClientConfig(options: McpClientConfigOptions = {}): Mcp
 export function createMcpClientConfigOutput(
   options: McpClientConfigOptions & {shape?: McpClientConfigShape} = {},
 ): McpClientConfig | McpClientServerConfig {
-  if ((options.shape ?? 'full') === 'server') {
+  if (resolveConfigShape(options) === 'server') {
     return createMcpClientServerConfig(options)
   }
 
   return createMcpClientConfig(options)
+}
+
+function resolveConfigShape(options: McpClientConfigOptions & {shape?: McpClientConfigShape}): McpClientConfigShape {
+  if (options.shape !== undefined) {
+    return options.shape
+  }
+
+  if (options.client === 'server-entry') {
+    return 'server'
+  }
+
+  return 'full'
 }
 
 function createMcpClientServerConfig(options: McpClientConfigOptions): McpClientServerConfig {

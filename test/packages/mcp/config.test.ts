@@ -58,6 +58,45 @@ describe('mcp client config', () => {
     })
   })
 
+  it('uses client presets to select the default config shape', () => {
+    expect(createMcpClientConfigOutput({
+      client: 'server-entry',
+      mode: 'installed',
+      workspaceDir: '.video-agent',
+    })).to.deep.equal({
+      args: ['mcp', '--workspace', '.video-agent'],
+      command: 'vagent',
+    })
+
+    expect(createMcpClientConfigOutput({
+      client: 'claude-desktop',
+      serverName: 'video-agent-local',
+      workspaceDir: '.video-agent',
+    })).to.deep.equal({
+      mcpServers: {
+        'video-agent-local': {
+          args: ['run', 'dev', 'mcp', '--workspace', '.video-agent'],
+          command: 'bun',
+        },
+      },
+    })
+  })
+
+  it('lets explicit config shape override client presets', () => {
+    expect(createMcpClientConfigOutput({
+      client: 'server-entry',
+      shape: 'full',
+      workspaceDir: '.video-agent',
+    })).to.deep.equal({
+      mcpServers: {
+        'video-agent': {
+          args: ['run', 'dev', 'mcp', '--workspace', '.video-agent'],
+          command: 'bun',
+        },
+      },
+    })
+  })
+
   it('parses repeated env flags', () => {
     expect(parseEnvFlags(['VIDEO_AGENT_ASR_COMMAND=asr-provider', 'EMPTY='])).to.deep.equal({
       EMPTY: '',

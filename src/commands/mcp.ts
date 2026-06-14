@@ -2,6 +2,7 @@ import {Command, Flags} from '@oclif/core'
 import {
   createMcpClientConfigOutput,
   type McpClientConfigMode,
+  type McpClientConfigPreset,
   type McpClientConfigShape,
   startMcpStdioServer,
 } from '@video-agent/mcp'
@@ -9,13 +10,17 @@ import {
 export default class Mcp extends Command {
   static description = 'Start the video-agent MCP server over stdio'
   static flags = {
+    client: Flags.string({
+      default: 'generic',
+      description: 'Client preset for --print-config',
+      options: ['claude-desktop', 'cursor', 'generic', 'server-entry'],
+    }),
     'config-mode': Flags.string({
       default: 'dev',
       description: 'Client config command mode for --print-config',
       options: ['dev', 'installed'],
     }),
     'config-shape': Flags.string({
-      default: 'full',
       description: 'Client config JSON shape for --print-config',
       options: ['full', 'server'],
     }),
@@ -35,6 +40,7 @@ export default class Mcp extends Command {
       this.log(
         JSON.stringify(
           createMcpClientConfigOutput({
+            client: flags.client as McpClientConfigPreset,
             env: parseEnvFlags(flags.env ?? []),
             mode: flags['config-mode'] as McpClientConfigMode,
             serverName: flags['server-name'],

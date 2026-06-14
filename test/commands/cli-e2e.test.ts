@@ -141,6 +141,16 @@ describe('cli end-to-end workflow', () => {
         'vlm:command:succeeded:example-command-provider:scenes',
         'tts:command:succeeded:example-command-provider:tts',
       ])
+
+      const mcpServerEntry = await runCliJson<{
+        args: string[]
+        command: string
+      }>(['mcp', '--print-config', '--client', 'server-entry', '--config-mode', 'installed', '--workspace', workspaceDir])
+
+      expect(mcpServerEntry).to.deep.equal({
+        args: ['mcp', '--workspace', workspaceDir],
+        command: 'vagent',
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }

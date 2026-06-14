@@ -460,12 +460,16 @@ MCP runtime failures keep the standard JSON-RPC error envelope and add structure
 bun run dev mcp --print-config
 bun run dev mcp --print-config --config-mode installed
 bun run dev mcp --print-config --server-name video-agent-local
+bun run dev mcp --print-config --client claude-desktop
+bun run dev mcp --print-config --client cursor
+bun run dev mcp --print-config --client server-entry
 ```
 
-默认输出完整的 `mcpServers` 配置对象；如果某个 MCP client 已经要求你填在 server entry 内部，可以只输出 server 片段：
+`--client claude-desktop`、`--client cursor` 和默认 `generic` 都输出完整的 `mcpServers` 配置对象；`--client server-entry` 输出单个 server entry，适合已经由宿主界面提供 server name 的客户端表单。如果需要手动覆盖 shape，仍然可以使用 `--config-shape`：
 
 ```sh
 bun run dev mcp --print-config --config-shape server
+bun run dev mcp --print-config --client server-entry --config-shape full
 ```
 
 需要随 MCP server 进程注入 provider 命令或 token 时，可以重复传 `--env KEY=VALUE`。输出只会写入你显式传入的变量，不会读取或泄露当前 shell 的 secret 值：
