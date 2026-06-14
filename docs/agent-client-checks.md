@@ -53,11 +53,13 @@ Do not paste provider token values into issue reports, prompts, screenshots, or 
 ```sh
 bun run dev provider-env --json --workspace .video-agent
 bun run dev provider-env --shell-template --workspace .video-agent
+bun run dev provider-env --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --json --workspace .video-agent
 bun run dev provider-test --json --workspace .video-agent
+bun run dev provider-test --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --role asr --json --workspace .video-agent
 bun run dev mcp --print-config --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --workspace .video-agent
 ```
 
-`provider-env` reports variable names and configured/missing state only. `provider-env --shell-template`, `GET /provider-env?shellTemplate=true`, and `video_agent_provider_env` with `shellTemplate: true` generate placeholder exports without scraping the current shell environment. `provider-test` reports response summaries and provider metadata without printing configured tokens. `mcp --print-config --env` writes only variables explicitly passed to the command, so a client config can be reviewed without scraping the current shell environment.
+`provider-env` reports variable names and configured/missing state only. `provider-env --shell-template`, `GET /provider-env?shellTemplate=true`, and `video_agent_provider_env` with `shellTemplate: true` generate placeholder exports without scraping the current shell environment. `provider-env --env`, `provider-test --env`, and `mcp --print-config --env` use only variables explicitly passed to the command, so a client config can be reviewed without scraping the current shell environment. `provider-test` reports response summaries and provider metadata without printing configured tokens.
 
 ## Acceptance Checklist
 

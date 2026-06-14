@@ -111,12 +111,13 @@ describe('cli end-to-end workflow', () => {
         VIDEO_AGENT_TTS_COMMAND: commandAdapter,
         VIDEO_AGENT_VLM_COMMAND: commandAdapter,
       }
+      const commandProviderEnvFlags = envFlagArgs(commandProviderEnv)
       const configuredProviderEnv = await runCliJson<{
         providers: Array<{
           requirements: Array<{configured: boolean; env: string; required: boolean}>
           role: string
         }>
-      }>(['provider-env', '--workspace', workspaceDir, '--json'], commandProviderEnv)
+      }>(['provider-env', ...commandProviderEnvFlags, '--workspace', workspaceDir, '--json'])
 
       expect(configuredProviderEnv.providers.flatMap((provider) => provider.requirements.map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
         'asr:VIDEO_AGENT_ASR_COMMAND:true',
@@ -133,7 +134,7 @@ describe('cli end-to-end workflow', () => {
           role: string
           status: string
         }>
-      }>(['provider-test', '--workspace', workspaceDir, '--role', 'all', '--json'], commandProviderEnv)
+      }>(['provider-test', ...commandProviderEnvFlags, '--workspace', workspaceDir, '--role', 'all', '--json'])
 
       expect(commandProviderTest.ok).to.equal(true)
       expect(commandProviderTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
@@ -170,12 +171,13 @@ describe('cli end-to-end workflow', () => {
         VIDEO_AGENT_TTS_URL: 'https://provider.example/tts',
         VIDEO_AGENT_VLM_URL: 'https://provider.example/vlm',
       }
+      const httpProviderEnvFlags = envFlagArgs(httpProviderEnv)
       const configuredHttpProviderEnv = await runCliJson<{
         providers: Array<{
           requirements: Array<{configured: boolean; env: string; required: boolean}>
           role: string
         }>
-      }>(['provider-env', '--workspace', workspaceDir, '--json'], httpProviderEnv)
+      }>(['provider-env', ...httpProviderEnvFlags, '--workspace', workspaceDir, '--json'])
 
       expect(configuredHttpProviderEnv.providers.flatMap((provider) => provider.requirements.filter((requirement) => requirement.required).map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
         'asr:VIDEO_AGENT_ASR_URL:true',
@@ -305,6 +307,10 @@ async function runCliJson<T>(args: string[], env?: Record<string, string>): Prom
   const result = await expectCommand(['bun', './bin/dev.js', ...args], env)
 
   return JSON.parse(result.stdout) as T
+}
+
+function envFlagArgs(env: Record<string, string>): string[] {
+  return Object.entries(env).flatMap(([key, value]) => ['--env', `${key}=${value}`])
 }
 
 async function runCli(args: string[]): Promise<{code: number; stderr: string; stdout: string}> {

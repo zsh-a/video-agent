@@ -163,5 +163,7 @@ When replacing the mock recipe with a real hosted service:
 - do not print tokens or provider responses containing secrets to stderr/stdout logs
 - run `bun run dev provider-env --json --workspace .video-agent` before a full pipeline run
 - run `bun run dev provider-env --shell-template --workspace .video-agent` to generate non-secret `export` placeholders for the current provider selection
+- run `bun run dev provider-env --env KEY=VALUE --json --workspace .video-agent` when an agent client should validate only explicit environment values
 - run `bun run dev provider-test --workspace .video-agent` to validate adapter response contracts before a full pipeline run
+- run `bun run dev provider-test --env KEY=VALUE --workspace .video-agent` when an agent client should smoke-test only explicit environment values
 - run `bun run test` after changing in-repo adapter code

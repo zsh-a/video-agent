@@ -230,9 +230,13 @@ VIDEO_AGENT_ASR_TIMEOUT_MS / VIDEO_AGENT_VLM_TIMEOUT_MS / VIDEO_AGENT_TTS_TIMEOU
 bun run dev provider-env
 bun run dev provider-env --json
 bun run dev provider-env --shell-template
+bun run dev provider-env --env VIDEO_AGENT_ASR_URL=https://provider.example/asr --json
+bun run dev provider-test --env VIDEO_AGENT_ASR_URL=https://provider.example/asr --role asr --json
 ```
 
 `--shell-template` 会按当前 provider config 输出可复制的 `export VIDEO_AGENT_*='...'` 占位模板。默认只启用必填变量，optional token/timeout 会以注释形式出现；需要把 optional 也输出成 active export 时可以加 `--include-optional`。模板不会读取或打印当前 shell 里的 secret 值。
+
+`provider-env` 和 `provider-test` 都支持重复传 `--env KEY=VALUE`。传入后命令只按这些显式变量检查 provider 配置，不会扫描当前 shell 环境，适合 agent client 生成配置后做安全预检。
 
 job state 默认写入每个项目目录的 `job-state.json`。如果要让本地 worker/API 使用 workspace 级 SQLite 状态库，可以切换为：
 

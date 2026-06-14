@@ -3,9 +3,15 @@ import type {ProviderSmokeTestResult, ProviderSmokeTestRole} from '@video-agent/
 import {Command, Flags} from '@oclif/core'
 import {runProviderSmokeTest} from '@video-agent/runtime'
 
+import {parseEnvFlags} from './env-flags.js'
+
 export default class ProviderTest extends Command {
   static description = 'Run smoke tests against configured ASR, VLM, and TTS providers'
   static flags = {
+    env: Flags.string({
+      description: 'Environment variable to use for provider smoke tests, formatted as KEY=VALUE. Repeatable; when set, only explicit values are inspected.',
+      multiple: true,
+    }),
     frame: Flags.string({description: 'Sample frame path for VLM smoke tests'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     media: Flags.string({description: 'Sample media path for ASR smoke tests'}),
@@ -17,6 +23,7 @@ export default class ProviderTest extends Command {
   async run(): Promise<void> {
     const {flags} = await this.parse(ProviderTest)
     const report = await runProviderSmokeTest({
+      env: flags.env === undefined ? undefined : parseEnvFlags(flags.env),
       framePath: flags.frame,
       mediaPath: flags.media,
       roles: parseRoles(flags.role),
