@@ -23,6 +23,7 @@ import {
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
+import {ZodError} from 'zod'
 
 export type {ProjectEventKind, ProviderCallRole, ProviderCallStatus} from '@video-agent/runtime'
 
@@ -1373,6 +1374,23 @@ function errorResponse(error: unknown): Response {
         },
       },
       {status: 409},
+    )
+  }
+
+  if (error instanceof ZodError) {
+    return jsonResponse(
+      {
+        error: {
+          code: 'validation_error',
+          issues: error.issues.map((issue) => ({
+            code: issue.code,
+            message: issue.message,
+            path: issue.path.map(String),
+          })),
+          message: 'Validation failed.',
+        },
+      },
+      {status: 422},
     )
   }
 

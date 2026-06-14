@@ -504,7 +504,7 @@ bun run dev mcp --print-config \
 }
 ```
 
-如果 checkpoint artifacts 不完整，HTTP API 会返回 `409`，并在 `error.missingArtifacts`、`error.changedArtifacts`、`error.untrackedArtifacts` 中列出问题文件。
+如果 checkpoint artifacts 不完整，HTTP API 会返回 `409`，并在 `error.missingArtifacts`、`error.changedArtifacts`、`error.untrackedArtifacts` 中列出问题文件。如果 IR checkpoint artifact 存在但不符合 Zod schema，API 会返回 `422`，并在 `error.issues[]` 中列出 `path`、`code` 和 `message`。
 
 `POST /projects/:projectId/render` 接收和 CLI render 对应的 JSON body：
 

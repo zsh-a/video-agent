@@ -44,6 +44,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@video-agent/runtime": "workspace:*",
+        "zod": "^4.1.13",
       },
     },
     "packages/core": {

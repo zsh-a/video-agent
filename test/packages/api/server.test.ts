@@ -328,6 +328,35 @@ describe('api server handler', () => {
     }
   })
 
+  it('returns validation errors for invalid checkpoint IR artifacts from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await writeRerunArtifacts(root, 'demo')
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await writeFile(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(
+        new Request('http://localhost/projects/demo/rerun', {
+          body: JSON.stringify({fromStage: 'quality'}),
+          method: 'POST',
+        }),
+      )
+      const result = (await response.json()) as {error: {code: string; issues: Array<{path: string[]}>; message: string}}
+
+      expect(response.status).to.equal(422)
+      expect(result.error.code).to.equal('validation_error')
+      expect(result.error.message).to.equal('Validation failed.')
+      expect(result.error.issues.map((issue) => issue.path.join('.'))).to.include('source')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('renders a project from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 
