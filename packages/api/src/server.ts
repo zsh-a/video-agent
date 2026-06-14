@@ -14,6 +14,7 @@ import {
   readProjectVisualSamples,
   readProviderEnvironment,
   recoverWorkspaceJobs,
+  type RecoveryOrderBy,
   renderProject,
   rerunProject,
   runInitialPipeline,
@@ -102,6 +103,8 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
         dryRun: readBooleanField(body, 'dryRun'),
         limit: readNumberField(body, 'limit'),
         maxAttempts: readNumberField(body, 'maxAttempts'),
+        orderBy: readRecoveryOrderBy(readStringField(body, 'orderBy')),
+        runningStaleAfterMs: readNumberField(body, 'runningStaleAfterMs'),
         statuses: resolveRecoverableStatuses(readStringField(body, 'status')),
         workspaceDir,
       }),
@@ -406,6 +409,18 @@ function resolveRecoverableStatuses(status: null | string): Array<'failed' | 'ru
   }
 
   throw new Error(`Invalid worker status: ${status}`)
+}
+
+function readRecoveryOrderBy(value: null | string): RecoveryOrderBy | undefined {
+  if (value === null) {
+    return undefined
+  }
+
+  if (value === 'attempt' || value === 'oldest' || value === 'recent') {
+    return value
+  }
+
+  throw new Error(`Invalid worker orderBy: ${value}`)
 }
 
 interface JsonResponseInit {

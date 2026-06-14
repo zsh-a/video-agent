@@ -99,6 +99,7 @@ bun run dev status <projectId>
 bun run dev worker --dry-run
 bun run dev worker --status failed --limit 1
 bun run dev worker --dry-run --max-attempts 3
+bun run dev worker --dry-run --order-by oldest --running-stale-after-ms 60000
 bun run dev tui
 bun run dev tui --project <projectId> --watch
 bun run dev tui --project <projectId> --action artifact --artifact quality-report.json
@@ -356,7 +357,7 @@ bun run dev rerun <projectId> --from-stage script
 
 `run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。校验失败不会把 job state 写成新的运行。
 
-`worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。跳过结果会带 `skipReason`，例如 `attempt-limit`、`limit` 或 `not-recoverable`。
+`worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--order-by oldest|recent|attempt` 控制恢复候选排序，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。处理 running job 时，可以用 `--running-stale-after-ms <ms>` 跳过最近仍有更新的任务，避免本地 worker 抢占仍在运行的进程。跳过结果会带 `skipReason`，例如 `attempt-limit`、`limit`、`running-active` 或 `not-recoverable`。
 
 `tui` 会输出轻量终端 dashboard，复用 runtime 的 project/status/events/artifacts 接口展示当前 workspace、最近更新项目、stage 状态、质量摘要、render 摘要、artifact 列表、最近事件和下一步可复制命令。默认渲染一次；需要持续刷新时可以传 `--watch`，也可以用 `--project <projectId>` 固定查看某个项目。需要从 TUI 入口触发受控操作时，可以用 `--action artifact --artifact <name>` 检查 artifact，用 `--action commands` 单独输出命令建议，用 `--action rerun --from-stage <stage>` 重跑项目，或用 `--action worker --dry-run|--status|--limit|--max-attempts` 恢复 workspace job。命令建议默认使用 `bun run dev` 前缀，可以通过 `--command-prefix vagent` 改成已安装 CLI 的形式。
 
@@ -446,6 +447,8 @@ bun run dev mcp --print-config \
 {
   "dryRun": true,
   "maxAttempts": 3,
+  "orderBy": "oldest",
+  "runningStaleAfterMs": 60000,
   "status": "active",
   "limit": 5
 }
@@ -525,12 +528,12 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
-- `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持 attempt 上限和 skip reason
+- `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、触发 rerun 或 worker recovery
 - `serve` 命令：启动 Bun HTTP API server，暴露 health、provider-env、projects、status、events、artifacts、workflow actions 和 worker recovery
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
-- MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量恢复 failed/running job，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
+- MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量/排序恢复 failed/running job，用 `runningStaleAfterMs` 跳过仍活跃的 running job，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
 - API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
 - `render` 命令：用 ffmpeg 从 timeline 输出第一版 `final.mp4`，并可从 `narration.json` 生成/烧录字幕；也支持 `--renderer hyperframes` 生成 HTML render project
 - subtitle quality：ffmpeg render 会对生成的 SRT 文件写入 cue 数量和 warning/error diagnostics
@@ -562,6 +565,6 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 
 1. 增加 Clack 交互式配置。
 2. 增加真实 ASR/VLM/TTS provider adapter。
-3. 增加 worker retry 调度和更细的 artifact 恢复策略。
+3. 增加更细的 artifact 恢复策略和 Web Studio 入口。
 4. 扩展 MCP 工具的 schema 注释和客户端集成示例。
 5. 扩展更深的视觉烟测。

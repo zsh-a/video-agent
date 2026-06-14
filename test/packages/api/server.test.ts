@@ -135,6 +135,35 @@ describe('api server handler', () => {
     }
   })
 
+  it('passes worker stale running thresholds through the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{results: Array<{projectId: string; skipReason?: string; status: string}>}>(
+        fetch,
+        '/worker',
+        {
+          body: JSON.stringify({
+            dryRun: true,
+            runningStaleAfterMs: 60_000,
+            status: 'running',
+          }),
+          method: 'POST',
+        },
+      )
+
+      expect(result.results.find((item) => item.projectId === 'demo')).to.include({
+        projectId: 'demo',
+        skipReason: 'running-active',
+        status: 'skipped',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reruns an existing project from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 

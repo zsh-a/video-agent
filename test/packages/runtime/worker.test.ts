@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -19,7 +19,7 @@ describe('workspace worker recovery', () => {
       })
 
       expect(report.recovered).to.equal(0)
-      expect(report.results).to.deep.include({
+      expect(report.results.find((result) => result.projectId === 'demo')).to.include({
         attempt: 1,
         fromStage: 'quality',
         jobStatus: 'failed',
@@ -62,7 +62,7 @@ describe('workspace worker recovery', () => {
 
       expect(report.recovered).to.equal(0)
       expect(report.skipped).to.equal(1)
-      expect(report.results).to.deep.include({
+      expect(report.results.find((result) => result.projectId === 'demo')).to.include({
         attempt: 1,
         fromStage: 'quality',
         jobStatus: 'failed',
@@ -94,12 +94,85 @@ describe('workspace worker recovery', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('orders recovery candidates before applying the processing limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo-new', {
+        attempt: 1,
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      })
+      await createRecoverableProject(root, 'demo-old', {
+        attempt: 3,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      })
+
+      const oldest = await recoverWorkspaceJobs({
+        dryRun: true,
+        limit: 1,
+        orderBy: 'oldest',
+        workspaceDir: root,
+      })
+      const byAttempt = await recoverWorkspaceJobs({
+        dryRun: true,
+        limit: 1,
+        orderBy: 'attempt',
+        workspaceDir: root,
+      })
+
+      expect(oldest.results.find((result) => result.status === 'would-recover')?.projectId).to.equal('demo-old')
+      expect(byAttempt.results.find((result) => result.status === 'would-recover')?.projectId).to.equal('demo-old')
+      expect(oldest.results.find((result) => result.skipReason === 'limit')?.projectId).to.equal('demo-new')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('skips recently updated running jobs when a stale threshold is configured', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo', {
+        stageStatus: 'running',
+        updatedAt: new Date().toISOString(),
+      })
+
+      const report = await recoverWorkspaceJobs({
+        dryRun: true,
+        runningStaleAfterMs: 60_000,
+        statuses: ['running'],
+        workspaceDir: root,
+      })
+
+      expect(report.recovered).to.equal(0)
+      expect(report.skipped).to.equal(1)
+      expect(report.results).to.deep.include({
+        attempt: 1,
+        fromStage: 'quality',
+        jobStatus: 'running',
+        projectId: 'demo',
+        skipReason: 'running-active',
+        status: 'skipped',
+        updatedAt: report.results[0]?.updatedAt,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
-async function createRecoverableProject(root: string, projectId: string): Promise<void> {
+interface CreateRecoverableProjectOptions {
+  attempt?: number
+  stageStatus?: 'failed' | 'running'
+  updatedAt?: string
+}
+
+async function createRecoverableProject(root: string, projectId: string, options: CreateRecoverableProjectOptions = {}): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
   const inputPath = join(root, `${projectId}.mp4`)
+  const stageStatus = options.stageStatus ?? 'failed'
 
   await mkdir(artifactsDir, {recursive: true})
   await writeFile(inputPath, 'placeholder')
@@ -108,7 +181,12 @@ async function createRecoverableProject(root: string, projectId: string): Promis
     projectId,
     stages: ['quality'],
   })
-  await new JsonJobStore(join(projectDir, 'job-state.json')).updateStage('quality', 'failed', 'previous failure', 1)
+  await new JsonJobStore(join(projectDir, 'job-state.json')).updateStage('quality', stageStatus, 'previous failure', options.attempt ?? 1)
+
+  if (options.updatedAt !== undefined) {
+    await patchJobUpdatedAt(join(projectDir, 'job-state.json'), options.updatedAt)
+  }
+
   await Promise.all([
     writeJson(artifactsDir, 'ingest-report.json', {
       artifacts: {},
@@ -148,6 +226,12 @@ async function createRecoverableProject(root: string, projectId: string): Promis
     }),
     writeJson(artifactsDir, 'tts-segments.json', []),
   ])
+}
+
+async function patchJobUpdatedAt(path: string, updatedAt: string): Promise<void> {
+  const state = JSON.parse(await readFile(path, 'utf8')) as {updatedAt: string}
+
+  await writeFile(path, `${JSON.stringify({...state, updatedAt}, null, 2)}\n`)
 }
 
 async function writeJson(dir: string, name: string, value: unknown): Promise<void> {

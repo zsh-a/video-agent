@@ -37,7 +37,7 @@ describe('mcp server', () => {
 
     expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
-    expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'status'])
+    expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'orderBy', 'runningStaleAfterMs', 'status'])
   })
 
   it('calls runtime tools and returns text content', async () => {
@@ -192,6 +192,39 @@ describe('mcp server', () => {
       expect(result.results.find((item) => item.projectId === 'demo')).to.include({
         projectId: 'demo',
         skipReason: 'attempt-limit',
+        status: 'skipped',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('passes worker stale running thresholds through the recovery tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'worker-3',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            dryRun: true,
+            runningStaleAfterMs: 60_000,
+            status: 'running',
+          },
+          name: 'video_agent_worker',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {results: Array<{projectId: string; skipReason?: string; status: string}>}
+
+      expect(result.results.find((item) => item.projectId === 'demo')).to.include({
+        projectId: 'demo',
+        skipReason: 'running-active',
         status: 'skipped',
       })
     } finally {

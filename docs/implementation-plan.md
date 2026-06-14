@@ -199,7 +199,7 @@ Acceptance criteria:
 - Worker recovery can skip jobs that reached a configured stage attempt ceiling and explain skipped jobs.
 - Re-running a stage does not corrupt unrelated artifacts.
 
-Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery now supports `maxAttempts` and skip reasons for attempt limits, processing limits, and non-recoverable jobs. Richer queue scheduling policies are still pending.
+Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery now supports candidate ordering, `runningStaleAfterMs` protection for still-active running jobs, `maxAttempts`, and skip reasons for attempt limits, processing limits, active running jobs, and non-recoverable jobs. Finer artifact recovery policies are still pending.
 
 ## Phase 6: Agent and Product Adapters
 
@@ -227,7 +227,7 @@ Recommended order:
 1. Replace the readline interactive config with Clack-styled prompts when dependency policy allows it.
 2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
 3. Extend TUI command suggestions into an interactive guided selector when dependency policy allows Ink or Clack.
-4. Add richer queue scheduling and finer artifact recovery policies over the `JobStore` contract.
+4. Add finer artifact recovery policies over the `JobStore` contract.
 5. Test the generic MCP config output against named external clients and document any client-specific placement details.
 6. Expand render quality checks around perceptual visual differences and template-specific validation.
 

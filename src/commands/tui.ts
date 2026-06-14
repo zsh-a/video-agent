@@ -1,4 +1,4 @@
-import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ReadProjectArtifactResult, RecoverableJobStatus} from '@video-agent/runtime'
+import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ReadProjectArtifactResult, RecoverableJobStatus, RecoveryOrderBy} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
 import {listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject} from '@video-agent/runtime'
@@ -41,8 +41,10 @@ export default class Tui extends Command {
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),
     limit: Flags.integer({description: 'Maximum recoverable jobs to process when --action worker is used'}),
     'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value when --action worker is used'}),
+    'order-by': Flags.string({description: 'Recovery candidate ordering when --action worker is used', options: ['attempt', 'oldest', 'recent']}),
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
     'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval when --watch is enabled'}),
+    'running-stale-after-ms': Flags.integer({description: 'Skip running jobs updated more recently than this threshold when --action worker is used'}),
     status: Flags.string({default: 'active', description: 'Job status to recover when --action worker is used', options: ['active', 'failed', 'running']}),
     watch: Flags.boolean({description: 'Refresh the dashboard until interrupted'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
@@ -79,7 +81,9 @@ export default class Tui extends Command {
       fromStage: flags['from-stage'] as InitialPipelineStage,
       limit: flags.limit,
       maxAttempts: flags['max-attempts'],
+      orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
       projectId: flags.project,
+      runningStaleAfterMs: flags['running-stale-after-ms'],
       status: flags.status,
       workspaceDir: flags.workspace,
     })
@@ -131,7 +135,9 @@ export interface RunTuiActionOptions {
   fromStage: InitialPipelineStage
   limit?: number
   maxAttempts?: number
+  orderBy?: RecoveryOrderBy
   projectId?: string
+  runningStaleAfterMs?: number
   status: string
   workspaceDir: string
 }
@@ -190,6 +196,8 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
     dryRun: options.dryRun,
     limit: options.limit,
     maxAttempts: options.maxAttempts,
+    orderBy: options.orderBy,
+    runningStaleAfterMs: options.runningStaleAfterMs,
     statuses: resolveRecoverableStatuses(options.status),
     workspaceDir: options.workspaceDir,
   })

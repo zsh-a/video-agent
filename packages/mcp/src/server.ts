@@ -112,7 +112,14 @@ const TOOL_DEFINITIONS: McpTool[] = [
     voiceoverVolume: numberSchema(),
   }),
   createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {format: enumSchema(['video', 'hyperframes', 'bundle']), outputPath: stringSchema(), projectId: stringSchema(), requireQuality: booleanSchema()}),
-  createTool('video_agent_worker', 'Recover failed or interrupted local pipeline jobs.', {dryRun: booleanSchema(), limit: integerSchema(), maxAttempts: integerSchema(), status: enumSchema(['active', 'failed', 'running'])}),
+  createTool('video_agent_worker', 'Recover failed or interrupted local pipeline jobs.', {
+    dryRun: booleanSchema(),
+    limit: integerSchema(),
+    maxAttempts: integerSchema(),
+    orderBy: enumSchema(['attempt', 'oldest', 'recent']),
+    runningStaleAfterMs: integerSchema(),
+    status: enumSchema(['active', 'failed', 'running']),
+  }),
 ].map((tool) => ({
   ...tool,
   inputSchema: {
@@ -294,6 +301,8 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         dryRun: readOptionalBoolean(args, 'dryRun'),
         limit: readOptionalInteger(args, 'limit'),
         maxAttempts: readOptionalInteger(args, 'maxAttempts'),
+        orderBy: readOptionalEnum(args, 'orderBy', ['attempt', 'oldest', 'recent']),
+        runningStaleAfterMs: readOptionalInteger(args, 'runningStaleAfterMs'),
         statuses: resolveRecoverableStatuses(readOptionalEnum(args, 'status', ['active', 'failed', 'running'])),
         workspaceDir,
       })

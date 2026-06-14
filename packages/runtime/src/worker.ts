@@ -10,6 +10,8 @@ export interface RecoverWorkspaceJobsOptions {
   dryRun?: boolean
   limit?: number
   maxAttempts?: number
+  orderBy?: RecoveryOrderBy
+  runningStaleAfterMs?: number
   statuses?: RecoverableJobStatus[]
   workspaceDir?: string
 }
@@ -29,11 +31,13 @@ export interface RecoverWorkspaceJobResult {
   jobStatus?: JobRunStatus
   projectId: string
   result?: RunInitialPipelineResult
-  skipReason?: 'attempt-limit' | 'limit' | 'not-recoverable'
+  skipReason?: 'attempt-limit' | 'limit' | 'not-recoverable' | 'running-active'
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
+  updatedAt?: string
 }
 
 export type RecoverableJobStatus = 'failed' | 'running'
+export type RecoveryOrderBy = 'attempt' | 'oldest' | 'recent'
 
 type RecoveryCandidate = RecoverWorkspaceJobResult & {
   fromStage: InitialPipelineStage
@@ -48,9 +52,14 @@ export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions 
   const workspaceDir = options.workspaceDir ?? '.video-agent'
   const statuses = options.statuses ?? RECOVERABLE_STATUSES
   const projects = await listProjects(workspaceDir)
-  const inspected = await Promise.all(projects.map(async (project) => readRecoveryCandidate(project.projectId, workspaceDir, statuses, options.maxAttempts)))
-  const selected = selectRecoveryCandidates(inspected, options.limit)
-  const deferred = selectDeferredCandidates(inspected, options.limit)
+  const inspected = await Promise.all(projects.map(async (project) => readRecoveryCandidate(project.projectId, workspaceDir, {
+    maxAttempts: options.maxAttempts,
+    runningStaleAfterMs: options.runningStaleAfterMs,
+    statuses,
+  })))
+  const candidates = sortRecoveryCandidates(inspected, options.orderBy)
+  const selected = selectRecoveryCandidates(candidates, options.limit)
+  const deferred = selectDeferredCandidates(candidates, options.limit)
   const recovered = options.dryRun === true ? [] : await Promise.all(selected.map((candidate) => recoverProject({
     attempt: candidate.attempt,
     fromStage: candidate.fromStage,
@@ -70,10 +79,16 @@ export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions 
   }
 }
 
-async function readRecoveryCandidate(projectId: string, workspaceDir: string, statuses: readonly RecoverableJobStatus[], maxAttempts: number | undefined): Promise<RecoverWorkspaceJobResult> {
+interface ReadRecoveryCandidateOptions {
+  maxAttempts?: number
+  runningStaleAfterMs?: number
+  statuses: readonly RecoverableJobStatus[]
+}
+
+async function readRecoveryCandidate(projectId: string, workspaceDir: string, options: ReadRecoveryCandidateOptions): Promise<RecoverWorkspaceJobResult> {
   const status = await readProjectStatus(projectId, workspaceDir)
-  const jobStatus = status.job.status
-  const stage = statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages) : undefined
+  const {status: jobStatus, updatedAt} = status.job
+  const stage = options.statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages) : undefined
 
   if (stage === undefined) {
     return {
@@ -81,10 +96,23 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, st
       projectId,
       skipReason: 'not-recoverable',
       status: 'skipped',
+      updatedAt,
     }
   }
 
-  if (maxAttempts !== undefined && (stage.attempt ?? 0) >= maxAttempts) {
+  if (jobStatus === 'running' && isRunningJobActive(updatedAt, options.runningStaleAfterMs)) {
+    return {
+      attempt: stage.attempt,
+      fromStage: stage.name,
+      jobStatus,
+      projectId,
+      skipReason: 'running-active',
+      status: 'skipped',
+      updatedAt,
+    }
+  }
+
+  if (options.maxAttempts !== undefined && (stage.attempt ?? 0) >= options.maxAttempts) {
     return {
       attempt: stage.attempt,
       fromStage: stage.name,
@@ -92,6 +120,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, st
       projectId,
       skipReason: 'attempt-limit',
       status: 'skipped',
+      updatedAt,
     }
   }
 
@@ -101,7 +130,26 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, st
     jobStatus,
     projectId,
     status: 'would-recover',
+    updatedAt,
   }
+}
+
+function sortRecoveryCandidates(results: RecoverWorkspaceJobResult[], orderBy: RecoveryOrderBy | undefined): RecoverWorkspaceJobResult[] {
+  const sorted = [...results]
+
+  if (orderBy === 'oldest') {
+    return sorted.sort((left, right) => compareUpdatedAt(left.updatedAt, right.updatedAt))
+  }
+
+  if (orderBy === 'attempt') {
+    return sorted.sort((left, right) => (right.attempt ?? 0) - (left.attempt ?? 0) || compareUpdatedAt(left.updatedAt, right.updatedAt))
+  }
+
+  if (orderBy === 'recent') {
+    return sorted.sort((left, right) => compareUpdatedAt(right.updatedAt, left.updatedAt))
+  }
+
+  return sorted
 }
 
 function selectRecoveryCandidates(results: RecoverWorkspaceJobResult[], limit: number | undefined): RecoveryCandidate[] {
@@ -125,6 +173,7 @@ function selectDeferredCandidates(results: RecoverWorkspaceJobResult[], limit: n
       projectId: candidate.projectId,
       skipReason: 'limit',
       status: 'skipped',
+      updatedAt: candidate.updatedAt,
     }))
 }
 
@@ -173,4 +222,28 @@ async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWo
 
 function isInitialPipelineStage(value: string | undefined): value is InitialPipelineStage {
   return value !== undefined && STAGE_VALUES.has(value as InitialPipelineStage)
+}
+
+function isRunningJobActive(updatedAt: string | undefined, runningStaleAfterMs: number | undefined): boolean {
+  if (runningStaleAfterMs === undefined) {
+    return false
+  }
+
+  const updatedAtMs = updatedAt === undefined ? Number.NaN : Date.parse(updatedAt)
+
+  if (!Number.isFinite(updatedAtMs)) {
+    return false
+  }
+
+  return Date.now() - updatedAtMs < runningStaleAfterMs
+}
+
+function compareUpdatedAt(left: string | undefined, right: string | undefined): number {
+  return timestampOrZero(left) - timestampOrZero(right)
+}
+
+function timestampOrZero(value: string | undefined): number {
+  const timestamp = value === undefined ? Number.NaN : Date.parse(value)
+
+  return Number.isFinite(timestamp) ? timestamp : 0
 }
