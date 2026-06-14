@@ -540,6 +540,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - Claude Code skill adapter：`adapters/claude-code-skill/video-agent/SKILL.md` 提供 agent shell 使用 CLI/MCP 的操作流程
 - Claude Code skill 分发说明：见 [docs/claude-code-skill.md](docs/claude-code-skill.md)
+- MCP schema：工具参数带有 client-facing description，便于外部 agent client 展示和生成调用参数
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量/排序恢复 failed/running job，用 `runningStaleAfterMs` 跳过仍活跃的 running job，预检 checkpoint artifacts，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
 - API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
@@ -574,5 +575,5 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 1. 增加 Clack 交互式配置。
 2. 增加真实 ASR/VLM/TTS provider adapter。
 3. 扩展 Web Studio 的渲染/导出操作入口。
-4. 扩展 MCP 工具的 schema 注释和客户端集成示例。
-5. 增加外部 agent 客户端实测记录。
+4. 增加外部 agent 客户端实测记录。
+5. 扩展 Web Studio 的渲染/导出操作入口。

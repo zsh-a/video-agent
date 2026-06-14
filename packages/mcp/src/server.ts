@@ -68,57 +68,69 @@ const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {}),
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
   createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {}),
-  createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: stringSchema()}),
-  createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: stringSchema()}),
-  createTool('video_agent_visual_samples', 'Read rendered visual frame sample metadata, optionally including base64 image content.', {includeContent: booleanSchema(), projectId: stringSchema()}),
-  createTool('video_agent_events', 'Read pipeline and provider events for a project.', {
-    kind: enumSchema(['pipeline', 'provider']),
-    limit: integerSchema(),
-    projectId: stringSchema(),
-    role: enumSchema(['asr', 'tts', 'vlm']),
-    status: enumSchema(['failed', 'succeeded']),
+  createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: projectIdSchema()}),
+  createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: projectIdSchema()}),
+  createTool('video_agent_visual_samples', 'Read rendered visual frame sample metadata, optionally including base64 image content.', {
+    includeContent: booleanSchema('When true, include base64 JPEG content for each available frame sample. Defaults to metadata only.'),
+    projectId: projectIdSchema(),
   }),
-  createTool('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {artifactName: stringSchema(), projectId: stringSchema()}),
-  createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes for a project.', {projectId: stringSchema()}),
-  createTool('video_agent_run', 'Run the initial pipeline from an input media path.', {fromStage: enumSchema(STAGE_VALUES), inputPath: stringSchema(), projectId: stringSchema()}),
-  createTool('video_agent_rerun', 'Rerun an existing project from a checkpoint stage.', {fromStage: enumSchema(STAGE_VALUES), projectId: stringSchema()}),
+  createTool('video_agent_events', 'Read pipeline and provider events for a project.', {
+    kind: enumSchema(['pipeline', 'provider'], 'Optional event stream filter.'),
+    limit: integerSchema('Maximum number of events to return.'),
+    projectId: projectIdSchema(),
+    role: enumSchema(['asr', 'tts', 'vlm'], 'Provider role filter for provider events.'),
+    status: enumSchema(['failed', 'succeeded'], 'Provider call status filter for provider events.'),
+  }),
+  createTool('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {artifactName: stringSchema('Optional artifact filename, such as media-info.json or quality-report.json.'), projectId: projectIdSchema()}),
+  createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes for a project.', {projectId: projectIdSchema()}),
+  createTool('video_agent_run', 'Run the initial pipeline from an input media path.', {
+    fromStage: enumSchema(STAGE_VALUES, 'Optional checkpoint stage. Defaults to ingest for a full run.'),
+    inputPath: stringSchema('Path to the source media file to inspect and process.'),
+    projectId: stringSchema('Optional stable project id. Defaults to a slug generated from the input filename and timestamp.'),
+  }),
+  createTool('video_agent_rerun', 'Rerun an existing project from a checkpoint stage.', {fromStage: enumSchema(STAGE_VALUES, 'Checkpoint stage to resume from. Defaults to plan.'), projectId: projectIdSchema()}),
   createTool('video_agent_render', 'Render a project with ffmpeg or HyperFrames.', {
-    audio: booleanSchema(),
-    audioDucking: booleanSchema(),
-    duckingAttackMs: numberSchema(),
-    duckingRatio: numberSchema(),
-    duckingReleaseMs: numberSchema(),
-    duckingThreshold: numberSchema(),
-    hyperframesCommand: stringArraySchema(),
-    hyperframesOutput: stringSchema(),
-    hyperframesRender: booleanSchema(),
-    hyperframesValidate: booleanSchema(),
-    output: stringSchema(),
-    projectId: stringSchema(),
-    renderer: enumSchema(['ffmpeg', 'hyperframes']),
-    sourceVolume: numberSchema(),
-    subtitles: booleanSchema(),
-    voiceoverVolume: numberSchema(),
+    audio: booleanSchema('When false, render without source or voiceover audio. Defaults to true.'),
+    audioDucking: booleanSchema('Enable sidechain ducking so voiceover lowers source audio.'),
+    duckingAttackMs: numberSchema('Sidechain compressor attack in milliseconds.'),
+    duckingRatio: numberSchema('Sidechain compressor ratio.'),
+    duckingReleaseMs: numberSchema('Sidechain compressor release in milliseconds.'),
+    duckingThreshold: numberSchema('Sidechain compressor threshold in dB.'),
+    hyperframesCommand: stringArraySchema('External HyperFrames command prefix, for example ["npx","hyperframes"].'),
+    hyperframesOutput: stringSchema('Output path passed to the HyperFrames render command.'),
+    hyperframesRender: booleanSchema('When true, invoke the external HyperFrames renderer after generating the HTML project.'),
+    hyperframesValidate: booleanSchema('When true, invoke the external HyperFrames validator after generating the HTML project.'),
+    output: stringSchema('Output video path for ffmpeg or output directory for HyperFrames.'),
+    projectId: projectIdSchema(),
+    renderer: enumSchema(['ffmpeg', 'hyperframes'], 'Renderer implementation. Defaults to ffmpeg.'),
+    sourceVolume: numberSchema('Source audio volume multiplier.'),
+    subtitles: booleanSchema('When false, skip generated subtitle burn-in. Defaults to true for ffmpeg.'),
+    voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
   }),
   createTool('video_agent_inspect_audio', 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.', {
-    audio: booleanSchema(),
-    audioDucking: booleanSchema(),
-    duckingAttackMs: numberSchema(),
-    duckingRatio: numberSchema(),
-    duckingReleaseMs: numberSchema(),
-    duckingThreshold: numberSchema(),
-    projectId: stringSchema(),
-    sourceVolume: numberSchema(),
-    voiceoverVolume: numberSchema(),
+    audio: booleanSchema('When false, report a disabled audio plan. Defaults to true.'),
+    audioDucking: booleanSchema('Inspect audio settings with sidechain ducking enabled.'),
+    duckingAttackMs: numberSchema('Sidechain compressor attack in milliseconds.'),
+    duckingRatio: numberSchema('Sidechain compressor ratio.'),
+    duckingReleaseMs: numberSchema('Sidechain compressor release in milliseconds.'),
+    duckingThreshold: numberSchema('Sidechain compressor threshold in dB.'),
+    projectId: projectIdSchema(),
+    sourceVolume: numberSchema('Source audio volume multiplier.'),
+    voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
   }),
-  createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {format: enumSchema(['video', 'hyperframes', 'bundle']), outputPath: stringSchema(), projectId: stringSchema(), requireQuality: booleanSchema()}),
+  createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {
+    format: enumSchema(['video', 'hyperframes', 'bundle'], 'Export format. Defaults to video.'),
+    outputPath: stringSchema('Destination path for the exported output.'),
+    projectId: projectIdSchema(),
+    requireQuality: booleanSchema('When true, refuse export unless project quality is clean.'),
+  }),
   createTool('video_agent_worker', 'Recover failed or interrupted local pipeline jobs.', {
-    dryRun: booleanSchema(),
-    limit: integerSchema(),
-    maxAttempts: integerSchema(),
-    orderBy: enumSchema(['attempt', 'oldest', 'recent']),
-    runningStaleAfterMs: integerSchema(),
-    status: enumSchema(['active', 'failed', 'running']),
+    dryRun: booleanSchema('When true, list recovery actions without rerunning projects.'),
+    limit: integerSchema('Maximum number of recoverable jobs to process this call.'),
+    maxAttempts: integerSchema('Skip jobs whose recovery stage attempt is greater than or equal to this value.'),
+    orderBy: enumSchema(['attempt', 'oldest', 'recent'], 'Recovery candidate ordering before applying limit.'),
+    runningStaleAfterMs: integerSchema('Skip running jobs updated more recently than this threshold.'),
+    status: enumSchema(['active', 'failed', 'running'], 'Job status filter. active scans failed and running jobs.'),
   }),
 ].map((tool) => ({
   ...tool,
@@ -387,23 +399,35 @@ function stringSchema(description?: string): Record<string, unknown> {
   }
 }
 
-function booleanSchema(): Record<string, unknown> {
-  return {type: 'boolean'}
+function projectIdSchema(): Record<string, unknown> {
+  return stringSchema('Project id inside the video-agent workspace.')
 }
 
-function integerSchema(): Record<string, unknown> {
+function booleanSchema(description?: string): Record<string, unknown> {
   return {
+    ...(description === undefined ? {} : {description}),
+    type: 'boolean',
+  }
+}
+
+function integerSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
     minimum: 0,
     type: 'integer',
   }
 }
 
-function numberSchema(): Record<string, unknown> {
-  return {type: 'number'}
+function numberSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    type: 'number',
+  }
 }
 
-function stringArraySchema(): Record<string, unknown> {
+function stringArraySchema(description?: string): Record<string, unknown> {
   return {
+    ...(description === undefined ? {} : {description}),
     items: {
       type: 'string',
     },
@@ -411,8 +435,9 @@ function stringArraySchema(): Record<string, unknown> {
   }
 }
 
-function enumSchema(values: readonly string[]): Record<string, unknown> {
+function enumSchema(values: readonly string[], description?: string): Record<string, unknown> {
   return {
+    ...(description === undefined ? {} : {description}),
     enum: values,
     type: 'string',
   }

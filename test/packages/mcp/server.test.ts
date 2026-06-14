@@ -40,6 +40,22 @@ describe('mcp server', () => {
     expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'orderBy', 'runningStaleAfterMs', 'status'])
   })
 
+  it('adds client-facing descriptions to important tool arguments', () => {
+    const server = createVideoAgentMcpServer()
+    const toolsByName = new Map(server.tools.map((tool) => [tool.name, tool]))
+    const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+    const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+    const runProperties = toolsByName.get('video_agent_run')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+
+    expect(renderProperties?.projectId.description).to.equal('Project id inside the video-agent workspace.')
+    expect(renderProperties?.hyperframesCommand.description).to.include('External HyperFrames command prefix')
+    expect(renderProperties?.audio.description).to.include('render without source or voiceover audio')
+    expect(workerProperties?.runningStaleAfterMs.description).to.include('Skip running jobs')
+    expect(workerProperties?.orderBy.description).to.include('Recovery candidate ordering')
+    expect(runProperties?.inputPath.description).to.include('source media file')
+    expect(runProperties?.workspaceDir.description).to.include('Workspace directory override')
+  })
+
   it('calls runtime tools and returns text content', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 
