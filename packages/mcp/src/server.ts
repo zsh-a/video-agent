@@ -2,6 +2,7 @@ import type {ExportFormat, InitialPipelineStage, ProjectRenderer, ProviderSmokeT
 
 import {
   checkRuntimeHealth,
+  createProviderEnvironmentShellTemplate,
   exportProject,
   inspectFfmpegAudio,
   listProjectArtifacts,
@@ -71,7 +72,10 @@ const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {}),
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
-  createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {}),
+  createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {
+    includeOptional: booleanSchema('When shellTemplate is true, include optional provider variables as active exports. Defaults to commented optional variables.'),
+    shellTemplate: booleanSchema('When true, include a non-secret shell export template for the current provider config.'),
+  }),
   createTool('video_agent_provider_test', 'Run smoke tests against configured ASR, VLM, and TTS providers.', {
     framePath: stringSchema('Sample frame path for VLM smoke tests. Defaults to a synthetic placeholder path.'),
     mediaPath: stringSchema('Sample media path for ASR smoke tests. Defaults to a synthetic placeholder path.'),
@@ -263,7 +267,16 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     }
 
     case 'video_agent_provider_env': {
-      return readProviderEnvironment(workspaceDir)
+      const report = await readProviderEnvironment(workspaceDir)
+
+      if (readOptionalBoolean(args, 'shellTemplate') === true) {
+        return {
+          report,
+          shellTemplate: createProviderEnvironmentShellTemplate(report, {includeOptional: readOptionalBoolean(args, 'includeOptional')}),
+        }
+      }
+
+      return report
     }
 
     case 'video_agent_provider_test': {

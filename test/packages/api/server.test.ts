@@ -20,6 +20,7 @@ describe('api server handler', () => {
       const health = await readJson<{ok: boolean}>(fetch, '/health')
       const projects = await readJson<{projects: unknown[]}>(fetch, '/projects')
       const providerEnv = await readJson<{providers: Array<{provider: string; role: string}>}>(fetch, '/provider-env')
+      const providerEnvTemplate = await readJson<{shellTemplate: string}>(fetch, '/provider-env?shellTemplate=true')
       const providerTest = await readJson<{ok: boolean; results: Array<{provider: string; role: string; status: string}>}>(
         fetch,
         '/provider-test',
@@ -38,6 +39,7 @@ describe('api server handler', () => {
       expect(health.ok).to.equal(true)
       expect(projects.projects).to.have.length(1)
       expect(providerEnv.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+      expect(providerEnvTemplate.shellTemplate).to.include('# video-agent provider environment template')
       expect(providerTest.ok).to.equal(true)
       expect(providerTest.results.find((result) => result.role === 'asr')).to.include({
         provider: 'mock',

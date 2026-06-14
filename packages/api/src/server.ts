@@ -1,6 +1,7 @@
 /* eslint-disable n/no-unsupported-features/node-builtins */
 import {
   checkRuntimeHealth,
+  createProviderEnvironmentShellTemplate,
   exportProject,
   ExportQualityError,
   inspectFfmpegAudio,
@@ -75,7 +76,12 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
       return methodNotAllowed()
     }
 
-    return jsonResponse(await readProviderEnvironment(workspaceDir))
+    const report = await readProviderEnvironment(workspaceDir)
+    const shellTemplate = parseOptionalBoolean(url.searchParams.get('shellTemplate')) === true
+      ? createProviderEnvironmentShellTemplate(report, {includeOptional: parseOptionalBoolean(url.searchParams.get('includeOptional'))})
+      : undefined
+
+    return jsonResponse(shellTemplate === undefined ? report : {...report, shellTemplate})
   }
 
   if (segments.length === 1 && segments[0] === 'provider-test') {

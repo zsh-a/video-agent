@@ -6,6 +6,7 @@ import {join} from 'node:path'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {createVideoAgentMcpServer} from '../../../packages/mcp/src/server.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
+import {writeConfig} from '../../../packages/runtime/src/config.js'
 
 describe('mcp server', () => {
   it('lists video-agent tools', async () => {
@@ -108,6 +109,34 @@ describe('mcp server', () => {
       const result = JSON.parse(content[0]?.text ?? '{}') as {providers: Array<{provider: string; role: string}>}
 
       expect(result.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('can include provider environment shell templates', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeConfig(root, {asr: 'command'})
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'provider-env-template-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            shellTemplate: true,
+          },
+          name: 'video_agent_provider_env',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {shellTemplate: string}
+
+      expect(result.shellTemplate).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
     } finally {
       await rm(root, {force: true, recursive: true})
     }
