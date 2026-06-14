@@ -412,6 +412,8 @@ POST /projects/:projectId/render
 POST /projects/:projectId/export
 ```
 
+`GET /health` 是轻量 liveness endpoint，只要 API 进程可响应就返回 `200`。`GET /doctor` 是 runtime readiness endpoint，会返回与 CLI `doctor` 相同的 workspace/config/provider/media 工具报告；当任一检查失败时，响应体仍包含完整报告，但 HTTP 状态码为 `503`，方便负载均衡器、CI 和外部 agent client fail fast。
+
 `GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run 和 provider smoke test 操作按钮。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `GET /config` 返回当前 workspace 的非 secret runtime config，包括 provider 选择、job store 和 pipeline retry 策略。provider credential 是否配置由 `GET /provider-env` 以 `configured` 布尔值展示，不返回 secret 内容。
@@ -555,6 +557,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `doctor` 命令：检查 Bun/Node fallback、workspace、配置、项目索引、`ffmpeg` 和 `ffprobe`
 - doctor exit codes：当 runtime、provider env 或媒体工具检查失败时，`doctor` / `init` 会先输出报告再以非零状态退出
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`
+- API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness
 - `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且不泄露 secret 值
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview

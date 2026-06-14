@@ -17,6 +17,8 @@ This document records the local checks an agent shell should run after installin
 | Provider smoke test | Confirm configured ASR/VLM/TTS providers satisfy response contracts | `bun run dev provider-test --json --workspace .video-agent` |
 | Web Studio | Confirm HTTP adapter access for visual review | `bun run dev serve --workspace .video-agent --port 4317` then `http://127.0.0.1:4317/studio` |
 
+For HTTP clients, `GET /health` is process liveness and should stay `200` while the server is running. Use `GET /doctor` for readiness; it returns the full doctor JSON report and responds with `503` when provider configuration, workspace access, or media tooling is unhealthy.
+
 ## Local Evidence Snapshot
 
 These commands were run from the repository root and should remain valid checks for future releases:
@@ -54,6 +56,7 @@ Before calling an external agent integration ready, verify:
 - the skill can be found by the host, either repo-local, copied, symlinked, or unpacked from the tarball
 - the skill instructions point to `bun run dev` for checkout workflows and `vagent` for installed workflows
 - `doctor` exits successfully for the intended workspace; failed provider or media checks return a non-zero exit code
+- HTTP clients treat `GET /doctor` as readiness and fail on `503`, while using `GET /health` only for liveness
 - `provider-test` succeeds for the intended workspace or reports provider setup failures clearly
 - the generated MCP config shape matches the client field being edited
 - any provider credentials are represented only as configured/missing state or explicit env placeholders

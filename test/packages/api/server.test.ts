@@ -7,6 +7,7 @@ import {join} from 'node:path'
 import {createApiFetchHandler} from '../../../packages/api/src/server.js'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
+import {writeConfig} from '../../../packages/runtime/src/config.js'
 
 describe('api server handler', () => {
   it('serves health, projects, status, events, and artifacts', async () => {
@@ -62,6 +63,29 @@ describe('api server handler', () => {
     const response = await fetch(new Request('http://localhost/missing'))
 
     expect(response.status).to.equal(404)
+  })
+
+  it('returns 503 for unhealthy doctor reports', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await writeConfig(root, {asr: 'command'})
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(new Request('http://localhost/doctor'))
+      const report = (await response.json()) as {checks: Array<{message: string; name: string; status: string}>; ok: boolean}
+      const asrCheck = report.checks.find((check) => check.name === 'provider:asr')
+
+      expect(response.status).to.equal(503)
+      expect(report.ok).to.equal(false)
+      expect(asrCheck).to.include({
+        name: 'provider:asr',
+        status: 'fail',
+      })
+      expect(asrCheck?.message).to.include('VIDEO_AGENT_ASR_COMMAND')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
   })
 
   it('serves the Web Studio shell', async () => {

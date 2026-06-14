@@ -110,7 +110,7 @@ Acceptance criteria:
 - Every command has JSON output where automation needs it.
 - Command failures return actionable errors.
 - Tests cover workspace path behavior, artifact reads, config updates, job persistence, renderer helpers, and project listing.
-- API handler tests cover health, provider environment reports, project listing, project runs, worker dry-runs, status, events, artifact reads, project reruns, project renders, and project exports.
+- API handler tests cover health, doctor readiness status codes, provider environment reports, project listing, project runs, worker dry-runs, status, events, artifact reads, project reruns, project renders, and project exports.
 - API handler tests cover audio preflight diagnostics for render inputs.
 
 Status: completed for local CLI workflows.

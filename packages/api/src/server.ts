@@ -64,7 +64,9 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
       return methodNotAllowed()
     }
 
-    return jsonResponse(await checkRuntimeHealth({workspaceDir}))
+    const report = await checkRuntimeHealth({workspaceDir})
+
+    return jsonResponse(report, {status: report.ok ? 200 : 503})
   }
 
   if (segments.length === 1 && segments[0] === 'provider-env') {
