@@ -383,7 +383,7 @@ bun run dev artifacts <projectId> --verify
 bun run dev rerun <projectId> --from-stage script
 ```
 
-`run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。校验失败不会把 job state 写成新的运行。
+`run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。media/storyboard/clip-plan/timeline/narration 这类 IR artifact 还会通过 Zod schema 校验后才进入后续 stage。校验失败不会把 job state 写成新的运行。
 
 `worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--order-by oldest|recent|attempt` 控制恢复候选排序，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。处理 running job 时，可以用 `--running-stale-after-ms <ms>` 跳过最近仍有更新的任务，避免本地 worker 抢占仍在运行的进程。worker 会在恢复前预检 checkpoint artifacts；缺失、变更或未纳入 manifest 的前置 artifact 会被跳过并返回 artifact 问题列表。跳过结果会带 `skipReason`，例如 `attempt-limit`、`checkpoint-invalid`、`limit`、`running-active` 或 `not-recoverable`。
 
@@ -603,7 +603,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - provider call recorder：记录 ASR/VLM/TTS 调用的 provider、request id、耗时、输入/输出摘要、model/usage/cost metadata、状态和错误信息到 `provider-calls.jsonl`
 - artifact manifest：`artifact-manifest.json` 记录 artifacts 目录内文件的 kind、size、mtime 和 sha256，用于后续恢复/校验
 - pipeline retry policy：支持配置 stage 级 `maxStageRetries` 和 `retryBackoffMs`，事件和 job state 会记录 attempt
-- checkpoint validation：`run --from-stage` / `rerun --from-stage` 会显式校验前置 artifacts，并在 manifest 可用时校验 hash/size；API 对不完整 checkpoint 返回 409
+- checkpoint validation：`run --from-stage` / `rerun --from-stage` 会显式校验前置 artifacts，并在 manifest 可用时校验 hash/size；IR checkpoint artifacts 会通过 Zod schema 校验；API 对不完整 checkpoint 返回 409
 - `status` 命令：读取 durable `job-state.json`，展示 stage 状态和 artifact 摘要
 - project status summary：聚合 pipeline event 数量、最近事件、provider call 成功/失败摘要、成本摘要、quality issue 摘要和 render output/audio/visual quality 摘要
 - db package：提供 JSON `JobStore` 和 Bun SQLite `JobStore`，runtime 可通过 `config --job-store json|sqlite` 切换

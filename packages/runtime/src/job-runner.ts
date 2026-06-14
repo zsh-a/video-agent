@@ -4,6 +4,7 @@ import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} 
 import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
 import {createClipPlan, createPlaceholderNarration, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
+import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
@@ -288,7 +289,7 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
         version: 1,
       }
 
-      await initial.workspace.store.writeJson('media-info.json', mediaInfo)
+      await initial.workspace.store.writeJson('media-info.json', MediaInfoSchema.parse(mediaInfo))
       await initial.workspace.store.writeJson('ingest-report.json', ingestReport)
 
       return {
@@ -355,11 +356,11 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
           ]),
         ],
       }))
-      const clipPlan = createClipPlan(storyboard, understood.mediaInfo)
-      const timeline = createTimelineFromClipPlan(understood.mediaInfo, clipPlan)
+      const clipPlan = ClipPlanSchema.parse(createClipPlan(storyboard, understood.mediaInfo))
+      const timeline = TimelineSchema.parse(createTimelineFromClipPlan(understood.mediaInfo, clipPlan))
 
       await understood.workspace.store.writeJson('clip-plan.json', clipPlan)
-      await understood.workspace.store.writeJson('storyboard.json', storyboard)
+      await understood.workspace.store.writeJson('storyboard.json', StoryboardSchema.parse(storyboard))
       await understood.workspace.store.writeJson('timeline.json', timeline)
 
       return {
@@ -377,7 +378,7 @@ function createScriptStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'script',
     async run(input) {
       const planned = input as PlanOutput
-      const narration = createPlaceholderNarration(planned.storyboard)
+      const narration = NarrationSchema.parse(createPlaceholderNarration(planned.storyboard))
 
       await planned.workspace.store.writeJson('narration.json', narration)
 
@@ -469,7 +470,7 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
       ...ingestReport.artifacts,
     },
     inputPath,
-    mediaInfo: await workspace.store.readJson<MediaInfo>('media-info.json'),
+    mediaInfo: MediaInfoSchema.parse(await workspace.store.readJson('media-info.json')),
     providers,
     workspace,
   }
@@ -490,9 +491,9 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 
   const planned: PlanOutput = {
     ...understood,
-    clipPlan: await workspace.store.readJson<ClipPlan>('clip-plan.json'),
-    storyboard: await workspace.store.readJson<Storyboard>('storyboard.json'),
-    timeline: await workspace.store.readJson<Timeline>('timeline.json'),
+    clipPlan: ClipPlanSchema.parse(await workspace.store.readJson('clip-plan.json')),
+    storyboard: StoryboardSchema.parse(await workspace.store.readJson('storyboard.json')),
+    timeline: TimelineSchema.parse(await workspace.store.readJson('timeline.json')),
   }
 
   if (fromStage === 'script') {
@@ -501,7 +502,7 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 
   const scripted: ScriptOutput = {
     ...planned,
-    narration: await workspace.store.readJson<Narration>('narration.json'),
+    narration: NarrationSchema.parse(await workspace.store.readJson('narration.json')),
   }
 
   if (fromStage === 'voiceover') {
@@ -555,6 +556,30 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
       missingArtifacts,
       untrackedArtifacts,
     })
+  }
+
+  await assertCheckpointArtifactSchemas(workspace, required)
+}
+
+async function assertCheckpointArtifactSchemas(workspace: ProjectWorkspace, required: Set<string>): Promise<void> {
+  if (required.has('media-info.json')) {
+    MediaInfoSchema.parse(await workspace.store.readJson('media-info.json'))
+  }
+
+  if (required.has('storyboard.json')) {
+    StoryboardSchema.parse(await workspace.store.readJson('storyboard.json'))
+  }
+
+  if (required.has('clip-plan.json')) {
+    ClipPlanSchema.parse(await workspace.store.readJson('clip-plan.json'))
+  }
+
+  if (required.has('timeline.json')) {
+    TimelineSchema.parse(await workspace.store.readJson('timeline.json'))
+  }
+
+  if (required.has('narration.json')) {
+    NarrationSchema.parse(await workspace.store.readJson('narration.json'))
   }
 }
 

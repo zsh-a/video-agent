@@ -2,6 +2,7 @@ import {expect} from 'chai'
 import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {ZodError} from 'zod'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
@@ -108,6 +109,41 @@ describe('rerun project', () => {
       expect((error as PipelineCheckpointError).changedArtifacts).to.deep.equal(['timeline.json'])
       expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal([])
       expect((error as PipelineCheckpointError).untrackedArtifacts).to.deep.equal([])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails when checkpoint IR artifacts do not match their schemas', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeFile(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath)
+      await writeFile(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'quality',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(ZodError)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

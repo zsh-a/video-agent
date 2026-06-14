@@ -174,7 +174,7 @@ Acceptance criteria:
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, first `clip-plan.json` source-range planning artifact, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, first `clip-plan.json` source-range planning artifact, Zod validation for runtime-generated and checkpoint-loaded IR artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
 
 ## Phase 5: Persistence and Recovery
 
@@ -199,7 +199,7 @@ Acceptance criteria:
 - Worker recovery can skip jobs that reached a configured stage attempt ceiling and explain skipped jobs.
 - Re-running a stage does not corrupt unrelated artifacts.
 
-Status: completed for local persistence and recovery. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery supports candidate ordering, `runningStaleAfterMs` protection for still-active running jobs, checkpoint artifact preflight, `maxAttempts`, and skip reasons for checkpoint issues, attempt limits, processing limits, active running jobs, and non-recoverable jobs.
+Status: completed for local persistence and recovery. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity/schema validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery supports candidate ordering, `runningStaleAfterMs` protection for still-active running jobs, checkpoint artifact preflight, `maxAttempts`, and skip reasons for checkpoint issues, attempt limits, processing limits, active running jobs, and non-recoverable jobs.
 
 ## Phase 6: Agent and Product Adapters
 
