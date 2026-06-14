@@ -3,7 +3,7 @@ import type {ProviderSmokeTestResult, ProviderSmokeTestRole} from '@video-agent/
 import {Command, Flags} from '@oclif/core'
 import {runProviderSmokeTest} from '@video-agent/runtime'
 
-import {parseEnvFlags} from './env-flags.js'
+import {parseEnvFlags} from '../utils/env-flags.js'
 
 export default class ProviderTest extends Command {
   static description = 'Run smoke tests against configured ASR, VLM, and TTS providers'

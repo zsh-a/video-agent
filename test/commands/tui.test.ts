@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiSnapshot} from '../../src/commands/tui.js'
+import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../../src/commands/tui.js'
 
 describe('tui command', () => {
   it('formats dashboard actions without a banner', () => {
@@ -92,6 +92,30 @@ describe('tui command', () => {
       'Action: commands',
       '  Inspect status           bun run dev status demo',
     ].join('\n'))
+  })
+
+  it('formats guided selector action results', () => {
+    const selected = {
+      category: 'inspect' as const,
+      command: 'bun run dev status demo',
+      description: 'Inspect job state.',
+      id: 'inspect-status',
+      label: 'Inspect status',
+      priority: 25,
+    }
+
+    expect(formatTuiActionResult({
+      commands: [selected],
+      selected,
+      type: 'select',
+    })).to.equal([
+      'Action: select -> inspect-status',
+      'Command: bun run dev status demo',
+    ].join('\n'))
+    expect(formatTuiActionResult({
+      commands: [selected],
+      type: 'select',
+    })).to.equal('Action: select -> no action selected')
   })
 
   it('formats artifact action results with a content preview', () => {
@@ -319,5 +343,41 @@ describe('tui command', () => {
     expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")
+  })
+
+  it('formats and resolves guided command selections', () => {
+    const commands = [
+      {
+        category: 'dashboard' as const,
+        command: 'vagent tui --project demo',
+        description: 'Open the focused project dashboard once.',
+        id: 'open-dashboard',
+        label: 'Open dashboard',
+        priority: 10,
+      },
+      {
+        category: 'inspect' as const,
+        command: 'vagent status demo',
+        description: 'Inspect job state.',
+        id: 'inspect-status',
+        label: 'Inspect status',
+        priority: 25,
+      },
+    ]
+
+    expect(formatTuiCommandSelector(commands)).to.deep.equal([
+      'Guided Actions',
+      '   1. Open dashboard [dashboard]',
+      '      Open the focused project dashboard once.',
+      '      vagent tui --project demo',
+      '   2. Inspect status [inspect]',
+      '      Inspect job state.',
+      '      vagent status demo',
+    ])
+    expect(resolveTuiCommandSelection(commands, '2')).to.equal(commands[1])
+    expect(resolveTuiCommandSelection(commands, 'inspect-status')).to.equal(commands[1])
+    expect(resolveTuiCommandSelection(commands, 'open dashboard')).to.equal(commands[0])
+    expect(resolveTuiCommandSelection(commands, '')).to.equal(undefined)
+    expect(resolveTuiCommandSelection(commands, 'missing')).to.equal(undefined)
   })
 })

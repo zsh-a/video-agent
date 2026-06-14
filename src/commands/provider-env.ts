@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '@video-agent/runtime'
 
-import {parseEnvFlags} from './env-flags.js'
+import {parseEnvFlags} from '../utils/env-flags.js'
 
 export default class ProviderEnv extends Command {
   static description = 'Show provider environment variables required by the current config'

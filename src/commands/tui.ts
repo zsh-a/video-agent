@@ -2,8 +2,9 @@ import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectS
 
 import {Command, Flags} from '@oclif/core'
 import {listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
+import {createInterface, type Interface} from 'node:readline'
 
-export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'worker'
+export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'select' | 'worker'
 
 export interface TuiSnapshot {
   artifacts: ProjectArtifact[]
@@ -31,7 +32,7 @@ export interface TuiCommandSuggestion {
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'provider-test', 'rerun', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'provider-test', 'rerun', 'select', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -81,7 +82,7 @@ export default class Tui extends Command {
       return
     }
 
-    const actionResult = await runTuiAction({
+    let actionResult = await runTuiAction({
       action,
       artifactName: flags.artifact,
       commandPrefix: flags['command-prefix'],
@@ -105,6 +106,13 @@ export default class Tui extends Command {
       projectId: flags.project,
       workspaceDir: flags.workspace,
     })
+
+    if (!flags.json && actionResult.type === 'select') {
+      actionResult = {
+        ...actionResult,
+        selected: await promptTuiCommandSelection(actionResult.commands),
+      }
+    }
 
     if (flags.json) {
       this.log(JSON.stringify({action: actionResult, snapshot}, null, 2))
@@ -158,7 +166,7 @@ export interface RunTuiActionOptions {
   workspaceDir: string
 }
 
-export type TuiActionResult = {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'} | {commands: TuiCommandSuggestion[]; type: 'commands'} | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {report: ProviderSmokeTestReport; type: 'provider-test'} | {type: 'dashboard'}
+export type TuiActionResult = {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'} | {commands: TuiCommandSuggestion[]; selected?: TuiCommandSuggestion; type: 'select'} | {commands: TuiCommandSuggestion[]; type: 'commands'} | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {report: ProviderSmokeTestReport; type: 'provider-test'} | {type: 'dashboard'}
 
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
   if (options.action === 'dashboard') {
@@ -174,6 +182,18 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         workspaceDir: options.workspaceDir,
       }), {commandPrefix: options.commandPrefix}),
       type: 'commands',
+    }
+  }
+
+  if (options.action === 'select') {
+    return {
+      commands: createTuiCommandSuggestions(await readTuiSnapshot({
+        artifactLimit: 5,
+        eventLimit: 0,
+        projectId: options.projectId,
+        workspaceDir: options.workspaceDir,
+      }), {commandPrefix: options.commandPrefix}),
+      type: 'select',
     }
   }
 
@@ -284,6 +304,17 @@ export function formatTuiActionResult(result: TuiActionResult): string {
 
   if (result.type === 'commands') {
     return ['Action: commands', ...formatTuiCommands(result.commands)].join('\n')
+  }
+
+  if (result.type === 'select') {
+    if (result.selected === undefined) {
+      return 'Action: select -> no action selected'
+    }
+
+    return [
+      `Action: select -> ${result.selected.id ?? result.selected.label}`,
+      `Command: ${result.selected.command}`,
+    ].join('\n')
   }
 
   if (result.type === 'rerun') {
@@ -502,6 +533,77 @@ export function formatTuiCommands(commands: TuiCommandSuggestion[]): string[] {
   }
 
   return commands.map((item) => `  ${item.label.padEnd(24)} ${item.command}`)
+}
+
+export function formatTuiCommandSelector(commands: TuiCommandSuggestion[]): string[] {
+  if (commands.length === 0) {
+    return ['Guided Actions', '  none']
+  }
+
+  return [
+    'Guided Actions',
+    ...commands.flatMap((item, index) => {
+      const category = item.category === undefined ? '' : ` [${item.category}]`
+      const description = item.description === undefined ? [] : [`      ${item.description}`]
+
+      return [
+        `  ${String(index + 1).padStart(2, ' ')}. ${item.label}${category}`,
+        ...description,
+        `      ${item.command}`,
+      ]
+    }),
+  ]
+}
+
+export function resolveTuiCommandSelection(commands: TuiCommandSuggestion[], choice: string): TuiCommandSuggestion | undefined {
+  const normalized = choice.trim()
+
+  if (normalized === '') {
+    return undefined
+  }
+
+  const selectedIndex = Number.parseInt(normalized, 10)
+
+  if (String(selectedIndex) === normalized && selectedIndex >= 1 && selectedIndex <= commands.length) {
+    return commands[selectedIndex - 1]
+  }
+
+  return commands.find((item) => item.id === normalized || item.label.toLowerCase() === normalized.toLowerCase())
+}
+
+async function promptTuiCommandSelection(commands: TuiCommandSuggestion[]): Promise<TuiCommandSuggestion | undefined> {
+  if (commands.length === 0) {
+    return undefined
+  }
+
+  const prompt = [
+    ...formatTuiCommandSelector(commands),
+    '',
+    'Select action by number or id, or press enter to skip: ',
+  ].join('\n')
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  })
+
+  try {
+    const choice = await askQuestion(readline, prompt)
+    const selected = resolveTuiCommandSelection(commands, choice)
+
+    if (selected === undefined && choice.trim() !== '') {
+      throw new Error(`No guided action matched "${choice.trim()}".`)
+    }
+
+    return selected
+  } finally {
+    readline.close()
+  }
+}
+
+async function askQuestion(readline: Interface, prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    readline.question(prompt, resolve)
+  })
 }
 
 function buildTuiCommand(prefix: string, args: string[]): string {

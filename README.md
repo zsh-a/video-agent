@@ -111,6 +111,7 @@ bun run dev tui --project <projectId> --watch
 bun run dev tui --project <projectId> --action artifact --artifact quality-report.json
 bun run dev tui --project <projectId> --action commands
 bun run dev tui --project <projectId> --action commands --json
+bun run dev tui --project <projectId> --action select
 bun run dev tui --action provider-test --provider-role asr
 bun run dev tui --project <projectId> --action rerun --from-stage script
 bun run dev tui --action worker --dry-run --status running
@@ -401,7 +402,7 @@ bun run dev rerun <projectId> --from-stage script
 
 `worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--order-by oldest|recent|attempt` 控制恢复候选排序，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。处理 running job 时，可以用 `--running-stale-after-ms <ms>` 跳过最近仍有更新的任务，避免本地 worker 抢占仍在运行的进程。worker 会在恢复前预检 checkpoint artifacts；缺失、变更、未纳入 manifest 或 IR/provider schema 无效的前置 artifact 会被跳过，并返回 artifact 问题列表。跳过结果会带 `skipReason`，例如 `attempt-limit`、`checkpoint-invalid`、`limit`、`running-active` 或 `not-recoverable`。CLI/TUI 的非 JSON 输出会展示 schema invalid artifact 名称，便于直接定位坏文件。
 
-`tui` 会输出轻量终端 dashboard，复用 runtime 的 project/status/events/artifacts 接口展示当前 workspace、最近更新项目、stage 状态、质量摘要、render 摘要、artifact 列表、最近事件和下一步可复制命令。默认渲染一次；需要持续刷新时可以传 `--watch`，也可以用 `--project <projectId>` 固定查看某个项目。需要从 TUI 入口触发受控操作时，可以用 `--action artifact --artifact <name>` 检查 artifact，用 `--action commands` 单独输出命令建议，用 `--action provider-test --provider-role asr|vlm|tts|all` 验证 provider contract，用 `--action rerun --from-stage <stage>` 重跑项目，或用 `--action worker --dry-run|--status|--limit|--max-attempts` 恢复 workspace job。命令建议默认使用 `bun run dev` 前缀，可以通过 `--command-prefix vagent` 改成已安装 CLI 的形式；`--action commands --json` 会额外返回 `id`、`category`、`description`、`priority` 和 `command`，方便未来 TUI/Agent 客户端做 guided action 选择。
+`tui` 会输出轻量终端 dashboard，复用 runtime 的 project/status/events/artifacts 接口展示当前 workspace、最近更新项目、stage 状态、质量摘要、render 摘要、artifact 列表、最近事件和下一步可复制命令。默认渲染一次；需要持续刷新时可以传 `--watch`，也可以用 `--project <projectId>` 固定查看某个项目。需要从 TUI 入口触发受控操作时，可以用 `--action artifact --artifact <name>` 检查 artifact，用 `--action commands` 单独输出命令建议，用 `--action select` 进入编号/ID guided selector，用 `--action provider-test --provider-role asr|vlm|tts|all` 验证 provider contract，用 `--action rerun --from-stage <stage>` 重跑项目，或用 `--action worker --dry-run|--status|--limit|--max-attempts` 恢复 workspace job。命令建议默认使用 `bun run dev` 前缀，可以通过 `--command-prefix vagent` 改成已安装 CLI 的形式；`--action commands --json` 和 `--action select --json` 会返回 `id`、`category`、`description`、`priority` 和 `command`，方便未来 TUI/Agent 客户端复用同一套 guided action 元数据。
 
 `serve` 会启动 Bun HTTP API server，暴露 runtime state、workflow actions 和本地 worker recovery：
 

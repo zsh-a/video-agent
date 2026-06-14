@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 
 import {createMcpClientConfig, createMcpClientConfigOutput, getMcpClientConfigPresetInfo} from '../../../packages/mcp/src/config.js'
-import {parseEnvFlags} from '../../../src/commands/env-flags.js'
+import {parseEnvFlags} from '../../../src/utils/env-flags.js'
 
 describe('mcp client config', () => {
   it('creates a Bun development stdio config', () => {

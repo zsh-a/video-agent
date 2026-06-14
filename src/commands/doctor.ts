@@ -1,7 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import {checkRuntimeHealth, type HealthCheck} from '@video-agent/runtime'
 
-import {parseEnvFlags} from './env-flags.js'
+import {parseEnvFlags} from '../utils/env-flags.js'
 
 export default class Doctor extends Command {
   static description = 'Check local runtime, workspace, config, and media tool availability'

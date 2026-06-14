@@ -8,7 +8,7 @@ import {
   startMcpStdioServer,
 } from '@video-agent/mcp'
 
-import {parseEnvFlags} from './env-flags.js'
+import {parseEnvFlags} from '../utils/env-flags.js'
 
 export default class Mcp extends Command {
   static description = 'Start the video-agent MCP server over stdio'
