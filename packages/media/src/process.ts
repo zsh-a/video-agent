@@ -6,11 +6,9 @@ type BunProcess = {
   stdout: {text(): Promise<string>}
 }
 
-declare const Bun:
-  | undefined
-  | {
-      spawn(command: string[], options?: {cwd?: string; env?: Record<string, string>; stderr?: 'pipe'; stdout?: 'pipe'}): BunProcess
-    }
+interface BunRuntime {
+  spawn(command: string[], options?: {cwd?: string; env?: Record<string, string>; stderr?: 'pipe'; stdout?: 'pipe'}): BunProcess
+}
 
 export interface ProcessResult {
   code: number
@@ -22,11 +20,14 @@ export interface RunProcessOptions {
   cwd?: string
   env?: Record<string, string>
   preferBun?: boolean
+  stdin?: string
 }
 
 export async function runProcess(command: string[], options: RunProcessOptions = {}): Promise<ProcessResult> {
-  if (options.preferBun !== false && Bun !== undefined) {
-    const proc = Bun.spawn(command, {
+  const bun = getBunRuntime()
+
+  if (options.preferBun !== false && options.stdin === undefined && bun !== undefined) {
+    const proc = bun.spawn(command, {
       cwd: options.cwd,
       env: options.env,
       stderr: 'pipe',
@@ -41,11 +42,23 @@ export async function runProcess(command: string[], options: RunProcessOptions =
     const child = spawn(command[0], command.slice(1), {
       cwd: options.cwd,
       env: {...process.env, ...options.env},
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     })
 
     let stdout = ''
     let stderr = ''
+
+    if (child.stdout === null || child.stderr === null) {
+      reject(new Error('Failed to open child process output pipes.'))
+      return
+    }
+
+    const {stdin} = child
+
+    if (options.stdin !== undefined && stdin === null) {
+      reject(new Error('Failed to open child process input pipe.'))
+      return
+    }
 
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
@@ -55,7 +68,15 @@ export async function runProcess(command: string[], options: RunProcessOptions =
     child.stderr.on('data', (chunk) => {
       stderr += chunk
     })
+    if (options.stdin !== undefined) {
+      stdin?.end(options.stdin)
+    }
+
     child.on('error', reject)
     child.on('close', (code) => resolve({code: code ?? 1, stderr, stdout}))
   })
+}
+
+function getBunRuntime(): BunRuntime | undefined {
+  return (globalThis as typeof globalThis & {Bun?: BunRuntime}).Bun
 }

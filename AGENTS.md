@@ -38,7 +38,7 @@ bun run dev hello world
 - Put workspace, artifact, event, and job runtime code in `packages/runtime`.
 - Put subprocess and media binary wrappers in `packages/media`.
 - Put provider interfaces in `packages/providers`.
-- Put renderer-specific compilation boundaries in renderer packages, starting with `packages/renderer-hyperframes`.
+- Put renderer-specific compilation boundaries in renderer packages, starting with `packages/renderer-ffmpeg` and `packages/renderer-hyperframes`.
 - Put validation and inspection logic in `packages/quality`.
 - Put persistence contracts and later Drizzle schema in `packages/db`.
 

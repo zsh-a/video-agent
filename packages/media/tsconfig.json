@@ -7,5 +7,8 @@
     "rootDir": "src",
     "tsBuildInfoFile": "tsconfig.tsbuildinfo"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "references": [
+    {"path": "../ir"}
+  ]
 }

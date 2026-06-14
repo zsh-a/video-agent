@@ -1,0 +1,340 @@
+import type {JobState} from '@video-agent/db'
+
+import {readdir, readFile} from 'node:fs/promises'
+import {resolve} from 'node:path'
+
+import type {ProviderCallRecord, ProviderCallRole} from './provider-calls.js'
+
+import {readConfig} from './config.js'
+import {createConfiguredJobStore} from './job-store.js'
+
+export interface ProjectStatus {
+  artifacts: string[]
+  job: JobState
+  projectDir: string
+  projectId: string
+  summary: ProjectRuntimeSummary
+}
+
+export interface ProjectRuntimeSummary {
+  events: {
+    count: number
+    last?: {
+      stage?: string
+      time?: string
+      type?: string
+    }
+  }
+  providers: {
+    byRole: Record<ProviderCallRole, ProviderRoleSummary>
+    costs: Record<string, number>
+    failed: number
+    succeeded: number
+    total: number
+  }
+  quality: QualitySummary
+  render: RenderSummary
+}
+
+export interface QualitySummary {
+  errors: number
+  issues: number
+  warnings: number
+}
+
+export interface RenderSummary {
+  audioInputs: number
+  audioQualityErrors: number
+  audioQualityWarnings: number
+  audioWarnings: number
+  missingVoiceovers: number
+  output?: string
+  outputErrors: number
+  outputWarnings: number
+  rendered: boolean
+  renderer?: string
+  subtitleErrors: number
+  subtitleWarnings: number
+  visualErrors: number
+  visualWarnings: number
+}
+
+export interface ProviderRoleSummary {
+  costs: Record<string, number>
+  failed: number
+  succeeded: number
+  total: number
+}
+
+export async function readProjectStatus(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectStatus> {
+  const resolvedWorkspaceDir = resolve(workspaceDir)
+  const projectDir = resolve(resolvedWorkspaceDir, 'projects', projectId)
+  const artifactsDir = resolve(projectDir, 'artifacts')
+  const config = await readConfig(resolvedWorkspaceDir)
+  const job = await createConfiguredJobStore({
+    config,
+    projectDir,
+    projectId,
+    workspaceDir: resolvedWorkspaceDir,
+  }).read()
+  const artifacts = await readdir(artifactsDir)
+  const summary = await readProjectRuntimeSummary(artifactsDir)
+
+  return {
+    artifacts: artifacts.sort(),
+    job,
+    projectDir,
+    projectId,
+    summary,
+  }
+}
+
+async function readProjectRuntimeSummary(artifactsDir: string): Promise<ProjectRuntimeSummary> {
+  const [events, providerCalls, quality, render] = await Promise.all([
+    readJsonLines<PipelineEventLike>(resolve(artifactsDir, 'pipeline-events.jsonl')),
+    readJsonLines<ProviderCallRecord>(resolve(artifactsDir, 'provider-calls.jsonl')),
+    readQualitySummary(resolve(artifactsDir, 'quality-report.json')),
+    readRenderSummary(resolve(artifactsDir, 'render-output.json')),
+  ])
+
+  return {
+    events: summarizeEvents(events),
+    providers: summarizeProviderCalls(providerCalls),
+    quality,
+    render,
+  }
+}
+
+function summarizeEvents(events: PipelineEventLike[]): ProjectRuntimeSummary['events'] {
+  const last = events.at(-1)
+
+  return {
+    count: events.length,
+    ...(last === undefined
+      ? {}
+      : {
+          last: {
+            ...(typeof last.stage === 'string' ? {stage: last.stage} : {}),
+            ...(typeof last.time === 'string' ? {time: last.time} : {}),
+            ...(typeof last.type === 'string' ? {type: last.type} : {}),
+          },
+        }),
+  }
+}
+
+function summarizeProviderCalls(calls: ProviderCallRecord[]): ProjectRuntimeSummary['providers'] {
+  const byRole: Record<ProviderCallRole, ProviderRoleSummary> = {
+    asr: createEmptyProviderRoleSummary(),
+    tts: createEmptyProviderRoleSummary(),
+    vlm: createEmptyProviderRoleSummary(),
+  }
+
+  for (const call of calls) {
+    byRole[call.role].total += 1
+
+    if (call.cost !== undefined) {
+      byRole[call.role].costs[call.cost.currency] = (byRole[call.role].costs[call.cost.currency] ?? 0) + call.cost.amount
+    }
+
+    if (call.status === 'failed') {
+      byRole[call.role].failed += 1
+    } else {
+      byRole[call.role].succeeded += 1
+    }
+  }
+
+  return {
+    byRole,
+    costs: sumProviderCosts(calls),
+    failed: calls.filter((call) => call.status === 'failed').length,
+    succeeded: calls.filter((call) => call.status === 'succeeded').length,
+    total: calls.length,
+  }
+}
+
+function createEmptyProviderRoleSummary(): ProviderRoleSummary {
+  return {
+    costs: {},
+    failed: 0,
+    succeeded: 0,
+    total: 0,
+  }
+}
+
+function sumProviderCosts(calls: ProviderCallRecord[]): Record<string, number> {
+  const costs: Record<string, number> = {}
+
+  for (const call of calls) {
+    if (call.cost !== undefined) {
+      costs[call.cost.currency] = (costs[call.cost.currency] ?? 0) + call.cost.amount
+    }
+  }
+
+  return costs
+}
+
+async function readJsonLines<T>(path: string): Promise<T[]> {
+  let text: string
+
+  try {
+    text = await readFile(path, 'utf8')
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return []
+    }
+
+    throw error
+  }
+
+  return text
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T)
+}
+
+async function readQualitySummary(path: string): Promise<QualitySummary> {
+  let report: QualityReportLike
+
+  try {
+    report = JSON.parse(await readFile(path, 'utf8')) as QualityReportLike
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return createEmptyQualitySummary()
+    }
+
+    throw error
+  }
+
+  if (isQualitySummary(report.summary)) {
+    return {
+      errors: report.summary.errors,
+      issues: Array.isArray(report.issues) ? report.issues.length : report.summary.errors + report.summary.warnings,
+      warnings: report.summary.warnings,
+    }
+  }
+
+  if (!Array.isArray(report.issues)) {
+    return createEmptyQualitySummary()
+  }
+
+  return {
+    errors: report.issues.filter((issue) => isQualityIssueLike(issue) && issue.severity === 'error').length,
+    issues: report.issues.length,
+    warnings: report.issues.filter((issue) => isQualityIssueLike(issue) && issue.severity === 'warning').length,
+  }
+}
+
+function createEmptyQualitySummary(): QualitySummary {
+  return {
+    errors: 0,
+    issues: 0,
+    warnings: 0,
+  }
+}
+
+async function readRenderSummary(path: string): Promise<RenderSummary> {
+  let report: RenderOutputLike
+
+  try {
+    report = JSON.parse(await readFile(path, 'utf8')) as RenderOutputLike
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return createEmptyRenderSummary()
+    }
+
+    throw error
+  }
+
+  return {
+    audioInputs: readFiniteNumber(report.audioInputs) ?? 0,
+    audioQualityErrors: readFiniteNumber(report.audioQuality?.errors) ?? 0,
+    audioQualityWarnings: readFiniteNumber(report.audioQuality?.warnings) ?? 0,
+    audioWarnings: readArrayLength(report.audioDiagnostics, 'warnings'),
+    missingVoiceovers: readArrayLength(report.audioDiagnostics, 'missingVoiceovers'),
+    ...(typeof report.outputPath === 'string' ? {output: report.outputPath} : {}),
+    outputErrors: readFiniteNumber(report.outputQuality?.errors) ?? 0,
+    outputWarnings: readFiniteNumber(report.outputQuality?.warnings) ?? 0,
+    rendered: true,
+    ...(typeof report.renderer === 'string' ? {renderer: report.renderer} : {}),
+    subtitleErrors: readFiniteNumber(report.subtitleQuality?.errors) ?? 0,
+    subtitleWarnings: readFiniteNumber(report.subtitleQuality?.warnings) ?? 0,
+    visualErrors: readFiniteNumber(report.visualQuality?.errors) ?? 0,
+    visualWarnings: readFiniteNumber(report.visualQuality?.warnings) ?? 0,
+  }
+}
+
+function createEmptyRenderSummary(): RenderSummary {
+  return {
+    audioInputs: 0,
+    audioQualityErrors: 0,
+    audioQualityWarnings: 0,
+    audioWarnings: 0,
+    missingVoiceovers: 0,
+    outputErrors: 0,
+    outputWarnings: 0,
+    rendered: false,
+    subtitleErrors: 0,
+    subtitleWarnings: 0,
+    visualErrors: 0,
+    visualWarnings: 0,
+  }
+}
+
+function readArrayLength(value: unknown, field: string): number {
+  if (!isRecord(value) || !Array.isArray(value[field])) {
+    return 0
+  }
+
+  return value[field].length
+}
+
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function isQualitySummary(value: unknown): value is {errors: number; warnings: number} {
+  return isRecord(value) && typeof value.errors === 'number' && Number.isFinite(value.errors) && typeof value.warnings === 'number' && Number.isFinite(value.warnings)
+}
+
+function isQualityIssueLike(value: unknown): value is {severity: 'error' | 'warning'} {
+  return isRecord(value) && (value.severity === 'error' || value.severity === 'warning')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+interface PipelineEventLike {
+  stage?: unknown
+  time?: unknown
+  type?: unknown
+}
+
+interface QualityReportLike {
+  issues?: unknown[]
+  summary?: unknown
+}
+
+interface RenderOutputLike {
+  audioDiagnostics?: unknown
+  audioInputs?: unknown
+  audioQuality?: {
+    errors?: unknown
+    warnings?: unknown
+  }
+  outputPath?: unknown
+  outputQuality?: {
+    errors?: unknown
+    warnings?: unknown
+  }
+  renderer?: unknown
+  subtitleQuality?: {
+    errors?: unknown
+    warnings?: unknown
+  }
+  visualQuality?: {
+    errors?: unknown
+    warnings?: unknown
+  }
+}

@@ -1,0 +1,375 @@
+/* eslint-disable n/no-unsupported-features/node-builtins */
+import {expect} from 'chai'
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+
+import {createApiFetchHandler} from '../../../packages/api/src/server.js'
+import {JsonJobStore} from '../../../packages/db/src/job-store.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
+
+describe('api server handler', () => {
+  it('serves health, projects, status, events, and artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const health = await readJson<{ok: boolean}>(fetch, '/health')
+      const projects = await readJson<{projects: unknown[]}>(fetch, '/projects')
+      const status = await readJson<{projectId: string; summary: {providers: {total: number}; quality: {errors: number; issues: number; warnings: number}; render: {rendered: boolean}}}>(fetch, '/projects/demo/status')
+      const quality = await readJson<{ok: boolean; projectId: string}>(fetch, '/projects/demo/quality')
+      const events = await readJson<{events: unknown[]}>(fetch, '/projects/demo/events?kind=provider&role=asr')
+      const artifact = await readJson<{content: {version: number}}>(fetch, '/projects/demo/artifacts/media-info.json')
+
+      expect(health.ok).to.equal(true)
+      expect(projects.projects).to.have.length(1)
+      expect(status.projectId).to.equal('demo')
+      expect(status.summary.providers.total).to.equal(1)
+      expect(status.summary.quality).to.deep.equal({errors: 0, issues: 0, warnings: 0})
+      expect(status.summary.render.rendered).to.equal(false)
+      expect(quality.projectId).to.equal('demo')
+      expect(quality.ok).to.equal(false)
+      expect(events.events).to.have.length(1)
+      expect(artifact.content.version).to.equal(1)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns 404 for missing routes', async () => {
+    const fetch = createApiFetchHandler({workspaceDir: '/tmp/video-agent-api-missing'})
+    const response = await fetch(new Request('http://localhost/missing'))
+
+    expect(response.status).to.equal(404)
+  })
+
+  it('runs a project from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+    const inputPath = join(root, 'demo.mp4')
+
+    try {
+      await createApiProject(root, 'demo')
+      await writeRerunArtifacts(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{projectId: string; status: string}>(
+        fetch,
+        '/projects',
+        {
+          body: JSON.stringify({
+            fromStage: 'quality',
+            inputPath,
+            projectId: 'demo',
+          }),
+          method: 'POST',
+        },
+      )
+
+      expect(result.projectId).to.equal('demo')
+      expect(result.status).to.equal('completed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reruns an existing project from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await writeRerunArtifacts(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{projectId: string; status: string}>(
+        fetch,
+        '/projects/demo/rerun',
+        {
+          body: JSON.stringify({fromStage: 'quality'}),
+          method: 'POST',
+        },
+      )
+
+      expect(result.projectId).to.equal('demo')
+      expect(result.status).to.equal('completed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns a conflict for incomplete checkpoint reruns from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(
+        new Request('http://localhost/projects/demo/rerun', {
+          body: JSON.stringify({fromStage: 'quality'}),
+          method: 'POST',
+        }),
+      )
+      const result = (await response.json()) as {error: {changedArtifacts: string[]; fromStage: string; missingArtifacts: string[]; untrackedArtifacts: string[]}}
+
+      expect(response.status).to.equal(409)
+      expect(result.error.fromStage).to.equal('quality')
+      expect(result.error.missingArtifacts).to.include.members(['ingest-report.json', 'tts-segments.json'])
+      expect(result.error.changedArtifacts).to.deep.equal([])
+      expect(result.error.untrackedArtifacts).to.deep.equal([])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('renders a project from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await writeRerunArtifacts(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{projectId: string; renderer: string}>(
+        fetch,
+        '/projects/demo/render',
+        {
+          body: JSON.stringify({renderer: 'hyperframes'}),
+          method: 'POST',
+        },
+      )
+
+      expect(result.projectId).to.equal('demo')
+      expect(result.renderer).to.equal('hyperframes')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('verifies project artifacts from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await refreshArtifactManifest(join(root, 'projects', 'demo', 'artifacts'))
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{checked: number; ok: boolean}>(fetch, '/projects/demo/artifacts/verify')
+
+      expect(result.ok).to.equal(true)
+      expect(result.checked).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('inspects project audio from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{availableVoiceovers: number; missingVoiceovers: unknown[]; warnings: string[]}>(fetch, '/projects/demo/audio')
+
+      expect(result.availableVoiceovers).to.equal(0)
+      expect(result.missingVoiceovers).to.deep.equal([])
+      expect(result.warnings).to.deep.equal(['No usable audio inputs were found; render will be silent unless the source video already contains audio copied by ffmpeg.'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('exports a project from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+    const outputPath = join(root, 'exported.mp4')
+
+    try {
+      await createApiProject(root, 'demo')
+      await mkdir(join(root, 'projects', 'demo', 'renders'), {recursive: true})
+      await writeFile(join(root, 'projects', 'demo', 'renders', 'final.mp4'), 'video')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{format: string; outputPath: string}>(
+        fetch,
+        '/projects/demo/export',
+        {
+          body: JSON.stringify({outputPath}),
+          method: 'POST',
+        },
+      )
+
+      expect(result.format).to.equal('video')
+      expect(result.outputPath).to.equal(outputPath)
+      expect(await readFile(outputPath, 'utf8')).to.equal('video')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns a conflict when export quality gate fails from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await mkdir(join(root, 'projects', 'demo', 'renders'), {recursive: true})
+      await writeFile(join(root, 'projects', 'demo', 'renders', 'final.mp4'), 'video')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(
+        new Request('http://localhost/projects/demo/export', {
+          body: JSON.stringify({
+            requireQuality: true,
+          }),
+          method: 'POST',
+        }),
+      )
+      const result = (await response.json()) as {error: {quality: {ok: boolean}}}
+
+      expect(response.status).to.equal(409)
+      expect(result.error.quality.ok).to.equal(false)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+})
+
+interface TestRequestInit {
+  body?: string
+  method?: string
+}
+
+async function readJson<T>(fetch: (request: Request) => Promise<Response>, path: string, init?: TestRequestInit): Promise<T> {
+  const response = await fetch(new Request(`http://localhost${path}`, init))
+
+  expect(response.status).to.equal(200)
+
+  return (await response.json()) as T
+}
+
+async function createApiProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const inputPath = join(root, `${projectId}.mp4`)
+
+  await mkdir(artifactsDir, {recursive: true})
+  await writeFile(inputPath, 'placeholder')
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath,
+    projectId,
+    stages: ['ingest'],
+  })
+  await writeFile(
+    join(artifactsDir, 'media-info.json'),
+    `${JSON.stringify({
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-01-01T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    })}\n`,
+  )
+  await writeFile(join(artifactsDir, 'pipeline-events.jsonl'), `${JSON.stringify({projectId, stage: 'ingest', time: '2026-01-01T00:00:00.000Z', type: 'stage:start'})}\n`)
+  await writeFile(
+    join(artifactsDir, 'provider-calls.jsonl'),
+    `${JSON.stringify({
+      completedAt: '2026-01-01T00:00:01.000Z',
+      durationMs: 10,
+      input: {},
+      operation: 'transcribe',
+      output: {},
+      provider: 'mock',
+      role: 'asr',
+      startedAt: '2026-01-01T00:00:00.990Z',
+      status: 'succeeded',
+      version: 1,
+    })}\n`,
+  )
+}
+
+async function writeRerunArtifacts(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const inputPath = join(root, `${projectId}.mp4`)
+
+  await Promise.all([
+    writeFile(
+      join(artifactsDir, 'ingest-report.json'),
+      `${JSON.stringify({
+        artifacts: {},
+        completedAt: '2026-01-01T00:00:00.000Z',
+        inputPath,
+        stage: 'ingest',
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'scene-analysis.json'),
+      `${JSON.stringify([
+        {
+          description: 'scene',
+          evidence: [],
+          sceneId: 'scene-1',
+        },
+      ])}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'transcript.json'),
+      `${JSON.stringify({
+        segments: [],
+        text: 'transcript',
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'storyboard.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        scenes: [
+          {
+            duration: 1,
+            evidence: [],
+            id: 'scene-1',
+            start: 0,
+            visualStyle: 'documentary',
+          },
+        ],
+        targetPlatform: 'generic',
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'timeline.json'),
+      `${JSON.stringify({
+        duration: 1,
+        fps: 30,
+        items: [],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'narration.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        segments: [
+          {
+            duration: 1,
+            id: 'narration-1',
+            start: 0,
+            text: 'hello',
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'tts-segments.json'),
+      `${JSON.stringify([
+        {
+          duration: 1,
+          narrationId: 'narration-1',
+          path: 'tts/narration-1.wav',
+        },
+      ])}\n`,
+    ),
+  ])
+}

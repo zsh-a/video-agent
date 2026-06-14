@@ -56,7 +56,7 @@ packages/
     Stage interface, PipelineContext, event contract, sequential pipeline runner
 
   runtime/
-    Filesystem artifact store and pipeline event bus
+    Filesystem artifact store, pipeline event bus, workspace, config store, and JobRunner
 
   media/
     ffmpeg / ffprobe / process wrappers with Bun-first execution and Node fallback
@@ -64,14 +64,23 @@ packages/
   providers/
     ASR / VLM / TTS provider interfaces
 
+  renderer-ffmpeg/
+    First runnable renderer that emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
+
   renderer-hyperframes/
-    HyperFrames render plan compiler boundary
+    HyperFrames render plan and HTML project compiler boundary
+
+  api/
+    Fetch API handler for runtime state, project listing, status, events, artifact reads, render/export actions, and audio preflight diagnostics
+
+  mcp/
+    Stdio MCP adapter exposing runtime operations as agent-callable tools
 
   quality/
-    Timeline and artifact quality checks
+    Timeline, narration timing, TTS coverage, subtitle, rendered media, audio loudness, and artifact quality checks
 
   db/
-    Persistence records; later replaced or backed by Drizzle + bun:sqlite
+    Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
 The existing root oclif CLI remains the first adapter during the initial scaffold. A later migration can move it into `apps/cli` when the core commands are ready.
@@ -91,7 +100,7 @@ adapters/
   mcp/
 ```
 
-These folders should call `@video-agent/core` and `@video-agent/runtime` instead of duplicating workflow behavior.
+These folders should call `@video-agent/core` and `@video-agent/runtime` instead of duplicating workflow behavior. The first MCP adapter currently lives in `packages/mcp` and can later move under `adapters/mcp` if the repository is reorganized around app packages.
 
 ## Pipeline Stages
 
@@ -117,13 +126,13 @@ render
   render through HyperFrames or ffmpeg
 
 quality
-  inspect timeline bounds, subtitles, loudness, visual smoke checks
+  inspect timeline bounds, narration timing, TTS coverage, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
 
 export
-  write final video, artifacts, optional Jianying draft
+  copy final video, HyperFrames render directory, or project bundle to a user-selected path
 ```
 
-Each stage accepts typed input, writes artifacts, emits events, and returns typed output. Stage outputs should be serializable so runs can resume from checkpoint artifacts.
+Each stage accepts typed input, writes artifacts, emits events, and returns typed output. Stage outputs should be serializable so runs can resume from checkpoint artifacts. The current `JobRunner` runs the initial chain: ingest -> understand -> plan -> script -> voiceover -> quality. CLI runs can resume from a later stage with `run --from-stage` when required artifacts already exist, or with `rerun <projectId> --from-stage` to reuse the input path stored in `job-state.json`. Before resuming, the runtime validates the upstream artifact set for the requested checkpoint and fails without mutating job state when artifacts are missing, changed, or untracked by the artifact manifest. Runtime adapters can use the project quality aggregate to combine pipeline checks, render diagnostics, and artifact integrity into a single deliverability report.
 
 ## IR Contracts
 
@@ -179,9 +188,8 @@ Concrete providers can wrap remote APIs or local services. Local model inference
 
 ## Near-Term Roadmap
 
-1. Replace demo `hello` commands with `run`, `inspect`, and `render` commands.
-2. Add a `Workspace` object that creates project folders and checkpoint files.
-3. Implement `ffprobe` media probing and persist `media-info.json`.
-4. Add first stage chain: ingest -> plan -> render placeholder.
-5. Add Clack prompts for `init` / `config`.
-6. Add TUI only after pipeline events and artifact review are stable.
+1. Improve clip selection and source-range planning.
+2. Add Clack prompts for provider `config`.
+3. Replace mock ASR/VLM/TTS providers with real provider adapters behind the existing config contract.
+4. Add worker-oriented retry scheduling over the configurable `JobStore`.
+5. Expand MCP/client integration examples and future TUI surfaces.

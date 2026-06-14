@@ -1,1 +1,6 @@
+export * from './audio-loudness.js'
+export * from './narration.js'
+export * from './rendered-media.js'
+export * from './subtitles.js'
 export * from './timeline.js'
+export * from './visual-smoke.js'

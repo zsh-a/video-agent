@@ -10,6 +10,12 @@
   "include": ["src/**/*"],
   "references": [
     {"path": "../core"},
-    {"path": "../ir"}
+    {"path": "../db"},
+    {"path": "../ir"},
+    {"path": "../media"},
+    {"path": "../providers"},
+    {"path": "../quality"},
+    {"path": "../renderer-ffmpeg"},
+    {"path": "../renderer-hyperframes"}
   ]
 }

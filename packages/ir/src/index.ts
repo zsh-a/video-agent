@@ -1,4 +1,5 @@
 export * from './job.js'
+export * from './media.js'
 export * from './narration.js'
 export * from './storyboard.js'
 export * from './timeline.js'

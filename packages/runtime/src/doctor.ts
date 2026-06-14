@@ -1,0 +1,293 @@
+import {runProcess} from '@video-agent/media'
+import {mkdir, unlink, writeFile} from 'node:fs/promises'
+import {resolve} from 'node:path'
+
+import {type AgentConfig, readConfig, resolveConfigPath} from './config.js'
+import {listProjects} from './projects.js'
+
+export type HealthCheckStatus = 'fail' | 'pass' | 'warn'
+
+export interface HealthCheck {
+  details?: Record<string, unknown>
+  message: string
+  name: string
+  status: HealthCheckStatus
+}
+
+export interface RuntimeHealthOptions {
+  binaries?: {
+    ffmpeg?: string
+    ffprobe?: string
+  }
+  workspaceDir?: string
+}
+
+export interface RuntimeHealthReport {
+  checks: HealthCheck[]
+  configPath: string
+  ok: boolean
+  workspaceDir: string
+}
+
+export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Promise<RuntimeHealthReport> {
+  const workspaceDir = resolve(options.workspaceDir ?? '.video-agent')
+  const checks: HealthCheck[] = [
+    checkBunRuntime(),
+    await checkWorkspaceAccess(workspaceDir),
+    await checkConfig(workspaceDir),
+    ...(await checkProviderConfig(workspaceDir)),
+    await checkProjectListing(workspaceDir),
+    await checkBinary('ffmpeg', options.binaries?.ffmpeg ?? 'ffmpeg'),
+    await checkBinary('ffprobe', options.binaries?.ffprobe ?? 'ffprobe'),
+  ]
+
+  return {
+    checks,
+    configPath: resolveConfigPath(workspaceDir),
+    ok: checks.every((check) => check.status !== 'fail'),
+    workspaceDir,
+  }
+}
+
+async function checkProviderConfig(workspaceDir: string): Promise<HealthCheck[]> {
+  try {
+    const config = await readConfig(workspaceDir)
+
+    return [
+      checkProviderRole('asr', config),
+      checkProviderRole('vlm', config),
+      checkProviderRole('tts', config),
+    ]
+  } catch (error) {
+    return [
+      {
+        message: error instanceof Error ? error.message : String(error),
+        name: 'provider:config',
+        status: 'fail',
+      },
+    ]
+  }
+}
+
+function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig): HealthCheck {
+  const provider = config.providers[role]
+
+  if (provider === 'mock') {
+    return {
+      details: {provider},
+      message: `${role} provider is mock`,
+      name: `provider:${role}`,
+      status: 'pass',
+    }
+  }
+
+  if (provider === 'command') {
+    return checkCommandProvider(role)
+  }
+
+  if (provider === 'http') {
+    return checkHttpProvider(role)
+  }
+
+  return {
+    details: {provider},
+    message: `Unsupported ${role} provider: ${provider}`,
+    name: `provider:${role}`,
+    status: 'fail',
+  }
+}
+
+function checkHttpProvider(role: 'asr' | 'tts' | 'vlm'): HealthCheck {
+  const envName = `VIDEO_AGENT_${role.toUpperCase()}_URL`
+  const value = process.env[envName]
+
+  if (value === undefined || value.trim() === '') {
+    return {
+      details: {env: envName, provider: 'http'},
+      message: `${envName} is required for http provider`,
+      name: `provider:${role}`,
+      status: 'fail',
+    }
+  }
+
+  try {
+    const url = new URL(value)
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return {
+        details: {env: envName, provider: 'http', url: value},
+        message: `${envName} must be an http or https URL`,
+        name: `provider:${role}`,
+        status: 'fail',
+      }
+    }
+
+    return {
+      details: {env: envName, provider: 'http', url: value},
+      message: `${envName} is configured`,
+      name: `provider:${role}`,
+      status: 'pass',
+    }
+  } catch (error) {
+    return {
+      details: {env: envName, provider: 'http'},
+      message: `${envName} is not a valid URL: ${error instanceof Error ? error.message : String(error)}`,
+      name: `provider:${role}`,
+      status: 'fail',
+    }
+  }
+}
+
+function checkCommandProvider(role: 'asr' | 'tts' | 'vlm'): HealthCheck {
+  const envName = `VIDEO_AGENT_${role.toUpperCase()}_COMMAND`
+  const value = process.env[envName]
+
+  if (value === undefined || value.trim() === '') {
+    return {
+      details: {env: envName, provider: 'command'},
+      message: `${envName} is required for command provider`,
+      name: `provider:${role}`,
+      status: 'fail',
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== 'string' || part.length === 0)) {
+      return {
+        details: {env: envName, provider: 'command'},
+        message: `${envName} must be a non-empty JSON array of strings`,
+        name: `provider:${role}`,
+        status: 'fail',
+      }
+    }
+
+    return {
+      details: {command: parsed, env: envName, provider: 'command'},
+      message: `${envName} is configured`,
+      name: `provider:${role}`,
+      status: 'pass',
+    }
+  } catch (error) {
+    return {
+      details: {env: envName, provider: 'command'},
+      message: `${envName} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      name: `provider:${role}`,
+      status: 'fail',
+    }
+  }
+}
+
+function checkBunRuntime(): HealthCheck {
+  const bun = (globalThis as typeof globalThis & {Bun?: {version?: string}}).Bun
+
+  if (bun?.version !== undefined) {
+    return {
+      details: {version: bun.version},
+      message: `Bun ${bun.version}`,
+      name: 'bun',
+      status: 'pass',
+    }
+  }
+
+  return {
+    details: {node: process.version},
+    message: `Running on Node fallback (${process.version})`,
+    name: 'bun',
+    status: 'warn',
+  }
+}
+
+async function checkWorkspaceAccess(workspaceDir: string): Promise<HealthCheck> {
+  const checkPath = resolve(workspaceDir, '.doctor-write-check')
+
+  try {
+    await mkdir(workspaceDir, {recursive: true})
+    await writeFile(checkPath, 'ok\n')
+    await unlink(checkPath)
+
+    return {
+      message: 'Workspace is writable',
+      name: 'workspace',
+      status: 'pass',
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      name: 'workspace',
+      status: 'fail',
+    }
+  }
+}
+
+async function checkConfig(workspaceDir: string): Promise<HealthCheck> {
+  try {
+    const config = await readConfig(workspaceDir)
+
+    return {
+      details: {providers: config.providers, version: config.version},
+      message: 'Configuration is readable',
+      name: 'config',
+      status: 'pass',
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      name: 'config',
+      status: 'fail',
+    }
+  }
+}
+
+async function checkProjectListing(workspaceDir: string): Promise<HealthCheck> {
+  try {
+    const projects = await listProjects(workspaceDir)
+
+    return {
+      details: {count: projects.length},
+      message: `${projects.length} project${projects.length === 1 ? '' : 's'} found`,
+      name: 'projects',
+      status: 'pass',
+    }
+  } catch (error) {
+    return {
+      message: error instanceof Error ? error.message : String(error),
+      name: 'projects',
+      status: 'fail',
+    }
+  }
+}
+
+async function checkBinary(name: string, command: string): Promise<HealthCheck> {
+  try {
+    const result = await runProcess([command, '-version'])
+
+    if (result.code === 0) {
+      return {
+        details: {command, version: firstLine(result.stdout || result.stderr)},
+        message: `${name} is available`,
+        name,
+        status: 'pass',
+      }
+    }
+
+    return {
+      details: {command},
+      message: firstLine(result.stderr) || `${name} exited with code ${result.code}`,
+      name,
+      status: 'fail',
+    }
+  } catch (error) {
+    return {
+      details: {command},
+      message: error instanceof Error ? error.message : String(error),
+      name,
+      status: 'fail',
+    }
+  }
+}
+
+function firstLine(value: string): string {
+  return value.split(/\r?\n/, 1)[0] ?? ''
+}
