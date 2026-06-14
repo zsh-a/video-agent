@@ -770,6 +770,22 @@ function renderStudioHtml(): string {
         </table>
       </div>
       <div class="panel">
+        <h2>Render Quality</h2>
+        <p class="summary-line" id="render-quality-summary">No render quality report.</p>
+        <table>
+          <thead><tr><th>Area</th><th>Severity</th><th>Code</th><th>Message</th></tr></thead>
+          <tbody id="render-quality-issues"></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>Artifact Integrity</h2>
+        <p class="summary-line" id="artifact-integrity-summary">No artifact integrity report.</p>
+        <table>
+          <thead><tr><th>Status</th><th>Name</th><th>Detail</th></tr></thead>
+          <tbody id="artifact-integrity-issues"></tbody>
+        </table>
+      </div>
+      <div class="panel">
         <h2>Recent Events</h2>
         <table>
           <thead><tr><th>Time</th><th>Kind</th><th>Detail</th></tr></thead>
@@ -873,6 +889,50 @@ function renderStudioHtml(): string {
       row.append(severity, code, message);
       return row;
     };
+    const qualityIssueRow = (area, issue) => {
+      const row = document.createElement("tr");
+      const areaCell = document.createElement("td");
+      areaCell.textContent = area;
+      const severity = document.createElement("td");
+      severity.append(severityBadge(issue.severity ?? "warning"));
+      const code = document.createElement("td");
+      code.textContent = text(issue.code);
+      const message = document.createElement("td");
+      message.textContent = text(issue.message);
+      row.append(areaCell, severity, code, message);
+      return row;
+    };
+    const qualityCount = (quality) => quality === undefined ? "not checked" : quality.errors + " errors, " + quality.warnings + " warnings";
+    const renderQualityRows = (renderOutput) => {
+      const sections = [
+        ["Output", renderOutput?.outputQuality],
+        ["Audio", renderOutput?.audioQuality],
+        ["Subtitles", renderOutput?.subtitleQuality],
+        ["Visual", renderOutput?.visualQuality],
+      ];
+      const rows = sections.flatMap(([area, quality]) => Array.isArray(quality?.issues) ? quality.issues.map((issue) => qualityIssueRow(area, issue)) : []);
+      for (const warning of renderOutput?.audioDiagnostics?.warnings ?? []) {
+        rows.push(qualityIssueRow("Audio", {code: "audio.diagnostic.warning", message: warning, severity: "warning"}));
+      }
+      for (const missing of renderOutput?.audioDiagnostics?.missingVoiceovers ?? []) {
+        rows.push(qualityIssueRow("Audio", {code: "audio.voiceover.missing", message: "Missing voiceover " + text(missing.narrationId ?? missing.index), severity: "warning"}));
+      }
+      return rows;
+    };
+    const renderRenderQuality = (renderOutput) => {
+      if (renderOutput === undefined) {
+        byId("render-quality-summary").textContent = "No render quality report.";
+        setRows("render-quality-issues", [], 4);
+        return;
+      }
+      byId("render-quality-summary").textContent = [
+        "output " + qualityCount(renderOutput.outputQuality),
+        "audio " + qualityCount(renderOutput.audioQuality),
+        "subtitles " + qualityCount(renderOutput.subtitleQuality),
+        "visual " + qualityCount(renderOutput.visualQuality),
+      ].join(" | ");
+      setRows("render-quality-issues", renderQualityRows(renderOutput), 4);
+    };
     const renderTemplateQuality = (renderOutput) => {
       const quality = renderOutput?.templateQuality;
       if (quality === undefined) {
@@ -883,16 +943,50 @@ function renderStudioHtml(): string {
       byId("template-summary").textContent = (quality.ok ? "ok" : "needs attention") + " - " + quality.errors + " errors, " + quality.warnings + " warnings";
       setRows("template-issues", Array.isArray(quality.issues) ? quality.issues.map((issue) => issueRow(issue)) : [], 3);
     };
-    const loadTemplateQuality = async (artifacts) => {
+    const loadRenderDiagnostics = async (artifacts) => {
       if (!artifacts.some((artifact) => artifact.name === "render-output.json")) {
         renderTemplateQuality(undefined);
+        renderRenderQuality(undefined);
         return;
       }
       try {
         const renderOutput = await api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts/render-output.json");
         renderTemplateQuality(renderOutput.content);
+        renderRenderQuality(renderOutput.content);
       } catch {
         renderTemplateQuality(undefined);
+        renderRenderQuality(undefined);
+      }
+    };
+    const integrityRow = (status, name, detail) => {
+      const row = document.createElement("tr");
+      const statusCell = document.createElement("td");
+      statusCell.textContent = status;
+      const nameCell = document.createElement("td");
+      nameCell.textContent = text(name);
+      const detailCell = document.createElement("td");
+      detailCell.textContent = text(detail);
+      row.append(statusCell, nameCell, detailCell);
+      return row;
+    };
+    const renderArtifactIntegrity = (integrity) => {
+      if (integrity === undefined) {
+        byId("artifact-integrity-summary").textContent = "No artifact integrity report.";
+        setRows("artifact-integrity-issues", [], 3);
+        return;
+      }
+      byId("artifact-integrity-summary").textContent = (integrity.ok ? "ok" : "needs attention") + " - " + integrity.checked + " checked, " + integrity.missing.length + " missing, " + integrity.changed.length + " changed, " + integrity.untracked.length + " untracked";
+      setRows("artifact-integrity-issues", [
+        ...integrity.missing.map((issue) => integrityRow("missing", issue.name, issue.reason)),
+        ...integrity.changed.map((issue) => integrityRow("changed", issue.name, "size " + issue.expectedSize + " -> " + issue.actualSize)),
+        ...integrity.untracked.map((name) => integrityRow("untracked", name, "not present in artifact-manifest.json")),
+      ], 3);
+    };
+    const loadArtifactIntegrity = async () => {
+      try {
+        renderArtifactIntegrity(await api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts/verify"));
+      } catch {
+        renderArtifactIntegrity(undefined);
       }
     };
     const defaultRerunStage = (stages) => {
@@ -956,6 +1050,8 @@ function renderStudioHtml(): string {
         byId("artifact-preview").textContent = "Select an artifact to preview.";
         renderVisualSamples([]);
         renderTemplateQuality(undefined);
+        renderRenderQuality(undefined);
+        renderArtifactIntegrity(undefined);
         return;
       }
       actionButtons.forEach((button) => { button.disabled = false; });
@@ -972,7 +1068,10 @@ function renderStudioHtml(): string {
       setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => artifactRow(artifact)), 4);
       setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
       byId("artifact-preview").textContent = "Select an artifact to preview.";
-      await loadTemplateQuality(artifacts.artifacts);
+      await Promise.all([
+        loadRenderDiagnostics(artifacts.artifacts),
+        loadArtifactIntegrity(),
+      ]);
       try {
         const visual = await api("/projects/" + encodeURIComponent(state.projectId) + "/visual?includeContent=true");
         renderVisualSamples(visual.samples);
