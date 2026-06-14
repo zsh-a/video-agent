@@ -553,6 +553,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - ffmpeg / ffprobe wrapper
 - `inspect` 命令：probe 媒体并写 `media-info.json`
 - `doctor` 命令：检查 Bun/Node fallback、workspace、配置、项目索引、`ffmpeg` 和 `ffprobe`
+- doctor exit codes：当 runtime、provider env 或媒体工具检查失败时，`doctor` / `init` 会先输出报告再以非零状态退出
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`
 - `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且不泄露 secret 值
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息

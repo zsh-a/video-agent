@@ -28,6 +28,7 @@ export default class Init extends Command {
 
     if (flags.json) {
       this.log(JSON.stringify(output, null, 2))
+      exitIfUnhealthy(this, report.ok)
       return
     }
 
@@ -37,5 +38,13 @@ export default class Init extends Command {
     for (const check of report.checks) {
       this.log(`${check.name}: ${check.status}${check.message === '' ? '' : ` - ${check.message}`}`)
     }
+
+    exitIfUnhealthy(this, report.ok)
+  }
+}
+
+function exitIfUnhealthy(command: Command, ok: boolean): void {
+  if (!ok) {
+    command.exit(1)
   }
 }

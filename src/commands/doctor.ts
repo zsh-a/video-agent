@@ -14,6 +14,7 @@ export default class Doctor extends Command {
 
     if (flags.json) {
       this.log(JSON.stringify(report, null, 2))
+      exitIfUnhealthy(this, report.ok)
       return
     }
 
@@ -24,6 +25,8 @@ export default class Doctor extends Command {
     for (const check of report.checks) {
       this.log(formatCheck(check))
     }
+
+    exitIfUnhealthy(this, report.ok)
   }
 }
 
@@ -31,4 +34,10 @@ function formatCheck(check: HealthCheck): string {
   const marker = check.status === 'pass' ? 'ok' : check.status
 
   return `${check.name}: ${marker} - ${check.message}`
+}
+
+function exitIfUnhealthy(command: Command, ok: boolean): void {
+  if (!ok) {
+    command.exit(1)
+  }
 }

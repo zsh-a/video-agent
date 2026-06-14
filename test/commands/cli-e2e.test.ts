@@ -81,6 +81,21 @@ describe('cli end-to-end workflow', () => {
       expect(doctor.workspaceDir).to.equal(workspaceDir)
       expect(doctor.checks.find((check) => check.name === 'workspace')?.status).to.equal('pass')
       expect(doctor.checks.find((check) => check.name === 'config')?.status).to.equal('pass')
+
+      await runCliJson(['config', '--asr', 'command', '--workspace', workspaceDir, '--json'])
+
+      const failedDoctor = await runCli(['doctor', '--workspace', workspaceDir, '--json'])
+      const failedReport = JSON.parse(failedDoctor.stdout) as {
+        checks: Array<{message: string; name: string; status: string}>
+        ok: boolean
+      }
+
+      expect(failedDoctor.code).to.equal(1)
+      expect(failedReport.ok).to.equal(false)
+      expect(failedReport.checks.find((check) => check.name === 'provider:asr')).to.include({
+        status: 'fail',
+      })
+      expect(failedReport.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('VIDEO_AGENT_ASR_COMMAND')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -192,6 +207,13 @@ async function runCliJson<T>(args: string[]): Promise<T> {
   const result = await expectCommand(['bun', './bin/dev.js', ...args])
 
   return JSON.parse(result.stdout) as T
+}
+
+async function runCli(args: string[]): Promise<{code: number; stderr: string; stdout: string}> {
+  return runProcess(['bun', './bin/dev.js', ...args], {
+    cwd: process.cwd(),
+    preferBun: false,
+  })
 }
 
 async function expectCommand(command: string[]): Promise<{stderr: string; stdout: string}> {
