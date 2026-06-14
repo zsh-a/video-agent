@@ -1,12 +1,13 @@
 import {expect} from 'chai'
 
-import type {ClipPlanItem, NarrationSegment, TimelineItem} from '../../../packages/ir/src/index.js'
+import type {ClipPlanItem, NarrationSegment, StoryboardScene, TimelineItem} from '../../../packages/ir/src/index.js'
 
 import {
   createClipPlan,
   createNarrationFromClipPlan,
   createPlaceholderStoryboard,
   createPlaceholderTimeline,
+  createStoryboardFromProviderInsights,
   createTimelineFromClipPlan,
 } from '../../../packages/core/src/placeholders.js'
 
@@ -42,6 +43,100 @@ describe('placeholder IR', () => {
       duration: 12.5,
       source: '/tmp/input.mp4',
       track: 'video',
+    })
+  })
+
+  it('creates storyboard scenes from transcript segments and visual analysis', () => {
+    const storyboard = createStoryboardFromProviderInsights(mediaInfo, {
+      sceneAnalysis: [
+        {
+          description: 'A wide establishing shot.',
+          evidence: ['frame_00001.jpg'],
+          sceneId: 'scene-1',
+        },
+        {
+          description: 'A detail shot of the subject.',
+          evidence: ['frame_00006.jpg'],
+          sceneId: 'scene-2',
+        },
+      ],
+      transcript: {
+        language: 'en',
+        segments: [
+          {
+            end: 5,
+            start: 0,
+            text: 'Opening narration.',
+          },
+          {
+            end: 12.5,
+            start: 5,
+            text: 'Second beat narration.',
+          },
+        ],
+        text: 'Opening narration. Second beat narration.',
+      },
+    })
+
+    expect(storyboard.language).to.equal('en')
+    expect(storyboard.scenes).to.have.length(2)
+    expect(storyboard.scenes.map((scene: StoryboardScene) => ({
+      duration: scene.duration,
+      narration: scene.narration,
+      start: scene.start,
+    }))).to.deep.equal([
+      {
+        duration: 5,
+        narration: 'Opening narration.',
+        start: 0,
+      },
+      {
+        duration: 7.5,
+        narration: 'Second beat narration.',
+        start: 5,
+      },
+    ])
+    expect(storyboard.scenes[0].evidence).to.deep.equal([
+      {
+        ref: 'transcript.json',
+        text: 'Opening narration.',
+        type: 'asr',
+      },
+      {
+        ref: 'scene-analysis.json',
+        text: 'A wide establishing shot.',
+        type: 'vlm',
+      },
+    ])
+  })
+
+  it('falls back to one full-duration storyboard scene when transcript segments have no duration', () => {
+    const storyboard = createStoryboardFromProviderInsights(mediaInfo, {
+      sceneAnalysis: [
+        {
+          description: 'Fallback visual description.',
+          evidence: [],
+          sceneId: 'scene-1',
+        },
+      ],
+      transcript: {
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 0,
+            start: 0,
+            text: 'Zero-length transcript segment.',
+          },
+        ],
+        text: 'Whole clip narration.',
+      },
+    })
+
+    expect(storyboard.scenes).to.have.length(1)
+    expect(storyboard.scenes[0]).to.include({
+      duration: 12.5,
+      narration: 'Whole clip narration.',
+      start: 0,
     })
   })
 

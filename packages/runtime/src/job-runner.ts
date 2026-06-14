@@ -3,7 +3,7 @@ import type {JobStore} from '@video-agent/db'
 import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {createClipPlan, createNarrationFromClipPlan, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
+import {createClipPlan, createNarrationFromClipPlan, createStoryboardFromProviderInsights, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
@@ -338,28 +338,10 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'plan',
     async run(input) {
       const understood = input as UnderstandOutput
-      const storyboard = createPlaceholderStoryboard(understood.mediaInfo)
-      const sceneAnalysis = understood.sceneAnalysis[0]
-
-      storyboard.scenes = storyboard.scenes.map((scene) => ({
-        ...scene,
-        evidence: [
-          {
-            ref: 'transcript.json',
-            text: understood.transcript.text,
-            type: 'asr',
-          },
-          ...(sceneAnalysis === undefined
-            ? []
-            : [
-                {
-                  ref: 'scene-analysis.json',
-                  text: sceneAnalysis.description,
-                  type: 'vlm' as const,
-                },
-          ]),
-        ],
-      }))
+      const storyboard = createStoryboardFromProviderInsights(understood.mediaInfo, {
+        sceneAnalysis: understood.sceneAnalysis,
+        transcript: understood.transcript,
+      })
       const clipPlan = ClipPlanSchema.parse(createClipPlan(storyboard, understood.mediaInfo))
       const timeline = TimelineSchema.parse(createTimelineFromClipPlan(understood.mediaInfo, clipPlan))
 
