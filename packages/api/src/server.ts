@@ -7,6 +7,7 @@ import {
   listProjectArtifacts,
   listProjects,
   PipelineCheckpointError,
+  readConfig,
   readProjectArtifact,
   readProjectEvents,
   readProjectQuality,
@@ -70,6 +71,14 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse(await readProviderEnvironment(workspaceDir))
+  }
+
+  if (segments.length === 1 && segments[0] === 'config') {
+    if (request.method !== 'GET') {
+      return methodNotAllowed()
+    }
+
+    return jsonResponse(await readConfig(workspaceDir))
   }
 
   if (segments.length === 1 && segments[0] === 'studio') {
@@ -729,6 +738,28 @@ function renderStudioHtml(): string {
           <p class="metric" id="render">none</p>
         </div>
       </div>
+      <div class="grid">
+        <div class="panel">
+          <h2>Providers</h2>
+          <p class="summary-line" id="provider-summary">Loading providers.</p>
+          <table>
+            <thead><tr><th>Role</th><th>Provider</th><th>Required Env</th></tr></thead>
+            <tbody id="providers"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h2>Runtime Config</h2>
+          <p class="summary-line" id="config-summary">Loading config.</p>
+          <table>
+            <thead><tr><th>Key</th><th>Value</th></tr></thead>
+            <tbody id="config"></tbody>
+          </table>
+        </div>
+        <div class="panel">
+          <h2>Workspace</h2>
+          <p class="summary-line" id="workspace-summary">Loading workspace.</p>
+        </div>
+      </div>
       <div class="panel">
         <h2>Actions</h2>
         <div class="actions">
@@ -826,6 +857,26 @@ function renderStudioHtml(): string {
         row.append(cell);
       }
       return row;
+    };
+    const renderProviderEnvironment = (report) => {
+      const missingRequired = report.providers.reduce((count, provider) => count + provider.requirements.filter((requirement) => requirement.required && !requirement.configured).length, 0);
+      byId("provider-summary").textContent = missingRequired + " required env missing";
+      setRows("providers", report.providers.map((provider) => tableRow([
+        provider.role,
+        provider.provider,
+        provider.requirements.filter((requirement) => requirement.required).map((requirement) => requirement.env + "=" + (requirement.configured ? "set" : "missing")).join(", ") || "none",
+      ])), 3);
+    };
+    const renderConfig = (config) => {
+      byId("config-summary").textContent = "job store " + config.persistence.jobStore + " | retries " + config.pipeline.maxStageRetries;
+      setRows("config", [
+        tableRow(["providers.asr", config.providers.asr]),
+        tableRow(["providers.vlm", config.providers.vlm]),
+        tableRow(["providers.tts", config.providers.tts]),
+        tableRow(["persistence.jobStore", config.persistence.jobStore]),
+        tableRow(["pipeline.maxStageRetries", config.pipeline.maxStageRetries]),
+        tableRow(["pipeline.retryBackoffMs", config.pipeline.retryBackoffMs]),
+      ], 2);
     };
     const artifactRow = (artifact) => {
       const row = tableRow([artifact.name, artifact.kind, artifact.size]);
@@ -1091,9 +1142,16 @@ function renderStudioHtml(): string {
       }
     };
     const load = async () => {
-      const health = await api("/health");
+      const [health, providerEnv, config, projects] = await Promise.all([
+        api("/health"),
+        api("/provider-env"),
+        api("/config"),
+        api("/projects"),
+      ]);
       byId("workspace").textContent = health.workspaceDir;
-      const projects = await api("/projects");
+      byId("workspace-summary").textContent = health.workspaceDir;
+      renderProviderEnvironment(providerEnv);
+      renderConfig(config);
       renderProjects(projects.projects);
       await renderSelected();
     };
