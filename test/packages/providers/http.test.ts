@@ -7,11 +7,17 @@ import {HttpASRProvider, HttpTTSProvider, HttpVLMProvider, readProviderMetadata}
 describe('http providers', () => {
   it('runs ASR over HTTP JSON payloads and preserves metadata', async () => {
     const provider = new HttpASRProvider({
-      fetch: jsonFetch((payload) => {
+      fetch: jsonFetch((payload, init) => {
         expect(payload).to.include({
           kind: 'asr',
           version: 1,
         })
+        expect(init.headers).to.include({
+          'content-type': 'application/json',
+          'x-video-agent-kind': 'asr',
+          'x-video-agent-version': '1',
+        })
+        expect(init.headers['x-video-agent-request-id']).to.match(/^http_/)
 
         return {
           data: {
@@ -66,12 +72,14 @@ describe('http providers', () => {
 
     expect(scenes[0].sceneId).to.equal('scene-1')
     expect(segments[0].path).to.equal('tts/narration-1.wav')
+    expect(readProviderMetadata(scenes)?.requestId).to.match(/^http_/)
+    expect(readProviderMetadata(segments)?.requestId).to.match(/^http_/)
   })
 })
 
-function jsonFetch(handler: (payload: Record<string, unknown>) => unknown): ProviderFetch {
+function jsonFetch(handler: (payload: Record<string, unknown>, init: Parameters<ProviderFetch>[1]) => unknown): ProviderFetch {
   return async (_url, init) => {
-    const result = handler(JSON.parse(init.body) as Record<string, unknown>)
+    const result = handler(JSON.parse(init.body) as Record<string, unknown>, init)
 
     return {
       async json() {
