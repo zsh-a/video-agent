@@ -98,6 +98,8 @@ bun run dev worker --dry-run
 bun run dev worker --status failed --limit 1
 bun run dev tui
 bun run dev tui --project <projectId> --watch
+bun run dev tui --project <projectId> --action rerun --from-stage script
+bun run dev tui --action worker --dry-run --status running
 bun run dev serve --workspace .video-agent --port 4317
 bun run dev mcp --workspace .video-agent
 bun run dev mcp --print-config
@@ -342,7 +344,7 @@ bun run dev rerun <projectId> --from-stage script
 
 `worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量。
 
-`tui` 会输出轻量终端 dashboard，复用 runtime 的 project/status/events/artifacts 接口展示当前 workspace、最近更新项目、stage 状态、质量摘要、render 摘要、artifact 列表和最近事件。默认渲染一次；需要持续刷新时可以传 `--watch`，也可以用 `--project <projectId>` 固定查看某个项目。
+`tui` 会输出轻量终端 dashboard，复用 runtime 的 project/status/events/artifacts 接口展示当前 workspace、最近更新项目、stage 状态、质量摘要、render 摘要、artifact 列表和最近事件。默认渲染一次；需要持续刷新时可以传 `--watch`，也可以用 `--project <projectId>` 固定查看某个项目。需要从 TUI 入口触发受控操作时，可以用 `--action rerun --from-stage <stage>` 重跑项目，或用 `--action worker --dry-run|--status|--limit` 恢复 workspace job。
 
 `serve` 会启动 Bun HTTP API server，暴露 runtime state、workflow actions 和本地 worker recovery：
 
@@ -489,7 +491,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复
-- `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact 和最近事件，并支持 watch 刷新
+- `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact 和最近事件，支持 watch 刷新，并可通过 action flag 触发 rerun 或 worker recovery
 - `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts、workflow actions 和 worker recovery
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数

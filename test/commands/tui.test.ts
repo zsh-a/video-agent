@@ -1,8 +1,27 @@
 import {expect} from 'chai'
 
-import {formatTuiSnapshot} from '../../src/commands/tui.js'
+import {formatTuiActionResult, formatTuiSnapshot} from '../../src/commands/tui.js'
 
 describe('tui command', () => {
+  it('formats dashboard actions without a banner', () => {
+    expect(formatTuiActionResult({type: 'dashboard'})).to.equal('')
+  })
+
+  it('formats rerun and worker action results', () => {
+    expect(formatTuiActionResult({
+      fromStage: 'script',
+      projectId: 'demo',
+      status: 'completed',
+      type: 'rerun',
+    })).to.equal('Action: rerun demo from script -> completed')
+    expect(formatTuiActionResult({
+      dryRun: true,
+      recovered: 0,
+      skipped: 1,
+      type: 'worker',
+    })).to.equal('Action: worker dry-run -> recovered 0, skipped 1')
+  })
+
   it('formats an empty workspace dashboard', () => {
     expect(formatTuiSnapshot({artifacts: [], events: [], projects: [], workspaceDir: '.video-agent'}, {artifactLimit: 8, eventLimit: 6})).to.equal([
       'Video Agent TUI',
