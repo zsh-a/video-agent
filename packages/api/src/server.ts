@@ -501,6 +501,12 @@ function renderStudioHtml(): string {
       background: #e8f2fb;
     }
 
+    button:disabled {
+      color: #8a96a3;
+      cursor: not-allowed;
+      background: #f1f3f5;
+    }
+
     main {
       display: grid;
       grid-template-columns: minmax(220px, 320px) 1fr;
@@ -558,6 +564,20 @@ function renderStudioHtml(): string {
       font-size: 24px;
       font-weight: 700;
       margin-top: 8px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .status-line {
+      min-height: 20px;
+      margin-top: 10px;
+      color: #42515f;
+      font-size: 13px;
+      overflow-wrap: anywhere;
     }
 
     table {
@@ -627,6 +647,15 @@ function renderStudioHtml(): string {
         </div>
       </div>
       <div class="panel">
+        <h2>Actions</h2>
+        <div class="actions">
+          <button id="render-action" type="button">Render</button>
+          <button id="export-action" type="button">Export</button>
+          <button id="worker-action" type="button">Worker dry-run</button>
+        </div>
+        <p class="status-line" id="action-status"></p>
+      </div>
+      <div class="panel">
         <h2>Pipeline</h2>
         <table>
           <thead><tr><th>Stage</th><th>Status</th><th>Attempt</th></tr></thead>
@@ -652,8 +681,8 @@ function renderStudioHtml(): string {
   <script type="module">
     const state = {projectId: undefined};
     const byId = (id) => document.getElementById(id);
-    const api = async (path) => {
-      const response = await fetch(path);
+    const api = async (path, options = {}) => {
+      const response = await fetch(path, options);
       if (!response.ok) throw new Error(await response.text());
       return response.json();
     };
@@ -711,15 +740,19 @@ function renderStudioHtml(): string {
       }
     };
     const renderSelected = async () => {
+      const actionButtons = [byId("render-action"), byId("export-action"), byId("worker-action")];
       if (state.projectId === undefined) {
         byId("status").textContent = "none";
         byId("quality").textContent = "none";
         byId("render").textContent = "none";
+        byId("action-status").textContent = "Select a project to run actions.";
+        actionButtons.forEach((button) => { button.disabled = true; });
         setRows("stages", [], 3);
         setRows("artifacts", [], 3);
         setRows("events", [], 3);
         return;
       }
+      actionButtons.forEach((button) => { button.disabled = false; });
       const [status, artifacts, events] = await Promise.all([
         api("/projects/" + encodeURIComponent(state.projectId) + "/status"),
         api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts"),
@@ -732,6 +765,17 @@ function renderStudioHtml(): string {
       setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => tableRow([artifact.name, artifact.kind, artifact.size])), 3);
       setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
     };
+    const runAction = async (label, action) => {
+      if (state.projectId === undefined) return;
+      byId("action-status").textContent = label + " running...";
+      try {
+        const result = await action();
+        byId("action-status").textContent = label + " complete: " + JSON.stringify(result);
+        await load();
+      } catch (error) {
+        byId("action-status").textContent = label + " failed: " + (error instanceof Error ? error.message : String(error));
+      }
+    };
     const load = async () => {
       const health = await api("/health");
       byId("workspace").textContent = health.workspaceDir;
@@ -740,6 +784,21 @@ function renderStudioHtml(): string {
       await renderSelected();
     };
     byId("refresh").addEventListener("click", () => void load());
+    byId("render-action").addEventListener("click", () => void runAction("Render", () => api("/projects/" + encodeURIComponent(state.projectId) + "/render", {
+      body: JSON.stringify({renderer: "ffmpeg"}),
+      headers: {"content-type": "application/json"},
+      method: "POST",
+    })));
+    byId("export-action").addEventListener("click", () => void runAction("Export", () => api("/projects/" + encodeURIComponent(state.projectId) + "/export", {
+      body: JSON.stringify({format: "video", requireQuality: true}),
+      headers: {"content-type": "application/json"},
+      method: "POST",
+    })));
+    byId("worker-action").addEventListener("click", () => void runAction("Worker dry-run", () => api("/worker", {
+      body: JSON.stringify({dryRun: true, orderBy: "oldest", runningStaleAfterMs: 60000, status: "active"}),
+      headers: {"content-type": "application/json"},
+      method: "POST",
+    })));
     void load();
   </script>
 </body>

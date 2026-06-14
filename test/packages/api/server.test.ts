@@ -58,6 +58,12 @@ describe('api server handler', () => {
     expect(html).to.include('api("/projects")')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/status')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/artifacts')
+    expect(html).to.include('id="render-action"')
+    expect(html).to.include('id="export-action"')
+    expect(html).to.include('id="worker-action"')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/render')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/export')
+    expect(html).to.include('api("/worker"')
   })
 
   it('rejects non-GET Web Studio requests', async () => {

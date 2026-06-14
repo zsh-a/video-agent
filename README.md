@@ -387,7 +387,7 @@ POST /projects/:projectId/render
 POST /projects/:projectId/export
 ```
 
-`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示项目列表、stage 状态、质量摘要、artifacts 和最近事件。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
+`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export 和 worker dry-run 操作按钮。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `mcp` 会启动 stdio MCP adapter，支持 `initialize`、`tools/list` 和 `tools/call`，工具直接复用 runtime API：
 
@@ -574,6 +574,6 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 
 1. 增加 Clack 交互式配置。
 2. 增加真实 ASR/VLM/TTS provider adapter。
-3. 扩展 Web Studio 的渲染/导出操作入口。
-4. 增加外部 agent 客户端实测记录。
-5. 扩展 Web Studio 的渲染/导出操作入口。
+3. 增加外部 agent 客户端实测记录。
+4. 扩展 Web Studio 的 artifact preview 和 visual sample 预览。
+5. 扩展更深的视觉烟测。
