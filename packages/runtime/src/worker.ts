@@ -1,7 +1,6 @@
 import type {JobRunStatus, JobStageState} from '@video-agent/db'
 
-import type {InitialPipelineStage, RunInitialPipelineResult} from './job-runner.js'
-
+import {assertCheckpointArtifacts, type InitialPipelineStage, PipelineCheckpointError, type RunInitialPipelineResult} from './job-runner.js'
 import {readProjectStatus} from './project-status.js'
 import {listProjects} from './projects.js'
 import {rerunProject} from './rerun.js'
@@ -26,13 +25,16 @@ export interface RecoverWorkspaceJobsReport {
 
 export interface RecoverWorkspaceJobResult {
   attempt?: number
+  changedArtifacts?: string[]
   error?: string
   fromStage?: InitialPipelineStage
   jobStatus?: JobRunStatus
+  missingArtifacts?: string[]
   projectId: string
   result?: RunInitialPipelineResult
-  skipReason?: 'attempt-limit' | 'limit' | 'not-recoverable' | 'running-active'
+  skipReason?: 'attempt-limit' | 'checkpoint-invalid' | 'limit' | 'not-recoverable' | 'running-active'
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
+  untrackedArtifacts?: string[]
   updatedAt?: string
 }
 
@@ -120,6 +122,24 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
       projectId,
       skipReason: 'attempt-limit',
       status: 'skipped',
+      updatedAt,
+    }
+  }
+
+  const checkpointIssue = await readCheckpointIssue(projectId, workspaceDir, stage.name)
+
+  if (checkpointIssue !== undefined) {
+    return {
+      attempt: stage.attempt,
+      changedArtifacts: checkpointIssue.changedArtifacts,
+      error: checkpointIssue.message,
+      fromStage: stage.name,
+      jobStatus,
+      missingArtifacts: checkpointIssue.missingArtifacts,
+      projectId,
+      skipReason: 'checkpoint-invalid',
+      status: 'skipped',
+      untrackedArtifacts: checkpointIssue.untrackedArtifacts,
       updatedAt,
     }
   }
@@ -222,6 +242,31 @@ async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWo
 
 function isInitialPipelineStage(value: string | undefined): value is InitialPipelineStage {
   return value !== undefined && STAGE_VALUES.has(value as InitialPipelineStage)
+}
+
+interface CheckpointIssue {
+  changedArtifacts: string[]
+  message: string
+  missingArtifacts: string[]
+  untrackedArtifacts: string[]
+}
+
+async function readCheckpointIssue(projectId: string, workspaceDir: string, fromStage: InitialPipelineStage): Promise<CheckpointIssue | undefined> {
+  try {
+    await assertCheckpointArtifacts(projectId, workspaceDir, fromStage)
+    return undefined
+  } catch (error) {
+    if (error instanceof PipelineCheckpointError) {
+      return {
+        changedArtifacts: error.changedArtifacts,
+        message: error.message,
+        missingArtifacts: error.missingArtifacts,
+        untrackedArtifacts: error.untrackedArtifacts,
+      }
+    }
+
+    throw error
+  }
 }
 
 function isRunningJobActive(updatedAt: string | undefined, runningStaleAfterMs: number | undefined): boolean {

@@ -160,6 +160,37 @@ describe('workspace worker recovery', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('skips recovery when checkpoint artifacts are incomplete', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo')
+      await rm(join(root, 'projects', 'demo', 'artifacts', 'tts-segments.json'), {force: true})
+
+      const report = await recoverWorkspaceJobs({
+        dryRun: true,
+        workspaceDir: root,
+      })
+
+      const result = report.results.find((item) => item.projectId === 'demo')
+
+      expect(report.recovered).to.equal(0)
+      expect(report.skipped).to.equal(1)
+      expect(result).to.include({
+        attempt: 1,
+        fromStage: 'quality',
+        jobStatus: 'failed',
+        projectId: 'demo',
+        skipReason: 'checkpoint-invalid',
+        status: 'skipped',
+      })
+      expect(result?.missingArtifacts).to.deep.equal(['tts-segments.json'])
+      expect(result?.error).to.include('Cannot resume from quality')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 interface CreateRecoverableProjectOptions {

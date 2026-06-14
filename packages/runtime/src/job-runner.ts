@@ -170,7 +170,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     workspaceDir: workspace.workspaceDir,
   })
 
-  await validateCheckpointArtifacts(workspace, fromStage)
+  await assertCheckpointArtifacts(workspace.projectId, workspace.workspaceDir, fromStage)
   await jobStore.initialize({
     inputPath,
     projectId: workspace.projectId,
@@ -506,7 +506,11 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
   }
 }
 
-async function validateCheckpointArtifacts(workspace: ProjectWorkspace, fromStage: InitialPipelineStage): Promise<void> {
+export async function assertCheckpointArtifacts(projectId: string, workspaceDir: string, fromStage: InitialPipelineStage): Promise<void> {
+  const workspace = await createProjectWorkspace({
+    projectId,
+    workspaceDir,
+  })
   const requiredArtifacts = CHECKPOINT_ARTIFACTS_BY_STAGE[fromStage]
 
   if (requiredArtifacts.length === 0) {
