@@ -599,6 +599,33 @@ function renderStudioHtml(): string {
       overflow-wrap: anywhere;
     }
 
+    .summary-line {
+      margin-top: 8px;
+      color: #42515f;
+      font-size: 13px;
+    }
+
+    .severity {
+      border-radius: 999px;
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      min-width: 58px;
+      padding: 2px 7px;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .severity--error {
+      background: #fde8e8;
+      color: #a61b1b;
+    }
+
+    .severity--warning {
+      background: #fff4d6;
+      color: #8a5a00;
+    }
+
     .preview {
       max-height: 260px;
       overflow: auto;
@@ -735,6 +762,14 @@ function renderStudioHtml(): string {
         <div class="sample-grid" id="visual-samples"></div>
       </div>
       <div class="panel">
+        <h2>Template Quality</h2>
+        <p class="summary-line" id="template-summary">No template quality report.</p>
+        <table>
+          <thead><tr><th>Severity</th><th>Code</th><th>Message</th></tr></thead>
+          <tbody id="template-issues"></tbody>
+        </table>
+      </div>
+      <div class="panel">
         <h2>Recent Events</h2>
         <table>
           <thead><tr><th>Time</th><th>Kind</th><th>Detail</th></tr></thead>
@@ -821,6 +856,45 @@ function renderStudioHtml(): string {
         target.append(card);
       }
     };
+    const severityBadge = (severity) => {
+      const badge = document.createElement("span");
+      badge.className = "severity severity--" + severity;
+      badge.textContent = severity;
+      return badge;
+    };
+    const issueRow = (issue) => {
+      const row = document.createElement("tr");
+      const severity = document.createElement("td");
+      severity.append(severityBadge(issue.severity ?? "warning"));
+      const code = document.createElement("td");
+      code.textContent = text(issue.code);
+      const message = document.createElement("td");
+      message.textContent = text(issue.message);
+      row.append(severity, code, message);
+      return row;
+    };
+    const renderTemplateQuality = (renderOutput) => {
+      const quality = renderOutput?.templateQuality;
+      if (quality === undefined) {
+        byId("template-summary").textContent = "No template quality report.";
+        setRows("template-issues", [], 3);
+        return;
+      }
+      byId("template-summary").textContent = (quality.ok ? "ok" : "needs attention") + " - " + quality.errors + " errors, " + quality.warnings + " warnings";
+      setRows("template-issues", Array.isArray(quality.issues) ? quality.issues.map((issue) => issueRow(issue)) : [], 3);
+    };
+    const loadTemplateQuality = async (artifacts) => {
+      if (!artifacts.some((artifact) => artifact.name === "render-output.json")) {
+        renderTemplateQuality(undefined);
+        return;
+      }
+      try {
+        const renderOutput = await api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts/render-output.json");
+        renderTemplateQuality(renderOutput.content);
+      } catch {
+        renderTemplateQuality(undefined);
+      }
+    };
     const defaultRerunStage = (stages) => {
       const resumable = stages.find((stage) => ["failed", "running", "pending"].includes(stage.status));
       return (resumable ?? stages[0])?.name ?? "";
@@ -881,6 +955,7 @@ function renderStudioHtml(): string {
         setRows("events", [], 3);
         byId("artifact-preview").textContent = "Select an artifact to preview.";
         renderVisualSamples([]);
+        renderTemplateQuality(undefined);
         return;
       }
       actionButtons.forEach((button) => { button.disabled = false; });
@@ -897,6 +972,7 @@ function renderStudioHtml(): string {
       setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => artifactRow(artifact)), 4);
       setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
       byId("artifact-preview").textContent = "Select an artifact to preview.";
+      await loadTemplateQuality(artifacts.artifacts);
       try {
         const visual = await api("/projects/" + encodeURIComponent(state.projectId) + "/visual?includeContent=true");
         renderVisualSamples(visual.samples);
