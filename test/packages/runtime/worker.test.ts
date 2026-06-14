@@ -191,6 +191,36 @@ describe('workspace worker recovery', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('skips recovery when checkpoint IR artifacts fail schema validation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo')
+      await writeFile(join(root, 'projects', 'demo', 'artifacts', 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+
+      const report = await recoverWorkspaceJobs({
+        dryRun: true,
+        workspaceDir: root,
+      })
+      const result = report.results.find((item) => item.projectId === 'demo')
+
+      expect(report.recovered).to.equal(0)
+      expect(report.skipped).to.equal(1)
+      expect(result).to.include({
+        attempt: 1,
+        fromStage: 'quality',
+        jobStatus: 'failed',
+        projectId: 'demo',
+        skipReason: 'checkpoint-invalid',
+        status: 'skipped',
+      })
+      expect(result?.error).to.equal('Checkpoint IR validation failed.')
+      expect(result?.validationIssues?.map((issue) => issue.path.join('.'))).to.include('source')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 interface CreateRecoverableProjectOptions {

@@ -123,6 +123,7 @@
         "@video-agent/quality": "workspace:*",
         "@video-agent/renderer-ffmpeg": "workspace:*",
         "@video-agent/renderer-hyperframes": "workspace:*",
+        "zod": "^4.1.13",
       },
     },
   },

@@ -385,7 +385,7 @@ bun run dev rerun <projectId> --from-stage script
 
 `run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。media/storyboard/clip-plan/timeline/narration 这类 IR artifact 还会通过 Zod schema 校验后才进入后续 stage。校验失败不会把 job state 写成新的运行。
 
-`worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--order-by oldest|recent|attempt` 控制恢复候选排序，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。处理 running job 时，可以用 `--running-stale-after-ms <ms>` 跳过最近仍有更新的任务，避免本地 worker 抢占仍在运行的进程。worker 会在恢复前预检 checkpoint artifacts；缺失、变更或未纳入 manifest 的前置 artifact 会被跳过并返回 artifact 问题列表。跳过结果会带 `skipReason`，例如 `attempt-limit`、`checkpoint-invalid`、`limit`、`running-active` 或 `not-recoverable`。
+`worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--order-by oldest|recent|attempt` 控制恢复候选排序，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。处理 running job 时，可以用 `--running-stale-after-ms <ms>` 跳过最近仍有更新的任务，避免本地 worker 抢占仍在运行的进程。worker 会在恢复前预检 checkpoint artifacts；缺失、变更、未纳入 manifest 或 IR schema 无效的前置 artifact 会被跳过，并返回 artifact 问题列表或 `validationIssues`。跳过结果会带 `skipReason`，例如 `attempt-limit`、`checkpoint-invalid`、`limit`、`running-active` 或 `not-recoverable`。
 
 `tui` 会输出轻量终端 dashboard，复用 runtime 的 project/status/events/artifacts 接口展示当前 workspace、最近更新项目、stage 状态、质量摘要、render 摘要、artifact 列表、最近事件和下一步可复制命令。默认渲染一次；需要持续刷新时可以传 `--watch`，也可以用 `--project <projectId>` 固定查看某个项目。需要从 TUI 入口触发受控操作时，可以用 `--action artifact --artifact <name>` 检查 artifact，用 `--action commands` 单独输出命令建议，用 `--action provider-test --provider-role asr|vlm|tts|all` 验证 provider contract，用 `--action rerun --from-stage <stage>` 重跑项目，或用 `--action worker --dry-run|--status|--limit|--max-attempts` 恢复 workspace job。命令建议默认使用 `bun run dev` 前缀，可以通过 `--command-prefix vagent` 改成已安装 CLI 的形式。
 
@@ -573,7 +573,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
-- `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact 预检、attempt 上限和 skip reason
+- `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact/schema 预检、attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、运行 provider smoke test、触发 rerun 或 worker recovery
 - `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、provider-test、config、projects、status、events、artifacts、artifact preview、visual sample preview、render option controls、render quality diagnostics、template quality diagnostics、artifact integrity diagnostics、stage rerun、workflow actions 和 worker recovery
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/provider-test/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具

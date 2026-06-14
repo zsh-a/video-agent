@@ -1,5 +1,7 @@
 import type {JobRunStatus, JobStageState} from '@video-agent/db'
 
+import {ZodError} from 'zod'
+
 import {assertCheckpointArtifacts, type InitialPipelineStage, PipelineCheckpointError, type RunInitialPipelineResult} from './job-runner.js'
 import {readProjectStatus} from './project-status.js'
 import {listProjects} from './projects.js'
@@ -36,6 +38,7 @@ export interface RecoverWorkspaceJobResult {
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
   untrackedArtifacts?: string[]
   updatedAt?: string
+  validationIssues?: CheckpointValidationIssue[]
 }
 
 export type RecoverableJobStatus = 'failed' | 'running'
@@ -141,6 +144,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
       status: 'skipped',
       untrackedArtifacts: checkpointIssue.untrackedArtifacts,
       updatedAt,
+      validationIssues: checkpointIssue.validationIssues,
     }
   }
 
@@ -249,6 +253,13 @@ interface CheckpointIssue {
   message: string
   missingArtifacts: string[]
   untrackedArtifacts: string[]
+  validationIssues?: CheckpointValidationIssue[]
+}
+
+export interface CheckpointValidationIssue {
+  code: string
+  message: string
+  path: string[]
 }
 
 async function readCheckpointIssue(projectId: string, workspaceDir: string, fromStage: InitialPipelineStage): Promise<CheckpointIssue | undefined> {
@@ -262,6 +273,20 @@ async function readCheckpointIssue(projectId: string, workspaceDir: string, from
         message: error.message,
         missingArtifacts: error.missingArtifacts,
         untrackedArtifacts: error.untrackedArtifacts,
+      }
+    }
+
+    if (error instanceof ZodError) {
+      return {
+        changedArtifacts: [],
+        message: 'Checkpoint IR validation failed.',
+        missingArtifacts: [],
+        untrackedArtifacts: [],
+        validationIssues: error.issues.map((issue) => ({
+          code: issue.code,
+          message: issue.message,
+          path: issue.path.map(String),
+        })),
       }
     }
 
