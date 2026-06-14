@@ -10,6 +10,7 @@ import {
   readProjectEvents,
   readProjectQuality,
   readProjectStatus,
+  readProjectVisualSamples,
   renderProject,
   rerunProject,
   runInitialPipeline,
@@ -66,6 +67,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
   createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: stringSchema()}),
   createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: stringSchema()}),
+  createTool('video_agent_visual_samples', 'Read rendered visual frame sample metadata, optionally including base64 image content.', {includeContent: booleanSchema(), projectId: stringSchema()}),
   createTool('video_agent_events', 'Read pipeline and provider events for a project.', {
     kind: enumSchema(['pipeline', 'provider']),
     limit: integerSchema(),
@@ -233,6 +235,13 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_verify_artifacts': {
       return verifyProjectArtifacts(readRequiredString(args, 'projectId'), workspaceDir)
+    }
+
+    case 'video_agent_visual_samples': {
+      return readProjectVisualSamples(readRequiredString(args, 'projectId'), {
+        includeContent: readOptionalBoolean(args, 'includeContent'),
+        workspaceDir,
+      })
     }
 
     default: {

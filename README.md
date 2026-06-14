@@ -343,6 +343,7 @@ GET /projects/:projectId/artifacts
 GET /projects/:projectId/artifacts/:artifactName
 GET /projects/:projectId/artifacts/verify
 GET /projects/:projectId/audio
+GET /projects/:projectId/visual
 POST /projects/:projectId/rerun
 POST /projects/:projectId/render
 POST /projects/:projectId/export
@@ -355,6 +356,7 @@ video_agent_doctor
 video_agent_list_projects
 video_agent_status
 video_agent_quality
+video_agent_visual_samples
 video_agent_events
 video_agent_artifacts
 video_agent_verify_artifacts
@@ -409,6 +411,8 @@ bun run dev mcp --print-config --config-mode installed
 
 `GET /projects/:projectId/audio` 会返回和 `render --inspect-audio --json` 相同的音频预检结果。支持通过 query string 传入 `audio`、`sourceVolume`、`voiceoverVolume`、`audioDucking`、`duckingThreshold`、`duckingRatio`、`duckingAttackMs` 和 `duckingReleaseMs`。
 
+`GET /projects/:projectId/visual` 会读取 `render-output.json` 中的 `visualQuality.frameSamples`，返回渲染缩略图样本的路径、相对路径、时间点、文件大小和存在状态。默认只返回元数据；传 `includeContent=true` 时会额外返回 JPEG 的 base64 内容，MCP 工具 `video_agent_visual_samples` 使用同一套 runtime 接口。
+
 `POST /projects/:projectId/export` 接收和 CLI export 对应的 JSON body：
 
 ```json
@@ -451,7 +455,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts 只读端点
-- `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/export 工具
+- `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/export 工具
 - API workflow actions：支持 `POST /projects`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
 - `render` 命令：用 ffmpeg 从 timeline 输出第一版 `final.mp4`，并可从 `narration.json` 生成/烧录字幕；也支持 `--renderer hyperframes` 生成 HTML render project
 - subtitle quality：ffmpeg render 会对生成的 SRT 文件写入 cue 数量和 warning/error diagnostics
@@ -462,6 +466,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - voiceover plan：render 阶段写出 `voiceover-plan.json`，记录 TTS 段和 narration 时间轴的对齐状态，并支持同一 narration 的多段 TTS chunk 顺序拼接
 - render audio diagnostics：缺失的 TTS voiceover 文件会写入 `render-output.json`，CLI 非 JSON 输出也会打印 audio warning
 - render audio preflight：CLI `render --inspect-audio` 和 HTTP `GET /projects/:id/audio` 可在渲染前检查 voiceover alignment 和可用音频输入
+- render visual samples：HTTP `GET /projects/:id/visual` 和 MCP `video_agent_visual_samples` 可读取渲染缩略图样本元数据，并可选返回 base64 图像内容
 - HyperFrames renderer：支持生成 HTML 项目，并可选调用 HyperFrames CLI validate/render
 - `export` 命令：导出 `final.mp4`、HyperFrames render directory 或完整 project bundle
 - export quality gate：`export --require-quality` / API `requireQuality` 可在质量聚合不通过时拒绝导出

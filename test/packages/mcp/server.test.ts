@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, mkdtemp, rm} from 'node:fs/promises'
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -19,6 +19,7 @@ describe('mcp server', () => {
     expect((response?.result as {tools: Array<{name: string}>}).tools.map((tool) => tool.name)).to.include.members([
       'video_agent_list_projects',
       'video_agent_quality',
+      'video_agent_visual_samples',
       'video_agent_status',
       'video_agent_run',
       'video_agent_rerun',
@@ -55,6 +56,41 @@ describe('mcp server', () => {
     }
   })
 
+  it('calls the visual samples tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeVisualSamples(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'visual-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            includeContent: true,
+            projectId: 'demo',
+          },
+          name: 'video_agent_visual_samples',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {samples: Array<{contentBase64?: string; exists: boolean; relativePath?: string}>}
+
+      expect(result.samples).to.have.length(1)
+      expect(result.samples[0]).to.include({
+        contentBase64: Buffer.from('first').toString('base64'),
+        exists: true,
+        relativePath: 'renders/final-frame-first.jpg',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+
   it('returns JSON-RPC errors for unknown tools', async () => {
     const server = createVideoAgentMcpServer()
     const response = await server.handleMessage({
@@ -79,4 +115,26 @@ async function createProject(root: string, projectId: string): Promise<void> {
     projectId,
     stages: ['ingest', 'quality'],
   })
+}
+
+async function writeVisualSamples(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const rendersDir = join(projectDir, 'renders')
+
+  await mkdir(rendersDir, {recursive: true})
+  await writeFile(join(rendersDir, 'final-frame-first.jpg'), 'first')
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      visualQuality: {
+        frameSample: {
+          ok: true,
+          path: join(rendersDir, 'final-frame-first.jpg'),
+          size: 5,
+          timestamp: 0,
+        },
+      },
+    })}\n`,
+  )
 }

@@ -11,6 +11,7 @@ import {
   readProjectEvents,
   readProjectQuality,
   readProjectStatus,
+  readProjectVisualSamples,
   renderProject,
   rerunProject,
   runInitialPipeline,
@@ -150,6 +151,19 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
         duckingThreshold: parseOptionalNumber(url.searchParams.get('duckingThreshold')),
         sourceVolume: parseOptionalNumber(url.searchParams.get('sourceVolume')),
         voiceoverVolume: parseOptionalNumber(url.searchParams.get('voiceoverVolume')),
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'visual') {
+    if (request.method !== 'GET') {
+      return methodNotAllowed()
+    }
+
+    return jsonResponse(
+      await readProjectVisualSamples(projectId, {
+        includeContent: parseOptionalBoolean(url.searchParams.get('includeContent')),
         workspaceDir,
       }),
     )

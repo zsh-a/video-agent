@@ -210,7 +210,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, and export. TUI, Web Studio, and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, and export. The API exposes the same visual sample metadata for Web Studio/TUI consumers. TUI, Web Studio, and Claude Code skill adapters are still pending.
 
 ## Immediate Next Tasks
 

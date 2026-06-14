@@ -181,6 +181,28 @@ describe('api server handler', () => {
     }
   })
 
+  it('reads project visual samples from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await writeVisualSamples(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{samples: Array<{contentBase64?: string; exists: boolean; relativePath?: string; timestamp: number}>}>(fetch, '/projects/demo/visual?includeContent=true')
+
+      expect(result.samples).to.have.length(1)
+      expect(result.samples[0]).to.include({
+        contentBase64: Buffer.from('first').toString('base64'),
+        exists: true,
+        relativePath: 'renders/final-frame-first.jpg',
+        timestamp: 0,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('exports a project from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
     const outputPath = join(root, 'exported.mp4')
@@ -283,6 +305,30 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
       startedAt: '2026-01-01T00:00:00.990Z',
       status: 'succeeded',
       version: 1,
+    })}\n`,
+  )
+}
+
+async function writeVisualSamples(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const rendersDir = join(projectDir, 'renders')
+
+  await mkdir(rendersDir, {recursive: true})
+  await writeFile(join(rendersDir, 'final-frame-first.jpg'), 'first')
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      visualQuality: {
+        frameSamples: [
+          {
+            ok: true,
+            path: join(rendersDir, 'final-frame-first.jpg'),
+            size: 5,
+            timestamp: 0,
+          },
+        ],
+      },
     })}\n`,
   )
 }
