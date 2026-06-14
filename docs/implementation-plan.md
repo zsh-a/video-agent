@@ -88,6 +88,7 @@ Deliverables:
 - `vagent init` for workspace setup and binary checks.
 - `vagent doctor` for runtime, workspace, config, project index, and media tool health checks.
 - `vagent config` for local provider/runtime config.
+- `vagent provider-env` for provider environment variable requirements and configuration state.
 - `vagent inspect` for `ffprobe` artifact creation.
 - `vagent run` for the pipeline.
 - `vagent projects` for project discovery.
@@ -158,11 +159,12 @@ Deliverables:
 - Clip selection and source-range planning improvements.
 - Better voiceover placement, voiceover plan artifacts with alignment sources, multi-segment stitching, and ducking controls.
 - Provider call records with request identifiers, cost, usage, model, and latency metadata.
+- Provider environment requirement reports for command and HTTP adapters.
 - Interactive prompts for configuration; Clack styling can replace the current readline prompt later.
 
 Acceptance criteria:
 
-- A user can configure external ASR/VLM/TTS command or HTTP adapters without changing source code.
+- A user can configure external ASR/VLM/TTS command or HTTP adapters without changing source code and inspect the required environment contract without leaking secret values.
 - Provider outputs are validated before artifact writes.
 - Provider calls are recorded with request id, status, latency, input/output summaries, optional model/usage/cost metadata, and failure details.
 - Project status summarizes events, provider calls, provider costs, quality issues, and render output diagnostics for CLI/API/TUI adapters.
@@ -170,7 +172,7 @@ Acceptance criteria:
 - Project events can be read directly with filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, provider call records, request ids, optional cost/usage/model metadata, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
 
 ## Phase 5: Persistence and Recovery
 

@@ -77,6 +77,8 @@ bun run dev doctor
 bun run dev config --json
 bun run dev config --interactive
 bun run dev config --asr command --vlm command --tts command
+bun run dev provider-env
+bun run dev provider-env --json
 bun run dev config --job-store sqlite
 bun run dev config --max-stage-retries 2 --retry-backoff-ms 500
 bun run dev inspect ./input.mp4
@@ -123,6 +125,7 @@ bun run dev export <projectId> --format hyperframes --output ./hyperframes-rende
 vagent init
 vagent doctor
 vagent config
+vagent provider-env
 vagent inspect
 vagent run
 vagent artifacts
@@ -191,6 +194,13 @@ export VIDEO_AGENT_TTS_URL='https://provider.example/tts'
 ```text
 VIDEO_AGENT_ASR_TOKEN / VIDEO_AGENT_VLM_TOKEN / VIDEO_AGENT_TTS_TOKEN
 VIDEO_AGENT_ASR_TIMEOUT_MS / VIDEO_AGENT_VLM_TIMEOUT_MS / VIDEO_AGENT_TTS_TIMEOUT_MS
+```
+
+可以用 `provider-env` 按当前 workspace config 输出 provider 需要的环境变量、必填/可选状态和是否已配置。它只显示变量名和配置状态，不输出 token 或 endpoint 具体值：
+
+```sh
+bun run dev provider-env
+bun run dev provider-env --json
 ```
 
 job state 默认写入每个项目目录的 `job-state.json`。如果要让本地 worker/API 使用 workspace 级 SQLite 状态库，可以切换为：
@@ -484,6 +494,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `inspect` 命令：probe 媒体并写 `media-info.json`
 - `doctor` 命令：检查 Bun/Node fallback、workspace、配置、项目索引、`ffmpeg` 和 `ffprobe`
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`
+- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且不泄露 secret 值
 - `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview
 - quality report：检查 timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
