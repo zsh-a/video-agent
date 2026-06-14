@@ -1,3 +1,4 @@
+/* eslint-disable n/no-unsupported-features/node-builtins */
 import {spawn} from 'node:child_process'
 
 type BunProcess = {
@@ -7,7 +8,11 @@ type BunProcess = {
 }
 
 interface BunRuntime {
-  spawn(command: string[], options?: {cwd?: string; env?: Record<string, string>; stderr?: 'pipe'; stdout?: 'pipe'}): BunProcess
+  spawn(command: string[], options?: {
+    cwd?: string
+    env?: Record<string, string>
+    stdio?: ['ignore' | Blob, 'pipe', 'pipe']
+  }): BunProcess
 }
 
 export interface ProcessResult {
@@ -26,12 +31,11 @@ export interface RunProcessOptions {
 export async function runProcess(command: string[], options: RunProcessOptions = {}): Promise<ProcessResult> {
   const bun = getBunRuntime()
 
-  if (options.preferBun !== false && options.stdin === undefined && bun !== undefined) {
+  if (options.preferBun !== false && bun !== undefined) {
     const proc = bun.spawn(command, {
       cwd: options.cwd,
       env: options.env,
-      stderr: 'pipe',
-      stdout: 'pipe',
+      stdio: [createBunStdin(options.stdin), 'pipe', 'pipe'],
     })
 
     const [code, stdout, stderr] = await Promise.all([proc.exited, proc.stdout.text(), proc.stderr.text()])
@@ -79,4 +83,12 @@ export async function runProcess(command: string[], options: RunProcessOptions =
 
 function getBunRuntime(): BunRuntime | undefined {
   return (globalThis as typeof globalThis & {Bun?: BunRuntime}).Bun
+}
+
+function createBunStdin(stdin: string | undefined): 'ignore' | Blob {
+  if (stdin === undefined) {
+    return 'ignore'
+  }
+
+  return new Blob([stdin])
 }

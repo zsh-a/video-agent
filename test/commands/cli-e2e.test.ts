@@ -102,6 +102,45 @@ describe('cli end-to-end workflow', () => {
         status: 'fail',
       })
       expect(failedReport.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('VIDEO_AGENT_ASR_COMMAND')
+
+      await runCliJson(['config', '--asr', 'command', '--vlm', 'command', '--tts', 'command', '--workspace', workspaceDir, '--json'])
+
+      const commandAdapter = JSON.stringify(['bun', 'examples/provider-adapters/mock-json-provider.ts'])
+      const commandProviderEnv = {
+        VIDEO_AGENT_ASR_COMMAND: commandAdapter,
+        VIDEO_AGENT_TTS_COMMAND: commandAdapter,
+        VIDEO_AGENT_VLM_COMMAND: commandAdapter,
+      }
+      const configuredProviderEnv = await runCliJson<{
+        providers: Array<{
+          requirements: Array<{configured: boolean; env: string; required: boolean}>
+          role: string
+        }>
+      }>(['provider-env', '--workspace', workspaceDir, '--json'], commandProviderEnv)
+
+      expect(configuredProviderEnv.providers.flatMap((provider) => provider.requirements.map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
+        'asr:VIDEO_AGENT_ASR_COMMAND:true',
+        'vlm:VIDEO_AGENT_VLM_COMMAND:true',
+        'tts:VIDEO_AGENT_TTS_COMMAND:true',
+      ])
+
+      const commandProviderTest = await runCliJson<{
+        ok: boolean
+        results: Array<{
+          metadata?: {model?: string; requestId?: string}
+          output?: {type: string}
+          provider: string
+          role: string
+          status: string
+        }>
+      }>(['provider-test', '--workspace', workspaceDir, '--role', 'all', '--json'], commandProviderEnv)
+
+      expect(commandProviderTest.ok).to.equal(true)
+      expect(commandProviderTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
+        'asr:command:succeeded:example-command-provider:transcript',
+        'vlm:command:succeeded:example-command-provider:scenes',
+        'tts:command:succeeded:example-command-provider:tts',
+      ])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -209,8 +248,8 @@ async function createSampleVideo(inputPath: string): Promise<void> {
   ])
 }
 
-async function runCliJson<T>(args: string[]): Promise<T> {
-  const result = await expectCommand(['bun', './bin/dev.js', ...args])
+async function runCliJson<T>(args: string[], env?: Record<string, string>): Promise<T> {
+  const result = await expectCommand(['bun', './bin/dev.js', ...args], env)
 
   return JSON.parse(result.stdout) as T
 }
@@ -222,9 +261,10 @@ async function runCli(args: string[]): Promise<{code: number; stderr: string; st
   })
 }
 
-async function expectCommand(command: string[]): Promise<{stderr: string; stdout: string}> {
+async function expectCommand(command: string[], env?: Record<string, string>): Promise<{stderr: string; stdout: string}> {
   const result = await runProcess(command, {
     cwd: process.cwd(),
+    env,
     preferBun: false,
   })
 
