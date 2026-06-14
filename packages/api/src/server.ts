@@ -496,11 +496,22 @@ function renderStudioHtml(): string {
       padding: 6px 10px;
     }
 
+    select {
+      border: 1px solid #b9c2ce;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #172026;
+      font: inherit;
+      min-height: 32px;
+      padding: 6px 28px 6px 10px;
+    }
+
     button[aria-pressed="true"] {
       border-color: #1769aa;
       background: #e8f2fb;
     }
 
+    select:disabled,
     button:disabled {
       color: #8a96a3;
       cursor: not-allowed;
@@ -570,6 +581,14 @@ function renderStudioHtml(): string {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+      align-items: center;
+    }
+
+    .action-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
     }
 
     .status-line {
@@ -688,6 +707,10 @@ function renderStudioHtml(): string {
         <div class="actions">
           <button id="render-action" type="button">Render</button>
           <button id="export-action" type="button">Export</button>
+          <span class="action-group">
+            <select id="rerun-stage" aria-label="Rerun from stage"></select>
+            <button id="rerun-action" type="button">Rerun</button>
+          </span>
           <button id="worker-action" type="button">Worker dry-run</button>
         </div>
         <p class="status-line" id="action-status"></p>
@@ -798,6 +821,24 @@ function renderStudioHtml(): string {
         target.append(card);
       }
     };
+    const defaultRerunStage = (stages) => {
+      const resumable = stages.find((stage) => ["failed", "running", "pending"].includes(stage.status));
+      return (resumable ?? stages[0])?.name ?? "";
+    };
+    const renderRerunStages = (stages) => {
+      const select = byId("rerun-stage");
+      const previous = select.value;
+      const fallback = defaultRerunStage(stages);
+      select.textContent = "";
+      for (const stage of stages) {
+        const option = document.createElement("option");
+        option.value = stage.name;
+        option.textContent = stage.name + " (" + stage.status + ")";
+        select.append(option);
+      }
+      select.value = stages.some((stage) => stage.name === previous) ? previous : fallback;
+      select.disabled = stages.length === 0;
+    };
     const renderProjects = (projects) => {
       const list = byId("projects");
       list.textContent = "";
@@ -827,13 +868,14 @@ function renderStudioHtml(): string {
       }
     };
     const renderSelected = async () => {
-      const actionButtons = [byId("render-action"), byId("export-action"), byId("worker-action")];
+      const actionButtons = [byId("render-action"), byId("export-action"), byId("rerun-action"), byId("worker-action")];
       if (state.projectId === undefined) {
         byId("status").textContent = "none";
         byId("quality").textContent = "none";
         byId("render").textContent = "none";
         byId("action-status").textContent = "Select a project to run actions.";
         actionButtons.forEach((button) => { button.disabled = true; });
+        renderRerunStages([]);
         setRows("stages", [], 3);
         setRows("artifacts", [], 4);
         setRows("events", [], 3);
@@ -850,6 +892,7 @@ function renderStudioHtml(): string {
       byId("status").textContent = status.job.status;
       byId("quality").textContent = status.summary.quality.issues + " issues";
       byId("render").textContent = status.summary.render.rendered ? "rendered" : "none";
+      renderRerunStages(status.job.stages);
       setRows("stages", status.job.stages.map((stage) => tableRow([stage.name, stage.status, stage.attempt ?? ""])), 3);
       setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => artifactRow(artifact)), 4);
       setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
@@ -887,6 +930,11 @@ function renderStudioHtml(): string {
     })));
     byId("export-action").addEventListener("click", () => void runAction("Export", () => api("/projects/" + encodeURIComponent(state.projectId) + "/export", {
       body: JSON.stringify({format: "video", requireQuality: true}),
+      headers: {"content-type": "application/json"},
+      method: "POST",
+    })));
+    byId("rerun-action").addEventListener("click", () => void runAction("Rerun", () => api("/projects/" + encodeURIComponent(state.projectId) + "/rerun", {
+      body: JSON.stringify({fromStage: byId("rerun-stage").value || undefined}),
       headers: {"content-type": "application/json"},
       method: "POST",
     })));

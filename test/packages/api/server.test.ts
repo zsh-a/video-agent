@@ -65,9 +65,13 @@ describe('api server handler', () => {
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/visual?includeContent=true')
     expect(html).to.include('id="render-action"')
     expect(html).to.include('id="export-action"')
+    expect(html).to.include('id="rerun-stage"')
+    expect(html).to.include('id="rerun-action"')
     expect(html).to.include('id="worker-action"')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/render')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/export')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/rerun')
+    expect(html).to.include('fromStage: byId("rerun-stage").value || undefined')
     expect(html).to.include('api("/worker"')
   })
 

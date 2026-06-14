@@ -387,7 +387,7 @@ POST /projects/:projectId/render
 POST /projects/:projectId/export
 ```
 
-`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export 和 worker dry-run 操作按钮。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
+`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun 和 worker dry-run 操作按钮。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `mcp` 会启动 stdio MCP adapter，支持 `initialize`、`tools/list` 和 `tools/call`，工具直接复用 runtime API：
 
@@ -536,7 +536,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact 预检、attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、触发 rerun 或 worker recovery
-- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、projects、status、events、artifacts、artifact preview、visual sample preview、workflow actions 和 worker recovery
+- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、projects、status、events、artifacts、artifact preview、visual sample preview、stage rerun、workflow actions 和 worker recovery
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - Claude Code skill adapter：`adapters/claude-code-skill/video-agent/SKILL.md` 提供 agent shell 使用 CLI/MCP 的操作流程
 - Claude Code skill 分发说明：见 [docs/claude-code-skill.md](docs/claude-code-skill.md)
@@ -576,4 +576,4 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 2. 增加真实 ASR/VLM/TTS provider adapter。
 3. 增加外部 agent 客户端实测记录。
 4. 扩展更深的视觉烟测。
-5. 增加 Web Studio 的交互式 rerun/stage 操作和模板验证视图。
+5. 增加 Web Studio 的模板验证视图。
