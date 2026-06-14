@@ -309,7 +309,7 @@ frames/frame_%05d.jpg
 renders/preview.mp4
 ```
 
-`understand` 会按 ASR transcript segments 生成 VLM scene batches，让视觉分析的 `sceneId` / `timeRange` 与后续 storyboard 保持一致。`storyboard.json` 会优先使用 ASR transcript segments 生成 scenes，并把 ASR 文本和 VLM scene description 绑定为 evidence；没有有效分段时回退成覆盖全片的单 scene。`clip-plan.json` 会把 storyboard scenes 转成可验证的 source ranges。当前实现按 scene 顺序连续推进源素材游标，保留 scene 的 timeline `start`，并在源素材不足时截断该 scene 的 clip duration；这样多 scene 或重叠 scene 不会重复取同一段源视频，也不会因为 scene start 较晚而跳过未使用的源片段。占位 `narration.json` 会复用 clip plan 的实际 `start` / `duration`，确保旁白、TTS 和质量检查对齐到真实可用的 timeline，而不是 storyboard 中原始请求的 scene duration。
+`understand` 会按 ASR transcript segments 生成 VLM scene batches，让视觉分析的 `sceneId` / `timeRange` 与后续 storyboard 保持一致。`storyboard.json` 会优先使用 ASR transcript segments 生成 scenes，并把 ASR 文本和 VLM scene description 绑定为 evidence；这些 transcript-derived scenes 会带 `sourceRange`，让 `clip-plan.json` 按原视频时间裁剪素材。没有有效分段时回退成覆盖全片的单 scene；没有 `sourceRange` 的手写/旧 storyboard 则继续按 scene 顺序连续推进源素材游标，并在源素材不足时截断 clip duration。占位 `narration.json` 会复用 clip plan 的实际 `start` / `duration`，确保旁白、TTS 和质量检查对齐到真实可用的 timeline，而不是 storyboard 中原始请求的 scene duration。
 
 `quality-report.json` 会检查 clip plan sourceRange 是否越界、同源 sourceRange 是否重叠或跳段、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。ASR/VLM/TTS provider 产物会在写入 artifact 前通过共享 schema 校验。
 

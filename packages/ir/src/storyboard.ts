@@ -11,8 +11,12 @@ export const StoryboardSceneSchema = z.object({
   evidence: z.array(EvidenceSchema).default([]),
   id: z.string().min(1),
   narration: z.string().optional(),
+  sourceRange: z.tuple([z.number().finite().nonnegative(), z.number().finite().nonnegative()]).optional(),
   start: z.number().nonnegative(),
   visualStyle: z.string().default('documentary'),
+}).refine((scene) => scene.sourceRange === undefined || scene.sourceRange[1] >= scene.sourceRange[0], {
+  message: 'Storyboard scene sourceRange end must be greater than or equal to start.',
+  path: ['sourceRange'],
 })
 
 export const StoryboardSchema = z.object({

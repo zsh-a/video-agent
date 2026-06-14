@@ -140,7 +140,7 @@ IR is the main integration point between agents, renderers, quality checks, and 
 
 ```text
 StoryboardIR
-  scenes, narration hints, visual style, evidence references
+  scenes, narration hints, visual style, evidence references, optional source ranges
 
 TimelineIR
   normalized tracks, item start/duration, source ranges

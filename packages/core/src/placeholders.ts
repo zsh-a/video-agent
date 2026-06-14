@@ -116,6 +116,7 @@ export function createStoryboardFromProviderInsights(
       ],
       id: boundary.id,
       narration: transcriptText ?? visualText ?? `Placeholder narration for ${boundary.id}.`,
+      sourceRange: [boundary.start, boundary.end] as [number, number],
       start: boundary.start,
       visualStyle: 'documentary',
     }
@@ -134,17 +135,20 @@ export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): Cl
   let duration = 0
   let sourceCursor = 0
   const clips: ClipPlan['clips'] = storyboard.scenes.map((scene, index) => {
-    const sourceStart = sourceCursor
-    const sourceEnd = clamp(sourceStart + scene.duration, sourceStart, sourceDuration)
+    const {sourceRange} = scene
+    const sourceStart = sourceRange === undefined ? sourceCursor : clamp(sourceRange[0], 0, sourceDuration)
+    const sourceEnd = sourceRange === undefined ? clamp(sourceStart + scene.duration, sourceStart, sourceDuration) : clamp(sourceRange[1], sourceStart, sourceDuration)
     const clipDuration = sourceEnd - sourceStart
 
-    sourceCursor = sourceEnd
+    sourceCursor = Math.max(sourceCursor, sourceEnd)
     duration = Math.max(duration, scene.start + clipDuration)
 
     return {
       duration: clipDuration,
       id: `clip-${index + 1}`,
-      reason: `Sequential source range for ${scene.id}; requested ${formatSeconds(scene.duration)}s, allocated ${formatSeconds(clipDuration)}s.`,
+      reason: sourceRange === undefined
+        ? `Sequential source range for ${scene.id}; requested ${formatSeconds(scene.duration)}s, allocated ${formatSeconds(clipDuration)}s.`
+        : `Storyboard source range for ${scene.id}; requested ${formatSeconds(sourceRange[1] - sourceRange[0])}s, allocated ${formatSeconds(clipDuration)}s.`,
       sceneId: scene.id,
       source: mediaInfo.inputPath,
       sourceRange: [sourceStart, sourceEnd],

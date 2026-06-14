@@ -84,16 +84,19 @@ describe('placeholder IR', () => {
     expect(storyboard.scenes.map((scene: StoryboardScene) => ({
       duration: scene.duration,
       narration: scene.narration,
+      sourceRange: scene.sourceRange,
       start: scene.start,
     }))).to.deep.equal([
       {
         duration: 5,
         narration: 'Opening narration.',
+        sourceRange: [0, 5],
         start: 0,
       },
       {
         duration: 7.5,
         narration: 'Second beat narration.',
+        sourceRange: [5, 12.5],
         start: 5,
       },
     ])
@@ -215,6 +218,43 @@ describe('placeholder IR', () => {
     expect(timeline.duration).to.equal(15.5)
     expect(timeline.items.map((item: TimelineItem) => item.duration)).to.deep.equal([5, 7.5])
     expect(clipPlan.clips[1].reason).to.equal('Sequential source range for scene-2; requested 10s, allocated 7.5s.')
+  })
+
+  it('uses storyboard source ranges for transcript-derived scenes', () => {
+    const storyboard = createStoryboardFromProviderInsights(mediaInfo, {
+      transcript: {
+        segments: [
+          {
+            end: 5,
+            start: 1,
+            text: 'Middle opening.',
+          },
+          {
+            end: 20,
+            start: 8,
+            text: 'Clamped ending.',
+          },
+        ],
+        text: 'Middle opening. Clamped ending.',
+      },
+    })
+    const clipPlan = createClipPlan(storyboard, mediaInfo)
+    const timeline = createTimelineFromClipPlan(mediaInfo, clipPlan)
+
+    expect(storyboard.scenes.map((scene: StoryboardScene) => scene.sourceRange)).to.deep.equal([
+      [1, 5],
+      [8, 12.5],
+    ])
+    expect(clipPlan.clips.map((clip: ClipPlanItem) => clip.sourceRange)).to.deep.equal([
+      [1, 5],
+      [8, 12.5],
+    ])
+    expect(timeline.items.map((item: TimelineItem) => item.sourceRange)).to.deep.equal([
+      [1, 5],
+      [8, 12.5],
+    ])
+    expect(clipPlan.clips.map((clip: ClipPlanItem) => clip.duration)).to.deep.equal([4, 4.5])
+    expect(clipPlan.clips[1].reason).to.equal('Storyboard source range for scene-2; requested 4.5s, allocated 4.5s.')
   })
 
   it('keeps source ranges monotonic when storyboard scene starts overlap', () => {
