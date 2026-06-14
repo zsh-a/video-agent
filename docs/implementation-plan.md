@@ -229,7 +229,7 @@ Recommended order:
 3. Extend TUI command suggestions into an interactive guided selector when dependency policy allows Ink or Clack.
 4. Test the generic MCP config output against named external clients and document any client-specific placement details.
 5. Expand render quality checks around template-specific validation.
-6. Document Claude Code skill installation/distribution paths.
+6. Record external agent client installation checks for the Claude Code skill adapter.
 
 ## v0 Completion Definition
 
