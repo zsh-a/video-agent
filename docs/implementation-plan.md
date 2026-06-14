@@ -191,7 +191,7 @@ Acceptance criteria:
 - Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, or untracked by the artifact manifest.
 - Re-running a stage does not corrupt unrelated artifacts.
 
-Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, and checkpoint artifact existence/integrity validation is implemented; worker-oriented recovery policies are still pending.
+Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and a local `worker` command can recover failed/running jobs from the first unfinished stage. Richer queue scheduling policies are still pending.
 
 ## Phase 6: Agent and Product Adapters
 

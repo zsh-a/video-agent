@@ -1,0 +1,107 @@
+import {expect} from 'chai'
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
+
+import {JsonJobStore} from '../../../packages/db/src/job-store.js'
+import {recoverWorkspaceJobs} from '../../../packages/runtime/src/worker.js'
+
+describe('workspace worker recovery', () => {
+  it('lists recoverable jobs in dry-run mode', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo')
+
+      const report = await recoverWorkspaceJobs({
+        dryRun: true,
+        workspaceDir: root,
+      })
+
+      expect(report.recovered).to.equal(0)
+      expect(report.results).to.deep.include({
+        fromStage: 'quality',
+        jobStatus: 'failed',
+        projectId: 'demo',
+        status: 'would-recover',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('recovers a failed job from the first failed stage', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo')
+
+      const report = await recoverWorkspaceJobs({workspaceDir: root})
+
+      expect(report.recovered).to.equal(1)
+      expect(report.results[0]?.status).to.equal('recovered')
+      expect(report.results[0]?.fromStage).to.equal('quality')
+      expect(report.results[0]?.result?.status).to.equal('completed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+})
+
+async function createRecoverableProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const inputPath = join(root, `${projectId}.mp4`)
+
+  await mkdir(artifactsDir, {recursive: true})
+  await writeFile(inputPath, 'placeholder')
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath,
+    projectId,
+    stages: ['quality'],
+  })
+  await new JsonJobStore(join(projectDir, 'job-state.json')).updateStage('quality', 'failed', 'previous failure', 1)
+  await Promise.all([
+    writeJson(artifactsDir, 'ingest-report.json', {
+      artifacts: {},
+      completedAt: '2026-01-01T00:00:00.000Z',
+      inputPath,
+      stage: 'ingest',
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'media-info.json', {
+      duration: 1,
+      inputPath,
+      probedAt: '2026-01-01T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'scene-analysis.json', []),
+    writeJson(artifactsDir, 'transcript.json', {
+      segments: [],
+      text: '',
+    }),
+    writeJson(artifactsDir, 'storyboard.json', {
+      language: 'zh-CN',
+      scenes: [],
+      targetPlatform: 'generic',
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'timeline.json', {
+      duration: 1,
+      fps: 30,
+      items: [],
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'narration.json', {
+      language: 'zh-CN',
+      segments: [],
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'tts-segments.json', []),
+  ])
+}
+
+async function writeJson(dir: string, name: string, value: unknown): Promise<void> {
+  await writeFile(join(dir, name), `${JSON.stringify(value)}\n`)
+}

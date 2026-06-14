@@ -94,6 +94,8 @@ bun run dev visual <projectId> --json --include-content
 bun run dev run ./input.mp4 --project-id <projectId> --from-stage plan
 bun run dev rerun <projectId> --from-stage voiceover
 bun run dev status <projectId>
+bun run dev worker --dry-run
+bun run dev worker --status failed --limit 1
 bun run dev serve --workspace .video-agent --port 4317
 bun run dev mcp --workspace .video-agent
 bun run dev mcp --print-config
@@ -124,6 +126,7 @@ vagent quality
 vagent visual
 vagent rerun
 vagent status
+vagent worker
 vagent serve
 vagent mcp
 vagent render
@@ -334,6 +337,8 @@ bun run dev rerun <projectId> --from-stage script
 
 `run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。校验失败不会把 job state 写成新的运行。
 
+`worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量。
+
 `serve` 会启动 Bun HTTP API server，暴露只读 runtime state：
 
 ```text
@@ -462,6 +467,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
+- `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复
 - `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts 只读端点
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/export 工具
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
