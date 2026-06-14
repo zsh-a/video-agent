@@ -27,6 +27,26 @@ bun run dev provider-env --json --workspace .video-agent
 
 When the env values are set, `provider-env` should report each required command variable as configured.
 
+## HTTP Adapter Smoke Test
+
+The repository also includes a runnable HTTP adapter example:
+
+```sh
+PORT=4318 bun examples/provider-adapters/mock-http-provider.ts
+```
+
+It accepts ASR, VLM, and TTS payloads on the same `POST` endpoint and returns the same response envelope shape as the command adapter. Use it to validate the HTTP-provider path:
+
+```sh
+bun run dev config --asr http --vlm http --tts http --workspace .video-agent
+export VIDEO_AGENT_ASR_URL='http://127.0.0.1:4318'
+export VIDEO_AGENT_VLM_URL='http://127.0.0.1:4318'
+export VIDEO_AGENT_TTS_URL='http://127.0.0.1:4318'
+bun run dev provider-env --json --workspace .video-agent
+```
+
+When the env values are set, `provider-env` should report each required URL variable as configured. The mock server echoes the `x-video-agent-request-id` header in `metadata.requestId`, which makes it useful for checking provider-call tracing before wiring a hosted service.
+
 ## Payloads
 
 ASR command payload:

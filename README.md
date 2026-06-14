@@ -186,6 +186,14 @@ export VIDEO_AGENT_VLM_COMMAND='["node","./providers/vlm.js"]'
 export VIDEO_AGENT_TTS_COMMAND='["node","./providers/tts.js"]'
 ```
 
+仓库内置了一个可运行的 command mock adapter，可用于先验证 stdin/stdout contract：
+
+```sh
+export VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
+export VIDEO_AGENT_VLM_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
+export VIDEO_AGENT_TTS_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
+```
+
 也可以配置为 `http`，让 video-agent 以 POST JSON 的方式调用外部 ASR/VLM/TTS 服务。HTTP provider 和 command provider 使用同一套 request/response contract，也支持 `{ data, metadata }` response envelope。HTTP 请求会带 `x-video-agent-kind`、`x-video-agent-version` 和 `x-video-agent-request-id` header；如果服务响应没有 `metadata.requestId`，runtime 会用该 HTTP request id 作为 provider call 的 fallback request id。
 
 ```sh
@@ -193,6 +201,15 @@ bun run dev config --asr http --vlm http --tts http
 export VIDEO_AGENT_ASR_URL='https://provider.example/asr'
 export VIDEO_AGENT_VLM_URL='https://provider.example/vlm'
 export VIDEO_AGENT_TTS_URL='https://provider.example/tts'
+```
+
+仓库内置了一个可运行的 HTTP mock adapter，可用于先验证 POST JSON contract：
+
+```sh
+PORT=4318 bun examples/provider-adapters/mock-http-provider.ts
+export VIDEO_AGENT_ASR_URL='http://127.0.0.1:4318'
+export VIDEO_AGENT_VLM_URL='http://127.0.0.1:4318'
+export VIDEO_AGENT_TTS_URL='http://127.0.0.1:4318'
 ```
 
 可选环境变量：
