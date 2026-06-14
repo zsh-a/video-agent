@@ -73,6 +73,30 @@ describe('command providers', () => {
   it('fails fast when command provider env is missing', () => {
     expect(() => createAsrProvider('command', {env: {}})).to.throw('VIDEO_AGENT_ASR_COMMAND')
   })
+
+  it('runs the documented command adapter recipe', async () => {
+    const command = ['bun', 'examples/provider-adapters/mock-json-provider.ts']
+    const asr = new CommandASRProvider({command})
+    const vlm = new CommandVLMProvider({command})
+    const tts = new CommandTTSProvider({command})
+
+    const transcript = await asr.transcribe({path: '/tmp/audio.wav'})
+    const scenes = await vlm.analyzeScenes([{frames: ['frame.jpg'], sceneId: 'scene-1', timeRange: [0, 1]}])
+    const segments = await tts.synthesize([{duration: 2, id: 'narration-1', text: 'hello'}])
+
+    expect(transcript.text).to.equal('Example transcript for /tmp/audio.wav')
+    expect(readProviderMetadata(transcript)?.model).to.equal('example-command-provider')
+    expect(scenes[0]).to.deep.equal({
+      description: 'Example visual analysis for scene-1',
+      evidence: ['frame.jpg'],
+      sceneId: 'scene-1',
+    })
+    expect(segments[0]).to.deep.equal({
+      duration: 2,
+      narrationId: 'narration-1',
+      path: 'tts/narration-1.wav',
+    })
+  })
 })
 
 function jsonCommand(json: string): string[] {
