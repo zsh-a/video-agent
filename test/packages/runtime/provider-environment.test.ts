@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {writeConfig} from '../../../packages/runtime/src/config.js'
-import {readProviderEnvironment} from '../../../packages/runtime/src/provider-environment.js'
+import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '../../../packages/runtime/src/provider-environment.js'
 
 describe('provider environment', () => {
   it('returns no requirements for mock providers', async () => {
@@ -76,6 +76,46 @@ describe('provider environment', () => {
           required: false,
         },
       ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('creates a shell template without exposing configured values', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
+
+    try {
+      await writeConfig(root, {
+        asr: 'command',
+        tts: 'http',
+      })
+
+      const report = await readProviderEnvironment(root, {
+        VIDEO_AGENT_ASR_COMMAND: '["node","secret-asr.js"]',
+        VIDEO_AGENT_TTS_TOKEN: 'secret-token',
+        VIDEO_AGENT_TTS_URL: 'https://secret.example/tts',
+      })
+      const template = createProviderEnvironmentShellTemplate(report)
+
+      expect(template).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
+      expect(template).to.include("export VIDEO_AGENT_TTS_URL='https://provider.example/tts'")
+      expect(template).to.include("# export VIDEO_AGENT_TTS_TOKEN='<token>'")
+      expect(template).to.not.include('secret')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('can include optional shell template variables as exports', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
+
+    try {
+      await writeConfig(root, {vlm: 'http'})
+
+      const template = createProviderEnvironmentShellTemplate(await readProviderEnvironment(root, {}), {includeOptional: true})
+
+      expect(template).to.include("export VIDEO_AGENT_VLM_TOKEN='<token>'")
+      expect(template).to.include("export VIDEO_AGENT_VLM_TIMEOUT_MS='60000'")
     } finally {
       await rm(root, {force: true, recursive: true})
     }

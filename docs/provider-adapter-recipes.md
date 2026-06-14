@@ -19,6 +19,7 @@ It reads one JSON payload from stdin and writes one JSON response envelope to st
 
 ```sh
 bun run dev config --asr command --vlm command --tts command --workspace .video-agent
+bun run dev provider-env --shell-template --workspace .video-agent
 export VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 export VIDEO_AGENT_VLM_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 export VIDEO_AGENT_TTS_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
@@ -40,6 +41,7 @@ It accepts ASR, VLM, and TTS payloads on the same `POST` endpoint and returns th
 
 ```sh
 bun run dev config --asr http --vlm http --tts http --workspace .video-agent
+bun run dev provider-env --shell-template --workspace .video-agent
 export VIDEO_AGENT_ASR_URL='http://127.0.0.1:4318'
 export VIDEO_AGENT_VLM_URL='http://127.0.0.1:4318'
 export VIDEO_AGENT_TTS_URL='http://127.0.0.1:4318'
@@ -160,5 +162,6 @@ When replacing the mock recipe with a real hosted service:
 - return envelope metadata with request id, model, usage, and estimated cost when available
 - do not print tokens or provider responses containing secrets to stderr/stdout logs
 - run `bun run dev provider-env --json --workspace .video-agent` before a full pipeline run
+- run `bun run dev provider-env --shell-template --workspace .video-agent` to generate non-secret `export` placeholders for the current provider selection
 - run `bun run dev provider-test --workspace .video-agent` to validate adapter response contracts before a full pipeline run
 - run `bun run test` after changing in-repo adapter code

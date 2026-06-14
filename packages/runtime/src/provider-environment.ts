@@ -20,6 +20,10 @@ export interface ProviderEnvironmentRequirement {
   required: boolean
 }
 
+export interface ProviderEnvironmentShellTemplateOptions {
+  includeOptional?: boolean
+}
+
 type ProviderRole = ProviderEnvironmentRoleReport['role']
 
 const PROVIDER_ROLES: readonly ProviderRole[] = ['asr', 'vlm', 'tts']
@@ -31,6 +35,32 @@ export async function readProviderEnvironment(workspaceDir = '.video-agent', env
     providers: PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, env)),
     workspaceDir,
   }
+}
+
+export function createProviderEnvironmentShellTemplate(report: ProviderEnvironmentReport, options: ProviderEnvironmentShellTemplateOptions = {}): string {
+  const lines = [
+    '# video-agent provider environment template',
+    `# workspace: ${report.workspaceDir}`,
+  ]
+
+  for (const provider of report.providers) {
+    if (provider.requirements.length === 0) {
+      continue
+    }
+
+    lines.push('', `# ${provider.role.toUpperCase()} ${provider.provider} provider`)
+
+    for (const requirement of provider.requirements) {
+      if (!requirement.required && options.includeOptional !== true) {
+        lines.push(`# optional: ${requirement.description}`, `# export ${requirement.env}='${placeholderForRequirement(requirement)}'`)
+        continue
+      }
+
+      lines.push(`export ${requirement.env}='${placeholderForRequirement(requirement)}'`)
+    }
+  }
+
+  return `${lines.join('\n')}\n`
 }
 
 function createProviderEnvironmentRoleReport(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined>): ProviderEnvironmentRoleReport {
@@ -92,4 +122,24 @@ function createRequirement(options: {description: string; env: Record<string, st
 
 function isConfigured(value: string | undefined): boolean {
   return value !== undefined && value.trim() !== ''
+}
+
+function placeholderForRequirement(requirement: ProviderEnvironmentRequirement): string {
+  if (requirement.env.endsWith('_COMMAND')) {
+    return '["node","./providers/adapter.js"]'
+  }
+
+  if (requirement.env.endsWith('_URL')) {
+    return `https://provider.example/${requirement.env.toLowerCase().replace(/^video_agent_/, '').replace(/_url$/, '')}`
+  }
+
+  if (requirement.env.endsWith('_TOKEN')) {
+    return '<token>'
+  }
+
+  if (requirement.env.endsWith('_TIMEOUT_MS')) {
+    return '60000'
+  }
+
+  return '<value>'
 }

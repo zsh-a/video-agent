@@ -84,6 +84,12 @@ describe('cli end-to-end workflow', () => {
 
       await runCliJson(['config', '--asr', 'command', '--workspace', workspaceDir, '--json'])
 
+      const providerTemplate = await runCli(['provider-env', '--workspace', workspaceDir, '--shell-template'])
+
+      expect(providerTemplate.code).to.equal(0)
+      expect(providerTemplate.stdout).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
+      expect(providerTemplate.stdout).to.not.include('VIDEO_AGENT_VLM_COMMAND')
+
       const failedDoctor = await runCli(['doctor', '--workspace', workspaceDir, '--json'])
       const failedReport = JSON.parse(failedDoctor.stdout) as {
         checks: Array<{message: string; name: string; status: string}>

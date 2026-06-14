@@ -1,10 +1,12 @@
 import {Command, Flags} from '@oclif/core'
-import {readProviderEnvironment} from '@video-agent/runtime'
+import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '@video-agent/runtime'
 
 export default class ProviderEnv extends Command {
   static description = 'Show provider environment variables required by the current config'
   static flags = {
+    'include-optional': Flags.boolean({description: 'Include optional provider variables as active exports in --shell-template output'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
+    'shell-template': Flags.boolean({description: 'Print a shell export template for the current provider config'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -14,6 +16,11 @@ export default class ProviderEnv extends Command {
 
     if (flags.json) {
       this.log(JSON.stringify(report, null, 2))
+      return
+    }
+
+    if (flags['shell-template']) {
+      this.log(createProviderEnvironmentShellTemplate(report, {includeOptional: flags['include-optional']}).trimEnd())
       return
     }
 

@@ -229,7 +229,10 @@ VIDEO_AGENT_ASR_TIMEOUT_MS / VIDEO_AGENT_VLM_TIMEOUT_MS / VIDEO_AGENT_TTS_TIMEOU
 ```sh
 bun run dev provider-env
 bun run dev provider-env --json
+bun run dev provider-env --shell-template
 ```
+
+`--shell-template` 会按当前 provider config 输出可复制的 `export VIDEO_AGENT_*='...'` 占位模板。默认只启用必填变量，optional token/timeout 会以注释形式出现；需要把 optional 也输出成 active export 时可以加 `--include-optional`。模板不会读取或打印当前 shell 里的 secret 值。
 
 job state 默认写入每个项目目录的 `job-state.json`。如果要让本地 worker/API 使用 workspace 级 SQLite 状态库，可以切换为：
 
@@ -562,7 +565,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - doctor exit codes：当 runtime、provider env 或媒体工具检查失败时，`doctor` / `init` 会先输出报告再以非零状态退出
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`
 - API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness
-- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且不泄露 secret 值
+- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且可生成不泄露 secret 的 shell export 模板
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
