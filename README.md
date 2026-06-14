@@ -294,7 +294,7 @@ frames/frame_%05d.jpg
 renders/preview.mp4
 ```
 
-`quality-report.json` 会检查 timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。
+`quality-report.json` 会检查 clip plan sourceRange 是否越界、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。
 
 `render` 会读取项目的 `timeline.json`，用 `ffmpeg` 输出：
 
@@ -563,7 +563,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且不泄露 secret 值
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview
-- quality report：检查 timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
+- quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
 - artifact verify：CLI/API 可按 `artifact-manifest.json` 校验 sha256，报告 missing/changed/untracked
 - `events` 命令：按时间读取 pipeline events 和 provider calls，支持 pipeline stage/type、provider role/status 和 limit 过滤

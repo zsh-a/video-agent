@@ -1,4 +1,5 @@
 export * from './audio-loudness.js'
+export * from './clip-plan.js'
 export * from './narration.js'
 export * from './rendered-media.js'
 export * from './subtitles.js'

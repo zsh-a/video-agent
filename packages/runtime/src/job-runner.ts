@@ -6,7 +6,7 @@ import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/p
 import {createClipPlan, createPlaceholderNarration, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders} from '@video-agent/providers'
-import {checkNarrationTiming, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
+import {checkClipPlanConsistency, checkNarrationTiming, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {access, appendFile, mkdir} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
@@ -412,6 +412,7 @@ function createQualityStage(): Stage<InitialStageInput, InitialStageOutput> {
     async run(input) {
       const voiced = input as VoiceoverOutput
       const issues = [
+        ...checkClipPlanConsistency(voiced.clipPlan, voiced.timeline),
         ...checkTimelineBounds(voiced.timeline),
         ...checkNarrationTiming(voiced.narration, voiced.timeline),
         ...checkTtsCoverage(voiced.narration, voiced.ttsSegments),

@@ -77,7 +77,7 @@ packages/
     Stdio MCP adapter exposing runtime operations as agent-callable tools
 
   quality/
-    Timeline, narration timing, TTS coverage, subtitle, rendered media, audio loudness, and artifact quality checks
+    Clip plan consistency, timeline, narration timing, TTS coverage, subtitle, rendered media, audio loudness, and artifact quality checks
 
   db/
     Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
@@ -126,7 +126,7 @@ render
   render through HyperFrames or ffmpeg
 
 quality
-  inspect timeline bounds, narration timing, TTS coverage, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
+  inspect clip plan consistency, timeline bounds, narration timing, TTS coverage, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
 
 export
   copy final video, HyperFrames render directory, or project bundle to a user-selected path

@@ -612,7 +612,16 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       `${JSON.stringify({
         duration: 1,
         fps: 30,
-        items: [],
+        items: [
+          {
+            duration: 1,
+            id: 'video-1',
+            source: inputPath,
+            sourceRange: [0, 1],
+            start: 0,
+            track: 'video',
+          },
+        ],
         version: 1,
       })}\n`,
     ),
