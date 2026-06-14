@@ -17,6 +17,7 @@ import {
 } from '@video-agent/quality'
 import {narrationToSrt, renderTimelineWithFfmpeg} from '@video-agent/renderer-ffmpeg'
 import {renderHyperframesProject, validateHyperframesProject, writeHyperframesProject} from '@video-agent/renderer-hyperframes'
+import {createHash} from 'node:crypto'
 import {access, readFile, stat, writeFile} from 'node:fs/promises'
 import {isAbsolute, resolve} from 'node:path'
 
@@ -215,12 +216,13 @@ async function captureVisualFrameSamples(outputPath: string, rendersDir: string,
 async function captureVisualFrameSample(outputPath: string, target: VisualFrameSampleTarget): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>> {
   try {
     await extractVideoFrame(outputPath, target.path, target.timestamp)
-    const info = await stat(target.path)
+    const [content, info] = await Promise.all([readFile(target.path), stat(target.path)])
 
     return {
       capturedAt: new Date().toISOString(),
       ok: true,
       path: target.path,
+      sha256: createHash('sha256').update(content).digest('hex'),
       size: info.size,
       timestamp: target.timestamp,
     }

@@ -20,6 +20,7 @@ export interface ProjectVisualSample {
   ok: boolean
   path?: string
   relativePath?: string
+  reportSha256?: string
   reportSize?: number
   size?: number
   timestamp: number
@@ -115,6 +116,7 @@ function createBaseSample(sample: VisualFrameSampleLike): Omit<ProjectVisualSamp
   return {
     ...(sample.capturedAt === undefined ? {} : {capturedAt: sample.capturedAt}),
     ok: sample.ok,
+    ...(sample.sha256 === undefined ? {} : {reportSha256: sample.sha256}),
     ...(sample.size === undefined ? {} : {reportSize: sample.size}),
     timestamp: sample.timestamp,
   }
@@ -134,6 +136,7 @@ function isFrameSampleLike(value: unknown): value is VisualFrameSampleLike {
     Number.isFinite(value.timestamp) &&
     (value.capturedAt === undefined || typeof value.capturedAt === 'string') &&
     (value.path === undefined || typeof value.path === 'string') &&
+    (value.sha256 === undefined || typeof value.sha256 === 'string') &&
     (value.size === undefined || (typeof value.size === 'number' && Number.isFinite(value.size)))
   )
 }
@@ -153,6 +156,7 @@ interface VisualFrameSampleLike {
   capturedAt?: string
   ok: boolean
   path?: string
+  sha256?: string
   size?: number
   timestamp: number
 }

@@ -33,6 +33,7 @@ export interface VisualFrameSample {
   error?: string
   ok: boolean
   path?: string
+  sha256?: string
   size?: number
   timestamp: number
 }
@@ -132,7 +133,7 @@ function checkBlackDurationWithoutRatio(input: VisualSmokeInput): QualityIssue[]
 }
 
 function checkFrameSamples(frameSamples: VisualFrameSample[]): QualityIssue[] {
-  return frameSamples.flatMap((frameSample) => {
+  const sampleIssues = frameSamples.flatMap((frameSample) => {
     if (!frameSample.ok) {
       return [
         {
@@ -155,6 +156,22 @@ function checkFrameSamples(frameSamples: VisualFrameSample[]): QualityIssue[] {
 
     return []
   })
+  const successfulHashes = frameSamples
+    .filter((frameSample) => frameSample.ok && frameSample.sha256 !== undefined)
+    .map((frameSample) => frameSample.sha256)
+
+  if (successfulHashes.length >= 2 && new Set(successfulHashes).size === 1) {
+    return [
+      ...sampleIssues,
+      {
+        code: 'visual.frame_sample.static',
+        message: `Rendered video frame samples appear identical across ${successfulHashes.length} capture points.`,
+        severity: 'warning',
+      },
+    ]
+  }
+
+  return sampleIssues
 }
 
 function normalizeFrameSamples(input: VisualSmokeInput): VisualFrameSample[] {

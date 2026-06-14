@@ -135,6 +135,35 @@ describe('visual smoke quality', () => {
     expect(result.issues).to.deep.equal([])
   })
 
+  it('warns when successful frame samples have identical hashes', () => {
+    const result = checkVisualSmoke({
+      blackDuration: 0,
+      blackSegments: [],
+      duration: 2,
+      frameSamples: [
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-first.jpg',
+          sha256: 'same',
+          size: 123,
+          timestamp: 0,
+        },
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-middle.jpg',
+          sha256: 'same',
+          size: 123,
+          timestamp: 1,
+        },
+      ],
+    })
+
+    expect(result.issues.map((issue) => issue.code)).to.deep.equal(['visual.frame_sample.static'])
+    expect(result.warnings).to.equal(1)
+  })
+
   it('creates a probe failure warning', () => {
     expect(createVisualSmokeProbeFailure('ffmpeg failed')).to.deep.equal({
       blackDuration: 0,

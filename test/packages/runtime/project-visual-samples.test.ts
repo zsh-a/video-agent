@@ -24,6 +24,7 @@ describe('project visual samples', () => {
         exists: true,
         ok: true,
         relativePath: 'renders/final-frame-first.jpg',
+        reportSha256: 'first-hash',
         reportSize: 5,
         size: 5,
         timestamp: 0,
@@ -85,6 +86,7 @@ async function createVisualSampleProject(root: string, projectId: string): Promi
           {
             ok: true,
             path: join(rendersDir, 'final-frame-first.jpg'),
+            sha256: 'first-hash',
             size: 5,
             timestamp: 0,
           },

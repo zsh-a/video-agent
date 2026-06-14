@@ -95,8 +95,8 @@ describe('render project', () => {
           blackDuration: number
           blackRatio?: number
           errors: number
-          frameSample?: {ok: boolean; path?: string; size?: number; timestamp: number}
-          frameSamples?: Array<{ok: boolean; path?: string; size?: number; timestamp: number}>
+          frameSample?: {ok: boolean; path?: string; sha256?: string; size?: number; timestamp: number}
+          frameSamples?: Array<{ok: boolean; path?: string; sha256?: string; size?: number; timestamp: number}>
           probed: boolean
           warnings: number
         }
@@ -125,6 +125,7 @@ describe('render project', () => {
         timestamp: 0,
       })
       expect(renderOutput.visualQuality?.frameSample?.path).to.be.a('string')
+      expect(renderOutput.visualQuality?.frameSample?.sha256).to.match(/^[a-f0-9]{64}$/)
       expect(renderOutput.visualQuality?.frameSample?.size).to.be.greaterThan(0)
       expect((await stat(renderOutput.visualQuality?.frameSample?.path ?? '')).size).to.equal(renderOutput.visualQuality?.frameSample?.size)
       await expectFrameSamples(renderOutput.visualQuality?.frameSamples)
@@ -301,6 +302,7 @@ async function createRenderableProject(root: string, projectId: string): Promise
 interface TestVisualFrameSample {
   ok: boolean
   path?: string
+  sha256?: string
   size?: number
   timestamp: number
 }
@@ -314,6 +316,7 @@ async function expectFrameSamples(samples: TestVisualFrameSample[] | undefined):
   await Promise.all((samples ?? []).map(async (sample) => {
     expect(sample.ok).to.equal(true)
     expect(sample.path).to.be.a('string')
+    expect(sample.sha256).to.match(/^[a-f0-9]{64}$/)
     expect(sample.size).to.be.greaterThan(0)
     expect((await stat(sample.path ?? '')).size).to.equal(sample.size)
   }))
