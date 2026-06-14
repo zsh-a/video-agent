@@ -234,33 +234,67 @@ function createEmptyQualitySummary(): QualitySummary {
 }
 
 async function readRenderSummary(path: string): Promise<RenderSummary> {
-  let report: RenderOutputLike
+  const report = await readOptionalRenderOutput(path)
 
+  return report === undefined ? createEmptyRenderSummary() : createRenderSummary(report)
+}
+
+async function readOptionalRenderOutput(path: string): Promise<RenderOutputLike | undefined> {
   try {
-    report = JSON.parse(await readFile(path, 'utf8')) as RenderOutputLike
+    return JSON.parse(await readFile(path, 'utf8')) as RenderOutputLike
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return createEmptyRenderSummary()
+      return undefined
     }
 
     throw error
   }
+}
 
+function createRenderSummary(report: RenderOutputLike): RenderSummary {
+  return {
+    ...readAudioRenderSummary(report),
+    ...readOutputRenderSummary(report),
+    rendered: true,
+    ...readRendererSummary(report),
+    ...readSubtitleRenderSummary(report),
+    ...readVisualRenderSummary(report),
+  }
+}
+
+function readAudioRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'audioInputs' | 'audioQualityErrors' | 'audioQualityWarnings' | 'audioWarnings' | 'missingVoiceovers'> {
   return {
     audioInputs: readFiniteNumber(report.audioInputs) ?? 0,
-    audioQualityErrors: readFiniteNumber(report.audioQuality?.errors) ?? 0,
-    audioQualityWarnings: readFiniteNumber(report.audioQuality?.warnings) ?? 0,
+    audioQualityErrors: readIssueErrors(report.audioQuality),
+    audioQualityWarnings: readIssueWarnings(report.audioQuality),
     audioWarnings: readArrayLength(report.audioDiagnostics, 'warnings'),
     missingVoiceovers: readArrayLength(report.audioDiagnostics, 'missingVoiceovers'),
+  }
+}
+
+function readOutputRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'output' | 'outputErrors' | 'outputWarnings'> {
+  return {
     ...(typeof report.outputPath === 'string' ? {output: report.outputPath} : {}),
-    outputErrors: readFiniteNumber(report.outputQuality?.errors) ?? 0,
-    outputWarnings: readFiniteNumber(report.outputQuality?.warnings) ?? 0,
-    rendered: true,
-    ...(typeof report.renderer === 'string' ? {renderer: report.renderer} : {}),
-    subtitleErrors: readFiniteNumber(report.subtitleQuality?.errors) ?? 0,
-    subtitleWarnings: readFiniteNumber(report.subtitleQuality?.warnings) ?? 0,
-    visualErrors: readFiniteNumber(report.visualQuality?.errors) ?? 0,
-    visualWarnings: readFiniteNumber(report.visualQuality?.warnings) ?? 0,
+    outputErrors: readIssueErrors(report.outputQuality),
+    outputWarnings: readIssueWarnings(report.outputQuality),
+  }
+}
+
+function readRendererSummary(report: RenderOutputLike): Pick<RenderSummary, 'renderer'> {
+  return typeof report.renderer === 'string' ? {renderer: report.renderer} : {}
+}
+
+function readSubtitleRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'subtitleErrors' | 'subtitleWarnings'> {
+  return {
+    subtitleErrors: readIssueErrors(report.subtitleQuality),
+    subtitleWarnings: readIssueWarnings(report.subtitleQuality),
+  }
+}
+
+function readVisualRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'visualErrors' | 'visualWarnings'> {
+  return {
+    visualErrors: readIssueErrors(report.visualQuality),
+    visualWarnings: readIssueWarnings(report.visualQuality),
   }
 }
 
@@ -293,6 +327,14 @@ function readFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+function readIssueErrors(value: IssueCountLike | undefined): number {
+  return readFiniteNumber(value?.errors) ?? 0
+}
+
+function readIssueWarnings(value: IssueCountLike | undefined): number {
+  return readFiniteNumber(value?.warnings) ?? 0
+}
+
 function isQualitySummary(value: unknown): value is {errors: number; warnings: number} {
   return isRecord(value) && typeof value.errors === 'number' && Number.isFinite(value.errors) && typeof value.warnings === 'number' && Number.isFinite(value.warnings)
 }
@@ -319,22 +361,15 @@ interface QualityReportLike {
 interface RenderOutputLike {
   audioDiagnostics?: unknown
   audioInputs?: unknown
-  audioQuality?: {
-    errors?: unknown
-    warnings?: unknown
-  }
+  audioQuality?: IssueCountLike
   outputPath?: unknown
-  outputQuality?: {
-    errors?: unknown
-    warnings?: unknown
-  }
+  outputQuality?: IssueCountLike
   renderer?: unknown
-  subtitleQuality?: {
-    errors?: unknown
-    warnings?: unknown
-  }
-  visualQuality?: {
-    errors?: unknown
-    warnings?: unknown
-  }
+  subtitleQuality?: IssueCountLike
+  visualQuality?: IssueCountLike
+}
+
+interface IssueCountLike {
+  errors?: unknown
+  warnings?: unknown
 }
