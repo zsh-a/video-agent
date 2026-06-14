@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {checkVisualSmoke, createVisualSmokeProbeFailure} from '../../../packages/quality/src/index.js'
+import {addVisualFrameSample, checkVisualSmoke, createVisualSmokeProbeFailure} from '../../../packages/quality/src/index.js'
 
 describe('visual smoke quality', () => {
   it('passes when black-frame ratio is low', () => {
@@ -61,6 +61,48 @@ describe('visual smoke quality', () => {
         blackSegments: [],
       }).issues.map((issue) => issue.code),
     ).to.deep.equal(['visual.smoke.black_detected'])
+  })
+
+  it('records first-frame samples and warns when sampling fails', () => {
+    const result = addVisualFrameSample(
+      checkVisualSmoke({
+        blackDuration: 0,
+        blackSegments: [],
+        duration: 1,
+      }),
+      {
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        ok: true,
+        path: '/tmp/final-first-frame.jpg',
+        size: 123,
+        timestamp: 0,
+      },
+    )
+
+    expect(result.frameSample).to.deep.equal({
+      capturedAt: '2026-01-01T00:00:00.000Z',
+      ok: true,
+      path: '/tmp/final-first-frame.jpg',
+      size: 123,
+      timestamp: 0,
+    })
+    expect(result.issues).to.deep.equal([])
+
+    expect(
+      addVisualFrameSample(
+        checkVisualSmoke({
+          blackDuration: 0,
+          blackSegments: [],
+        }),
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          error: 'ffmpeg failed',
+          ok: false,
+          path: '/tmp/final-first-frame.jpg',
+          timestamp: 0,
+        },
+      ).issues.map((issue) => issue.code),
+    ).to.deep.equal(['visual.frame_sample.failed'])
   })
 
   it('creates a probe failure warning', () => {

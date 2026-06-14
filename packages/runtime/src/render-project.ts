@@ -4,8 +4,9 @@ import type {FfmpegAudioOptions, FfmpegVoiceoverInput} from '@video-agent/render
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 
 import {NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
-import {inspectAudioVolume, inspectVideoBlackDetect, probeMedia} from '@video-agent/media'
+import {extractVideoFrame, inspectAudioVolume, inspectVideoBlackDetect, probeMedia} from '@video-agent/media'
 import {
+  addVisualFrameSample,
   checkAudioLoudness,
   checkRenderedMedia,
   checkSrtSubtitles,
@@ -16,7 +17,7 @@ import {
 } from '@video-agent/quality'
 import {narrationToSrt, renderTimelineWithFfmpeg} from '@video-agent/renderer-ffmpeg'
 import {renderHyperframesProject, validateHyperframesProject, writeHyperframesProject} from '@video-agent/renderer-hyperframes'
-import {access, readFile, writeFile} from 'node:fs/promises'
+import {access, readFile, stat, writeFile} from 'node:fs/promises'
 import {isAbsolute, resolve} from 'node:path'
 
 import {createProjectWorkspace} from './workspace.js'
@@ -142,7 +143,7 @@ async function renderProjectWithFfmpeg(workspace: Awaited<ReturnType<typeof crea
     expectedDuration: timeline.duration,
   })
   const audioQuality = outputQuality.audioStreams > 0 ? await inspectRenderedAudio(result.outputPath) : undefined
-  const visualQuality = outputQuality.videoStreams > 0 ? await inspectRenderedVisual(result.outputPath, outputQuality.duration) : undefined
+  const visualQuality = outputQuality.videoStreams > 0 ? await inspectRenderedVisual(result.outputPath, resolve(workspace.rendersDir, 'final-first-frame.jpg'), outputQuality.duration) : undefined
   const artifactPath = await workspace.store.writeJson('render-output.json', {
     audio: audioPlan.audio,
     audioDiagnostics: audioPlan.diagnostics,
@@ -193,11 +194,42 @@ async function inspectRenderedAudio(outputPath: string): Promise<AudioLoudnessQu
   }
 }
 
-async function inspectRenderedVisual(outputPath: string, duration?: number): Promise<VisualSmokeQualityResult> {
+async function inspectRenderedVisual(outputPath: string, frameSamplePath: string, duration?: number): Promise<VisualSmokeQualityResult> {
+  const smokeQuality = await inspectRenderedBlackFrames(outputPath, duration)
+
+  return addVisualFrameSample(smokeQuality, await captureVisualFrameSample(outputPath, frameSamplePath))
+}
+
+async function inspectRenderedBlackFrames(outputPath: string, duration?: number): Promise<VisualSmokeQualityResult> {
   try {
     return checkVisualSmoke(await inspectVideoBlackDetect(outputPath, duration))
   } catch (error) {
     return createVisualSmokeProbeFailure(error instanceof Error ? error.message : String(error))
+  }
+}
+
+async function captureVisualFrameSample(outputPath: string, frameSamplePath: string): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>> {
+  const timestamp = 0
+
+  try {
+    await extractVideoFrame(outputPath, frameSamplePath, timestamp)
+    const info = await stat(frameSamplePath)
+
+    return {
+      capturedAt: new Date().toISOString(),
+      ok: true,
+      path: frameSamplePath,
+      size: info.size,
+      timestamp,
+    }
+  } catch (error) {
+    return {
+      capturedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+      ok: false,
+      path: frameSamplePath,
+      timestamp,
+    }
   }
 }
 

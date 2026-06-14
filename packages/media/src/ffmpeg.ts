@@ -44,6 +44,10 @@ export async function createPreview(input: string, outputPath: string, duration 
   await runFfmpeg(['-y', '-i', input, '-t', String(duration), '-c', 'copy', outputPath])
 }
 
+export async function extractVideoFrame(input: string, outputPath: string, timestamp = 0): Promise<void> {
+  await runFfmpeg(['-y', '-ss', String(timestamp), '-i', input, '-frames:v', '1', '-q:v', '2', outputPath])
+}
+
 export async function probeMedia(input: string, options?: RunProcessOptions): Promise<MediaInfo> {
   const stdout = await runFfprobe(['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', input], options)
   const raw = JSON.parse(stdout) as FfprobeOutput

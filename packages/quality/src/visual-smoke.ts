@@ -5,6 +5,7 @@ export interface VisualSmokeInput {
   blackRatio?: number
   blackSegments: VisualBlackSegment[]
   duration?: number
+  frameSample?: VisualFrameSample
 }
 
 export interface VisualBlackSegment {
@@ -19,13 +20,23 @@ export interface VisualSmokeQualityResult {
   blackSegments: VisualBlackSegment[]
   duration?: number
   errors: number
+  frameSample?: VisualFrameSample
   issues: QualityIssue[]
   probed: boolean
   warnings: number
 }
 
+export interface VisualFrameSample {
+  capturedAt: string
+  error?: string
+  ok: boolean
+  path?: string
+  size?: number
+  timestamp: number
+}
+
 export function checkVisualSmoke(input: VisualSmokeInput): VisualSmokeQualityResult {
-  const issues = [...checkBlackRatio(input), ...checkBlackDurationWithoutRatio(input)]
+  const issues = [...checkBlackRatio(input), ...checkBlackDurationWithoutRatio(input), ...checkFrameSample(input.frameSample)]
 
   return {
     blackDuration: input.blackDuration,
@@ -33,6 +44,7 @@ export function checkVisualSmoke(input: VisualSmokeInput): VisualSmokeQualityRes
     blackSegments: input.blackSegments,
     ...(input.duration === undefined ? {} : {duration: input.duration}),
     errors: issues.filter((issue) => issue.severity === 'error').length,
+    ...(input.frameSample === undefined ? {} : {frameSample: input.frameSample}),
     issues,
     probed: true,
     warnings: issues.filter((issue) => issue.severity === 'warning').length,
@@ -55,6 +67,18 @@ export function createVisualSmokeProbeFailure(message: string): VisualSmokeQuali
     issues,
     probed: false,
     warnings: 1,
+  }
+}
+
+export function addVisualFrameSample(result: VisualSmokeQualityResult, frameSample: VisualFrameSample): VisualSmokeQualityResult {
+  const issues = [...result.issues, ...checkFrameSample(frameSample)]
+
+  return {
+    ...result,
+    errors: issues.filter((issue) => issue.severity === 'error').length,
+    frameSample,
+    issues,
+    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -94,6 +118,34 @@ function checkBlackDurationWithoutRatio(input: VisualSmokeInput): QualityIssue[]
       severity: 'warning',
     },
   ]
+}
+
+function checkFrameSample(frameSample: undefined | VisualFrameSample): QualityIssue[] {
+  if (frameSample === undefined) {
+    return []
+  }
+
+  if (!frameSample.ok) {
+    return [
+      {
+        code: 'visual.frame_sample.failed',
+        message: frameSample.error === undefined ? 'Rendered video first-frame sample could not be generated.' : `Rendered video first-frame sample could not be generated: ${frameSample.error}`,
+        severity: 'warning',
+      },
+    ]
+  }
+
+  if (frameSample.size === undefined || frameSample.size <= 0) {
+    return [
+      {
+        code: 'visual.frame_sample.empty',
+        message: 'Rendered video first-frame sample is empty.',
+        severity: 'warning',
+      },
+    ]
+  }
+
+  return []
 }
 
 function formatPercent(value: number): string {

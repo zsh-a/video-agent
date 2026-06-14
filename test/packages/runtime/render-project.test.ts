@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -91,7 +91,7 @@ describe('render project', () => {
         audioQuality?: {errors: number; maxVolumeDb?: number; meanVolumeDb?: number; probed: boolean; warnings: number}
         outputQuality?: {errors: number; probed: boolean; videoStreams: number; warnings: number}
         subtitleQuality?: {cues: number; errors: number; warnings: number}
-        visualQuality?: {blackDuration: number; blackRatio?: number; errors: number; probed: boolean; warnings: number}
+        visualQuality?: {blackDuration: number; blackRatio?: number; errors: number; frameSample?: {ok: boolean; path?: string; size?: number; timestamp: number}; probed: boolean; warnings: number}
       }
 
       expect(renderOutput.outputQuality).to.include({
@@ -112,6 +112,13 @@ describe('render project', () => {
         warnings: 0,
       })
       expect(renderOutput.visualQuality?.blackDuration).to.be.a('number')
+      expect(renderOutput.visualQuality?.frameSample).to.include({
+        ok: true,
+        timestamp: 0,
+      })
+      expect(renderOutput.visualQuality?.frameSample?.path).to.be.a('string')
+      expect(renderOutput.visualQuality?.frameSample?.size).to.be.greaterThan(0)
+      expect((await stat(renderOutput.visualQuality?.frameSample?.path ?? '')).size).to.equal(renderOutput.visualQuality?.frameSample?.size)
 
       expect(renderOutput.subtitleQuality).to.deep.equal({
         cues: 1,
