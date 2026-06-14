@@ -74,6 +74,26 @@ export function createPlaceholderTimeline(mediaInfo: MediaInfo): Timeline {
   return createTimelineFromClipPlan(mediaInfo, createClipPlan(createPlaceholderStoryboard(mediaInfo), mediaInfo))
 }
 
+export function createNarrationFromClipPlan(storyboard: Storyboard, clipPlan: ClipPlan): Narration {
+  const clipsBySceneId = new Map(clipPlan.clips.map((clip) => [clip.sceneId, clip]))
+
+  return {
+    language: storyboard.language,
+    segments: storyboard.scenes.map((scene, index) => {
+      const clip = clipsBySceneId.get(scene.id)
+
+      return {
+        duration: clip?.duration ?? scene.duration,
+        id: `narration-${index + 1}`,
+        sceneId: scene.id,
+        start: clip?.start ?? scene.start,
+        text: scene.narration ?? `Placeholder narration for ${scene.id}.`,
+      }
+    }),
+    version: 1,
+  }
+}
+
 export function createPlaceholderNarration(storyboard: Storyboard): Narration {
   return {
     language: storyboard.language,

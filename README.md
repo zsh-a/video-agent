@@ -309,7 +309,7 @@ frames/frame_%05d.jpg
 renders/preview.mp4
 ```
 
-`clip-plan.json` 会把 storyboard scenes 转成可验证的 source ranges。当前实现按 scene 顺序连续推进源素材游标，保留 scene 的 timeline `start`，并在源素材不足时截断该 scene 的 clip duration；这样多 scene 或重叠 scene 不会重复取同一段源视频，也不会因为 scene start 较晚而跳过未使用的源片段。
+`clip-plan.json` 会把 storyboard scenes 转成可验证的 source ranges。当前实现按 scene 顺序连续推进源素材游标，保留 scene 的 timeline `start`，并在源素材不足时截断该 scene 的 clip duration；这样多 scene 或重叠 scene 不会重复取同一段源视频，也不会因为 scene start 较晚而跳过未使用的源片段。占位 `narration.json` 会复用 clip plan 的实际 `start` / `duration`，确保旁白、TTS 和质量检查对齐到真实可用的 timeline，而不是 storyboard 中原始请求的 scene duration。
 
 `quality-report.json` 会检查 clip plan sourceRange 是否越界、同源 sourceRange 是否重叠或跳段、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。ASR/VLM/TTS provider 产物会在写入 artifact 前通过共享 schema 校验。
 
@@ -593,7 +593,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness
 - `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且可生成不泄露 secret 的 shell export 模板
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
-- `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview
+- `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard、sequential clip plan、timeline、clip-plan-aligned narration、mock TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
 - artifact verify：CLI/API 可按 `artifact-manifest.json` 校验 sha256，并对已知 IR/provider JSON artifact 做 schema 校验，报告 missing/changed/untracked/schemaInvalid

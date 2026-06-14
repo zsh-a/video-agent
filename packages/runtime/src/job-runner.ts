@@ -3,7 +3,7 @@ import type {JobStore} from '@video-agent/db'
 import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {createClipPlan, createPlaceholderNarration, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
+import {createClipPlan, createNarrationFromClipPlan, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
@@ -382,7 +382,7 @@ function createScriptStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'script',
     async run(input) {
       const planned = input as PlanOutput
-      const narration = NarrationSchema.parse(createPlaceholderNarration(planned.storyboard))
+      const narration = NarrationSchema.parse(createNarrationFromClipPlan(planned.storyboard, planned.clipPlan))
 
       await planned.workspace.store.writeJson('narration.json', narration)
 
