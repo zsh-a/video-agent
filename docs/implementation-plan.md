@@ -174,7 +174,7 @@ Acceptance criteria:
 - Project events can be read directly with filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
 
 ## Phase 5: Persistence and Recovery
 

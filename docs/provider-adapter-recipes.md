@@ -23,9 +23,10 @@ export VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-pro
 export VIDEO_AGENT_VLM_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 export VIDEO_AGENT_TTS_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 bun run dev provider-env --json --workspace .video-agent
+bun run dev provider-test --workspace .video-agent
 ```
 
-When the env values are set, `provider-env` should report each required command variable as configured.
+When the env values are set, `provider-env` should report each required command variable as configured. `provider-test` should call each adapter with a minimal ASR/VLM/TTS payload and report `succeeded` for each role before you run the full pipeline.
 
 ## HTTP Adapter Smoke Test
 
@@ -43,9 +44,10 @@ export VIDEO_AGENT_ASR_URL='http://127.0.0.1:4318'
 export VIDEO_AGENT_VLM_URL='http://127.0.0.1:4318'
 export VIDEO_AGENT_TTS_URL='http://127.0.0.1:4318'
 bun run dev provider-env --json --workspace .video-agent
+bun run dev provider-test --workspace .video-agent
 ```
 
-When the env values are set, `provider-env` should report each required URL variable as configured. The mock server echoes the `x-video-agent-request-id` header in `metadata.requestId`, which makes it useful for checking provider-call tracing before wiring a hosted service.
+When the env values are set, `provider-env` should report each required URL variable as configured. `provider-test` should call each endpoint with a minimal ASR/VLM/TTS payload and report `succeeded` for each role. The mock server echoes the `x-video-agent-request-id` header in `metadata.requestId`, which makes it useful for checking provider-call tracing before wiring a hosted service.
 
 ## Payloads
 
@@ -158,4 +160,5 @@ When replacing the mock recipe with a real hosted service:
 - return envelope metadata with request id, model, usage, and estimated cost when available
 - do not print tokens or provider responses containing secrets to stderr/stdout logs
 - run `bun run dev provider-env --json --workspace .video-agent` before a full pipeline run
+- run `bun run dev provider-test --workspace .video-agent` to validate adapter response contracts before a full pipeline run
 - run `bun run test` after changing in-repo adapter code

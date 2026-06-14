@@ -82,6 +82,8 @@ bun run dev config --interactive
 bun run dev config --asr command --vlm command --tts command
 bun run dev provider-env
 bun run dev provider-env --json
+bun run dev provider-test
+bun run dev provider-test --role asr --json
 bun run dev config --job-store sqlite
 bun run dev config --max-stage-retries 2 --retry-backoff-ms 500
 bun run dev inspect ./input.mp4
@@ -132,6 +134,7 @@ vagent init
 vagent doctor
 vagent config
 vagent provider-env
+vagent provider-test
 vagent inspect
 vagent run
 vagent artifacts
@@ -547,6 +550,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `doctor` 命令：检查 Bun/Node fallback、workspace、配置、项目索引、`ffmpeg` 和 `ffprobe`
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`
 - `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且不泄露 secret 值
+- `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview
 - quality report：检查 timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
