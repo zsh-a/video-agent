@@ -1,0 +1,17 @@
+{
+  "extends": "../tsconfig",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "references": [
+    {"path": ".."},
+    {"path": "../packages/ir"},
+    {"path": "../packages/core"},
+    {"path": "../packages/runtime"},
+    {"path": "../packages/media"},
+    {"path": "../packages/providers"},
+    {"path": "../packages/renderer-hyperframes"},
+    {"path": "../packages/quality"},
+    {"path": "../packages/db"}
+  ]
+}

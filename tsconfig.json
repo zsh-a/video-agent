@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["./src/**/*"],
+  "references": [
+    {"path": "./packages/ir"},
+    {"path": "./packages/core"},
+    {"path": "./packages/runtime"},
+    {"path": "./packages/media"},
+    {"path": "./packages/providers"},
+    {"path": "./packages/renderer-hyperframes"},
+    {"path": "./packages/quality"},
+    {"path": "./packages/db"}
+  ],
+  "ts-node": {
+    "esm": true
+  }
+}

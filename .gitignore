@@ -1,0 +1,17 @@
+*-debug.log
+*-error.log
+**/.DS_Store
+/.idea
+/dist
+/packages/*/dist
+/packages/*/tsconfig.tsbuildinfo
+/tmp
+/node_modules
+/packages/*/node_modules
+/.bun
+tsconfig.tsbuildinfo
+oclif.manifest.json
+
+
+yarn.lock
+package-lock.json
