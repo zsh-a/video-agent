@@ -27,9 +27,31 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
     })
   }
 
+  let previousClip: ClipPlan['clips'][number] | undefined
+
   for (const [index, clip] of clipPlan.clips.entries()) {
     const [sourceStart, sourceEnd] = clip.sourceRange
     const sourceDuration = sourceEnd - sourceStart
+
+    if (previousClip !== undefined && previousClip.source === clip.source) {
+      const previousSourceEnd = previousClip.sourceRange[1]
+
+      if (sourceStart < previousSourceEnd - tolerance) {
+        issues.push({
+          code: 'clip_plan.source_range.overlap',
+          message: `Clip ${clip.id} source range overlaps ${previousClip.id}.`,
+          severity: 'error',
+        })
+      }
+
+      if (sourceStart > previousSourceEnd + tolerance) {
+        issues.push({
+          code: 'clip_plan.source_range.gap',
+          message: `Clip ${clip.id} skips unused source media after ${previousClip.id}.`,
+          severity: 'warning',
+        })
+      }
+    }
 
     if (sourceEnd < sourceStart) {
       issues.push({
@@ -72,6 +94,8 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
         severity: 'error',
       })
     }
+
+    previousClip = clip
   }
 
   return issues

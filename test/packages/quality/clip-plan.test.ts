@@ -59,6 +59,54 @@ describe('clip plan quality', () => {
       'clip_plan.timeline_item_mismatch',
     ])
   })
+
+  it('reports overlapping and gapped source ranges', () => {
+    const clipPlan = createClipPlan({
+      clips: [
+        {
+          duration: 4,
+          id: 'clip-1',
+          sceneId: 'scene-1',
+          source: '/tmp/input.mp4',
+          sourceRange: [0, 4],
+          start: 0,
+        },
+        {
+          duration: 3,
+          id: 'clip-2',
+          sceneId: 'scene-2',
+          source: '/tmp/input.mp4',
+          sourceRange: [3, 6],
+          start: 4,
+        },
+        {
+          duration: 2,
+          id: 'clip-3',
+          sceneId: 'scene-3',
+          source: '/tmp/input.mp4',
+          sourceRange: [8, 10],
+          start: 7,
+        },
+      ],
+      duration: 9,
+    })
+    const timeline = createTimeline({
+      duration: 9,
+      items: clipPlan.clips.map((clip, index) => ({
+        duration: clip.duration,
+        id: `video-${index + 1}`,
+        source: clip.source,
+        sourceRange: clip.sourceRange,
+        start: clip.start,
+        track: 'video' as const,
+      })),
+    })
+
+    expect(checkClipPlanConsistency(clipPlan, timeline).map((issue) => `${issue.code}:${issue.severity}`)).to.deep.equal([
+      'clip_plan.source_range.overlap:error',
+      'clip_plan.source_range.gap:warning',
+    ])
+  })
 })
 
 function createClipPlan(overrides: Partial<ReturnType<typeof baseClipPlan>> = {}): ReturnType<typeof baseClipPlan> {

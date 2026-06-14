@@ -311,7 +311,7 @@ renders/preview.mp4
 
 `clip-plan.json` 会把 storyboard scenes 转成可验证的 source ranges。当前实现按 scene 顺序连续推进源素材游标，保留 scene 的 timeline `start`，并在源素材不足时截断该 scene 的 clip duration；这样多 scene 或重叠 scene 不会重复取同一段源视频，也不会因为 scene start 较晚而跳过未使用的源片段。
 
-`quality-report.json` 会检查 clip plan sourceRange 是否越界、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。ASR/VLM/TTS provider 产物会在写入 artifact 前通过共享 schema 校验。
+`quality-report.json` 会检查 clip plan sourceRange 是否越界、同源 sourceRange 是否重叠或跳段、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。ASR/VLM/TTS provider 产物会在写入 artifact 前通过共享 schema 校验。
 
 `render` 会读取项目的 `timeline.json`，用 `ffmpeg` 输出：
 
