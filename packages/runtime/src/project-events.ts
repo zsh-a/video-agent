@@ -6,10 +6,13 @@ import {resolve} from 'node:path'
 import type {ProviderCallRecord, ProviderCallRole, ProviderCallStatus} from './provider-calls.js'
 
 export type ProjectEventKind = 'pipeline' | 'provider'
+export type ProjectPipelineEventType = PipelineEvent['type']
 
 export interface ReadProjectEventsOptions {
   kind?: ProjectEventKind
   limit?: number
+  pipelineStage?: string
+  pipelineType?: ProjectPipelineEventType
   providerRole?: ProviderCallRole
   providerStatus?: ProviderCallStatus
   workspaceDir?: string
@@ -42,7 +45,7 @@ export async function readProjectEvents(projectId: string, options: ReadProjectE
     options.kind === 'pipeline' ? Promise.resolve([]) : readJsonLines<ProviderCallRecord>(resolve(artifactsDir, 'provider-calls.jsonl')),
   ])
   const events = [
-    ...pipelineEvents.map((event): PipelineProjectEventRecord => ({event, kind: 'pipeline', time: event.time})),
+    ...pipelineEvents.filter((event) => matchesPipelineFilter(event, options)).map((event): PipelineProjectEventRecord => ({event, kind: 'pipeline', time: event.time})),
     ...providerCalls.filter((event) => matchesProviderFilter(event, options)).map((event): ProviderProjectEventRecord => ({event, kind: 'provider', time: event.completedAt})),
   ]
     .sort((a, b) => a.time.localeCompare(b.time))
@@ -52,6 +55,10 @@ export async function readProjectEvents(projectId: string, options: ReadProjectE
     events,
     projectId,
   }
+}
+
+function matchesPipelineFilter(event: PipelineEvent, options: ReadProjectEventsOptions): boolean {
+  return (options.pipelineStage === undefined || event.stage === options.pipelineStage) && (options.pipelineType === undefined || event.type === options.pipelineType)
 }
 
 function matchesProviderFilter(event: ProviderCallRecord, options: ReadProjectEventsOptions): boolean {

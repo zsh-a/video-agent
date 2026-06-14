@@ -144,6 +144,47 @@ describe('mcp server', () => {
     }
   })
 
+  it('calls the events tool with pipeline filters', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'pipeline-events.jsonl'),
+        [
+          JSON.stringify({projectId: 'demo', stage: 'ingest', time: '2026-01-01T00:00:00.000Z', type: 'stage:start'}),
+          JSON.stringify({projectId: 'demo', stage: 'quality', time: '2026-01-01T00:00:01.000Z', type: 'stage:complete'}),
+        ].join('\n'),
+      )
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'events-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            kind: 'pipeline',
+            projectId: 'demo',
+            stage: 'quality',
+            type: 'stage:complete',
+          },
+          name: 'video_agent_events',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {events: Array<{event: {stage?: string; type: string}; kind: string}>}
+
+      expect(result.events).to.have.length(1)
+      expect(result.events[0]?.event).to.include({
+        stage: 'quality',
+        type: 'stage:complete',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('calls render with extended HyperFrames options', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 

@@ -93,6 +93,7 @@ bun run dev artifacts <projectId> media-info.json
 bun run dev artifacts <projectId> --verify
 bun run dev events <projectId>
 bun run dev events <projectId> --kind provider --status failed
+bun run dev events <projectId> --kind pipeline --stage ingest --type stage:start
 bun run dev projects
 bun run dev quality <projectId>
 bun run dev quality <projectId> --details --json
@@ -373,7 +374,7 @@ bun run dev artifacts <projectId> --verify
 
 `visual` 会读取 `render-output.json` 中记录的渲染缩略图样本，输出时间点、状态、相对路径和文件大小。默认只输出元数据；`--json --include-content` 会额外返回 base64 图像内容。
 
-`events` 会读取同一组 JSONL 日志，输出按时间排序的 pipeline events 和 provider calls。可以用 `--kind provider`、`--role asr`、`--status failed`、`--limit 20` 过滤。
+`events` 会读取同一组 JSONL 日志，输出按时间排序的 pipeline events 和 provider calls。可以用 `--kind provider`、`--role asr`、`--status failed`、`--kind pipeline`、`--stage ingest`、`--type stage:start`、`--limit 20` 过滤。
 
 `rerun` 会读取项目的 `job-state.json`，复用原始 `inputPath`，从指定 checkpoint 阶段继续执行：
 
@@ -564,7 +565,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - quality report：检查 timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
 - artifact verify：CLI/API 可按 `artifact-manifest.json` 校验 sha256，报告 missing/changed/untracked
-- `events` 命令：按时间读取 pipeline events 和 provider calls，支持 provider role/status/limit 过滤
+- `events` 命令：按时间读取 pipeline events 和 provider calls，支持 pipeline stage/type、provider role/status 和 limit 过滤
 - `projects` 命令：列出 workspace 内已有项目
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容

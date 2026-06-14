@@ -1,5 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type ProjectEventRecord, readProjectEvents} from '@video-agent/runtime'
+import {type ProjectEventRecord, type ProjectPipelineEventType, readProjectEvents} from '@video-agent/runtime'
 
 export default class Events extends Command {
   static args = {
@@ -11,7 +11,9 @@ export default class Events extends Command {
     kind: Flags.string({description: 'Event kind to read', options: ['pipeline', 'provider']}),
     limit: Flags.integer({description: 'Limit to the last N events'}),
     role: Flags.string({description: 'Provider role filter', options: ['asr', 'tts', 'vlm']}),
+    stage: Flags.string({description: 'Pipeline stage filter'}),
     status: Flags.string({description: 'Provider status filter', options: ['failed', 'succeeded']}),
+    type: Flags.string({description: 'Pipeline event type filter', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start']}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -20,6 +22,8 @@ export default class Events extends Command {
     const result = await readProjectEvents(args.project, {
       kind: flags.kind as 'pipeline' | 'provider' | undefined,
       limit: flags.limit,
+      pipelineStage: flags.stage,
+      pipelineType: flags.type as ProjectPipelineEventType | undefined,
       providerRole: flags.role as 'asr' | 'tts' | 'vlm' | undefined,
       providerStatus: flags.status as 'failed' | 'succeeded' | undefined,
       workspaceDir: flags.workspace,

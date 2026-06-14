@@ -32,6 +32,7 @@ describe('api server handler', () => {
       const status = await readJson<{projectId: string; summary: {providers: {total: number}; quality: {errors: number; issues: number; warnings: number}; render: {rendered: boolean}}}>(fetch, '/projects/demo/status')
       const quality = await readJson<{ok: boolean; projectId: string}>(fetch, '/projects/demo/quality')
       const events = await readJson<{events: unknown[]}>(fetch, '/projects/demo/events?kind=provider&role=asr')
+      const pipelineEvents = await readJson<{events: Array<{event: {stage?: string; type: string}; kind: string}>}>(fetch, '/projects/demo/events?kind=pipeline&stage=ingest&type=stage:start')
       const artifact = await readJson<{content: {version: number}}>(fetch, '/projects/demo/artifacts/media-info.json')
 
       expect(health.ok).to.equal(true)
@@ -52,6 +53,11 @@ describe('api server handler', () => {
       expect(quality.projectId).to.equal('demo')
       expect(quality.ok).to.equal(false)
       expect(events.events).to.have.length(1)
+      expect(pipelineEvents.events).to.have.length(1)
+      expect(pipelineEvents.events[0]?.event).to.include({
+        stage: 'ingest',
+        type: 'stage:start',
+      })
       expect(artifact.content.version).to.equal(1)
     } finally {
       await rm(root, {force: true, recursive: true})

@@ -34,6 +34,12 @@ describe('project events', () => {
         providerStatus: 'failed',
         workspaceDir: root,
       })
+      const ingestStarts = await readProjectEvents('demo', {
+        kind: 'pipeline',
+        pipelineStage: 'ingest',
+        pipelineType: 'stage:start',
+        workspaceDir: root,
+      })
       const limited = await readProjectEvents('demo', {
         limit: 2,
         workspaceDir: root,
@@ -42,6 +48,11 @@ describe('project events', () => {
       expect(all.events.map((event) => event.kind)).to.deep.equal(['pipeline', 'provider', 'provider', 'pipeline'])
       expect(failedProviders.events).to.have.length(1)
       expect(failedProviders.events[0].kind).to.equal('provider')
+      expect(ingestStarts.events).to.have.length(1)
+      expect(ingestStarts.events[0]).to.deep.include({
+        kind: 'pipeline',
+        time: '2026-01-01T00:00:00.000Z',
+      })
       expect(limited.events.map((event) => event.time)).to.deep.equal(['2026-01-01T00:00:02.000Z', '2026-01-01T00:00:03.000Z'])
     } finally {
       await rm(root, {force: true, recursive: true})

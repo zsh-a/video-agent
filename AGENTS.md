@@ -68,13 +68,20 @@ local provider services or binaries
 
 ## Current CLI State
 
-The root oclif CLI is still the first adapter. Existing `hello` commands are placeholders from the scaffold. Replace them incrementally with real commands such as:
+The root oclif CLI is the first adapter and should continue to call shared runtime APIs rather than duplicating workflow logic. Keep commands focused on local operation and automation-friendly JSON output. Current command areas include:
 
 ```text
+init
+doctor
+config
+provider-env / provider-test
 run
 inspect
 render
 export
+status / projects / events / artifacts / quality / visual
+rerun / worker
+tui / serve / mcp
 ```
 
 Do not move the CLI into `apps/cli` until the package APIs are stable enough to avoid churn.

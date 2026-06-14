@@ -272,6 +272,8 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
       await readProjectEvents(projectId, {
         kind: parseOptionalEnum(url.searchParams.get('kind'), ['pipeline', 'provider']),
         limit: parseOptionalInteger(url.searchParams.get('limit')),
+        pipelineStage: url.searchParams.get('stage') ?? undefined,
+        pipelineType: parseOptionalEnum(url.searchParams.get('type'), ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start']),
         providerRole: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'tts', 'vlm']),
         providerStatus: parseOptionalEnum(url.searchParams.get('status'), ['failed', 'succeeded']),
         workspaceDir,

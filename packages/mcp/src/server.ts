@@ -87,7 +87,9 @@ const TOOL_DEFINITIONS: McpTool[] = [
     limit: integerSchema('Maximum number of events to return.'),
     projectId: projectIdSchema(),
     role: enumSchema(['asr', 'tts', 'vlm'], 'Provider role filter for provider events.'),
+    stage: stringSchema('Pipeline stage filter for pipeline events, for example ingest, understand, render, or quality.'),
     status: enumSchema(['failed', 'succeeded'], 'Provider call status filter for provider events.'),
+    type: enumSchema(['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start'], 'Pipeline event type filter.'),
   }),
   createTool('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {artifactName: stringSchema('Optional artifact filename, such as media-info.json or quality-report.json.'), projectId: projectIdSchema()}),
   createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes for a project.', {projectId: projectIdSchema()}),
@@ -222,6 +224,8 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
       return readProjectEvents(readRequiredString(args, 'projectId'), {
         kind: readOptionalEnum(args, 'kind', ['pipeline', 'provider']),
         limit: readOptionalInteger(args, 'limit'),
+        pipelineStage: readOptionalString(args, 'stage'),
+        pipelineType: readOptionalEnum(args, 'type', ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start']),
         providerRole: readOptionalEnum(args, 'role', ['asr', 'tts', 'vlm']),
         providerStatus: readOptionalEnum(args, 'status', ['failed', 'succeeded']),
         workspaceDir,
