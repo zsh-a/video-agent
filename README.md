@@ -413,11 +413,13 @@ GET /doctor
 GET /provider-env
 POST /provider-test
 GET /config
+GET /actions
 GET /projects
 POST /projects
 POST /worker
 GET /projects/:projectId/status
 GET /projects/:projectId/quality
+GET /projects/:projectId/actions
 GET /projects/:projectId/events
 GET /projects/:projectId/artifacts
 GET /projects/:projectId/artifacts/:artifactName
@@ -431,7 +433,9 @@ POST /projects/:projectId/export
 
 `GET /health` 是轻量 liveness endpoint，只要 API 进程可响应就返回 `200`。`GET /doctor` 是 runtime readiness endpoint，会返回与 CLI `doctor` 相同的 workspace/config/provider/media 工具报告；当任一检查失败时，响应体仍包含完整报告，但 HTTP 状态码为 `503`，方便负载均衡器、CI 和外部 agent client fail fast。需要只按显式变量做 provider readiness 检查时，可以重复传 `GET /doctor?env=KEY=VALUE`。
 
-`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run 和 provider smoke test 操作按钮。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
+`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run、provider smoke test 和 guided action copy 操作。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
+
+`GET /actions` 和 `GET /projects/:projectId/actions` 返回与 TUI 共用的 guided action 元数据，包括 `id`、`category`、`description`、`priority` 和可复制 `command`。默认命令前缀是 `vagent`，可以用 `?commandPrefix=bun%20run%20dev` 覆盖，方便开发期 Studio 或外部 agent client 生成本地可执行命令。
 
 `GET /config` 返回当前 workspace 的非 secret runtime config，包括 provider 选择、job store 和 pipeline retry 策略。provider credential 是否配置由 `GET /provider-env` 以 `configured` 布尔值展示，不返回 secret 内容。需要给外部运行环境生成占位模板时，可以调用 `GET /provider-env?shellTemplate=true`；optional 变量可加 `includeOptional=true`。需要让 agent client 只验证显式变量时，可以重复传 `GET /provider-env?env=KEY=VALUE`；`POST /provider-test` 也支持 body 里的 `{ "env": { "KEY": "VALUE" } }`。
 
@@ -596,8 +600,8 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact/schema 预检、attempt 上限和 skip reason
-- `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、运行 provider smoke test、触发 rerun 或 worker recovery
-- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、provider env shell template、provider-test、config、projects、status、events、artifacts、artifact preview、visual sample preview、render option controls、render quality diagnostics、template quality diagnostics、artifact integrity diagnostics、stage rerun、workflow actions 和 worker recovery
+- `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、进入 guided selector、运行 provider smoke test、触发 rerun 或 worker recovery
+- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、provider env shell template、provider-test、config、projects、guided actions、status、events、artifacts、artifact preview、visual sample preview、render option controls、render quality diagnostics、template quality diagnostics、artifact integrity diagnostics、stage rerun、workflow actions 和 worker recovery
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/provider-test/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - Claude Code skill adapter：`adapters/claude-code-skill/video-agent/SKILL.md` 提供 agent shell 使用 CLI/MCP 的操作流程
 - Claude Code skill 分发说明：见 [docs/claude-code-skill.md](docs/claude-code-skill.md)
@@ -607,7 +611,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - MCP errors：checkpoint、IR schema 和 provider artifact schema failure 会在 JSON-RPC `error.data` 中返回结构化 code/details
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量/排序恢复 failed/running job，用 `runningStaleAfterMs` 跳过仍活跃的 running job，预检 checkpoint artifacts，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
-- API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
+- API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`，并通过 `GET /actions` / `GET /projects/:id/actions` 暴露可复制 guided actions
 - `render` 命令：用 ffmpeg 从 timeline 输出第一版 `final.mp4`，并可从 `narration.json` 生成/烧录字幕；也支持 `--renderer hyperframes` 生成 HTML render project
 - subtitle quality：ffmpeg render 会对生成的 SRT 文件写入 cue 数量和 warning/error diagnostics
 - runtime render API：CLI `render` 和 HTTP `POST /projects/:id/render` 共用同一套 `renderProject`

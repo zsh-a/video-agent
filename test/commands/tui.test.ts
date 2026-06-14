@@ -83,8 +83,12 @@ describe('tui command', () => {
     expect(formatTuiActionResult({
       commands: [
         {
+          category: 'inspect',
           command: 'bun run dev status demo',
+          description: 'Inspect job state.',
+          id: 'inspect-status',
           label: 'Inspect status',
+          priority: 25,
         },
       ],
       type: 'commands',

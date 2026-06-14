@@ -1,7 +1,7 @@
-import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy} from '@video-agent/runtime'
+import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'select' | 'worker'
@@ -20,14 +20,7 @@ export interface FormatTuiSnapshotOptions {
   eventLimit: number
 }
 
-export interface TuiCommandSuggestion {
-  category?: 'artifact' | 'dashboard' | 'export' | 'inspect' | 'provider' | 'recover' | 'render' | 'rerun'
-  command: string
-  description?: string
-  id?: string
-  label: string
-  priority?: number
-}
+export type TuiCommandSuggestion = VideoAgentGuidedAction
 
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
@@ -387,144 +380,12 @@ export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnaps
 }
 
 export function createTuiCommandSuggestions(snapshot: TuiSnapshot, options: {commandPrefix: string}): TuiCommandSuggestion[] {
-  const suggestions: TuiCommandSuggestion[] = [
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['tui', '--action', 'provider-test', '--workspace', snapshot.workspaceDir],
-      category: 'provider',
-      description: 'Run ASR, VLM, and TTS provider smoke tests for the current workspace.',
-      id: 'provider-test',
-      label: 'Test providers',
-      priority: 30,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['projects', '--workspace', snapshot.workspaceDir],
-      category: 'inspect',
-      description: 'List projects in the workspace.',
-      id: 'list-projects',
-      label: 'List projects',
-      priority: 80,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['worker', '--dry-run', '--workspace', snapshot.workspaceDir],
-      category: 'recover',
-      description: 'Preview recoverable failed or stale running jobs without mutating state.',
-      id: 'worker-dry-run',
-      label: 'Preview worker recovery',
-      priority: 40,
-    }),
-  ]
-
-  if (snapshot.selected === undefined) {
-    return suggestions
-  }
-
-  const {projectId} = snapshot.selected
-  const [firstArtifact] = snapshot.artifacts
-  const rerunStage = findSuggestedRerunStage(snapshot.selected)
-
-  suggestions.unshift(
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['tui', '--project', projectId, '--workspace', snapshot.workspaceDir],
-      category: 'dashboard',
-      description: 'Open the focused project dashboard once.',
-      id: 'open-dashboard',
-      label: 'Open dashboard',
-      priority: 10,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['tui', '--project', projectId, '--watch', '--workspace', snapshot.workspaceDir],
-      category: 'dashboard',
-      description: 'Watch the focused project dashboard with periodic refresh.',
-      id: 'watch-dashboard',
-      label: 'Watch dashboard',
-      priority: 20,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['status', projectId, '--workspace', snapshot.workspaceDir],
-      category: 'inspect',
-      description: 'Inspect job state, provider summary, quality summary, and artifacts.',
-      id: 'inspect-status',
-      label: 'Inspect status',
-      priority: 25,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['quality', projectId, '--workspace', snapshot.workspaceDir],
-      category: 'inspect',
-      description: 'Inspect aggregate project quality and deliverability diagnostics.',
-      id: 'inspect-quality',
-      label: 'Inspect quality',
-      priority: 35,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['events', projectId, '--workspace', snapshot.workspaceDir],
-      category: 'inspect',
-      description: 'Read recent pipeline and provider events for the focused project.',
-      id: 'read-events',
-      label: 'Read events',
-      priority: 50,
-    }),
-  )
-
-  if (firstArtifact !== undefined) {
-    suggestions.push(createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['tui', '--project', projectId, '--action', 'artifact', '--artifact', firstArtifact.name, '--workspace', snapshot.workspaceDir],
-      category: 'artifact',
-      description: `Preview the ${firstArtifact.name} artifact content from the focused project.`,
-      id: 'open-artifact',
-      label: `Open artifact ${firstArtifact.name}`,
-      priority: 55,
-    }))
-  }
-
-  if (rerunStage !== undefined) {
-    suggestions.push(createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['tui', '--project', projectId, '--action', 'rerun', '--from-stage', rerunStage, '--workspace', snapshot.workspaceDir],
-      category: 'rerun',
-      description: `Rerun the focused project from the first unfinished stage, ${rerunStage}.`,
-      id: 'rerun-suggested-stage',
-      label: `Rerun from ${rerunStage}`,
-      priority: 15,
-    }))
-  }
-
-  suggestions.push(
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['render', projectId, '--workspace', snapshot.workspaceDir],
-      category: 'render',
-      description: 'Render the focused project with the default renderer settings.',
-      id: 'render-final-video',
-      label: 'Render final video',
-      priority: 60,
-    }),
-    createTuiCommandSuggestion(options.commandPrefix, {
-      args: ['export', projectId, '--workspace', snapshot.workspaceDir],
-      category: 'export',
-      description: 'Export the latest rendered output or project bundle.',
-      id: 'export-output',
-      label: 'Export output',
-      priority: 70,
-    }),
-  )
-
-  return [...suggestions].sort((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
-}
-
-function createTuiCommandSuggestion(prefix: string, options: {
-  args: string[]
-  category: NonNullable<TuiCommandSuggestion['category']>
-  description: string
-  id: string
-  label: string
-  priority: number
-}): TuiCommandSuggestion {
-  return {
-    category: options.category,
-    command: buildTuiCommand(prefix, options.args),
-    description: options.description,
-    id: options.id,
-    label: options.label,
-    priority: options.priority,
-  }
+  return createVideoAgentGuidedActions({
+    artifacts: snapshot.artifacts,
+    commandPrefix: options.commandPrefix,
+    status: snapshot.selected,
+    workspaceDir: snapshot.workspaceDir,
+  })
 }
 
 export function formatTuiCommands(commands: TuiCommandSuggestion[]): string[] {
@@ -604,29 +465,6 @@ async function askQuestion(readline: Interface, prompt: string): Promise<string>
   return new Promise((resolve) => {
     readline.question(prompt, resolve)
   })
-}
-
-function buildTuiCommand(prefix: string, args: string[]): string {
-  return [prefix, ...args.map((arg) => shellQuote(arg))].join(' ')
-}
-
-function shellQuote(value: string): string {
-  if (/^[\w./:@-]+$/.test(value)) {
-    return value
-  }
-
-  return `'${value.replaceAll("'", String.raw`'\''`)}'`
-}
-
-function findSuggestedRerunStage(status: ProjectStatus): InitialPipelineStage | undefined {
-  const rerunnableStages = new Set<InitialPipelineStage>(['ingest', 'plan', 'quality', 'script', 'understand', 'voiceover'])
-  const stage = status.job.stages.find((item) => item.status === 'failed') ?? status.job.stages.find((item) => item.status === 'running') ?? status.job.stages.find((item) => item.status === 'pending')
-
-  if (stage === undefined || !rerunnableStages.has(stage.name as InitialPipelineStage)) {
-    return undefined
-  }
-
-  return stage.name as InitialPipelineStage
 }
 
 function formatStage(stage: ProjectStatus['job']['stages'][number]): string {

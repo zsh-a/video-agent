@@ -83,7 +83,7 @@ packages/
     Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The existing root oclif CLI remains the first adapter during the initial scaffold. It includes a lightweight `vagent tui` terminal dashboard over runtime state plus controlled artifact inspection, rerun, and worker recovery actions; a later migration can move it into `apps/cli` or split a richer Ink workstation into `apps/tui` when the core commands are ready.
+The existing root oclif CLI remains the first adapter during the initial scaffold. It includes a lightweight `vagent tui` terminal dashboard over runtime state plus controlled artifact inspection, shared guided actions, rerun, and worker recovery actions; a later migration can move it into `apps/cli` or split a richer Ink workstation into `apps/tui` when the core commands are ready.
 
 ## Target Adapter Layout
 

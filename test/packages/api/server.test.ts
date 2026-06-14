@@ -32,6 +32,7 @@ describe('api server handler', () => {
       const config = await readJson<{persistence: {jobStore: string}; providers: {asr: string; tts: string; vlm: string}}>(fetch, '/config')
       const status = await readJson<{projectId: string; summary: {providers: {total: number}; quality: {errors: number; issues: number; warnings: number}; render: {rendered: boolean}}}>(fetch, '/projects/demo/status')
       const quality = await readJson<{ok: boolean; projectId: string}>(fetch, '/projects/demo/quality')
+      const actions = await readJson<{actions: Array<{category: string; command: string; id: string}>; projectId: string}>(fetch, '/projects/demo/actions?commandPrefix=bun%20run%20dev')
       const events = await readJson<{events: unknown[]}>(fetch, '/projects/demo/events?kind=provider&role=asr')
       const pipelineEvents = await readJson<{events: Array<{event: {stage?: string; type: string}; kind: string}>}>(fetch, '/projects/demo/events?kind=pipeline&stage=ingest&type=stage:start')
       const artifact = await readJson<{content: {version: number}}>(fetch, '/projects/demo/artifacts/media-info.json')
@@ -54,6 +55,12 @@ describe('api server handler', () => {
       expect(status.summary.render.rendered).to.equal(false)
       expect(quality.projectId).to.equal('demo')
       expect(quality.ok).to.equal(false)
+      expect(actions.projectId).to.equal('demo')
+      expect(actions.actions.find((action) => action.id === 'inspect-status')).to.include({
+        category: 'inspect',
+        command: `bun run dev status demo --workspace ${root}`,
+        id: 'inspect-status',
+      })
       expect(events.events).to.have.length(1)
       expect(pipelineEvents.events).to.have.length(1)
       expect(pipelineEvents.events[0]?.event).to.include({
@@ -222,6 +229,10 @@ describe('api server handler', () => {
     expect(html).to.include('id="rerun-action"')
     expect(html).to.include('id="worker-action"')
     expect(html).to.include('id="provider-test-action"')
+    expect(html).to.include('id="guided-actions"')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/actions')
+    expect(html).to.include('renderGuidedActions(result.actions)')
+    expect(html).to.include('copyGuidedAction(action.command)')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/render')
     expect(html).to.include('body: JSON.stringify(readRenderOptions())')
     expect(html).to.include('hyperframesCommand')

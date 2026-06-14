@@ -1,4 +1,4 @@
-/* eslint-disable n/no-unsupported-features/node-builtins */
+/* eslint-disable max-lines, n/no-unsupported-features/node-builtins */
 import {
   checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
@@ -16,6 +16,7 @@ import {
   readProjectStatus,
   readProjectVisualSamples,
   readProviderEnvironment,
+  readVideoAgentGuidedActions,
   recoverWorkspaceJobs,
   type RecoveryOrderBy,
   renderProject,
@@ -109,6 +110,17 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse(await readConfig(workspaceDir))
+  }
+
+  if (segments.length === 1 && segments[0] === 'actions') {
+    if (request.method !== 'GET') {
+      return methodNotAllowed()
+    }
+
+    return jsonResponse(await readVideoAgentGuidedActions({
+      commandPrefix: readCommandPrefix(url.searchParams),
+      workspaceDir,
+    }))
   }
 
   if (segments.length === 1 && segments[0] === 'studio') {
@@ -293,6 +305,14 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
     return jsonResponse(await readProjectQuality(projectId, workspaceDir))
   }
 
+  if (resource === 'actions') {
+    return jsonResponse(await readVideoAgentGuidedActions({
+      commandPrefix: readCommandPrefix(url.searchParams),
+      projectId,
+      workspaceDir,
+    }))
+  }
+
   if (resource === 'artifacts' && artifactName === undefined) {
     return jsonResponse({artifacts: await listProjectArtifacts(projectId, workspaceDir)})
   }
@@ -401,6 +421,16 @@ function readRequiredStringField(body: Record<string, unknown>, field: string): 
 
   if (value === null || value.trim() === '') {
     throw new TypeError(`Field ${field} is required.`)
+  }
+
+  return value
+}
+
+function readCommandPrefix(params: URLSearchParams): string | undefined {
+  const value = params.get('commandPrefix')
+
+  if (value === null || value.trim() === '') {
+    return undefined
   }
 
   return value
@@ -933,6 +963,13 @@ function renderStudioHtml(): string {
         <p class="status-line" id="action-status"></p>
       </div>
       <div class="panel">
+        <h2>Guided Actions</h2>
+        <table>
+          <thead><tr><th>Action</th><th>Category</th><th>Description</th><th>Command</th><th></th></tr></thead>
+          <tbody id="guided-actions"></tbody>
+        </table>
+      </div>
+      <div class="panel">
         <h2>Pipeline</h2>
         <table>
           <thead><tr><th>Stage</th><th>Status</th><th>Attempt</th></tr></thead>
@@ -1230,6 +1267,40 @@ function renderStudioHtml(): string {
         ...integrity.untracked.map((name) => integrityRow("untracked", name, "not present in artifact-manifest.json")),
       ], 3);
     };
+    const guidedActionRow = (action) => {
+      const row = tableRow([action.label, action.category, action.description, action.command]);
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = "Copy";
+      button.addEventListener("click", () => void copyGuidedAction(action.command));
+      actionCell.append(button);
+      row.append(actionCell);
+      return row;
+    };
+    const renderGuidedActions = (actions) => {
+      setRows("guided-actions", actions.map((action) => guidedActionRow(action)), 5);
+    };
+    const copyGuidedAction = async (command) => {
+      try {
+        if (navigator.clipboard === undefined) {
+          throw new Error("Clipboard API is unavailable.");
+        }
+        await navigator.clipboard.writeText(command);
+        byId("action-status").textContent = "Copied: " + command;
+      } catch (error) {
+        byId("action-status").textContent = "Copy failed: " + (error instanceof Error ? error.message : String(error));
+      }
+    };
+    const loadGuidedActions = async () => {
+      const path = state.projectId === undefined ? "/actions" : "/projects/" + encodeURIComponent(state.projectId) + "/actions";
+      try {
+        const result = await api(path);
+        renderGuidedActions(result.actions);
+      } catch {
+        renderGuidedActions([]);
+      }
+    };
     const loadArtifactIntegrity = async () => {
       try {
         renderArtifactIntegrity(await api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts/verify"));
@@ -1300,6 +1371,7 @@ function renderStudioHtml(): string {
         renderTemplateQuality(undefined);
         renderRenderQuality(undefined);
         renderArtifactIntegrity(undefined);
+        await loadGuidedActions();
         return;
       }
       actionButtons.forEach((button) => { button.disabled = false; });
@@ -1319,6 +1391,7 @@ function renderStudioHtml(): string {
       await Promise.all([
         loadRenderDiagnostics(artifacts.artifacts),
         loadArtifactIntegrity(),
+        loadGuidedActions(),
       ]);
       try {
         const visual = await api("/projects/" + encodeURIComponent(state.projectId) + "/visual?includeContent=true");
