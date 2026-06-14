@@ -6,6 +6,86 @@ import {join} from 'node:path'
 import {runProcess} from '../../packages/media/src/process.js'
 
 describe('cli end-to-end workflow', () => {
+  it('initializes a workspace and validates provider configuration from CLI commands', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-bootstrap-'))
+    const workspaceDir = join(root, 'workspace')
+
+    try {
+      const init = await runCliJson<{
+        checks: Record<string, {status: string}>
+        workspaceDir: string
+      }>(['init', '--workspace', workspaceDir, '--json'])
+
+      expect(init.workspaceDir).to.equal(workspaceDir)
+      expect(init.checks).to.have.keys(['bun', 'config', 'ffmpeg', 'ffprobe', 'projects', 'provider:asr', 'provider:tts', 'provider:vlm', 'workspace'])
+      expect(init.checks.workspace.status).to.equal('pass')
+
+      const config = await runCliJson<{
+        config: {
+          pipeline: {maxStageRetries: number; retryBackoffMs: number}
+          providers: {asr: string; tts: string; vlm: string}
+        }
+        path: string
+      }>([
+        'config',
+        '--asr',
+        'mock',
+        '--vlm',
+        'mock',
+        '--tts',
+        'mock',
+        '--max-stage-retries',
+        '2',
+        '--retry-backoff-ms',
+        '5',
+        '--workspace',
+        workspaceDir,
+        '--json',
+      ])
+
+      expect(config.path).to.equal(join(workspaceDir, 'config.json'))
+      expect(config.config.providers).to.deep.equal({
+        asr: 'mock',
+        tts: 'mock',
+        vlm: 'mock',
+      })
+      expect(config.config.pipeline).to.deep.equal({
+        maxStageRetries: 2,
+        retryBackoffMs: 5,
+      })
+
+      const providerEnv = await runCliJson<{
+        providers: Array<{provider: string; requirements: unknown[]; role: string}>
+      }>(['provider-env', '--workspace', workspaceDir, '--json'])
+
+      expect(providerEnv.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+      expect(providerEnv.providers.flatMap((provider) => provider.requirements)).to.deep.equal([])
+
+      const providerTest = await runCliJson<{
+        ok: boolean
+        results: Array<{provider: string; role: string; status: string}>
+      }>(['provider-test', '--workspace', workspaceDir, '--role', 'all', '--json'])
+
+      expect(providerTest.ok).to.equal(true)
+      expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}`)).to.deep.equal([
+        'asr:mock:succeeded',
+        'vlm:mock:succeeded',
+        'tts:mock:succeeded',
+      ])
+
+      const doctor = await runCliJson<{
+        checks: Array<{name: string; status: string}>
+        workspaceDir: string
+      }>(['doctor', '--workspace', workspaceDir, '--json'])
+
+      expect(doctor.workspaceDir).to.equal(workspaceDir)
+      expect(doctor.checks.find((check) => check.name === 'workspace')?.status).to.equal('pass')
+      expect(doctor.checks.find((check) => check.name === 'config')?.status).to.equal('pass')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('inspects, runs, renders, and exports a local media file from CLI commands', async function () {
     this.timeout(60_000)
 
