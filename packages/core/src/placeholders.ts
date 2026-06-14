@@ -18,6 +18,13 @@ export interface SceneAnalysisInsight {
   sceneId?: string
 }
 
+export interface SceneBoundaryInsight {
+  end: number
+  id: string
+  start: number
+  text?: string
+}
+
 export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
   const duration = mediaInfo.duration ?? 0
 
@@ -38,6 +45,39 @@ export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
   }
 }
 
+export function createSceneBoundariesFromTranscript(transcript: TranscriptInsight | undefined, mediaDuration: number): SceneBoundaryInsight[] {
+  const sourceDuration = mediaDuration > 0 ? mediaDuration : inferTranscriptDuration(transcript)
+  const validSegments = (transcript?.segments ?? [])
+    .map((segment) => {
+      const start = clamp(segment.start, 0, sourceDuration)
+      const end = clamp(segment.end, start, sourceDuration)
+
+      return {
+        end,
+        start,
+        text: segment.text,
+      }
+    })
+    .filter((segment) => segment.end > segment.start)
+  const boundaries = validSegments.map((segment, index): SceneBoundaryInsight => ({
+    ...segment,
+    id: `scene-${index + 1}`,
+  }))
+
+  if (boundaries.length > 0) {
+    return boundaries
+  }
+
+  return [
+    {
+      end: sourceDuration,
+      id: 'scene-1',
+      start: 0,
+      text: transcript?.text,
+    },
+  ]
+}
+
 export function createStoryboardFromProviderInsights(
   mediaInfo: MediaInfo,
   options: {
@@ -46,15 +86,14 @@ export function createStoryboardFromProviderInsights(
     transcript?: TranscriptInsight
   },
 ): Storyboard {
-  const transcriptSegments = createStoryboardSegments(options.transcript, mediaInfo.duration ?? 0)
-  const scenes = transcriptSegments.map((segment, index) => {
-    const id = `scene-${index + 1}`
-    const analysis = findSceneAnalysis(options.sceneAnalysis ?? [], id, index)
-    const transcriptText = normalizeText(segment.text) ?? normalizeText(options.transcript?.text)
+  const boundaries = createSceneBoundariesFromTranscript(options.transcript, mediaInfo.duration ?? 0)
+  const scenes = boundaries.map((boundary, index) => {
+    const analysis = findSceneAnalysis(options.sceneAnalysis ?? [], boundary.id, index)
+    const transcriptText = normalizeText(boundary.text) ?? normalizeText(options.transcript?.text)
     const visualText = normalizeText(analysis?.description)
 
     return {
-      duration: segment.end - segment.start,
+      duration: boundary.end - boundary.start,
       evidence: [
         ...(transcriptText === undefined
           ? []
@@ -75,9 +114,9 @@ export function createStoryboardFromProviderInsights(
               },
             ]),
       ],
-      id,
-      narration: transcriptText ?? visualText ?? `Placeholder narration for ${id}.`,
-      start: segment.start,
+      id: boundary.id,
+      narration: transcriptText ?? visualText ?? `Placeholder narration for ${boundary.id}.`,
+      start: boundary.start,
       visualStyle: 'documentary',
     }
   })
@@ -180,34 +219,6 @@ export function createPlaceholderNarration(storyboard: Storyboard): Narration {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
-}
-
-function createStoryboardSegments(transcript: TranscriptInsight | undefined, mediaDuration: number): Array<{end: number; start: number; text?: string}> {
-  const sourceDuration = mediaDuration > 0 ? mediaDuration : inferTranscriptDuration(transcript)
-  const segments = (transcript?.segments ?? [])
-    .map((segment) => {
-      const start = clamp(segment.start, 0, sourceDuration)
-      const end = clamp(segment.end, start, sourceDuration)
-
-      return {
-        end,
-        start,
-        text: segment.text,
-      }
-    })
-    .filter((segment) => segment.end > segment.start)
-
-  if (segments.length > 0) {
-    return segments
-  }
-
-  return [
-    {
-      end: sourceDuration,
-      start: 0,
-      text: transcript?.text,
-    },
-  ]
 }
 
 function formatSeconds(value: number): string {

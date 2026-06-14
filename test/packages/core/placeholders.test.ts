@@ -7,6 +7,7 @@ import {
   createNarrationFromClipPlan,
   createPlaceholderStoryboard,
   createPlaceholderTimeline,
+  createSceneBoundariesFromTranscript,
   createStoryboardFromProviderInsights,
   createTimelineFromClipPlan,
 } from '../../../packages/core/src/placeholders.js'
@@ -138,6 +139,44 @@ describe('placeholder IR', () => {
       narration: 'Whole clip narration.',
       start: 0,
     })
+  })
+
+  it('keeps generated scene boundary ids contiguous after filtering invalid transcript segments', () => {
+    const boundaries = createSceneBoundariesFromTranscript({
+      segments: [
+        {
+          end: 0,
+          start: 0,
+          text: 'Invalid intro.',
+        },
+        {
+          end: 5,
+          start: 1,
+          text: 'Valid middle.',
+        },
+        {
+          end: 20,
+          start: 5,
+          text: 'Clamped ending.',
+        },
+      ],
+      text: 'Invalid intro. Valid middle. Clamped ending.',
+    }, 12.5)
+
+    expect(boundaries).to.deep.equal([
+      {
+        end: 5,
+        id: 'scene-1',
+        start: 1,
+        text: 'Valid middle.',
+      },
+      {
+        end: 12.5,
+        id: 'scene-2',
+        start: 5,
+        text: 'Clamped ending.',
+      },
+    ])
   })
 
   it('creates a sequential clip plan and derives timeline source ranges from it', () => {

@@ -1,9 +1,9 @@
 import type {PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
 import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
-import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
+import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {createClipPlan, createNarrationFromClipPlan, createStoryboardFromProviderInsights, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
+import {createClipPlan, createNarrationFromClipPlan, createSceneBoundariesFromTranscript, createStoryboardFromProviderInsights, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
@@ -313,13 +313,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       const transcript = TranscriptSchema.parse(await ingest.providers.asr.transcribe({
         path: ingest.artifacts.sourceAudio ?? ingest.inputPath,
       }))
-      const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes([
-        {
-          frames: ingest.artifacts.frames === undefined ? [] : [ingest.artifacts.frames],
-          sceneId: 'scene-1',
-          timeRange: [0, ingest.mediaInfo.duration ?? 0],
-        },
-      ]))
+      const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, ingest.artifacts.frames)))
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
       await ingest.workspace.store.writeJson('scene-analysis.json', sceneAnalysis)
@@ -331,6 +325,16 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       }
     },
   }
+}
+
+export function createSceneFrameBatchesFromTranscript(transcript: Transcript, mediaInfo: MediaInfo, framePattern?: string): SceneFrameBatch[] {
+  const frames = framePattern === undefined ? [] : [framePattern]
+
+  return createSceneBoundariesFromTranscript(transcript, mediaInfo.duration ?? 0).map((boundary): SceneFrameBatch => ({
+    frames,
+    sceneId: boundary.id,
+    timeRange: [boundary.start, boundary.end],
+  }))
 }
 
 function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {

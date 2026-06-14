@@ -4,9 +4,46 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {runProcess} from '../../../packages/media/src/process.js'
-import {runInitialPipeline} from '../../../packages/runtime/src/job-runner.js'
+import {createSceneFrameBatchesFromTranscript, runInitialPipeline} from '../../../packages/runtime/src/job-runner.js'
 
 describe('job runner', () => {
+  it('creates VLM scene batches from transcript segment timing', () => {
+    const batches = createSceneFrameBatchesFromTranscript({
+      segments: [
+        {
+          end: 2,
+          start: 0,
+          text: 'Opening.',
+        },
+        {
+          end: 8,
+          start: 2,
+          text: 'Ending.',
+        },
+      ],
+      text: 'Opening. Ending.',
+    }, {
+      duration: 5,
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-15T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    }, 'frames/frame_%05d.jpg')
+
+    expect(batches).to.deep.equal([
+      {
+        frames: ['frames/frame_%05d.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 2],
+      },
+      {
+        frames: ['frames/frame_%05d.jpg'],
+        sceneId: 'scene-2',
+        timeRange: [2, 5],
+      },
+    ])
+  })
+
   it('runs the initial pipeline when ffmpeg and ffprobe are available', async function () {
     this.timeout(20_000)
 
