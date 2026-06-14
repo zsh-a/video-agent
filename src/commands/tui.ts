@@ -1,9 +1,9 @@
-import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ReadProjectArtifactResult, RecoverableJobStatus, RecoveryOrderBy} from '@video-agent/runtime'
+import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoveryOrderBy} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject} from '@video-agent/runtime'
+import {listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
 
-export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'rerun' | 'worker'
+export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'worker'
 
 export interface TuiSnapshot {
   artifacts: ProjectArtifact[]
@@ -27,12 +27,13 @@ export interface TuiCommandSuggestion {
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'rerun', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'provider-test', 'rerun', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
     'dry-run': Flags.boolean({description: 'Preview worker recovery when --action worker is used'}),
     'event-limit': Flags.integer({default: 6, description: 'Maximum recent events to show for the selected project'}),
+    frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
     'from-stage': Flags.string({
       default: 'plan',
       description: 'Stage to start from when --action rerun is used',
@@ -41,11 +42,14 @@ export default class Tui extends Command {
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),
     limit: Flags.integer({description: 'Maximum recoverable jobs to process when --action worker is used'}),
     'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value when --action worker is used'}),
+    media: Flags.string({description: 'Sample media path for ASR provider tests'}),
     'order-by': Flags.string({description: 'Recovery candidate ordering when --action worker is used', options: ['attempt', 'oldest', 'recent']}),
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
+    'provider-role': Flags.string({default: 'all', description: 'Provider role to test when --action provider-test is used', options: ['all', 'asr', 'tts', 'vlm']}),
     'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval when --watch is enabled'}),
     'running-stale-after-ms': Flags.integer({description: 'Skip running jobs updated more recently than this threshold when --action worker is used'}),
     status: Flags.string({default: 'active', description: 'Job status to recover when --action worker is used', options: ['active', 'failed', 'running']}),
+    text: Flags.string({description: 'Sample narration text for TTS provider tests'}),
     watch: Flags.boolean({description: 'Refresh the dashboard until interrupted'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
@@ -78,13 +82,17 @@ export default class Tui extends Command {
       artifactName: flags.artifact,
       commandPrefix: flags['command-prefix'],
       dryRun: flags['dry-run'],
+      framePath: flags.frame,
       fromStage: flags['from-stage'] as InitialPipelineStage,
       limit: flags.limit,
       maxAttempts: flags['max-attempts'],
+      mediaPath: flags.media,
       orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
       projectId: flags.project,
+      providerRole: flags['provider-role'],
       runningStaleAfterMs: flags['running-stale-after-ms'],
       status: flags.status,
+      text: flags.text,
       workspaceDir: flags.workspace,
     })
     const snapshot = await readTuiSnapshot({
@@ -132,17 +140,21 @@ export interface RunTuiActionOptions {
   artifactName?: string
   commandPrefix: string
   dryRun?: boolean
+  framePath?: string
   fromStage: InitialPipelineStage
   limit?: number
   maxAttempts?: number
+  mediaPath?: string
   orderBy?: RecoveryOrderBy
   projectId?: string
+  providerRole: string
   runningStaleAfterMs?: number
   status: string
+  text?: string
   workspaceDir: string
 }
 
-export type TuiActionResult = {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'} | {commands: TuiCommandSuggestion[]; type: 'commands'} | {dryRun: boolean; recovered: number; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {type: 'dashboard'}
+export type TuiActionResult = {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'} | {commands: TuiCommandSuggestion[]; type: 'commands'} | {dryRun: boolean; recovered: number; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {report: ProviderSmokeTestReport; type: 'provider-test'} | {type: 'dashboard'}
 
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
   if (options.action === 'dashboard') {
@@ -189,6 +201,19 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
       projectId: result.projectId,
       status: result.status,
       type: 'rerun',
+    }
+  }
+
+  if (options.action === 'provider-test') {
+    return {
+      report: await runProviderSmokeTest({
+        framePath: options.framePath,
+        mediaPath: options.mediaPath,
+        roles: resolveProviderSmokeTestRoles(options.providerRole),
+        text: options.text,
+        workspaceDir: options.workspaceDir,
+      }),
+      type: 'provider-test',
     }
   }
 
@@ -260,6 +285,21 @@ export function formatTuiActionResult(result: TuiActionResult): string {
     return `Action: rerun ${result.projectId} from ${result.fromStage} -> ${result.status}`
   }
 
+  if (result.type === 'provider-test') {
+    return [
+      `Action: provider-test -> ${result.report.ok ? 'ok' : 'failed'}`,
+      ...result.report.results.map((item) => {
+        if (item.status === 'failed') {
+          return `  ${item.role}:${item.provider} failed ${item.durationMs}ms - ${item.error?.message ?? 'unknown error'}`
+        }
+
+        const metadata = item.metadata === undefined ? '' : ` request=${item.metadata.requestId ?? 'n/a'} model=${item.metadata.model ?? 'n/a'}`
+
+        return `  ${item.role}:${item.provider} succeeded ${item.durationMs}ms ${formatProviderSmokeOutput(item.output)}${metadata}`.trimEnd()
+      }),
+    ].join('\n')
+  }
+
   return `Action: worker ${result.dryRun ? 'dry-run' : 'recover'} -> recovered ${result.recovered}, skipped ${result.skipped}`
 }
 
@@ -301,6 +341,10 @@ export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnaps
 
 export function createTuiCommandSuggestions(snapshot: TuiSnapshot, options: {commandPrefix: string}): TuiCommandSuggestion[] {
   const suggestions: TuiCommandSuggestion[] = [
+    {
+      command: buildTuiCommand(options.commandPrefix, ['tui', '--action', 'provider-test', '--workspace', snapshot.workspaceDir]),
+      label: 'Test providers',
+    },
     {
       command: buildTuiCommand(options.commandPrefix, ['projects', '--workspace', snapshot.workspaceDir]),
       label: 'List projects',
@@ -457,6 +501,34 @@ async function readMostRecentProjectId(workspaceDir: string): Promise<string> {
   }
 
   return project.projectId
+}
+
+function resolveProviderSmokeTestRoles(role: string): ProviderSmokeTestRole[] | undefined {
+  if (role === 'all') {
+    return undefined
+  }
+
+  if (role === 'asr' || role === 'tts' || role === 'vlm') {
+    return [role]
+  }
+
+  throw new Error(`Invalid provider role: ${role}`)
+}
+
+function formatProviderSmokeOutput(output: ProviderSmokeTestReport['results'][number]['output']): string {
+  if (output === undefined) {
+    return 'output=none'
+  }
+
+  if (output.type === 'transcript') {
+    return `segments=${output.segments} characters=${output.characters}`
+  }
+
+  if (output.type === 'tts') {
+    return `segments=${output.segments} duration=${output.duration}s`
+  }
+
+  return `scenes=${output.scenes} evidence=${output.evidence}`
 }
 
 function resolveRecoverableStatuses(status: string): RecoverableJobStatus[] {

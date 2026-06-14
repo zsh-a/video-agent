@@ -22,6 +22,36 @@ describe('tui command', () => {
     })).to.equal('Action: worker dry-run -> recovered 0, skipped 1')
   })
 
+  it('formats provider test action results', () => {
+    expect(formatTuiActionResult({
+      report: {
+        ok: true,
+        results: [
+          {
+            durationMs: 12,
+            metadata: {
+              model: 'example',
+              requestId: 'req-1',
+            },
+            output: {
+              characters: 42,
+              segments: 1,
+              type: 'transcript',
+            },
+            provider: 'command',
+            role: 'asr',
+            status: 'succeeded',
+          },
+        ],
+        workspaceDir: '.video-agent',
+      },
+      type: 'provider-test',
+    })).to.equal([
+      'Action: provider-test -> ok',
+      '  asr:command succeeded 12ms segments=1 characters=42 request=req-1 model=example',
+    ].join('\n'))
+  })
+
   it('formats command action results', () => {
     expect(formatTuiActionResult({
       commands: [
@@ -168,6 +198,7 @@ describe('tui command', () => {
     expect(output).to.include('quality-report.json')
     expect(output).to.include('2026-06-15T00:00:00.000Z pipeline stage:start ingest')
     expect(output).to.include('Commands')
+    expect(output).to.include('Test providers')
     expect(output).to.include('Inspect status')
     expect(output).to.include('bun run dev status demo --workspace .video-agent')
     expect(output).to.include('Rerun from ingest')
@@ -244,6 +275,7 @@ describe('tui command', () => {
     }, {commandPrefix: 'vagent'})
 
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")
   })
