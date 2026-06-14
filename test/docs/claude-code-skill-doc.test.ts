@@ -16,6 +16,7 @@ describe('Claude Code skill docs', () => {
     expect(doc).to.include('bun run dev mcp --print-config --workspace .video-agent')
     expect(doc).to.include('[Agent Client Checks](agent-client-checks.md)')
     expect(checks).to.include('bun run dev doctor --workspace .video-agent')
+    expect(checks).to.include('bun run dev provider-test --json --workspace .video-agent')
     expect(checks).to.include('bun run dev mcp --print-config --config-shape server --server-name video-agent-local --workspace .video-agent')
     expect(checks).to.include('ln -sfn "$(pwd)/adapters/claude-code-skill/video-agent" "$SKILLS_DIR/video-agent"')
     expect(checks).to.include('Do not paste provider token values')

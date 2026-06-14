@@ -35,6 +35,7 @@ bun run dev doctor --workspace .video-agent
 
 ```sh
 bun run dev provider-env --json --workspace .video-agent
+bun run dev provider-test --json --workspace .video-agent
 ```
 
 3. Inspect an input media file:
@@ -128,6 +129,6 @@ Use MCP tools for agent-to-agent calls when available; use the CLI for shell wor
 
 - Keep large media files in the workspace/filesystem; do not put video or audio blobs into prompts.
 - Use JSON output flags when automation needs to parse results.
-- Do not expose provider token values. Use `provider-env` for env contract checks.
+- Do not expose provider token values. Use `provider-env` for env contract checks and `provider-test` for contract smoke tests.
 - Do not call ffmpeg directly for supported workflows; use `render`, `inspect`, or runtime-backed commands.
 - Run `bun run test` after changing repository code.
