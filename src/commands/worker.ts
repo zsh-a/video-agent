@@ -1,5 +1,5 @@
 import {Command, Flags} from '@oclif/core'
-import {type RecoverableJobStatus, recoverWorkspaceJobs, type RecoveryOrderBy} from '@video-agent/runtime'
+import {type RecoverableJobStatus, type RecoverWorkspaceJobResult, recoverWorkspaceJobs, type RecoveryOrderBy} from '@video-agent/runtime'
 
 export default class Worker extends Command {
   static description = 'Recover failed or interrupted local pipeline jobs'
@@ -37,9 +37,15 @@ export default class Worker extends Command {
     this.log(`Skipped: ${report.skipped}`)
 
     for (const result of report.results) {
-      this.log(`${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.skipReason === undefined ? '' : `\t${result.skipReason}`}${result.error === undefined ? '' : `\t${result.error}`}`)
+      this.log(formatWorkerResult(result))
     }
   }
+}
+
+function formatWorkerResult(result: RecoverWorkspaceJobResult): string {
+  const validationIssues = result.validationIssues?.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ')
+
+  return `${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.skipReason === undefined ? '' : `\t${result.skipReason}`}${result.error === undefined ? '' : `\t${result.error}`}${validationIssues === undefined ? '' : `\t${validationIssues}`}`
 }
 
 function resolveRecoverableStatuses(status: string): RecoverableJobStatus[] {

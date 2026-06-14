@@ -199,7 +199,7 @@ Acceptance criteria:
 - Worker recovery can skip jobs that reached a configured stage attempt ceiling and explain skipped jobs.
 - Re-running a stage does not corrupt unrelated artifacts.
 
-Status: completed for local persistence and recovery. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity/schema validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery supports candidate ordering, `runningStaleAfterMs` protection for still-active running jobs, checkpoint artifact/schema preflight, validation issue reporting, `maxAttempts`, and skip reasons for checkpoint issues, attempt limits, processing limits, active running jobs, and non-recoverable jobs.
+Status: completed for local persistence and recovery. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity/schema validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery supports candidate ordering, `runningStaleAfterMs` protection for still-active running jobs, checkpoint artifact/schema preflight, validation issue reporting in JSON and human-readable CLI/TUI output, `maxAttempts`, and skip reasons for checkpoint issues, attempt limits, processing limits, active running jobs, and non-recoverable jobs.
 
 ## Phase 6: Agent and Product Adapters
 

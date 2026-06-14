@@ -17,9 +17,36 @@ describe('tui command', () => {
     expect(formatTuiActionResult({
       dryRun: true,
       recovered: 0,
+      results: [],
       skipped: 1,
       type: 'worker',
     })).to.equal('Action: worker dry-run -> recovered 0, skipped 1')
+    expect(formatTuiActionResult({
+      dryRun: true,
+      recovered: 0,
+      results: [
+        {
+          error: 'Checkpoint IR validation failed.',
+          fromStage: 'quality',
+          projectId: 'demo',
+          skipReason: 'checkpoint-invalid',
+          status: 'skipped',
+          validationIssues: [
+            {
+              code: 'too_small',
+              message: 'Too small: expected string to have >=1 characters',
+              path: ['source'],
+            },
+          ],
+        },
+      ],
+      skipped: 1,
+      type: 'worker',
+    })).to.equal([
+      'Action: worker dry-run -> recovered 0, skipped 1',
+      '  demo skipped from quality (checkpoint-invalid) - Checkpoint IR validation failed.',
+      '    source: Too small: expected string to have >=1 characters',
+    ].join('\n'))
   })
 
   it('formats provider test action results', () => {
