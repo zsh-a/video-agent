@@ -18,8 +18,8 @@ describe('project quality', () => {
 
       expect(report.ok).to.equal(false)
       expect(report.summary).to.deep.equal({
-        errors: 3,
-        warnings: 8,
+        errors: 4,
+        warnings: 10,
       })
       expect(report.pipeline.errors).to.equal(1)
       expect(report.render.missingVoiceovers).to.equal(1)
@@ -98,6 +98,10 @@ async function createProject(root: string, projectId: string): Promise<void> {
       subtitleQuality: {
         errors: 0,
         warnings: 1,
+      },
+      templateQuality: {
+        errors: 1,
+        warnings: 2,
       },
       version: 1,
       visualQuality: {

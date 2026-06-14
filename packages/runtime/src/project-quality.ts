@@ -54,6 +54,7 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
     status.summary.render.outputErrors +
     status.summary.render.subtitleErrors +
     status.summary.render.audioQualityErrors +
+    status.summary.render.templateErrors +
     status.summary.render.visualErrors +
     (artifacts.ok ? 0 : artifacts.changed.length + artifacts.missing.length)
   const warnings =
@@ -61,6 +62,7 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
     status.summary.render.outputWarnings +
     status.summary.render.subtitleWarnings +
     status.summary.render.audioQualityWarnings +
+    status.summary.render.templateWarnings +
     status.summary.render.visualWarnings +
     status.summary.render.audioWarnings +
     status.summary.render.missingVoiceovers +

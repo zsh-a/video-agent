@@ -1,7 +1,7 @@
 import type {Narration} from '@video-agent/ir'
 import type {AudioLoudnessQualityResult, RenderedMediaQualityResult, SubtitleQualityResult, VisualSmokeQualityResult} from '@video-agent/quality'
 import type {FfmpegAudioOptions, FfmpegVoiceoverInput} from '@video-agent/renderer-ffmpeg'
-import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
+import type {HyperframesCliResult, HyperframesTemplateQualityResult} from '@video-agent/renderer-hyperframes'
 
 import {NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {extractVideoFrame, inspectAudioVolume, inspectVideoBlackDetect, probeMedia} from '@video-agent/media'
@@ -16,7 +16,7 @@ import {
   createVisualSmokeProbeFailure,
 } from '@video-agent/quality'
 import {narrationToSrt, renderTimelineWithFfmpeg} from '@video-agent/renderer-ffmpeg'
-import {renderHyperframesProject, validateHyperframesProject, writeHyperframesProject} from '@video-agent/renderer-hyperframes'
+import {checkHyperframesTemplateProject, renderHyperframesProject, validateHyperframesProject, writeHyperframesProject} from '@video-agent/renderer-hyperframes'
 import {createHash} from 'node:crypto'
 import {access, readFile, stat, writeFile} from 'node:fs/promises'
 import {isAbsolute, resolve} from 'node:path'
@@ -105,6 +105,7 @@ export interface HyperframesProjectRenderResult {
   projectId: string
   rendered?: HyperframesCliResult
   renderer: 'hyperframes'
+  templateQuality: HyperframesTemplateQualityResult
   validation?: HyperframesCliResult
 }
 
@@ -294,6 +295,14 @@ async function renderProjectWithHyperframes(workspace: Awaited<ReturnType<typeof
     storyboard,
     timeline,
   })
+  const templateQuality = await checkHyperframesTemplateProject({
+    entryHtml: result.entryHtml,
+    narration,
+    planPath: result.planPath,
+    storyboard,
+    stylesPath: result.stylesPath,
+    timeline,
+  })
   const validation = options.hyperframesValidate === true ? await validateHyperframesProject({command: options.hyperframesCommand, projectDir: result.outputDir}) : undefined
   const rendered =
     options.hyperframesRender === true
@@ -310,6 +319,7 @@ async function renderProjectWithHyperframes(workspace: Awaited<ReturnType<typeof
     planPath: result.planPath,
     rendered,
     renderer: 'hyperframes',
+    templateQuality,
     validation,
     version: 1,
   })
@@ -322,6 +332,7 @@ async function renderProjectWithHyperframes(workspace: Awaited<ReturnType<typeof
     projectId: workspace.projectId,
     ...(rendered === undefined ? {} : {rendered}),
     renderer: 'hyperframes',
+    templateQuality,
     ...(validation === undefined ? {} : {validation}),
   }
 }

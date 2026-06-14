@@ -76,6 +76,10 @@ describe('project status', () => {
             errors: 1,
             warnings: 2,
           },
+          templateQuality: {
+            errors: 1,
+            warnings: 2,
+          },
           version: 1,
           visualQuality: {
             errors: 1,
@@ -118,6 +122,8 @@ describe('project status', () => {
         renderer: 'ffmpeg',
         subtitleErrors: 1,
         subtitleWarnings: 2,
+        templateErrors: 1,
+        templateWarnings: 2,
         visualErrors: 1,
         visualWarnings: 1,
       })
@@ -152,6 +158,8 @@ describe('project status', () => {
         rendered: false,
         subtitleErrors: 0,
         subtitleWarnings: 0,
+        templateErrors: 0,
+        templateWarnings: 0,
         visualErrors: 0,
         visualWarnings: 0,
       })

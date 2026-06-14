@@ -55,6 +55,8 @@ export interface RenderSummary {
   renderer?: string
   subtitleErrors: number
   subtitleWarnings: number
+  templateErrors: number
+  templateWarnings: number
   visualErrors: number
   visualWarnings: number
 }
@@ -258,6 +260,7 @@ function createRenderSummary(report: RenderOutputLike): RenderSummary {
     rendered: true,
     ...readRendererSummary(report),
     ...readSubtitleRenderSummary(report),
+    ...readTemplateRenderSummary(report),
     ...readVisualRenderSummary(report),
   }
 }
@@ -298,6 +301,13 @@ function readVisualRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 
   }
 }
 
+function readTemplateRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'templateErrors' | 'templateWarnings'> {
+  return {
+    templateErrors: readIssueErrors(report.templateQuality),
+    templateWarnings: readIssueWarnings(report.templateQuality),
+  }
+}
+
 function createEmptyRenderSummary(): RenderSummary {
   return {
     audioInputs: 0,
@@ -310,6 +320,8 @@ function createEmptyRenderSummary(): RenderSummary {
     rendered: false,
     subtitleErrors: 0,
     subtitleWarnings: 0,
+    templateErrors: 0,
+    templateWarnings: 0,
     visualErrors: 0,
     visualWarnings: 0,
   }
@@ -366,6 +378,7 @@ interface RenderOutputLike {
   outputQuality?: IssueCountLike
   renderer?: unknown
   subtitleQuality?: IssueCountLike
+  templateQuality?: IssueCountLike
   visualQuality?: IssueCountLike
 }
 

@@ -330,6 +330,8 @@ bun run dev render <projectId> --renderer hyperframes --hyperframes-render --hyp
 --hyperframes-command '["npx","hyperframes"]'
 ```
 
+HyperFrames 渲染还会写入本地 `templateQuality`，检查 `index.html`、`styles.css`、`render-plan.json` 是否存在且与 timeline/storyboard/narration 对齐。模板错误和 warning 会进入 `status` / `quality` 聚合；外部 HyperFrames CLI 的 `validate/render` 仍然是可选执行步骤。
+
 `export` 会复制已渲染的产物到目标路径，并写出：
 
 ```text
@@ -346,7 +348,7 @@ bun run dev artifacts <projectId> --verify
 
 `status` 会读取 `job-state.json`、artifact 列表、`pipeline-events.jsonl`、`provider-calls.jsonl`、`quality-report.json` 和 `render-output.json`，展示 stage 状态、事件数量、provider 调用总数、失败数、quality warning/error summary 和 render output diagnostics。
 
-`quality` 会聚合 pipeline quality、render diagnostics 和 artifact integrity，给出项目是否可交付的 `ok/errors/warnings` 总结。`--details` 会一并输出原始 `quality-report.json` 和 `render-output.json` 内容。
+`quality` 会聚合 pipeline quality、render diagnostics、HyperFrames template quality 和 artifact integrity，给出项目是否可交付的 `ok/errors/warnings` 总结。`--details` 会一并输出原始 `quality-report.json` 和 `render-output.json` 内容。
 
 `visual` 会读取 `render-output.json` 中记录的渲染缩略图样本，输出时间点、状态、相对路径和文件大小。默认只输出元数据；`--json --include-content` 会额外返回 base64 图像内容。
 
@@ -550,6 +552,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - ffmpeg renderer：支持混入提取出的源音频和已存在的 TTS voiceover 音频，输出 AAC 音轨
 - ffmpeg audio controls：支持 source/voiceover volume 和可选 sidechain ducking
 - render output quality：ffmpeg render 会探测最终视频，记录视频流、音频流、时长、音频响度、黑屏烟测、多点缩略图样本和低视觉变化 diagnostics
+- HyperFrames template quality：HyperFrames render 会对本地 HTML/CSS/render-plan 做结构检查，并把 `templateQuality` 写入 `render-output.json` 和项目级质量聚合
 - voiceover plan：render 阶段写出 `voiceover-plan.json`，记录 TTS 段和 narration 时间轴的对齐状态，并支持同一 narration 的多段 TTS chunk 顺序拼接
 - render audio diagnostics：缺失的 TTS voiceover 文件会写入 `render-output.json`，CLI 非 JSON 输出也会打印 audio warning
 - render audio preflight：CLI `render --inspect-audio` 和 HTTP `GET /projects/:id/audio` 可在渲染前检查 voiceover alignment 和可用音频输入

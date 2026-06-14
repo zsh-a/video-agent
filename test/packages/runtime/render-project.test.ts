@@ -22,7 +22,22 @@ describe('render project', () => {
 
       if (result.renderer === 'hyperframes') {
         expect(await readFile(result.entryHtml, 'utf8')).to.contain('data-duration="1"')
+        expect(result.templateQuality).to.deep.equal({
+          errors: 0,
+          issues: [],
+          ok: true,
+          warnings: 0,
+        })
       }
+
+      const renderOutput = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'render-output.json'), 'utf8')) as {templateQuality?: unknown}
+
+      expect(renderOutput.templateQuality).to.deep.equal({
+        errors: 0,
+        issues: [],
+        ok: true,
+        warnings: 0,
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }
