@@ -108,6 +108,7 @@ bun run dev serve --workspace .video-agent --port 4317
 bun run dev mcp --workspace .video-agent
 bun run dev mcp --print-config
 bun run dev mcp --print-config --config-mode installed
+bun run dev mcp --print-config --server-name video-agent-local --config-shape server
 bun run dev render <projectId>
 bun run dev render <projectId> --inspect-audio
 bun run dev render <projectId> --no-audio
@@ -411,6 +412,21 @@ video_agent_export
 ```sh
 bun run dev mcp --print-config
 bun run dev mcp --print-config --config-mode installed
+bun run dev mcp --print-config --server-name video-agent-local
+```
+
+默认输出完整的 `mcpServers` 配置对象；如果某个 MCP client 已经要求你填在 server entry 内部，可以只输出 server 片段：
+
+```sh
+bun run dev mcp --print-config --config-shape server
+```
+
+需要随 MCP server 进程注入 provider 命令或 token 时，可以重复传 `--env KEY=VALUE`。输出只会写入你显式传入的变量，不会读取或泄露当前 shell 的 secret 值：
+
+```sh
+bun run dev mcp --print-config \
+  --env VIDEO_AGENT_ASR_COMMAND=./providers/asr.ts \
+  --env VIDEO_AGENT_TTS_COMMAND=./providers/tts.ts
 ```
 
 `POST /projects` 会从 input path 启动 pipeline：

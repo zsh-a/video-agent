@@ -218,7 +218,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes provider environment reports, visual sample metadata, and `POST /worker` recovery for Web Studio/TUI consumers. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, artifact inspection, controlled project reruns, and worker recovery; Web Studio and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The MCP command can print reusable stdio config JSON with server naming, installed/dev command mode, server-only snippets, and explicit env injection. The API exposes provider environment reports, visual sample metadata, and `POST /worker` recovery for Web Studio/TUI consumers. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, artifact inspection, controlled project reruns, and worker recovery; Web Studio and Claude Code skill adapters are still pending.
 
 ## Immediate Next Tasks
 
@@ -228,7 +228,7 @@ Recommended order:
 2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
 3. Add richer TUI interactions for guided command selection.
 4. Add richer queue scheduling and finer artifact recovery policies over the `JobStore` contract.
-5. Add MCP client configuration examples as external clients are tested.
+5. Test the generic MCP config output against named external clients and document any client-specific placement details.
 6. Expand render quality checks around perceptual visual differences and template-specific validation.
 
 ## v0 Completion Definition

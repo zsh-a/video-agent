@@ -1,6 +1,7 @@
 import {expect} from 'chai'
 
-import {createMcpClientConfig} from '../../../packages/mcp/src/config.js'
+import {createMcpClientConfig, createMcpClientConfigOutput} from '../../../packages/mcp/src/config.js'
+import {parseEnvFlags} from '../../../src/commands/mcp.js'
 
 describe('mcp client config', () => {
   it('creates a Bun development stdio config', () => {
@@ -23,5 +24,48 @@ describe('mcp client config', () => {
         },
       },
     })
+  })
+
+  it('adds sorted environment variables to a full config', () => {
+    expect(createMcpClientConfig({
+      env: {
+        VIDEO_AGENT_ASR_COMMAND: 'asr-provider',
+        VIDEO_AGENT_TTS_COMMAND: 'tts-provider',
+      },
+      workspaceDir: '.video-agent',
+    })).to.deep.equal({
+      mcpServers: {
+        'video-agent': {
+          args: ['run', 'dev', 'mcp', '--workspace', '.video-agent'],
+          command: 'bun',
+          env: {
+            VIDEO_AGENT_ASR_COMMAND: 'asr-provider',
+            VIDEO_AGENT_TTS_COMMAND: 'tts-provider',
+          },
+        },
+      },
+    })
+  })
+
+  it('can output only the server entry for clients that nest it themselves', () => {
+    expect(createMcpClientConfigOutput({
+      mode: 'installed',
+      shape: 'server',
+      workspaceDir: '.video-agent',
+    })).to.deep.equal({
+      args: ['mcp', '--workspace', '.video-agent'],
+      command: 'vagent',
+    })
+  })
+
+  it('parses repeated env flags', () => {
+    expect(parseEnvFlags(['VIDEO_AGENT_ASR_COMMAND=asr-provider', 'EMPTY='])).to.deep.equal({
+      EMPTY: '',
+      VIDEO_AGENT_ASR_COMMAND: 'asr-provider',
+    })
+  })
+
+  it('rejects invalid env flags', () => {
+    expect(() => parseEnvFlags(['VIDEO_AGENT_ASR_COMMAND'])).to.throw('Expected KEY=VALUE')
   })
 })
