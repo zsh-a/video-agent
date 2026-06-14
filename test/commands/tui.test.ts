@@ -301,6 +301,20 @@ describe('tui command', () => {
       workspaceDir: 'workspace dir',
     }, {commandPrefix: 'vagent'})
 
+    expect(commands.map((item) => item.id).slice(0, 3)).to.deep.equal([
+      'open-dashboard',
+      'rerun-suggested-stage',
+      'watch-dashboard',
+    ])
+    expect(commands.find((item) => item.id === 'rerun-suggested-stage')).to.include({
+      category: 'rerun',
+      description: 'Rerun the focused project from the first unfinished stage, quality.',
+      priority: 15,
+    })
+    expect(commands.find((item) => item.id === 'provider-test')).to.include({
+      category: 'provider',
+      description: 'Run ASR, VLM, and TTS provider smoke tests for the current workspace.',
+    })
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")

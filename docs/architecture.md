@@ -192,6 +192,6 @@ Concrete providers can wrap remote APIs or local services. Local model inference
 1. Improve clip selection and source-range planning.
 2. Add Clack prompts for provider `config`.
 3. Replace mock ASR/VLM/TTS providers with real provider adapters behind the existing config contract.
-4. Add richer TUI interactions for guided command selection.
+4. Turn TUI guided action metadata into richer interactive command selection.
 5. Expand Web Studio actions over the existing API surface.
 6. Expand MCP/client integration examples and Claude Code skill distribution docs.

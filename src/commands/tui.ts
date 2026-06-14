@@ -20,8 +20,12 @@ export interface FormatTuiSnapshotOptions {
 }
 
 export interface TuiCommandSuggestion {
+  category?: 'artifact' | 'dashboard' | 'export' | 'inspect' | 'provider' | 'recover' | 'render' | 'rerun'
   command: string
+  description?: string
+  id?: string
   label: string
+  priority?: number
 }
 
 export default class Tui extends Command {
@@ -353,18 +357,30 @@ export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnaps
 
 export function createTuiCommandSuggestions(snapshot: TuiSnapshot, options: {commandPrefix: string}): TuiCommandSuggestion[] {
   const suggestions: TuiCommandSuggestion[] = [
-    {
-      command: buildTuiCommand(options.commandPrefix, ['tui', '--action', 'provider-test', '--workspace', snapshot.workspaceDir]),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['tui', '--action', 'provider-test', '--workspace', snapshot.workspaceDir],
+      category: 'provider',
+      description: 'Run ASR, VLM, and TTS provider smoke tests for the current workspace.',
+      id: 'provider-test',
       label: 'Test providers',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['projects', '--workspace', snapshot.workspaceDir]),
+      priority: 30,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['projects', '--workspace', snapshot.workspaceDir],
+      category: 'inspect',
+      description: 'List projects in the workspace.',
+      id: 'list-projects',
       label: 'List projects',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['worker', '--dry-run', '--workspace', snapshot.workspaceDir]),
+      priority: 80,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['worker', '--dry-run', '--workspace', snapshot.workspaceDir],
+      category: 'recover',
+      description: 'Preview recoverable failed or stale running jobs without mutating state.',
+      id: 'worker-dry-run',
       label: 'Preview worker recovery',
-    },
+      priority: 40,
+    }),
   ]
 
   if (snapshot.selected === undefined) {
@@ -376,54 +392,108 @@ export function createTuiCommandSuggestions(snapshot: TuiSnapshot, options: {com
   const rerunStage = findSuggestedRerunStage(snapshot.selected)
 
   suggestions.unshift(
-    {
-      command: buildTuiCommand(options.commandPrefix, ['tui', '--project', projectId, '--workspace', snapshot.workspaceDir]),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['tui', '--project', projectId, '--workspace', snapshot.workspaceDir],
+      category: 'dashboard',
+      description: 'Open the focused project dashboard once.',
+      id: 'open-dashboard',
       label: 'Open dashboard',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['tui', '--project', projectId, '--watch', '--workspace', snapshot.workspaceDir]),
+      priority: 10,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['tui', '--project', projectId, '--watch', '--workspace', snapshot.workspaceDir],
+      category: 'dashboard',
+      description: 'Watch the focused project dashboard with periodic refresh.',
+      id: 'watch-dashboard',
       label: 'Watch dashboard',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['status', projectId, '--workspace', snapshot.workspaceDir]),
+      priority: 20,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['status', projectId, '--workspace', snapshot.workspaceDir],
+      category: 'inspect',
+      description: 'Inspect job state, provider summary, quality summary, and artifacts.',
+      id: 'inspect-status',
       label: 'Inspect status',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['quality', projectId, '--workspace', snapshot.workspaceDir]),
+      priority: 25,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['quality', projectId, '--workspace', snapshot.workspaceDir],
+      category: 'inspect',
+      description: 'Inspect aggregate project quality and deliverability diagnostics.',
+      id: 'inspect-quality',
       label: 'Inspect quality',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['events', projectId, '--workspace', snapshot.workspaceDir]),
+      priority: 35,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['events', projectId, '--workspace', snapshot.workspaceDir],
+      category: 'inspect',
+      description: 'Read recent pipeline and provider events for the focused project.',
+      id: 'read-events',
       label: 'Read events',
-    },
+      priority: 50,
+    }),
   )
 
   if (firstArtifact !== undefined) {
-    suggestions.push({
-      command: buildTuiCommand(options.commandPrefix, ['tui', '--project', projectId, '--action', 'artifact', '--artifact', firstArtifact.name, '--workspace', snapshot.workspaceDir]),
+    suggestions.push(createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['tui', '--project', projectId, '--action', 'artifact', '--artifact', firstArtifact.name, '--workspace', snapshot.workspaceDir],
+      category: 'artifact',
+      description: `Preview the ${firstArtifact.name} artifact content from the focused project.`,
+      id: 'open-artifact',
       label: `Open artifact ${firstArtifact.name}`,
-    })
+      priority: 55,
+    }))
   }
 
   if (rerunStage !== undefined) {
-    suggestions.push({
-      command: buildTuiCommand(options.commandPrefix, ['tui', '--project', projectId, '--action', 'rerun', '--from-stage', rerunStage, '--workspace', snapshot.workspaceDir]),
+    suggestions.push(createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['tui', '--project', projectId, '--action', 'rerun', '--from-stage', rerunStage, '--workspace', snapshot.workspaceDir],
+      category: 'rerun',
+      description: `Rerun the focused project from the first unfinished stage, ${rerunStage}.`,
+      id: 'rerun-suggested-stage',
       label: `Rerun from ${rerunStage}`,
-    })
+      priority: 15,
+    }))
   }
 
   suggestions.push(
-    {
-      command: buildTuiCommand(options.commandPrefix, ['render', projectId, '--workspace', snapshot.workspaceDir]),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['render', projectId, '--workspace', snapshot.workspaceDir],
+      category: 'render',
+      description: 'Render the focused project with the default renderer settings.',
+      id: 'render-final-video',
       label: 'Render final video',
-    },
-    {
-      command: buildTuiCommand(options.commandPrefix, ['export', projectId, '--workspace', snapshot.workspaceDir]),
+      priority: 60,
+    }),
+    createTuiCommandSuggestion(options.commandPrefix, {
+      args: ['export', projectId, '--workspace', snapshot.workspaceDir],
+      category: 'export',
+      description: 'Export the latest rendered output or project bundle.',
+      id: 'export-output',
       label: 'Export output',
-    },
+      priority: 70,
+    }),
   )
 
-  return suggestions
+  return [...suggestions].sort((left, right) => (left.priority ?? Number.MAX_SAFE_INTEGER) - (right.priority ?? Number.MAX_SAFE_INTEGER))
+}
+
+function createTuiCommandSuggestion(prefix: string, options: {
+  args: string[]
+  category: NonNullable<TuiCommandSuggestion['category']>
+  description: string
+  id: string
+  label: string
+  priority: number
+}): TuiCommandSuggestion {
+  return {
+    category: options.category,
+    command: buildTuiCommand(prefix, options.args),
+    description: options.description,
+    id: options.id,
+    label: options.label,
+    priority: options.priority,
+  }
 }
 
 export function formatTuiCommands(commands: TuiCommandSuggestion[]): string[] {
