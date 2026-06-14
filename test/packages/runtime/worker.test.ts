@@ -20,6 +20,7 @@ describe('workspace worker recovery', () => {
 
       expect(report.recovered).to.equal(0)
       expect(report.results).to.deep.include({
+        attempt: 1,
         fromStage: 'quality',
         jobStatus: 'failed',
         projectId: 'demo',
@@ -42,6 +43,53 @@ describe('workspace worker recovery', () => {
       expect(report.results[0]?.status).to.equal('recovered')
       expect(report.results[0]?.fromStage).to.equal('quality')
       expect(report.results[0]?.result?.status).to.equal('completed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('skips recoverable jobs that reached the attempt limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo')
+
+      const report = await recoverWorkspaceJobs({
+        dryRun: true,
+        maxAttempts: 1,
+        workspaceDir: root,
+      })
+
+      expect(report.recovered).to.equal(0)
+      expect(report.skipped).to.equal(1)
+      expect(report.results).to.deep.include({
+        attempt: 1,
+        fromStage: 'quality',
+        jobStatus: 'failed',
+        projectId: 'demo',
+        skipReason: 'attempt-limit',
+        status: 'skipped',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports recoverable jobs deferred by the processing limit', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-worker-'))
+
+    try {
+      await createRecoverableProject(root, 'demo-a')
+      await createRecoverableProject(root, 'demo-b')
+
+      const report = await recoverWorkspaceJobs({
+        dryRun: true,
+        limit: 1,
+        workspaceDir: root,
+      })
+
+      expect(report.results.filter((result) => result.status === 'would-recover')).to.have.length(1)
+      expect(report.results.filter((result) => result.skipReason === 'limit')).to.have.length(1)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

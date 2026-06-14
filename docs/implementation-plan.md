@@ -183,6 +183,7 @@ Deliverables:
 - Stage checkpoint metadata.
 - Stage retry policy and resumability rules.
 - Artifact manifest, content hash tracking, and integrity checks.
+- Worker recovery attempt limits and skip reasons.
 
 Acceptance criteria:
 
@@ -191,9 +192,10 @@ Acceptance criteria:
 - Artifact files have a manifest with stable sha256 hashes and a CLI/API integrity check for recovery decisions.
 - Stage retries can be configured and emit attempt-aware events.
 - Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, or untracked by the artifact manifest.
+- Worker recovery can skip jobs that reached a configured stage attempt ceiling and explain skipped jobs.
 - Re-running a stage does not corrupt unrelated artifacts.
 
-Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and local/API/MCP worker recovery can recover failed/running jobs from the first unfinished stage. Richer queue scheduling policies are still pending.
+Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and local/API/MCP/TUI worker recovery can recover failed/running jobs from the first unfinished stage. Worker recovery now supports `maxAttempts` and skip reasons for attempt limits, processing limits, and non-recoverable jobs. Richer queue scheduling policies are still pending.
 
 ## Phase 6: Agent and Product Adapters
 
@@ -221,7 +223,7 @@ Recommended order:
 1. Replace the readline interactive config with Clack-styled prompts when dependency policy allows it.
 2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
 3. Add richer TUI interactions for guided command selection.
-4. Add worker-oriented retry scheduling and finer artifact recovery policies over the `JobStore` contract.
+4. Add richer queue scheduling and finer artifact recovery policies over the `JobStore` contract.
 5. Add MCP client configuration examples as external clients are tested.
 6. Expand render quality checks around deeper visual smoke tests.
 

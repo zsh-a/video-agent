@@ -33,6 +33,7 @@ export default class Tui extends Command {
     }),
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),
     limit: Flags.integer({description: 'Maximum recoverable jobs to process when --action worker is used'}),
+    'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value when --action worker is used'}),
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
     'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval when --watch is enabled'}),
     status: Flags.string({default: 'active', description: 'Job status to recover when --action worker is used', options: ['active', 'failed', 'running']}),
@@ -68,6 +69,7 @@ export default class Tui extends Command {
       dryRun: flags['dry-run'],
       fromStage: flags['from-stage'] as InitialPipelineStage,
       limit: flags.limit,
+      maxAttempts: flags['max-attempts'],
       projectId: flags.project,
       status: flags.status,
       workspaceDir: flags.workspace,
@@ -118,6 +120,7 @@ export interface RunTuiActionOptions {
   dryRun?: boolean
   fromStage: InitialPipelineStage
   limit?: number
+  maxAttempts?: number
   projectId?: string
   status: string
   workspaceDir: string
@@ -164,6 +167,7 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
   const result = await recoverWorkspaceJobs({
     dryRun: options.dryRun,
     limit: options.limit,
+    maxAttempts: options.maxAttempts,
     statuses: resolveRecoverableStatuses(options.status),
     workspaceDir: options.workspaceDir,
   })

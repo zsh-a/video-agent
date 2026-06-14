@@ -9,6 +9,7 @@ import {rerunProject} from './rerun.js'
 export interface RecoverWorkspaceJobsOptions {
   dryRun?: boolean
   limit?: number
+  maxAttempts?: number
   statuses?: RecoverableJobStatus[]
   workspaceDir?: string
 }
@@ -22,11 +23,13 @@ export interface RecoverWorkspaceJobsReport {
 }
 
 export interface RecoverWorkspaceJobResult {
+  attempt?: number
   error?: string
   fromStage?: InitialPipelineStage
   jobStatus?: JobRunStatus
   projectId: string
   result?: RunInitialPipelineResult
+  skipReason?: 'attempt-limit' | 'limit' | 'not-recoverable'
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
 }
 
@@ -45,10 +48,18 @@ export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions 
   const workspaceDir = options.workspaceDir ?? '.video-agent'
   const statuses = options.statuses ?? RECOVERABLE_STATUSES
   const projects = await listProjects(workspaceDir)
-  const inspected = await Promise.all(projects.map(async (project) => readRecoveryCandidate(project.projectId, workspaceDir, statuses)))
-  const candidates = selectRecoveryCandidates(inspected, options.limit)
-  const recovered = options.dryRun === true ? [] : await Promise.all(candidates.map((candidate) => recoverProject(candidate.projectId, candidate.fromStage, workspaceDir, candidate.jobStatus)))
-  const results = options.dryRun === true ? candidates.map((candidate) => candidate) : [...inspected.filter((result) => result.status === 'skipped'), ...recovered]
+  const inspected = await Promise.all(projects.map(async (project) => readRecoveryCandidate(project.projectId, workspaceDir, statuses, options.maxAttempts)))
+  const selected = selectRecoveryCandidates(inspected, options.limit)
+  const deferred = selectDeferredCandidates(inspected, options.limit)
+  const recovered = options.dryRun === true ? [] : await Promise.all(selected.map((candidate) => recoverProject({
+    attempt: candidate.attempt,
+    fromStage: candidate.fromStage,
+    jobStatus: candidate.jobStatus,
+    projectId: candidate.projectId,
+    workspaceDir,
+  })))
+  const skipped = [...inspected.filter((result) => result.status === 'skipped'), ...deferred]
+  const results = options.dryRun === true ? [...selected, ...skipped] : [...skipped, ...recovered]
 
   return {
     dryRun: options.dryRun === true,
@@ -59,21 +70,34 @@ export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions 
   }
 }
 
-async function readRecoveryCandidate(projectId: string, workspaceDir: string, statuses: readonly RecoverableJobStatus[]): Promise<RecoverWorkspaceJobResult> {
+async function readRecoveryCandidate(projectId: string, workspaceDir: string, statuses: readonly RecoverableJobStatus[], maxAttempts: number | undefined): Promise<RecoverWorkspaceJobResult> {
   const status = await readProjectStatus(projectId, workspaceDir)
   const jobStatus = status.job.status
-  const fromStage = statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages) : undefined
+  const stage = statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages) : undefined
 
-  if (fromStage === undefined) {
+  if (stage === undefined) {
     return {
       jobStatus,
       projectId,
+      skipReason: 'not-recoverable',
+      status: 'skipped',
+    }
+  }
+
+  if (maxAttempts !== undefined && (stage.attempt ?? 0) >= maxAttempts) {
+    return {
+      attempt: stage.attempt,
+      fromStage: stage.name,
+      jobStatus,
+      projectId,
+      skipReason: 'attempt-limit',
       status: 'skipped',
     }
   }
 
   return {
-    fromStage,
+    attempt: stage.attempt,
+    fromStage: stage.name,
     jobStatus,
     projectId,
     status: 'would-recover',
@@ -86,30 +110,62 @@ function selectRecoveryCandidates(results: RecoverWorkspaceJobResult[], limit: n
   return limit === undefined ? candidates : candidates.slice(0, limit)
 }
 
-function findRecoveryStage(stages: JobStageState[]): InitialPipelineStage | undefined {
-  const stage = stages.find((item) => item.status === 'failed') ?? stages.find((item) => item.status === 'running') ?? stages.find((item) => item.status === 'pending')
+function selectDeferredCandidates(results: RecoverWorkspaceJobResult[], limit: number | undefined): RecoverWorkspaceJobResult[] {
+  if (limit === undefined) {
+    return []
+  }
 
-  return isInitialPipelineStage(stage?.name) ? stage.name : undefined
+  return results
+    .filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined)
+    .slice(limit)
+    .map((candidate) => ({
+      attempt: candidate.attempt,
+      fromStage: candidate.fromStage,
+      jobStatus: candidate.jobStatus,
+      projectId: candidate.projectId,
+      skipReason: 'limit',
+      status: 'skipped',
+    }))
 }
 
-async function recoverProject(projectId: string, fromStage: InitialPipelineStage, workspaceDir: string, jobStatus: JobRunStatus): Promise<RecoverWorkspaceJobResult> {
+type RecoverableStage = JobStageState & {
+  name: InitialPipelineStage
+}
+
+function findRecoveryStage(stages: JobStageState[]): RecoverableStage | undefined {
+  const stage = stages.find((item) => item.status === 'failed') ?? stages.find((item) => item.status === 'running') ?? stages.find((item) => item.status === 'pending')
+
+  return isInitialPipelineStage(stage?.name) ? {...stage, name: stage.name} : undefined
+}
+
+interface RecoverProjectOptions {
+  attempt?: number
+  fromStage: InitialPipelineStage
+  jobStatus: JobRunStatus
+  projectId: string
+  workspaceDir: string
+}
+
+async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWorkspaceJobResult> {
   try {
     return {
-      fromStage,
-      jobStatus,
-      projectId,
-      result: await rerunProject(projectId, {
-        fromStage,
-        workspaceDir,
+      attempt: options.attempt,
+      fromStage: options.fromStage,
+      jobStatus: options.jobStatus,
+      projectId: options.projectId,
+      result: await rerunProject(options.projectId, {
+        fromStage: options.fromStage,
+        workspaceDir: options.workspaceDir,
       }),
       status: 'recovered',
     }
   } catch (error) {
     return {
+      attempt: options.attempt,
       error: error instanceof Error ? error.message : String(error),
-      fromStage,
-      jobStatus,
-      projectId,
+      fromStage: options.fromStage,
+      jobStatus: options.jobStatus,
+      projectId: options.projectId,
       status: 'failed',
     }
   }

@@ -92,6 +92,7 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
       await recoverWorkspaceJobs({
         dryRun: readBooleanField(body, 'dryRun'),
         limit: readNumberField(body, 'limit'),
+        maxAttempts: readNumberField(body, 'maxAttempts'),
         statuses: resolveRecoverableStatuses(readStringField(body, 'status')),
         workspaceDir,
       }),

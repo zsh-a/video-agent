@@ -104,6 +104,35 @@ describe('api server handler', () => {
     }
   })
 
+  it('passes worker attempt limits through the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{results: Array<{projectId: string; skipReason?: string; status: string}>}>(
+        fetch,
+        '/worker',
+        {
+          body: JSON.stringify({
+            dryRun: true,
+            maxAttempts: 0,
+            status: 'running',
+          }),
+          method: 'POST',
+        },
+      )
+
+      expect(result.results.find((item) => item.projectId === 'demo')).to.include({
+        projectId: 'demo',
+        skipReason: 'attempt-limit',
+        status: 'skipped',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reruns an existing project from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 

@@ -192,5 +192,5 @@ Concrete providers can wrap remote APIs or local services. Local model inference
 2. Add Clack prompts for provider `config`.
 3. Replace mock ASR/VLM/TTS providers with real provider adapters behind the existing config contract.
 4. Add richer TUI interactions for guided command selection.
-5. Add worker-oriented retry scheduling over the configurable `JobStore`.
+5. Add richer queue scheduling and artifact recovery policies over the configurable `JobStore`.
 6. Expand MCP/client integration examples.

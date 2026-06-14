@@ -7,6 +7,7 @@ export default class Worker extends Command {
     'dry-run': Flags.boolean({description: 'List recoverable jobs without rerunning them'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     limit: Flags.integer({description: 'Maximum number of recoverable jobs to process'}),
+    'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value'}),
     status: Flags.string({default: 'active', description: 'Job status to recover', options: ['active', 'failed', 'running']}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
@@ -16,6 +17,7 @@ export default class Worker extends Command {
     const report = await recoverWorkspaceJobs({
       dryRun: flags['dry-run'],
       limit: flags.limit,
+      maxAttempts: flags['max-attempts'],
       statuses: resolveRecoverableStatuses(flags.status),
       workspaceDir: flags.workspace,
     })
@@ -31,7 +33,7 @@ export default class Worker extends Command {
     this.log(`Skipped: ${report.skipped}`)
 
     for (const result of report.results) {
-      this.log(`${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.error === undefined ? '' : `\t${result.error}`}`)
+      this.log(`${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.skipReason === undefined ? '' : `\t${result.skipReason}`}${result.error === undefined ? '' : `\t${result.error}`}`)
     }
   }
 }

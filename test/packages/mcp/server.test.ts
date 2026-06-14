@@ -32,9 +32,11 @@ describe('mcp server', () => {
     const toolsByName = new Map(server.tools.map((tool) => [tool.name, tool]))
     const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties ?? {}
     const audioProperties = toolsByName.get('video_agent_inspect_audio')?.inputSchema.properties ?? {}
+    const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties ?? {}
 
     expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
+    expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'status'])
   })
 
   it('calls runtime tools and returns text content', async () => {
@@ -132,6 +134,39 @@ describe('mcp server', () => {
         fromStage: 'ingest',
         projectId: 'demo',
         status: 'would-recover',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('passes worker attempt limits through the recovery tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'worker-2',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            dryRun: true,
+            maxAttempts: 0,
+            status: 'running',
+          },
+          name: 'video_agent_worker',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {results: Array<{projectId: string; skipReason?: string; status: string}>}
+
+      expect(result.results.find((item) => item.projectId === 'demo')).to.include({
+        projectId: 'demo',
+        skipReason: 'attempt-limit',
+        status: 'skipped',
       })
     } finally {
       await rm(root, {force: true, recursive: true})
