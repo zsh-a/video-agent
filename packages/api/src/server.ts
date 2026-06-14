@@ -7,6 +7,7 @@ import {
   listProjectArtifacts,
   listProjects,
   PipelineCheckpointError,
+  type ProviderSmokeTestRole,
   readConfig,
   readProjectArtifact,
   readProjectEvents,
@@ -19,6 +20,7 @@ import {
   renderProject,
   rerunProject,
   runInitialPipeline,
+  runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
 
@@ -71,6 +73,24 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse(await readProviderEnvironment(workspaceDir))
+  }
+
+  if (segments.length === 1 && segments[0] === 'provider-test') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+
+    return jsonResponse(
+      await runProviderSmokeTest({
+        framePath: readStringField(body, 'framePath') ?? undefined,
+        mediaPath: readStringField(body, 'mediaPath') ?? undefined,
+        roles: resolveProviderSmokeTestRoles(readStringField(body, 'role')),
+        text: readStringField(body, 'text') ?? undefined,
+        workspaceDir,
+      }),
+    )
   }
 
   if (segments.length === 1 && segments[0] === 'config') {
@@ -428,6 +448,18 @@ function resolveRecoverableStatuses(status: null | string): Array<'failed' | 'ru
   }
 
   throw new Error(`Invalid worker status: ${status}`)
+}
+
+function resolveProviderSmokeTestRoles(role: null | string): ProviderSmokeTestRole[] | undefined {
+  if (role === null || role === 'all') {
+    return undefined
+  }
+
+  if (role === 'asr' || role === 'tts' || role === 'vlm') {
+    return [role]
+  }
+
+  throw new Error(`Invalid provider test role: ${role}`)
 }
 
 function readRecoveryOrderBy(value: null | string): RecoveryOrderBy | undefined {
@@ -795,6 +827,7 @@ function renderStudioHtml(): string {
             <button id="rerun-action" type="button">Rerun</button>
           </span>
           <button id="worker-action" type="button">Worker dry-run</button>
+          <button id="provider-test-action" type="button">Provider test</button>
         </div>
         <div class="control-grid">
           <label class="control">Renderer
@@ -1239,6 +1272,16 @@ function renderStudioHtml(): string {
         byId("action-status").textContent = label + " failed: " + (error instanceof Error ? error.message : String(error));
       }
     };
+    const runWorkspaceAction = async (label, action) => {
+      byId("action-status").textContent = label + " running...";
+      try {
+        const result = await action();
+        byId("action-status").textContent = label + " complete: " + JSON.stringify(result);
+        await load();
+      } catch (error) {
+        byId("action-status").textContent = label + " failed: " + (error instanceof Error ? error.message : String(error));
+      }
+    };
     const load = async () => {
       const [health, providerEnv, config, projects] = await Promise.all([
         api("/health"),
@@ -1271,6 +1314,11 @@ function renderStudioHtml(): string {
     })));
     byId("worker-action").addEventListener("click", () => void runAction("Worker dry-run", () => api("/worker", {
       body: JSON.stringify({dryRun: true, orderBy: "oldest", runningStaleAfterMs: 60000, status: "active"}),
+      headers: {"content-type": "application/json"},
+      method: "POST",
+    })));
+    byId("provider-test-action").addEventListener("click", () => void runWorkspaceAction("Provider test", () => api("/provider-test", {
+      body: JSON.stringify({role: "all"}),
       headers: {"content-type": "application/json"},
       method: "POST",
     })));

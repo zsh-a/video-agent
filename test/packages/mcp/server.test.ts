@@ -20,6 +20,7 @@ describe('mcp server', () => {
       'video_agent_list_projects',
       'video_agent_quality',
       'video_agent_provider_env',
+      'video_agent_provider_test',
       'video_agent_visual_samples',
       'video_agent_status',
       'video_agent_run',
@@ -106,6 +107,38 @@ describe('mcp server', () => {
       const result = JSON.parse(content[0]?.text ?? '{}') as {providers: Array<{provider: string; role: string}>}
 
       expect(result.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('calls the provider smoke test tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'provider-test-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            role: 'asr',
+          },
+          name: 'video_agent_provider_test',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {ok: boolean; results: Array<{provider: string; role: string; status: string}>}
+
+      expect(result.ok).to.equal(true)
+      expect(result.results.find((item) => item.role === 'asr')).to.include({
+        provider: 'mock',
+        role: 'asr',
+        status: 'succeeded',
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }

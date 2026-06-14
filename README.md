@@ -393,6 +393,7 @@ GET /studio
 GET /health
 GET /doctor
 GET /provider-env
+POST /provider-test
 GET /config
 GET /projects
 POST /projects
@@ -410,7 +411,7 @@ POST /projects/:projectId/render
 POST /projects/:projectId/export
 ```
 
-`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun 和 worker dry-run 操作按钮。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
+`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run 和 provider smoke test 操作按钮。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `GET /config` 返回当前 workspace 的非 secret runtime config，包括 provider 选择、job store 和 pipeline retry 策略。provider credential 是否配置由 `GET /provider-env` 以 `configured` 布尔值展示，不返回 secret 内容。
 
@@ -420,6 +421,7 @@ POST /projects/:projectId/export
 video_agent_doctor
 video_agent_list_projects
 video_agent_provider_env
+video_agent_provider_test
 video_agent_status
 video_agent_quality
 video_agent_visual_samples
@@ -437,6 +439,8 @@ video_agent_export
 `video_agent_render` 支持 ffmpeg 音频开关、source/voiceover volume、sidechain ducking 参数，以及 HyperFrames validate/render/output/command 参数。`video_agent_inspect_audio` 支持同一组音频相关参数，用于在真正渲染前检查 voiceover 对齐和可用音频输入。
 
 `video_agent_provider_env` 返回当前 provider 配置对应的环境变量契约，只暴露变量名、必填状态和是否已配置，不返回具体值。
+
+`video_agent_provider_test` 会按当前 provider 配置运行 ASR/VLM/TTS smoke test，可用 `role` 限定单个 provider，并返回输出摘要、request id/model metadata 和失败信息。
 
 `video_agent_worker` 复用本地 worker recovery runtime，可 dry-run 扫描 failed/running job，也可以用 `status` 和 `limit` 控制恢复范围。
 
@@ -562,8 +566,8 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact 预检、attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、触发 rerun 或 worker recovery
-- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、config、projects、status、events、artifacts、artifact preview、visual sample preview、render option controls、render quality diagnostics、template quality diagnostics、artifact integrity diagnostics、stage rerun、workflow actions 和 worker recovery
-- `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
+- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、provider-test、config、projects、status、events、artifacts、artifact preview、visual sample preview、render option controls、render quality diagnostics、template quality diagnostics、artifact integrity diagnostics、stage rerun、workflow actions 和 worker recovery
+- `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/provider-test/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - Claude Code skill adapter：`adapters/claude-code-skill/video-agent/SKILL.md` 提供 agent shell 使用 CLI/MCP 的操作流程
 - Claude Code skill 分发说明：见 [docs/claude-code-skill.md](docs/claude-code-skill.md)
 - Agent client 安装检查：见 [docs/agent-client-checks.md](docs/agent-client-checks.md)

@@ -19,6 +19,14 @@ describe('api server handler', () => {
       const health = await readJson<{ok: boolean}>(fetch, '/health')
       const projects = await readJson<{projects: unknown[]}>(fetch, '/projects')
       const providerEnv = await readJson<{providers: Array<{provider: string; role: string}>}>(fetch, '/provider-env')
+      const providerTest = await readJson<{ok: boolean; results: Array<{provider: string; role: string; status: string}>}>(
+        fetch,
+        '/provider-test',
+        {
+          body: JSON.stringify({role: 'asr'}),
+          method: 'POST',
+        },
+      )
       const config = await readJson<{persistence: {jobStore: string}; providers: {asr: string; tts: string; vlm: string}}>(fetch, '/config')
       const status = await readJson<{projectId: string; summary: {providers: {total: number}; quality: {errors: number; issues: number; warnings: number}; render: {rendered: boolean}}}>(fetch, '/projects/demo/status')
       const quality = await readJson<{ok: boolean; projectId: string}>(fetch, '/projects/demo/quality')
@@ -28,6 +36,12 @@ describe('api server handler', () => {
       expect(health.ok).to.equal(true)
       expect(projects.projects).to.have.length(1)
       expect(providerEnv.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+      expect(providerTest.ok).to.equal(true)
+      expect(providerTest.results.find((result) => result.role === 'asr')).to.include({
+        provider: 'mock',
+        role: 'asr',
+        status: 'succeeded',
+      })
       expect(config.providers).to.deep.equal({asr: 'mock', tts: 'mock', vlm: 'mock'})
       expect(config.persistence.jobStore).to.equal('json')
       expect(status.projectId).to.equal('demo')
@@ -99,6 +113,7 @@ describe('api server handler', () => {
     expect(html).to.include('id="rerun-stage"')
     expect(html).to.include('id="rerun-action"')
     expect(html).to.include('id="worker-action"')
+    expect(html).to.include('id="provider-test-action"')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/render')
     expect(html).to.include('body: JSON.stringify(readRenderOptions())')
     expect(html).to.include('hyperframesCommand')
@@ -107,6 +122,7 @@ describe('api server handler', () => {
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/rerun')
     expect(html).to.include('fromStage: byId("rerun-stage").value || undefined')
     expect(html).to.include('api("/worker"')
+    expect(html).to.include('api("/provider-test"')
   })
 
   it('rejects non-GET Web Studio requests', async () => {

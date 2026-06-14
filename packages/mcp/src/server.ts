@@ -1,4 +1,4 @@
-import type {ExportFormat, InitialPipelineStage, ProjectRenderer} from '@video-agent/runtime'
+import type {ExportFormat, InitialPipelineStage, ProjectRenderer, ProviderSmokeTestRole} from '@video-agent/runtime'
 
 import {
   checkRuntimeHealth,
@@ -16,6 +16,7 @@ import {
   renderProject,
   rerunProject,
   runInitialPipeline,
+  runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
 
@@ -64,10 +65,17 @@ export interface McpServer {
 }
 
 const STAGE_VALUES: InitialPipelineStage[] = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']
+const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {}),
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
   createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {}),
+  createTool('video_agent_provider_test', 'Run smoke tests against configured ASR, VLM, and TTS providers.', {
+    framePath: stringSchema('Sample frame path for VLM smoke tests. Defaults to a synthetic placeholder path.'),
+    mediaPath: stringSchema('Sample media path for ASR smoke tests. Defaults to a synthetic placeholder path.'),
+    role: enumSchema(PROVIDER_TEST_ROLES, 'Provider role to test. Defaults to all.'),
+    text: stringSchema('Sample narration text for TTS smoke tests.'),
+  }),
   createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: projectIdSchema()}),
   createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: projectIdSchema()}),
   createTool('video_agent_visual_samples', 'Read rendered visual frame sample metadata, optionally including base64 image content.', {
@@ -250,6 +258,16 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_provider_env': {
       return readProviderEnvironment(workspaceDir)
+    }
+
+    case 'video_agent_provider_test': {
+      return runProviderSmokeTest({
+        framePath: readOptionalString(args, 'framePath'),
+        mediaPath: readOptionalString(args, 'mediaPath'),
+        roles: resolveProviderSmokeTestRoles(readOptionalEnum(args, 'role', PROVIDER_TEST_ROLES)),
+        text: readOptionalString(args, 'text'),
+        workspaceDir,
+      })
     }
 
     case 'video_agent_quality': {
@@ -531,6 +549,14 @@ function resolveRecoverableStatuses(status: 'active' | 'failed' | 'running' | un
   }
 
   return [status]
+}
+
+function resolveProviderSmokeTestRoles(role: typeof PROVIDER_TEST_ROLES[number] | undefined): ProviderSmokeTestRole[] | undefined {
+  if (role === undefined || role === 'all') {
+    return undefined
+  }
+
+  return [role]
 }
 
 function isJsonRpcId(value: unknown): value is JsonRpcId {
