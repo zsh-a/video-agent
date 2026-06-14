@@ -22,6 +22,28 @@ describe('tui command', () => {
     })).to.equal('Action: worker dry-run -> recovered 0, skipped 1')
   })
 
+  it('formats artifact action results with a content preview', () => {
+    expect(formatTuiActionResult({
+      artifact: {
+        kind: 'json',
+        name: 'quality-report.json',
+        path: '/tmp/quality-report.json',
+        size: 42,
+        updatedAt: '2026-06-15T00:00:00.000Z',
+      },
+      content: {
+        ok: true,
+      },
+      projectId: 'demo',
+      type: 'artifact',
+    })).to.equal([
+      'Action: artifact demo/quality-report.json',
+      'Kind: json',
+      'Size: 42B',
+      'Preview: {"ok":true}',
+    ].join('\n'))
+  })
+
   it('formats an empty workspace dashboard', () => {
     expect(formatTuiSnapshot({artifacts: [], events: [], projects: [], workspaceDir: '.video-agent'}, {artifactLimit: 8, eventLimit: 6})).to.equal([
       'Video Agent TUI',

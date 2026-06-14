@@ -1,9 +1,9 @@
-import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, RecoverableJobStatus} from '@video-agent/runtime'
+import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ReadProjectArtifactResult, RecoverableJobStatus} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {listProjectArtifacts, listProjects, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject} from '@video-agent/runtime'
+import {listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject} from '@video-agent/runtime'
 
-export type TuiAction = 'dashboard' | 'rerun' | 'worker'
+export type TuiAction = 'artifact' | 'dashboard' | 'rerun' | 'worker'
 
 interface TuiSnapshot {
   artifacts: ProjectArtifact[]
@@ -21,7 +21,8 @@ interface FormatTuiSnapshotOptions {
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['dashboard', 'rerun', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'dashboard', 'rerun', 'worker']}),
+    artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'dry-run': Flags.boolean({description: 'Preview worker recovery when --action worker is used'}),
     'event-limit': Flags.integer({default: 6, description: 'Maximum recent events to show for the selected project'}),
@@ -53,7 +54,7 @@ export default class Tui extends Command {
     }
 
     if (flags.watch && action !== 'dashboard') {
-      throw new Error('The tui command cannot combine --watch with a mutating action.')
+      throw new Error('The tui command cannot combine --watch with an action.')
     }
 
     if (flags.watch) {
@@ -63,6 +64,7 @@ export default class Tui extends Command {
 
     const actionResult = await runTuiAction({
       action,
+      artifactName: flags.artifact,
       dryRun: flags['dry-run'],
       fromStage: flags['from-stage'] as InitialPipelineStage,
       limit: flags.limit,
@@ -112,6 +114,7 @@ export interface ReadTuiSnapshotOptions {
 
 export interface RunTuiActionOptions {
   action: TuiAction
+  artifactName?: string
   dryRun?: boolean
   fromStage: InitialPipelineStage
   limit?: number
@@ -120,11 +123,27 @@ export interface RunTuiActionOptions {
   workspaceDir: string
 }
 
-export type TuiActionResult = {dryRun: boolean; recovered: number; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {type: 'dashboard'}
+export type TuiActionResult = {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'} | {dryRun: boolean; recovered: number; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {type: 'dashboard'}
 
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
   if (options.action === 'dashboard') {
     return {type: 'dashboard'}
+  }
+
+  if (options.action === 'artifact') {
+    if (options.artifactName === undefined) {
+      throw new Error('Pass --artifact <name> when using --action artifact.')
+    }
+
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+    const result = await readProjectArtifact(projectId, options.artifactName, options.workspaceDir)
+
+    return {
+      artifact: result.artifact,
+      content: result.content,
+      projectId,
+      type: 'artifact',
+    }
   }
 
   if (options.action === 'rerun') {
@@ -188,6 +207,15 @@ export async function readTuiSnapshot(options: ReadTuiSnapshotOptions): Promise<
 export function formatTuiActionResult(result: TuiActionResult): string {
   if (result.type === 'dashboard') {
     return ''
+  }
+
+  if (result.type === 'artifact') {
+    return [
+      `Action: artifact ${result.projectId}/${result.artifact.name}`,
+      `Kind: ${result.artifact.kind}`,
+      `Size: ${result.artifact.size}B`,
+      `Preview: ${formatArtifactPreview(result.content)}`,
+    ].join('\n')
   }
 
   if (result.type === 'rerun') {
@@ -264,6 +292,12 @@ function formatEventDetail(record: ProjectEventRecord): string {
   }
 
   return `${record.event.role} ${record.event.operation} ${record.event.status} ${record.event.durationMs}ms`
+}
+
+function formatArtifactPreview(content: unknown): string {
+  const text = typeof content === 'string' ? content : JSON.stringify(content)
+
+  return text.length > 240 ? `${text.slice(0, 237)}...` : text
 }
 
 async function wait(ms: number): Promise<void> {
