@@ -600,6 +600,31 @@ function renderStudioHtml(): string {
       align-items: center;
     }
 
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .control {
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+      color: #42515f;
+    }
+
+    .control input,
+    .control select {
+      width: 100%;
+    }
+
+    .control input[type="checkbox"] {
+      justify-self: start;
+      min-height: 18px;
+      width: 18px;
+    }
+
     .status-line {
       min-height: 20px;
       margin-top: 10px;
@@ -771,6 +796,41 @@ function renderStudioHtml(): string {
           </span>
           <button id="worker-action" type="button">Worker dry-run</button>
         </div>
+        <div class="control-grid">
+          <label class="control">Renderer
+            <select id="render-renderer">
+              <option value="ffmpeg">ffmpeg</option>
+              <option value="hyperframes">hyperframes</option>
+            </select>
+          </label>
+          <label class="control">Subtitles
+            <input id="render-subtitles" type="checkbox" checked>
+          </label>
+          <label class="control">Audio
+            <input id="render-audio" type="checkbox" checked>
+          </label>
+          <label class="control">Ducking
+            <input id="render-audio-ducking" type="checkbox">
+          </label>
+          <label class="control">Source volume
+            <input id="render-source-volume" inputmode="decimal" placeholder="1">
+          </label>
+          <label class="control">Voiceover volume
+            <input id="render-voiceover-volume" inputmode="decimal" placeholder="1">
+          </label>
+          <label class="control">HF validate
+            <input id="render-hf-validate" type="checkbox">
+          </label>
+          <label class="control">HF render
+            <input id="render-hf-render" type="checkbox">
+          </label>
+          <label class="control">HF command JSON
+            <input id="render-hf-command" placeholder='["npx","hyperframes"]'>
+          </label>
+          <label class="control">HF output
+            <input id="render-hf-output" placeholder="./hyperframes.mp4">
+          </label>
+        </div>
         <p class="status-line" id="action-status"></p>
       </div>
       <div class="panel">
@@ -877,6 +937,44 @@ function renderStudioHtml(): string {
         tableRow(["pipeline.maxStageRetries", config.pipeline.maxStageRetries]),
         tableRow(["pipeline.retryBackoffMs", config.pipeline.retryBackoffMs]),
       ], 2);
+    };
+    const optionalNumber = (id) => {
+      const value = byId(id).value.trim();
+      if (value === "") return undefined;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) throw new Error(id + " must be a number.");
+      return parsed;
+    };
+    const optionalString = (id) => {
+      const value = byId(id).value.trim();
+      return value === "" ? undefined : value;
+    };
+    const optionalStringArray = (id) => {
+      const value = optionalString(id);
+      if (value === undefined) return undefined;
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((item) => typeof item !== "string" || item.length === 0)) {
+        throw new Error(id + " must be a JSON string array.");
+      }
+      return parsed;
+    };
+    const maybe = (object, key, value) => {
+      if (value !== undefined) object[key] = value;
+    };
+    const readRenderOptions = () => {
+      const options = {
+        audio: byId("render-audio").checked,
+        audioDucking: byId("render-audio-ducking").checked,
+        hyperframesRender: byId("render-hf-render").checked,
+        hyperframesValidate: byId("render-hf-validate").checked,
+        renderer: byId("render-renderer").value,
+        subtitles: byId("render-subtitles").checked,
+      };
+      maybe(options, "sourceVolume", optionalNumber("render-source-volume"));
+      maybe(options, "voiceoverVolume", optionalNumber("render-voiceover-volume"));
+      maybe(options, "hyperframesCommand", optionalStringArray("render-hf-command"));
+      maybe(options, "hyperframesOutput", optionalString("render-hf-output"));
+      return options;
     };
     const artifactRow = (artifact) => {
       const row = tableRow([artifact.name, artifact.kind, artifact.size]);
@@ -1157,7 +1255,7 @@ function renderStudioHtml(): string {
     };
     byId("refresh").addEventListener("click", () => void load());
     byId("render-action").addEventListener("click", () => void runAction("Render", () => api("/projects/" + encodeURIComponent(state.projectId) + "/render", {
-      body: JSON.stringify({renderer: "ffmpeg"}),
+      body: JSON.stringify(readRenderOptions()),
       headers: {"content-type": "application/json"},
       method: "POST",
     })));
