@@ -39,6 +39,8 @@ export function createApiFetchHandler(options: ApiHandlerOptions = {}): (request
   }
 }
 
+// Route dispatch is intentionally centralized so the API handler remains dependency-light.
+// eslint-disable-next-line complexity
 async function routeRequest(request: Request, workspaceDir: string): Promise<Response> {
   const url = new URL(request.url)
   const segments = url.pathname
@@ -68,6 +70,14 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse(await readProviderEnvironment(workspaceDir))
+  }
+
+  if (segments.length === 1 && segments[0] === 'studio') {
+    if (request.method !== 'GET') {
+      return methodNotAllowed()
+    }
+
+    return htmlResponse(renderStudioHtml())
   }
 
   if (segments.length === 1 && segments[0] === 'projects') {
@@ -423,6 +433,320 @@ function readRecoveryOrderBy(value: null | string): RecoveryOrderBy | undefined 
   throw new Error(`Invalid worker orderBy: ${value}`)
 }
 
+function renderStudioHtml(): string {
+  return String.raw`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>video-agent studio</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.4;
+      color: #172026;
+      background: #f6f7f9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      border-bottom: 1px solid #d9dee5;
+      background: #ffffff;
+    }
+
+    h1,
+    h2,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #5c6875;
+    }
+
+    button {
+      border: 1px solid #b9c2ce;
+      border-radius: 6px;
+      background: #ffffff;
+      color: #172026;
+      cursor: pointer;
+      font: inherit;
+      min-height: 32px;
+      padding: 6px 10px;
+    }
+
+    button[aria-pressed="true"] {
+      border-color: #1769aa;
+      background: #e8f2fb;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(220px, 320px) 1fr;
+      min-height: calc(100vh - 69px);
+    }
+
+    aside {
+      border-right: 1px solid #d9dee5;
+      background: #ffffff;
+      padding: 16px;
+    }
+
+    section {
+      padding: 18px 20px;
+    }
+
+    .stack {
+      display: grid;
+      gap: 12px;
+    }
+
+    .project-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .project-list button {
+      display: grid;
+      gap: 3px;
+      justify-items: start;
+      width: 100%;
+      text-align: left;
+    }
+
+    .muted {
+      color: #657384;
+      font-size: 12px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .panel {
+      border: 1px solid #d9dee5;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 14px;
+    }
+
+    .metric {
+      font-size: 24px;
+      font-weight: 700;
+      margin-top: 8px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e3e7ed;
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: #5c6875;
+      font-weight: 700;
+    }
+
+    code {
+      background: #eef1f5;
+      border-radius: 4px;
+      padding: 1px 4px;
+    }
+
+    @media (max-width: 760px) {
+      main,
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      aside {
+        border-right: 0;
+        border-bottom: 1px solid #d9dee5;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>video-agent studio</h1>
+      <p class="muted" id="workspace">Loading workspace</p>
+    </div>
+    <button id="refresh" type="button">Refresh</button>
+  </header>
+  <main>
+    <aside>
+      <h2>Projects</h2>
+      <div class="project-list" id="projects"></div>
+    </aside>
+    <section class="stack">
+      <div class="grid">
+        <div class="panel">
+          <h2>Status</h2>
+          <p class="metric" id="status">none</p>
+        </div>
+        <div class="panel">
+          <h2>Quality</h2>
+          <p class="metric" id="quality">none</p>
+        </div>
+        <div class="panel">
+          <h2>Render</h2>
+          <p class="metric" id="render">none</p>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Pipeline</h2>
+        <table>
+          <thead><tr><th>Stage</th><th>Status</th><th>Attempt</th></tr></thead>
+          <tbody id="stages"></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>Artifacts</h2>
+        <table>
+          <thead><tr><th>Name</th><th>Kind</th><th>Size</th></tr></thead>
+          <tbody id="artifacts"></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h2>Recent Events</h2>
+        <table>
+          <thead><tr><th>Time</th><th>Kind</th><th>Detail</th></tr></thead>
+          <tbody id="events"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script type="module">
+    const state = {projectId: undefined};
+    const byId = (id) => document.getElementById(id);
+    const api = async (path) => {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(await response.text());
+      return response.json();
+    };
+    const text = (value) => value === undefined || value === null ? "" : String(value);
+    const setRows = (id, rows, emptyCells) => {
+      const target = byId(id);
+      target.textContent = "";
+      if (rows.length === 0) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = emptyCells;
+        cell.className = "muted";
+        cell.textContent = "None";
+        row.append(cell);
+        target.append(row);
+        return;
+      }
+      target.append(...rows);
+    };
+    const tableRow = (values) => {
+      const row = document.createElement("tr");
+      for (const value of values) {
+        const cell = document.createElement("td");
+        cell.textContent = text(value);
+        row.append(cell);
+      }
+      return row;
+    };
+    const renderProjects = (projects) => {
+      const list = byId("projects");
+      list.textContent = "";
+      if (projects.length === 0) {
+        const empty = document.createElement("p");
+        empty.className = "muted";
+        empty.textContent = "No projects";
+        list.append(empty);
+        return;
+      }
+      if (state.projectId === undefined) state.projectId = projects[0].projectId;
+      for (const project of projects) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-pressed", String(project.projectId === state.projectId));
+        button.addEventListener("click", () => {
+          state.projectId = project.projectId;
+          void load();
+        });
+        const name = document.createElement("strong");
+        name.textContent = project.projectId;
+        const meta = document.createElement("span");
+        meta.className = "muted";
+        meta.textContent = project.status + " " + project.updatedAt;
+        button.append(name, meta);
+        list.append(button);
+      }
+    };
+    const renderSelected = async () => {
+      if (state.projectId === undefined) {
+        byId("status").textContent = "none";
+        byId("quality").textContent = "none";
+        byId("render").textContent = "none";
+        setRows("stages", [], 3);
+        setRows("artifacts", [], 3);
+        setRows("events", [], 3);
+        return;
+      }
+      const [status, artifacts, events] = await Promise.all([
+        api("/projects/" + encodeURIComponent(state.projectId) + "/status"),
+        api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts"),
+        api("/projects/" + encodeURIComponent(state.projectId) + "/events?limit=8"),
+      ]);
+      byId("status").textContent = status.job.status;
+      byId("quality").textContent = status.summary.quality.issues + " issues";
+      byId("render").textContent = status.summary.render.rendered ? "rendered" : "none";
+      setRows("stages", status.job.stages.map((stage) => tableRow([stage.name, stage.status, stage.attempt ?? ""])), 3);
+      setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => tableRow([artifact.name, artifact.kind, artifact.size])), 3);
+      setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
+    };
+    const load = async () => {
+      const health = await api("/health");
+      byId("workspace").textContent = health.workspaceDir;
+      const projects = await api("/projects");
+      renderProjects(projects.projects);
+      await renderSelected();
+    };
+    byId("refresh").addEventListener("click", () => void load());
+    void load();
+  </script>
+</body>
+</html>
+`
+}
+
 interface JsonResponseInit {
   headers?: Record<string, string>
   status?: number
@@ -434,6 +758,14 @@ function jsonResponse(value: unknown, init?: JsonResponseInit): Response {
     headers: {
       'content-type': 'application/json; charset=utf-8',
       ...init?.headers,
+    },
+  })
+}
+
+function htmlResponse(value: string): Response {
+  return new Response(value, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8',
     },
   })
 }

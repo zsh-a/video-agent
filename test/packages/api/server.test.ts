@@ -47,6 +47,26 @@ describe('api server handler', () => {
     expect(response.status).to.equal(404)
   })
 
+  it('serves the Web Studio shell', async () => {
+    const fetch = createApiFetchHandler({workspaceDir: '/tmp/video-agent-api-studio'})
+    const response = await fetch(new Request('http://localhost/studio'))
+    const html = await response.text()
+
+    expect(response.status).to.equal(200)
+    expect(response.headers.get('content-type')).to.equal('text/html; charset=utf-8')
+    expect(html).to.include('video-agent studio')
+    expect(html).to.include('api("/projects")')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/status')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/artifacts')
+  })
+
+  it('rejects non-GET Web Studio requests', async () => {
+    const fetch = createApiFetchHandler({workspaceDir: '/tmp/video-agent-api-studio'})
+    const response = await fetch(new Request('http://localhost/studio', {method: 'POST'}))
+
+    expect(response.status).to.equal(405)
+  })
+
   it('runs a project from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
     const inputPath = join(root, 'demo.mp4')

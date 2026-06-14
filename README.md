@@ -364,6 +364,7 @@ bun run dev rerun <projectId> --from-stage script
 `serve` 会启动 Bun HTTP API server，暴露 runtime state、workflow actions 和本地 worker recovery：
 
 ```text
+GET /studio
 GET /health
 GET /doctor
 GET /provider-env
@@ -382,6 +383,8 @@ POST /projects/:projectId/rerun
 POST /projects/:projectId/render
 POST /projects/:projectId/export
 ```
+
+`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示项目列表、stage 状态、质量摘要、artifacts 和最近事件。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `mcp` 会启动 stdio MCP adapter，支持 `initialize`、`tools/list` 和 `tools/call`，工具直接复用 runtime API：
 
@@ -530,7 +533,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持候选排序、running stale 保护、checkpoint artifact 预检、attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact、最近事件和下一步命令建议，支持 watch 刷新，并可通过 action flag 检查 artifact、输出命令建议、触发 rerun 或 worker recovery
-- `serve` 命令：启动 Bun HTTP API server，暴露 health、provider-env、projects、status、events、artifacts、workflow actions 和 worker recovery
+- `serve` 命令：启动 Bun HTTP API server，暴露 Web Studio shell、health、provider-env、projects、status、events、artifacts、workflow actions 和 worker recovery
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量/排序恢复 failed/running job，用 `runningStaleAfterMs` 跳过仍活跃的 running job，预检 checkpoint artifacts，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
@@ -565,6 +568,6 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 
 1. 增加 Clack 交互式配置。
 2. 增加真实 ASR/VLM/TTS provider adapter。
-3. 增加 Web Studio 入口和真实 provider adapter。
+3. 扩展 Web Studio 的渲染/导出操作入口。
 4. 扩展 MCP 工具的 schema 注释和客户端集成示例。
 5. 扩展更深的视觉烟测。

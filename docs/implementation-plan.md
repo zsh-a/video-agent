@@ -218,7 +218,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The MCP command can print reusable stdio config JSON with server naming, installed/dev command mode, server-only snippets, and explicit env injection. The API exposes provider environment reports, visual sample metadata, and `POST /worker` recovery for Web Studio/TUI consumers. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, command suggestions, artifact inspection, controlled project reruns, and worker recovery; Web Studio and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The MCP command can print reusable stdio config JSON with server naming, installed/dev command mode, server-only snippets, and explicit env injection. The API exposes provider environment reports, visual sample metadata, `POST /worker` recovery, and a first dependency-free `GET /studio` Web Studio shell over project/status/quality/artifact/event endpoints. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, command suggestions, artifact inspection, controlled project reruns, and worker recovery; Claude Code skill adapters and richer Web Studio actions are still pending.
 
 ## Immediate Next Tasks
 
@@ -229,7 +229,7 @@ Recommended order:
 3. Extend TUI command suggestions into an interactive guided selector when dependency policy allows Ink or Clack.
 4. Test the generic MCP config output against named external clients and document any client-specific placement details.
 5. Expand render quality checks around template-specific validation.
-6. Add a first Web Studio or Claude Code skill adapter over the existing runtime/MCP surface.
+6. Add a Claude Code skill adapter over the existing CLI/MCP surface.
 
 ## v0 Completion Definition
 
