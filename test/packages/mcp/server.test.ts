@@ -142,6 +142,82 @@ describe('mcp server', () => {
     }
   })
 
+  it('uses explicit provider env values for environment reports and smoke tests', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+    const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+
+    try {
+      await createProject(root, 'demo')
+      await writeConfig(root, {
+        asr: 'command',
+        tts: 'command',
+        vlm: 'command',
+      })
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const providerEnvResponse = await server.handleMessage({
+        id: 'provider-env-explicit-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            env: {
+              VIDEO_AGENT_ASR_COMMAND: command,
+              VIDEO_AGENT_TTS_COMMAND: command,
+              VIDEO_AGENT_VLM_COMMAND: command,
+            },
+          },
+          name: 'video_agent_provider_env',
+        },
+      })
+      const providerEnvContent = providerEnvResponse?.result as {content: Array<{text: string; type: string}>}
+      const providerEnv = JSON.parse(providerEnvContent.content[0]?.text ?? '{}') as {
+        providers: Array<{
+          requirements: Array<{configured: boolean; env: string}>
+          role: string
+        }>
+      }
+
+      expect(providerEnv.providers.flatMap((provider) => provider.requirements.map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
+        'asr:VIDEO_AGENT_ASR_COMMAND:true',
+        'vlm:VIDEO_AGENT_VLM_COMMAND:true',
+        'tts:VIDEO_AGENT_TTS_COMMAND:true',
+      ])
+      expect(JSON.stringify(providerEnv)).to.not.include(command)
+
+      const providerTestResponse = await server.handleMessage({
+        id: 'provider-test-explicit-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            env: {
+              VIDEO_AGENT_ASR_COMMAND: command,
+              VIDEO_AGENT_TTS_COMMAND: command,
+              VIDEO_AGENT_VLM_COMMAND: command,
+            },
+            role: 'all',
+          },
+          name: 'video_agent_provider_test',
+        },
+      })
+      const providerTestContent = providerTestResponse?.result as {content: Array<{text: string; type: string}>}
+      const providerTest = JSON.parse(providerTestContent.content[0]?.text ?? '{}') as {
+        ok: boolean
+        results: Array<{metadata?: {model?: string}; output?: {type: string}; provider: string; role: string; status: string}>
+      }
+
+      expect(providerTest.ok).to.equal(true)
+      expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
+        'asr:command:succeeded:example-command-provider:transcript',
+        'vlm:command:succeeded:example-command-provider:scenes',
+        'tts:command:succeeded:example-command-provider:tts',
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('calls the provider smoke test tool', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 

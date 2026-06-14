@@ -59,7 +59,7 @@ bun run dev provider-test --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr 
 bun run dev mcp --print-config --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --workspace .video-agent
 ```
 
-`provider-env` reports variable names and configured/missing state only. `provider-env --shell-template`, `GET /provider-env?shellTemplate=true`, and `video_agent_provider_env` with `shellTemplate: true` generate placeholder exports without scraping the current shell environment. `provider-env --env`, `provider-test --env`, and `mcp --print-config --env` use only variables explicitly passed to the command, so a client config can be reviewed without scraping the current shell environment. `provider-test` reports response summaries and provider metadata without printing configured tokens.
+`provider-env` reports variable names and configured/missing state only. `provider-env --shell-template`, `GET /provider-env?shellTemplate=true`, and `video_agent_provider_env` with `shellTemplate: true` generate placeholder exports without scraping the current shell environment. `provider-env --env`, `provider-test --env`, `GET /provider-env?env=KEY=VALUE`, `POST /provider-test` with an `env` object, `video_agent_provider_env` / `video_agent_provider_test` with an `env` object, and `mcp --print-config --env` use only variables explicitly passed to that command/request, so a client config can be reviewed without scraping the current shell environment. `provider-test` reports response summaries and provider metadata without printing configured tokens.
 
 ## Acceptance Checklist
 

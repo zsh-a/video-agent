@@ -166,4 +166,5 @@ When replacing the mock recipe with a real hosted service:
 - run `bun run dev provider-env --env KEY=VALUE --json --workspace .video-agent` when an agent client should validate only explicit environment values
 - run `bun run dev provider-test --workspace .video-agent` to validate adapter response contracts before a full pipeline run
 - run `bun run dev provider-test --env KEY=VALUE --workspace .video-agent` when an agent client should smoke-test only explicit environment values
+- use `GET /provider-env?env=KEY=VALUE`, `POST /provider-test` with an `env` object, or MCP provider tools with an `env` object for the same explicit-value checks from API/agent clients
 - run `bun run test` after changing in-repo adapter code

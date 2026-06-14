@@ -76,7 +76,7 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
       return methodNotAllowed()
     }
 
-    const report = await readProviderEnvironment(workspaceDir)
+    const report = await readProviderEnvironment(workspaceDir, readEnvQuery(url.searchParams))
     const shellTemplate = parseOptionalBoolean(url.searchParams.get('shellTemplate')) === true
       ? createProviderEnvironmentShellTemplate(report, {includeOptional: parseOptionalBoolean(url.searchParams.get('includeOptional'))})
       : undefined
@@ -93,6 +93,7 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
 
     return jsonResponse(
       await runProviderSmokeTest({
+        env: readEnvField(body, 'env'),
         framePath: readStringField(body, 'framePath') ?? undefined,
         mediaPath: readStringField(body, 'mediaPath') ?? undefined,
         roles: resolveProviderSmokeTestRoles(readStringField(body, 'role')),
@@ -339,6 +340,60 @@ function readStringField(body: Record<string, unknown>, field: string): null | s
   }
 
   return value
+}
+
+function readEnvQuery(params: URLSearchParams): Record<string, string> | undefined {
+  const values = params.getAll('env')
+
+  if (values.length === 0) {
+    return undefined
+  }
+
+  return parseEnvAssignments(values)
+}
+
+function readEnvField(body: Record<string, unknown>, field: string): Record<string, string> | undefined {
+  if (body[field] === undefined || body[field] === null) {
+    return undefined
+  }
+
+  if (typeof body[field] !== 'object' || Array.isArray(body[field])) {
+    throw new TypeError(`Request field ${field} must be an object of string values.`)
+  }
+
+  const env: Record<string, string> = {}
+
+  for (const [key, value] of Object.entries(body[field] as Record<string, unknown>)) {
+    if (typeof value !== 'string') {
+      throw new TypeError(`Request field ${field}.${key} must be a string.`)
+    }
+
+    env[key] = value
+  }
+
+  return env
+}
+
+function parseEnvAssignments(values: string[]): Record<string, string> {
+  const env: Record<string, string> = {}
+
+  for (const value of values) {
+    const separatorIndex = value.indexOf('=')
+
+    if (separatorIndex <= 0) {
+      throw new Error(`Invalid env query value "${value}". Expected KEY=VALUE.`)
+    }
+
+    const key = value.slice(0, separatorIndex).trim()
+
+    if (key.length === 0) {
+      throw new Error(`Invalid env query value "${value}". Expected KEY=VALUE.`)
+    }
+
+    env[key] = value.slice(separatorIndex + 1)
+  }
+
+  return env
 }
 
 function readRequiredStringField(body: Record<string, unknown>, field: string): string {

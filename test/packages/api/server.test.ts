@@ -96,6 +96,60 @@ describe('api server handler', () => {
     }
   })
 
+  it('uses explicit provider env values for environment reports and smoke tests', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+    const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+
+    try {
+      await writeConfig(root, {
+        asr: 'command',
+        tts: 'command',
+        vlm: 'command',
+      })
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const providerEnv = await readJson<{
+        providers: Array<{
+          requirements: Array<{configured: boolean; env: string}>
+          role: string
+        }>
+      }>(fetch, `/provider-env?env=VIDEO_AGENT_ASR_COMMAND=${encodeURIComponent(command)}&env=VIDEO_AGENT_TTS_COMMAND=${encodeURIComponent(command)}&env=VIDEO_AGENT_VLM_COMMAND=${encodeURIComponent(command)}`)
+      const providerTest = await readJson<{
+        ok: boolean
+        results: Array<{metadata?: {model?: string}; output?: {type: string}; provider: string; role: string; status: string}>
+      }>(
+        fetch,
+        '/provider-test',
+        {
+          body: JSON.stringify({
+            env: {
+              VIDEO_AGENT_ASR_COMMAND: command,
+              VIDEO_AGENT_TTS_COMMAND: command,
+              VIDEO_AGENT_VLM_COMMAND: command,
+            },
+            role: 'all',
+          }),
+          method: 'POST',
+        },
+      )
+
+      expect(providerEnv.providers.flatMap((provider) => provider.requirements.map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
+        'asr:VIDEO_AGENT_ASR_COMMAND:true',
+        'vlm:VIDEO_AGENT_VLM_COMMAND:true',
+        'tts:VIDEO_AGENT_TTS_COMMAND:true',
+      ])
+      expect(JSON.stringify(providerEnv)).to.not.include(command)
+      expect(providerTest.ok).to.equal(true)
+      expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
+        'asr:command:succeeded:example-command-provider:transcript',
+        'vlm:command:succeeded:example-command-provider:scenes',
+        'tts:command:succeeded:example-command-provider:tts',
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('serves the Web Studio shell', async () => {
     const fetch = createApiFetchHandler({workspaceDir: '/tmp/video-agent-api-studio'})
     const response = await fetch(new Request('http://localhost/studio'))

@@ -73,10 +73,12 @@ const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {}),
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
   createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {
+    env: stringRecordSchema('Explicit environment variables to inspect. When set, only these values are checked and current shell environment is ignored.'),
     includeOptional: booleanSchema('When shellTemplate is true, include optional provider variables as active exports. Defaults to commented optional variables.'),
     shellTemplate: booleanSchema('When true, include a non-secret shell export template for the current provider config.'),
   }),
   createTool('video_agent_provider_test', 'Run smoke tests against configured ASR, VLM, and TTS providers.', {
+    env: stringRecordSchema('Explicit environment variables for provider smoke tests. When set, only these values are checked and current shell environment is ignored.'),
     framePath: stringSchema('Sample frame path for VLM smoke tests. Defaults to a synthetic placeholder path.'),
     mediaPath: stringSchema('Sample media path for ASR smoke tests. Defaults to a synthetic placeholder path.'),
     role: enumSchema(PROVIDER_TEST_ROLES, 'Provider role to test. Defaults to all.'),
@@ -267,7 +269,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     }
 
     case 'video_agent_provider_env': {
-      const report = await readProviderEnvironment(workspaceDir)
+      const report = await readProviderEnvironment(workspaceDir, readOptionalStringRecord(args, 'env'))
 
       if (readOptionalBoolean(args, 'shellTemplate') === true) {
         return {
@@ -281,6 +283,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_provider_test': {
       return runProviderSmokeTest({
+        env: readOptionalStringRecord(args, 'env'),
         framePath: readOptionalString(args, 'framePath'),
         mediaPath: readOptionalString(args, 'mediaPath'),
         roles: resolveProviderSmokeTestRoles(readOptionalEnum(args, 'role', PROVIDER_TEST_ROLES)),
@@ -512,6 +515,16 @@ function stringArraySchema(description?: string): Record<string, unknown> {
   }
 }
 
+function stringRecordSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    additionalProperties: {
+      type: 'string',
+    },
+    type: 'object',
+  }
+}
+
 function enumSchema(values: readonly string[], description?: string): Record<string, unknown> {
   return {
     ...(description === undefined ? {} : {description}),
@@ -588,6 +601,28 @@ function readOptionalStringArray(value: Record<string, unknown>, field: string):
   }
 
   return value[field]
+}
+
+function readOptionalStringRecord(value: Record<string, unknown>, field: string): Record<string, string> | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (!isRecord(value[field])) {
+    throw new TypeError(`MCP tool argument ${field} must be an object of string values.`)
+  }
+
+  const record: Record<string, string> = {}
+
+  for (const [key, item] of Object.entries(value[field])) {
+    if (typeof item !== 'string') {
+      throw new TypeError(`MCP tool argument ${field}.${key} must be a string.`)
+    }
+
+    record[key] = item
+  }
+
+  return record
 }
 
 function readOptionalEnum<T extends string>(value: Record<string, unknown>, field: string, values: readonly T[]): T | undefined {
