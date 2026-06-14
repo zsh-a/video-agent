@@ -23,17 +23,19 @@ export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
 export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
   const sourceDuration = mediaInfo.duration ?? 0
   let duration = 0
+  let sourceCursor = 0
   const clips: ClipPlan['clips'] = storyboard.scenes.map((scene, index) => {
-    const sourceStart = clamp(scene.start, 0, sourceDuration)
-    const sourceEnd = clamp(scene.start + scene.duration, sourceStart, sourceDuration)
+    const sourceStart = sourceCursor
+    const sourceEnd = clamp(sourceStart + scene.duration, sourceStart, sourceDuration)
     const clipDuration = sourceEnd - sourceStart
 
-    duration = Math.max(duration, scene.start + scene.duration)
+    sourceCursor = sourceEnd
+    duration = Math.max(duration, scene.start + clipDuration)
 
     return {
       duration: clipDuration,
       id: `clip-${index + 1}`,
-      reason: `Initial source range for ${scene.id}.`,
+      reason: `Sequential source range for ${scene.id}; requested ${formatSeconds(scene.duration)}s, allocated ${formatSeconds(clipDuration)}s.`,
       sceneId: scene.id,
       source: mediaInfo.inputPath,
       sourceRange: [sourceStart, sourceEnd],
@@ -88,4 +90,8 @@ export function createPlaceholderNarration(storyboard: Storyboard): Narration {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
+}
+
+function formatSeconds(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
 }

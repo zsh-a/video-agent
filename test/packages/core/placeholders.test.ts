@@ -37,7 +37,7 @@ describe('placeholder IR', () => {
     })
   })
 
-  it('creates a clip plan and derives timeline source ranges from it', () => {
+  it('creates a sequential clip plan and derives timeline source ranges from it', () => {
     const storyboard = {
       language: 'zh-CN',
       scenes: [
@@ -64,12 +64,45 @@ describe('placeholder IR', () => {
 
     expect(clipPlan.clips.map((clip) => clip.sourceRange)).to.deep.equal([
       [0, 5],
-      [8, 12.5],
+      [5, 12.5],
     ])
     expect(timeline.items.map((item) => item.sourceRange)).to.deep.equal([
       [0, 5],
-      [8, 12.5],
+      [5, 12.5],
     ])
-    expect(timeline.items.map((item) => item.duration)).to.deep.equal([5, 4.5])
+    expect(timeline.duration).to.equal(15.5)
+    expect(timeline.items.map((item) => item.duration)).to.deep.equal([5, 7.5])
+    expect(clipPlan.clips[1].reason).to.equal('Sequential source range for scene-2; requested 10s, allocated 7.5s.')
+  })
+
+  it('keeps source ranges monotonic when storyboard scene starts overlap', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 4,
+          evidence: [],
+          id: 'scene-1',
+          start: 0,
+          visualStyle: 'documentary',
+        },
+        {
+          duration: 4,
+          evidence: [],
+          id: 'scene-2',
+          start: 2,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+    const clipPlan = createClipPlan(storyboard, mediaInfo)
+
+    expect(clipPlan.clips.map((clip) => clip.sourceRange)).to.deep.equal([
+      [0, 4],
+      [4, 8],
+    ])
+    expect(clipPlan.duration).to.equal(6)
   })
 })
