@@ -244,6 +244,13 @@ async function createRecoverableProject(root: string, projectId: string, options
       targetPlatform: 'generic',
       version: 1,
     }),
+    writeJson(artifactsDir, 'clip-plan.json', {
+      clips: [],
+      duration: 1,
+      source: inputPath,
+      sourceDuration: 1,
+      version: 1,
+    }),
     writeJson(artifactsDir, 'timeline.json', {
       duration: 1,
       fps: 30,

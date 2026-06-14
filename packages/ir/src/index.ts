@@ -1,3 +1,4 @@
+export * from './clip-plan.js'
 export * from './job.js'
 export * from './media.js'
 export * from './narration.js'

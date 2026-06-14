@@ -75,7 +75,7 @@ Acceptance criteria:
 
 - `vagent run <input>` creates a project workspace.
 - The run emits durable events and `job-state.json`.
-- The run writes `media-info.json`, `storyboard.json`, `timeline.json`, `narration.json`, `tts-segments.json`, and `quality-report.json`.
+- The run writes `media-info.json`, `storyboard.json`, `clip-plan.json`, `timeline.json`, `narration.json`, `tts-segments.json`, and `quality-report.json`.
 - The pipeline can resume from a later stage when required artifacts already exist.
 
 Status: completed for the first mock-provider slice, including timeline bounds, narration timing, TTS coverage, generated SRT subtitle quality checks, rendered media stream/duration diagnostics, ffmpeg audio loudness diagnostics, ffmpeg black-frame smoke checks, rendered first/middle/end thumbnail sampling, thumbnail content-hash static-frame detection, and low visual-variation detection from thumbnail sample sizes.
@@ -174,7 +174,7 @@ Acceptance criteria:
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, first `clip-plan.json` source-range planning artifact, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
 
 ## Phase 5: Persistence and Recovery
 

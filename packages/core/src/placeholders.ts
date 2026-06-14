@@ -1,4 +1,4 @@
-import type {MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 
 export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
   const duration = mediaInfo.duration ?? 0
@@ -20,25 +20,56 @@ export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
   }
 }
 
-export function createPlaceholderTimeline(mediaInfo: MediaInfo): Timeline {
-  const duration = mediaInfo.duration ?? 0
+export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
+  const sourceDuration = mediaInfo.duration ?? 0
+  let duration = 0
+  const clips: ClipPlan['clips'] = storyboard.scenes.map((scene, index) => {
+    const sourceStart = clamp(scene.start, 0, sourceDuration)
+    const sourceEnd = clamp(scene.start + scene.duration, sourceStart, sourceDuration)
+    const clipDuration = sourceEnd - sourceStart
+
+    duration = Math.max(duration, scene.start + scene.duration)
+
+    return {
+      duration: clipDuration,
+      id: `clip-${index + 1}`,
+      reason: `Initial source range for ${scene.id}.`,
+      sceneId: scene.id,
+      source: mediaInfo.inputPath,
+      sourceRange: [sourceStart, sourceEnd],
+      start: scene.start,
+    }
+  })
+
+  return {
+    clips,
+    duration,
+    source: mediaInfo.inputPath,
+    sourceDuration,
+    version: 1,
+  }
+}
+
+export function createTimelineFromClipPlan(mediaInfo: MediaInfo, clipPlan: ClipPlan): Timeline {
   const videoStream = mediaInfo.streams.find((stream) => stream.type === 'video')
 
   return {
-    duration,
+    duration: clipPlan.duration,
     fps: videoStream?.fps ?? 30,
-    items: [
-      {
-        duration,
-        id: 'video-1',
-        source: mediaInfo.inputPath,
-        sourceRange: [0, duration],
-        start: 0,
-        track: 'video',
-      },
-    ],
+    items: clipPlan.clips.map((clip, index) => ({
+      duration: clip.duration,
+      id: `video-${index + 1}`,
+      source: clip.source,
+      sourceRange: clip.sourceRange,
+      start: clip.start,
+      track: 'video' as const,
+    })),
     version: 1,
   }
+}
+
+export function createPlaceholderTimeline(mediaInfo: MediaInfo): Timeline {
+  return createTimelineFromClipPlan(mediaInfo, createClipPlan(createPlaceholderStoryboard(mediaInfo), mediaInfo))
 }
 
 export function createPlaceholderNarration(storyboard: Storyboard): Narration {
@@ -53,4 +84,8 @@ export function createPlaceholderNarration(storyboard: Storyboard): Narration {
     })),
     version: 1,
   }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max)
 }

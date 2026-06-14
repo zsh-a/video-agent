@@ -171,6 +171,25 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
       })}\n`,
     ),
     writeFile(
+      join(artifactsDir, 'clip-plan.json'),
+      `${JSON.stringify({
+        clips: [
+          {
+            duration: 1,
+            id: 'clip-1',
+            sceneId: 'scene-1',
+            source: inputPath,
+            sourceRange: [0, 1],
+            start: 0,
+          },
+        ],
+        duration: 1,
+        source: inputPath,
+        sourceDuration: 1,
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
       join(artifactsDir, 'timeline.json'),
       `${JSON.stringify({
         duration: 1,

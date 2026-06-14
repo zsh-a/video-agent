@@ -1,9 +1,9 @@
 import type {PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
-import type {ArtifactRef, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {createPlaceholderNarration, createPlaceholderStoryboard, createPlaceholderTimeline, runPipeline} from '@video-agent/core'
+import {createClipPlan, createPlaceholderNarration, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders} from '@video-agent/providers'
 import {checkNarrationTiming, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
@@ -28,6 +28,7 @@ export type InitialPipelineStage = 'ingest' | 'plan' | 'quality' | 'script' | 'u
 
 export interface RunInitialPipelineResult {
   artifacts: {
+    clipPlan: string
     frames?: string
     ingestReport: string
     mediaInfo: string
@@ -65,6 +66,7 @@ interface UnderstandOutput extends IngestOutput {
 }
 
 interface PlanOutput extends UnderstandOutput {
+  clipPlan: ClipPlan
   storyboard: Storyboard
   timeline: Timeline
 }
@@ -95,10 +97,10 @@ const STAGES: readonly InitialPipelineStage[] = ['ingest', 'understand', 'plan',
 const CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
   ingest: [],
   plan: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json'],
-  quality: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
-  script: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'timeline.json'],
+  quality: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
+  script: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
   understand: ['ingest-report.json', 'media-info.json'],
-  voiceover: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'timeline.json', 'narration.json'],
+  voiceover: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
 }
 
 export class PipelineCheckpointError extends Error {
@@ -139,6 +141,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
   const pipelineEventsPath = workspace.store.resolve('pipeline-events.jsonl')
   const providerCallsPath = workspace.store.resolve('provider-calls.jsonl')
   const artifacts: RunInitialPipelineResult['artifacts'] = {
+    clipPlan: workspace.store.resolve('clip-plan.json'),
     ingestReport: workspace.store.resolve('ingest-report.json'),
     mediaInfo: workspace.store.resolve('media-info.json'),
     narration: workspace.store.resolve('narration.json'),
@@ -332,7 +335,6 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
       const understood = input as UnderstandOutput
       const storyboard = createPlaceholderStoryboard(understood.mediaInfo)
       const sceneAnalysis = understood.sceneAnalysis[0]
-      const timeline = createPlaceholderTimeline(understood.mediaInfo)
 
       storyboard.scenes = storyboard.scenes.map((scene) => ({
         ...scene,
@@ -350,15 +352,19 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
                   text: sceneAnalysis.description,
                   type: 'vlm' as const,
                 },
-              ]),
+          ]),
         ],
       }))
+      const clipPlan = createClipPlan(storyboard, understood.mediaInfo)
+      const timeline = createTimelineFromClipPlan(understood.mediaInfo, clipPlan)
 
+      await understood.workspace.store.writeJson('clip-plan.json', clipPlan)
       await understood.workspace.store.writeJson('storyboard.json', storyboard)
       await understood.workspace.store.writeJson('timeline.json', timeline)
 
       return {
         ...understood,
+        clipPlan,
         storyboard,
         timeline,
       }
@@ -483,6 +489,7 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 
   const planned: PlanOutput = {
     ...understood,
+    clipPlan: await workspace.store.readJson<ClipPlan>('clip-plan.json'),
     storyboard: await workspace.store.readJson<Storyboard>('storyboard.json'),
     timeline: await workspace.store.readJson<Timeline>('timeline.json'),
   }

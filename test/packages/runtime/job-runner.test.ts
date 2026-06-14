@@ -44,6 +44,7 @@ describe('job runner', () => {
       expect(await fileSize(result.artifacts.mediaInfo)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.sceneAnalysis)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.storyboard)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.clipPlan)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.timeline)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.narration)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.transcript)).to.be.greaterThan(0)
@@ -66,7 +67,7 @@ describe('job runner', () => {
 
       const manifest = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}
 
-      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
+      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
       expect(manifest.artifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256))).to.equal(true)
 
       const resumed = await runInitialPipeline({

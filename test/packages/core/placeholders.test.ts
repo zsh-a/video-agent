@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {createPlaceholderStoryboard, createPlaceholderTimeline} from '../../../packages/core/src/placeholders.js'
+import {createClipPlan, createPlaceholderStoryboard, createPlaceholderTimeline, createTimelineFromClipPlan} from '../../../packages/core/src/placeholders.js'
 
 describe('placeholder IR', () => {
   const mediaInfo = {
@@ -35,5 +35,41 @@ describe('placeholder IR', () => {
       source: '/tmp/input.mp4',
       track: 'video',
     })
+  })
+
+  it('creates a clip plan and derives timeline source ranges from it', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 5,
+          evidence: [],
+          id: 'scene-1',
+          start: 0,
+          visualStyle: 'documentary',
+        },
+        {
+          duration: 10,
+          evidence: [],
+          id: 'scene-2',
+          start: 8,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+    const clipPlan = createClipPlan(storyboard, mediaInfo)
+    const timeline = createTimelineFromClipPlan(mediaInfo, clipPlan)
+
+    expect(clipPlan.clips.map((clip) => clip.sourceRange)).to.deep.equal([
+      [0, 5],
+      [8, 12.5],
+    ])
+    expect(timeline.items.map((item) => item.sourceRange)).to.deep.equal([
+      [0, 5],
+      [8, 12.5],
+    ])
+    expect(timeline.items.map((item) => item.duration)).to.deep.equal([5, 4.5])
   })
 })

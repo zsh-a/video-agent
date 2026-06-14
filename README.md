@@ -281,6 +281,7 @@ media-info.json
 transcript.json
 scene-analysis.json
 storyboard.json
+clip-plan.json
 timeline.json
 narration.json
 tts-segments.json

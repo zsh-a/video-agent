@@ -166,6 +166,7 @@ workspace/
     audio/
     artifacts/
       storyboard.json
+      clip-plan.json
       timeline.json
       narration.json
       quality-report.json
