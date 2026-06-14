@@ -26,6 +26,16 @@ describe('mcp server', () => {
     ])
   })
 
+  it('describes extended render and audio tool options', () => {
+    const server = createVideoAgentMcpServer()
+    const toolsByName = new Map(server.tools.map((tool) => [tool.name, tool]))
+    const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties ?? {}
+    const audioProperties = toolsByName.get('video_agent_inspect_audio')?.inputSchema.properties ?? {}
+
+    expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
+    expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
+  })
+
   it('calls runtime tools and returns text content', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 
@@ -51,6 +61,44 @@ describe('mcp server', () => {
       expect(firstContent?.type).to.equal('text')
       expect(status.projectId).to.equal('demo')
       expect(status.summary.quality.issues).to.equal(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('calls render with extended HyperFrames options', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeRenderableArtifacts(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'render-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            audio: false,
+            hyperframesCommand: ['hyperframes'],
+            hyperframesRender: false,
+            hyperframesValidate: false,
+            output: join(root, 'hyperframes-output'),
+            projectId: 'demo',
+            renderer: 'hyperframes',
+            sourceVolume: 0.5,
+            subtitles: false,
+            voiceoverVolume: 1.1,
+          },
+          name: 'video_agent_render',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {outputDir: string; renderer: string}
+
+      expect(result.renderer).to.equal('hyperframes')
+      expect(result.outputDir).to.equal(join(root, 'hyperframes-output'))
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -90,7 +138,6 @@ describe('mcp server', () => {
     }
   })
 
-
   it('returns JSON-RPC errors for unknown tools', async () => {
     const server = createVideoAgentMcpServer()
     const response = await server.handleMessage({
@@ -115,6 +162,54 @@ async function createProject(root: string, projectId: string): Promise<void> {
     projectId,
     stages: ['ingest', 'quality'],
   })
+}
+
+async function writeRenderableArtifacts(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+  await Promise.all([
+    writeFile(
+      join(artifactsDir, 'timeline.json'),
+      `${JSON.stringify({
+        duration: 1,
+        fps: 30,
+        items: [],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'storyboard.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        scenes: [
+          {
+            duration: 1,
+            evidence: [],
+            id: 'scene-1',
+            start: 0,
+            visualStyle: 'documentary',
+          },
+        ],
+        targetPlatform: 'generic',
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'narration.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        segments: [
+          {
+            duration: 1,
+            id: 'narration-1',
+            start: 0,
+            text: 'hello',
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+  ])
 }
 
 async function writeVisualSamples(root: string, projectId: string): Promise<void> {

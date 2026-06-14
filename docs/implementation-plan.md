@@ -210,7 +210,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, and export. The API exposes the same visual sample metadata for Web Studio/TUI consumers. TUI, Web Studio, and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes visual sample metadata for Web Studio/TUI consumers. TUI, Web Studio, and Claude Code skill adapters are still pending.
 
 ## Immediate Next Tasks
 
@@ -219,7 +219,7 @@ Recommended order:
 1. Replace the readline interactive config with Clack-styled prompts when dependency policy allows it.
 2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
 3. Add worker-oriented retry scheduling and finer artifact recovery policies over the `JobStore` contract.
-4. Add MCP client configuration examples and expand tool schemas as external clients are tested.
+4. Add MCP client configuration examples as external clients are tested.
 5. Expand render quality checks around deeper visual smoke tests.
 
 ## v0 Completion Definition

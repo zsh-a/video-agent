@@ -372,6 +372,8 @@ video_agent_inspect_audio
 video_agent_export
 ```
 
+`video_agent_render` 支持 ffmpeg 音频开关、source/voiceover volume、sidechain ducking 参数，以及 HyperFrames validate/render/output/command 参数。`video_agent_inspect_audio` 支持同一组音频相关参数，用于在真正渲染前检查 voiceover 对齐和可用音频输入。
+
 可以用 `--print-config` 输出通用 MCP client stdio 配置。开发期默认用 `bun run dev mcp`，发布后可以用 `--config-mode installed` 输出 `vagent mcp` 配置：
 
 ```sh
@@ -462,6 +464,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts 只读端点
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/export 工具
+- MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - API workflow actions：支持 `POST /projects`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
 - `render` 命令：用 ffmpeg 从 timeline 输出第一版 `final.mp4`，并可从 `narration.json` 生成/烧录字幕；也支持 `--renderer hyperframes` 生成 HTML render project
 - subtitle quality：ffmpeg render 会对生成的 SRT 文件写入 cue 数量和 warning/error diagnostics

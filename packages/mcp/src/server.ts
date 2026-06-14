@@ -82,12 +82,32 @@ const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_render', 'Render a project with ffmpeg or HyperFrames.', {
     audio: booleanSchema(),
     audioDucking: booleanSchema(),
+    duckingAttackMs: numberSchema(),
+    duckingRatio: numberSchema(),
+    duckingReleaseMs: numberSchema(),
+    duckingThreshold: numberSchema(),
+    hyperframesCommand: stringArraySchema(),
+    hyperframesOutput: stringSchema(),
+    hyperframesRender: booleanSchema(),
+    hyperframesValidate: booleanSchema(),
     output: stringSchema(),
     projectId: stringSchema(),
     renderer: enumSchema(['ffmpeg', 'hyperframes']),
+    sourceVolume: numberSchema(),
     subtitles: booleanSchema(),
+    voiceoverVolume: numberSchema(),
   }),
-  createTool('video_agent_inspect_audio', 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.', {audio: booleanSchema(), projectId: stringSchema()}),
+  createTool('video_agent_inspect_audio', 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.', {
+    audio: booleanSchema(),
+    audioDucking: booleanSchema(),
+    duckingAttackMs: numberSchema(),
+    duckingRatio: numberSchema(),
+    duckingReleaseMs: numberSchema(),
+    duckingThreshold: numberSchema(),
+    projectId: stringSchema(),
+    sourceVolume: numberSchema(),
+    voiceoverVolume: numberSchema(),
+  }),
   createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {format: enumSchema(['video', 'hyperframes', 'bundle']), outputPath: stringSchema(), projectId: stringSchema(), requireQuality: booleanSchema()}),
 ].map((tool) => ({
   ...tool,
@@ -190,6 +210,13 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     case 'video_agent_inspect_audio': {
       return inspectFfmpegAudio(readRequiredString(args, 'projectId'), {
         audio: readOptionalBoolean(args, 'audio'),
+        audioDucking: readOptionalBoolean(args, 'audioDucking'),
+        duckingAttackMs: readOptionalNumber(args, 'duckingAttackMs'),
+        duckingRatio: readOptionalNumber(args, 'duckingRatio'),
+        duckingReleaseMs: readOptionalNumber(args, 'duckingReleaseMs'),
+        duckingThreshold: readOptionalNumber(args, 'duckingThreshold'),
+        sourceVolume: readOptionalNumber(args, 'sourceVolume'),
+        voiceoverVolume: readOptionalNumber(args, 'voiceoverVolume'),
         workspaceDir,
       })
     }
@@ -206,9 +233,19 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
       return renderProject(readRequiredString(args, 'projectId'), {
         audio: readOptionalBoolean(args, 'audio'),
         audioDucking: readOptionalBoolean(args, 'audioDucking'),
+        duckingAttackMs: readOptionalNumber(args, 'duckingAttackMs'),
+        duckingRatio: readOptionalNumber(args, 'duckingRatio'),
+        duckingReleaseMs: readOptionalNumber(args, 'duckingReleaseMs'),
+        duckingThreshold: readOptionalNumber(args, 'duckingThreshold'),
+        hyperframesCommand: readOptionalStringArray(args, 'hyperframesCommand'),
+        hyperframesOutput: readOptionalString(args, 'hyperframesOutput'),
+        hyperframesRender: readOptionalBoolean(args, 'hyperframesRender'),
+        hyperframesValidate: readOptionalBoolean(args, 'hyperframesValidate'),
         output: readOptionalString(args, 'output'),
         renderer: readOptionalEnum(args, 'renderer', ['ffmpeg', 'hyperframes']) as ProjectRenderer | undefined,
+        sourceVolume: readOptionalNumber(args, 'sourceVolume'),
         subtitles: readOptionalBoolean(args, 'subtitles'),
+        voiceoverVolume: readOptionalNumber(args, 'voiceoverVolume'),
         workspaceDir,
       })
     }
@@ -334,6 +371,19 @@ function integerSchema(): Record<string, unknown> {
   }
 }
 
+function numberSchema(): Record<string, unknown> {
+  return {type: 'number'}
+}
+
+function stringArraySchema(): Record<string, unknown> {
+  return {
+    items: {
+      type: 'string',
+    },
+    type: 'array',
+  }
+}
+
 function enumSchema(values: readonly string[]): Record<string, unknown> {
   return {
     enum: values,
@@ -385,6 +435,30 @@ function readOptionalInteger(value: Record<string, unknown>, field: string): num
   }
 
   return value[field] as number
+}
+
+function readOptionalNumber(value: Record<string, unknown>, field: string): number | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (typeof value[field] !== 'number' || !Number.isFinite(value[field])) {
+    throw new TypeError(`MCP tool argument ${field} must be a finite number.`)
+  }
+
+  return value[field]
+}
+
+function readOptionalStringArray(value: Record<string, unknown>, field: string): string[] | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (!Array.isArray(value[field]) || !(value[field] as unknown[]).every((item) => typeof item === 'string')) {
+    throw new TypeError(`MCP tool argument ${field} must be an array of strings.`)
+  }
+
+  return value[field]
 }
 
 function readOptionalEnum<T extends string>(value: Record<string, unknown>, field: string, values: readonly T[]): T | undefined {
