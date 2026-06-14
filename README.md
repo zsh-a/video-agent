@@ -89,6 +89,8 @@ bun run dev events <projectId> --kind provider --status failed
 bun run dev projects
 bun run dev quality <projectId>
 bun run dev quality <projectId> --details --json
+bun run dev visual <projectId>
+bun run dev visual <projectId> --json --include-content
 bun run dev run ./input.mp4 --project-id <projectId> --from-stage plan
 bun run dev rerun <projectId> --from-stage voiceover
 bun run dev status <projectId>
@@ -119,6 +121,7 @@ vagent artifacts
 vagent events
 vagent projects
 vagent quality
+vagent visual
 vagent rerun
 vagent status
 vagent serve
@@ -319,6 +322,8 @@ bun run dev artifacts <projectId> --verify
 
 `quality` 会聚合 pipeline quality、render diagnostics 和 artifact integrity，给出项目是否可交付的 `ok/errors/warnings` 总结。`--details` 会一并输出原始 `quality-report.json` 和 `render-output.json` 内容。
 
+`visual` 会读取 `render-output.json` 中记录的渲染缩略图样本，输出时间点、状态、相对路径和文件大小。默认只输出元数据；`--json --include-content` 会额外返回 base64 图像内容。
+
 `events` 会读取同一组 JSONL 日志，输出按时间排序的 pipeline events 和 provider calls。可以用 `--kind provider`、`--role asr`、`--status failed`、`--limit 20` 过滤。
 
 `rerun` 会读取项目的 `job-state.json`，复用原始 `inputPath`，从指定 checkpoint 阶段继续执行：
@@ -453,6 +458,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `events` 命令：按时间读取 pipeline events 和 provider calls，支持 provider role/status/limit 过滤
 - `projects` 命令：列出 workspace 内已有项目
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
+- `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts 只读端点
 - `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/export 工具
@@ -466,7 +472,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - voiceover plan：render 阶段写出 `voiceover-plan.json`，记录 TTS 段和 narration 时间轴的对齐状态，并支持同一 narration 的多段 TTS chunk 顺序拼接
 - render audio diagnostics：缺失的 TTS voiceover 文件会写入 `render-output.json`，CLI 非 JSON 输出也会打印 audio warning
 - render audio preflight：CLI `render --inspect-audio` 和 HTTP `GET /projects/:id/audio` 可在渲染前检查 voiceover alignment 和可用音频输入
-- render visual samples：HTTP `GET /projects/:id/visual` 和 MCP `video_agent_visual_samples` 可读取渲染缩略图样本元数据，并可选返回 base64 图像内容
+- render visual samples：CLI `visual`、HTTP `GET /projects/:id/visual` 和 MCP `video_agent_visual_samples` 可读取渲染缩略图样本元数据，并可选返回 base64 图像内容
 - HyperFrames renderer：支持生成 HTML 项目，并可选调用 HyperFrames CLI validate/render
 - `export` 命令：导出 `final.mp4`、HyperFrames render directory 或完整 project bundle
 - export quality gate：`export --require-quality` / API `requireQuality` 可在质量聚合不通过时拒绝导出
