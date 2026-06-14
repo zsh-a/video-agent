@@ -80,4 +80,6 @@ bun run dev doctor --workspace .video-agent
 bun run dev mcp --print-config --workspace .video-agent
 ```
 
+For the full client-neutral verification matrix, including copy/symlink/tarball install checks, MCP config shapes, and secret-handling rules, see [Agent Client Checks](agent-client-checks.md).
+
 If the skill is used outside the repository checkout, install the CLI first or use `vagent` in the commands documented by the skill.

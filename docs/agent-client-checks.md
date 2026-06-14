@@ -1,0 +1,56 @@
+# Agent Client Checks
+
+This document records the local checks an agent shell should run after installing the `video-agent` skill or wiring the MCP server into an external client. It is intentionally client-neutral: concrete placement paths differ by host, but the verification commands and expected surfaces are stable.
+
+## Checked Surfaces
+
+| Surface | Purpose | Local check |
+| --- | --- | --- |
+| Repo-local skill | Use the versioned adapter directly from this checkout | `adapters/claude-code-skill/video-agent/SKILL.md` exists and has no `TODO` |
+| Copy install | Install into a host-managed skills directory | `cp -R adapters/claude-code-skill/video-agent "$SKILLS_DIR/video-agent"` |
+| Symlink install | Develop the skill without repeated copies | `ln -sfn "$(pwd)/adapters/claude-code-skill/video-agent" "$SKILLS_DIR/video-agent"` |
+| Tarball install | Move the adapter across machines or workspaces | `tar -C adapters/claude-code-skill -czf video-agent-skill.tgz video-agent` |
+| MCP full config | Clients that accept an `mcpServers` object | `bun run dev mcp --print-config --workspace .video-agent` |
+| MCP server entry | Clients that ask for only one server entry | `bun run dev mcp --print-config --config-shape server --server-name video-agent-local --workspace .video-agent` |
+| Installed CLI config | Clients that should call the packaged binary | `bun run dev mcp --print-config --config-mode installed --workspace .video-agent` |
+| Runtime health | Confirm the client will reach a usable workspace | `bun run dev doctor --workspace .video-agent` |
+| Web Studio | Confirm HTTP adapter access for visual review | `bun run dev serve --workspace .video-agent --port 4317` then `http://127.0.0.1:4317/studio` |
+
+## Local Evidence Snapshot
+
+These commands were run from the repository root and should remain valid checks for future releases:
+
+```sh
+bun run dev doctor --workspace .video-agent
+bun run dev mcp --print-config --workspace .video-agent
+bun run dev mcp --print-config --config-mode installed --workspace .video-agent
+bun run dev mcp --print-config --config-shape server --server-name video-agent-local --workspace .video-agent
+```
+
+The observed doctor surface reports a writable workspace, readable config, mock ASR/VLM/TTS providers, project count, `ffmpeg`, and `ffprobe`. The observed MCP config surfaces produce:
+
+- full `mcpServers.video-agent` config using `bun run dev mcp --workspace .video-agent`
+- installed `mcpServers.video-agent` config using `vagent mcp --workspace .video-agent`
+- server-only entry named by the client integration, for example `video-agent-local`
+
+## Secret Handling
+
+Do not paste provider token values into issue reports, prompts, screenshots, or skill docs. Use these checks instead:
+
+```sh
+bun run dev provider-env --json --workspace .video-agent
+bun run dev mcp --print-config --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --workspace .video-agent
+```
+
+`provider-env` reports variable names and configured/missing state only. `mcp --print-config --env` writes only variables explicitly passed to the command, so a client config can be reviewed without scraping the current shell environment.
+
+## Acceptance Checklist
+
+Before calling an external agent integration ready, verify:
+
+- the skill can be found by the host, either repo-local, copied, symlinked, or unpacked from the tarball
+- the skill instructions point to `bun run dev` for checkout workflows and `vagent` for installed workflows
+- `doctor` exits successfully for the intended workspace
+- the generated MCP config shape matches the client field being edited
+- any provider credentials are represented only as configured/missing state or explicit env placeholders
+- Web Studio opens at the configured API port when visual review is part of the workflow
