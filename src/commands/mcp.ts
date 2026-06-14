@@ -1,6 +1,7 @@
 import {Command, Flags} from '@oclif/core'
 import {
   createMcpClientConfigOutput,
+  getMcpClientConfigPresetInfo,
   type McpClientConfigMode,
   type McpClientConfigPreset,
   type McpClientConfigShape,
@@ -29,18 +30,25 @@ export default class Mcp extends Command {
       multiple: true,
     }),
     'print-config': Flags.boolean({description: 'Print a generic MCP client stdio configuration instead of starting the server'}),
+    'print-config-info': Flags.boolean({description: 'Print placement guidance for a client config preset instead of starting the server'}),
     'server-name': Flags.string({default: 'video-agent', description: 'MCP server name for --print-config'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Mcp)
+    const client = flags.client as McpClientConfigPreset
+
+    if (flags['print-config-info']) {
+      this.log(JSON.stringify(getMcpClientConfigPresetInfo(client), null, 2))
+      return
+    }
 
     if (flags['print-config']) {
       this.log(
         JSON.stringify(
           createMcpClientConfigOutput({
-            client: flags.client as McpClientConfigPreset,
+            client,
             env: parseEnvFlags(flags.env ?? []),
             mode: flags['config-mode'] as McpClientConfigMode,
             serverName: flags['server-name'],

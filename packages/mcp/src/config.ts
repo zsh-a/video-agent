@@ -14,6 +14,13 @@ export interface McpClientConfig {
   mcpServers: Record<string, McpClientServerConfig>
 }
 
+export interface McpClientConfigPresetInfo {
+  client: McpClientConfigPreset
+  description: string
+  placement: string
+  shape: McpClientConfigShape
+}
+
 export interface McpClientServerConfig {
   args: string[]
   command: string
@@ -38,6 +45,44 @@ export function createMcpClientConfigOutput(
   }
 
   return createMcpClientConfig(options)
+}
+
+export function getMcpClientConfigPresetInfo(client: McpClientConfigPreset = 'generic'): McpClientConfigPresetInfo {
+  const shape = resolveConfigShape({client})
+
+  if (client === 'server-entry') {
+    return {
+      client,
+      description: 'Server entry only for clients whose UI or config file already supplies the MCP server name.',
+      placement: 'Paste the returned command/args/env object inside the host-provided server entry.',
+      shape,
+    }
+  }
+
+  if (client === 'claude-desktop') {
+    return {
+      client,
+      description: 'Full common MCP JSON object for Claude Desktop-style configuration.',
+      placement: 'Paste the returned mcpServers object into the client MCP JSON configuration.',
+      shape,
+    }
+  }
+
+  if (client === 'cursor') {
+    return {
+      client,
+      description: 'Full common MCP JSON object for Cursor-style configuration.',
+      placement: 'Paste the returned mcpServers object into the client MCP JSON configuration.',
+      shape,
+    }
+  }
+
+  return {
+    client,
+    description: 'Full common MCP JSON object for clients that accept an mcpServers map.',
+    placement: 'Paste the returned mcpServers object into the client MCP JSON configuration.',
+    shape,
+  }
 }
 
 function resolveConfigShape(options: McpClientConfigOptions & {shape?: McpClientConfigShape}): McpClientConfigShape {

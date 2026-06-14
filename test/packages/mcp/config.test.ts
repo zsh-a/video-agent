@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {createMcpClientConfig, createMcpClientConfigOutput} from '../../../packages/mcp/src/config.js'
+import {createMcpClientConfig, createMcpClientConfigOutput, getMcpClientConfigPresetInfo} from '../../../packages/mcp/src/config.js'
 import {parseEnvFlags} from '../../../src/commands/mcp.js'
 
 describe('mcp client config', () => {
@@ -94,6 +94,22 @@ describe('mcp client config', () => {
           command: 'bun',
         },
       },
+    })
+  })
+
+  it('describes client config preset placement', () => {
+    expect(getMcpClientConfigPresetInfo('server-entry')).to.deep.equal({
+      client: 'server-entry',
+      description: 'Server entry only for clients whose UI or config file already supplies the MCP server name.',
+      placement: 'Paste the returned command/args/env object inside the host-provided server entry.',
+      shape: 'server',
+    })
+
+    expect(getMcpClientConfigPresetInfo('cursor')).to.deep.equal({
+      client: 'cursor',
+      description: 'Full common MCP JSON object for Cursor-style configuration.',
+      placement: 'Paste the returned mcpServers object into the client MCP JSON configuration.',
+      shape: 'full',
     })
   })
 

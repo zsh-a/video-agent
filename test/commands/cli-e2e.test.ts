@@ -151,6 +151,18 @@ describe('cli end-to-end workflow', () => {
         args: ['mcp', '--workspace', workspaceDir],
         command: 'vagent',
       })
+
+      const mcpServerEntryInfo = await runCliJson<{
+        client: string
+        placement: string
+        shape: string
+      }>(['mcp', '--print-config-info', '--client', 'server-entry', '--workspace', workspaceDir])
+
+      expect(mcpServerEntryInfo).to.include({
+        client: 'server-entry',
+        shape: 'server',
+      })
+      expect(mcpServerEntryInfo.placement).to.include('command/args/env')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

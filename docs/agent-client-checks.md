@@ -14,6 +14,7 @@ This document records the local checks an agent shell should run after installin
 | MCP client preset | Named clients that accept the common full `mcpServers` object | `bun run dev mcp --print-config --client claude-desktop --workspace .video-agent` |
 | MCP server entry | Clients that ask for only one server entry | `bun run dev mcp --print-config --config-shape server --server-name video-agent-local --workspace .video-agent` |
 | MCP server-entry preset | Clients whose UI already supplies the server name | `bun run dev mcp --print-config --client server-entry --workspace .video-agent` |
+| MCP preset info | Confirm whether the preset returns full config or a server entry | `bun run dev mcp --print-config-info --client server-entry --workspace .video-agent` |
 | Installed CLI config | Clients that should call the packaged binary | `bun run dev mcp --print-config --config-mode installed --workspace .video-agent` |
 | Runtime health | Confirm the client will reach a usable workspace and fail fast on unhealthy checks | `bun run dev doctor --workspace .video-agent` |
 | Provider smoke test | Confirm configured ASR/VLM/TTS providers satisfy response contracts | `bun run dev provider-test --json --workspace .video-agent` |
@@ -32,6 +33,7 @@ bun run dev mcp --print-config --workspace .video-agent
 bun run dev mcp --print-config --client claude-desktop --workspace .video-agent
 bun run dev mcp --print-config --client cursor --workspace .video-agent
 bun run dev mcp --print-config --client server-entry --workspace .video-agent
+bun run dev mcp --print-config-info --client server-entry --workspace .video-agent
 bun run dev mcp --print-config --config-mode installed --workspace .video-agent
 bun run dev mcp --print-config --config-shape server --server-name video-agent-local --workspace .video-agent
 ```
@@ -42,6 +44,7 @@ The observed doctor surface reports a writable workspace, readable config, mock 
 - named full-config presets for clients such as Claude Desktop and Cursor, which use the common `mcpServers` JSON shape
 - installed `mcpServers.video-agent` config using `vagent mcp --workspace .video-agent`
 - server-only entry output for clients whose UI already names the server
+- preset info output describing whether to paste a full `mcpServers` map or a single `command`/`args`/`env` server entry
 
 ## Secret Handling
 
