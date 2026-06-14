@@ -12,6 +12,7 @@ import {
   readProjectQuality,
   readProjectStatus,
   readProjectVisualSamples,
+  recoverWorkspaceJobs,
   renderProject,
   rerunProject,
   runInitialPipeline,
@@ -78,6 +79,23 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse({projects: await listProjects(workspaceDir)})
+  }
+
+  if (segments.length === 1 && segments[0] === 'worker') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+
+    return jsonResponse(
+      await recoverWorkspaceJobs({
+        dryRun: readBooleanField(body, 'dryRun'),
+        limit: readNumberField(body, 'limit'),
+        statuses: resolveRecoverableStatuses(readStringField(body, 'status')),
+        workspaceDir,
+      }),
+    )
   }
 
   if (segments[0] === 'projects' && segments[1] !== undefined) {
@@ -366,6 +384,18 @@ function parseOptionalEnum<T extends string>(value: null | string, values: reado
   }
 
   throw new Error(`Invalid query parameter: ${value}`)
+}
+
+function resolveRecoverableStatuses(status: null | string): Array<'failed' | 'running'> | undefined {
+  if (status === null || status === 'active') {
+    return undefined
+  }
+
+  if (status === 'failed' || status === 'running') {
+    return [status]
+  }
+
+  throw new Error(`Invalid worker status: ${status}`)
 }
 
 interface JsonResponseInit {

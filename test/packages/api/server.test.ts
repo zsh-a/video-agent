@@ -74,6 +74,36 @@ describe('api server handler', () => {
     }
   })
 
+  it('dry-runs workspace job recovery from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{dryRun: boolean; results: Array<{fromStage?: string; projectId: string; status: string}>}>(
+        fetch,
+        '/worker',
+        {
+          body: JSON.stringify({
+            dryRun: true,
+            status: 'running',
+          }),
+          method: 'POST',
+        },
+      )
+
+      expect(result.dryRun).to.equal(true)
+      expect(result.results.find((item) => item.projectId === 'demo')).to.include({
+        fromStage: 'ingest',
+        projectId: 'demo',
+        status: 'would-recover',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reruns an existing project from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 

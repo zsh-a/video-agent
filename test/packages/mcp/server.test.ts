@@ -23,6 +23,7 @@ describe('mcp server', () => {
       'video_agent_status',
       'video_agent_run',
       'video_agent_rerun',
+      'video_agent_worker',
     ])
   })
 
@@ -99,6 +100,39 @@ describe('mcp server', () => {
 
       expect(result.renderer).to.equal('hyperframes')
       expect(result.outputDir).to.equal(join(root, 'hyperframes-output'))
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('calls the worker recovery tool in dry-run mode', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'worker-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            dryRun: true,
+            status: 'running',
+          },
+          name: 'video_agent_worker',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {dryRun: boolean; results: Array<{fromStage?: string; projectId: string; status: string}>}
+
+      expect(result.dryRun).to.equal(true)
+      expect(result.results.find((item) => item.projectId === 'demo')).to.include({
+        fromStage: 'ingest',
+        projectId: 'demo',
+        status: 'would-recover',
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }

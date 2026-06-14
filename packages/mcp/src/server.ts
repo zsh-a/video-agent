@@ -11,6 +11,7 @@ import {
   readProjectQuality,
   readProjectStatus,
   readProjectVisualSamples,
+  recoverWorkspaceJobs,
   renderProject,
   rerunProject,
   runInitialPipeline,
@@ -109,6 +110,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     voiceoverVolume: numberSchema(),
   }),
   createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {format: enumSchema(['video', 'hyperframes', 'bundle']), outputPath: stringSchema(), projectId: stringSchema(), requireQuality: booleanSchema()}),
+  createTool('video_agent_worker', 'Recover failed or interrupted local pipeline jobs.', {dryRun: booleanSchema(), limit: integerSchema(), status: enumSchema(['active', 'failed', 'running'])}),
 ].map((tool) => ({
   ...tool,
   inputSchema: {
@@ -277,6 +279,15 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     case 'video_agent_visual_samples': {
       return readProjectVisualSamples(readRequiredString(args, 'projectId'), {
         includeContent: readOptionalBoolean(args, 'includeContent'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_worker': {
+      return recoverWorkspaceJobs({
+        dryRun: readOptionalBoolean(args, 'dryRun'),
+        limit: readOptionalInteger(args, 'limit'),
+        statuses: resolveRecoverableStatuses(readOptionalEnum(args, 'status', ['active', 'failed', 'running'])),
         workspaceDir,
       })
     }
@@ -471,6 +482,14 @@ function readOptionalEnum<T extends string>(value: Record<string, unknown>, fiel
   }
 
   throw new TypeError(`MCP tool argument ${field} must be one of: ${values.join(', ')}.`)
+}
+
+function resolveRecoverableStatuses(status: 'active' | 'failed' | 'running' | undefined): Array<'failed' | 'running'> | undefined {
+  if (status === undefined || status === 'active') {
+    return undefined
+  }
+
+  return [status]
 }
 
 function isJsonRpcId(value: unknown): value is JsonRpcId {

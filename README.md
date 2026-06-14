@@ -339,13 +339,14 @@ bun run dev rerun <projectId> --from-stage script
 
 `worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量。
 
-`serve` 会启动 Bun HTTP API server，暴露只读 runtime state：
+`serve` 会启动 Bun HTTP API server，暴露 runtime state、workflow actions 和本地 worker recovery：
 
 ```text
 GET /health
 GET /doctor
 GET /projects
 POST /projects
+POST /worker
 GET /projects/:projectId/status
 GET /projects/:projectId/quality
 GET /projects/:projectId/events
@@ -374,10 +375,13 @@ video_agent_run
 video_agent_rerun
 video_agent_render
 video_agent_inspect_audio
+video_agent_worker
 video_agent_export
 ```
 
 `video_agent_render` 支持 ffmpeg 音频开关、source/voiceover volume、sidechain ducking 参数，以及 HyperFrames validate/render/output/command 参数。`video_agent_inspect_audio` 支持同一组音频相关参数，用于在真正渲染前检查 voiceover 对齐和可用音频输入。
+
+`video_agent_worker` 复用本地 worker recovery runtime，可 dry-run 扫描 failed/running job，也可以用 `status` 和 `limit` 控制恢复范围。
 
 可以用 `--print-config` 输出通用 MCP client stdio 配置。开发期默认用 `bun run dev mcp`，发布后可以用 `--config-mode installed` 输出 `vagent mcp` 配置：
 
@@ -395,6 +399,18 @@ bun run dev mcp --print-config --config-mode installed
   "fromStage": "ingest"
 }
 ```
+
+`POST /worker` 会扫描 workspace 内 failed/running 的本地 job，并从第一个未完成 stage 恢复执行。可以先 dry-run：
+
+```json
+{
+  "dryRun": true,
+  "status": "active",
+  "limit": 5
+}
+```
+
+`status` 可选值为 `active`、`failed`、`running`；`active` 表示同时扫描 failed 和 running。
 
 `POST /projects/:projectId/rerun` 接收可选 JSON body：
 
@@ -468,10 +484,11 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `visual` 命令：读取渲染缩略图样本元数据，并可选输出 base64 图像内容
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复
-- `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts 只读端点
-- `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/export 工具
+- `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts、workflow actions 和 worker recovery
+- `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
-- API workflow actions：支持 `POST /projects`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
+- MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run 或按状态/数量恢复 failed/running job
+- API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
 - `render` 命令：用 ffmpeg 从 timeline 输出第一版 `final.mp4`，并可从 `narration.json` 生成/烧录字幕；也支持 `--renderer hyperframes` 生成 HTML render project
 - subtitle quality：ffmpeg render 会对生成的 SRT 文件写入 cue 数量和 warning/error diagnostics
 - runtime render API：CLI `render` 和 HTTP `POST /projects/:id/render` 共用同一套 `renderProject`

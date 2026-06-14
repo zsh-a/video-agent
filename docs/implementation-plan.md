@@ -96,6 +96,7 @@ Deliverables:
 - `vagent artifacts` for listing and reading artifacts.
 - `vagent events` for reading pipeline events and provider call logs.
 - `vagent rerun` for re-executing an existing project from a checkpoint stage.
+- `vagent worker` for local failed/running job recovery.
 - `vagent serve` for exposing runtime state and controlled workflow actions through HTTP.
 - `vagent render` for ffmpeg and HyperFrames-boundary rendering.
 - `vagent export` for copying final outputs or project bundles.
@@ -106,7 +107,7 @@ Acceptance criteria:
 - Every command has JSON output where automation needs it.
 - Command failures return actionable errors.
 - Tests cover workspace path behavior, artifact reads, config updates, job persistence, renderer helpers, and project listing.
-- API handler tests cover health, project listing, project runs, status, events, artifact reads, project reruns, project renders, and project exports.
+- API handler tests cover health, project listing, project runs, worker dry-runs, status, events, artifact reads, project reruns, project renders, and project exports.
 - API handler tests cover audio preflight diagnostics for render inputs.
 
 Status: completed for local CLI workflows.
@@ -191,7 +192,7 @@ Acceptance criteria:
 - Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, or untracked by the artifact manifest.
 - Re-running a stage does not corrupt unrelated artifacts.
 
-Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and a local `worker` command can recover failed/running jobs from the first unfinished stage. Richer queue scheduling policies are still pending.
+Status: in progress. JSON storage remains the default runtime path, Bun SQLite storage can be selected with `config --job-store sqlite`, artifacts include a sha256 manifest, stage retries are configurable, checkpoint artifact existence/integrity validation is implemented, and local/API/MCP worker recovery can recover failed/running jobs from the first unfinished stage. Richer queue scheduling policies are still pending.
 
 ## Phase 6: Agent and Product Adapters
 
@@ -199,7 +200,7 @@ Goal: expose the same core runtime to multiple interaction layers.
 
 Deliverables:
 
-- MCP server for `inspect`, `run`, `status`, `artifacts`, `render`, and `export`.
+- MCP server for `doctor`, `run`, `status`, `events`, `artifacts`, `render`, `worker`, and `export`.
 - Lightweight TUI for project selection, stage status, logs, artifact review, and reruns.
 - API server for Web Studio and batch jobs.
 - Claude Code skill that shells out to the CLI or MCP server.
@@ -210,7 +211,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes visual sample metadata for Web Studio/TUI consumers. TUI, Web Studio, and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes visual sample metadata and `POST /worker` recovery for Web Studio/TUI consumers. TUI, Web Studio, and Claude Code skill adapters are still pending.
 
 ## Immediate Next Tasks
 
