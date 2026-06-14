@@ -240,3 +240,5 @@ The first implementation version is complete when:
 - Artifacts and job state are durable and inspectable.
 - The architecture is documented well enough to add real providers without changing the pipeline shape.
 - Tests cover the contracts most likely to break future adapters.
+
+Current evidence: `test/commands/cli-e2e.test.ts` generates a short local media file with ffmpeg and exercises the development CLI through `inspect`, `run`, `render --no-audio --no-subtitles`, `export`, `artifacts --verify`, and `status` against one workspace.
