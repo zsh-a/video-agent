@@ -89,6 +89,41 @@ describe('mcp server', () => {
     }
   })
 
+  it('uses explicit provider env values for doctor checks', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+    const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+
+    try {
+      await createProject(root, 'demo')
+      await writeConfig(root, {asr: 'command'})
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'doctor-explicit-env-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            env: {
+              VIDEO_AGENT_ASR_COMMAND: command,
+            },
+          },
+          name: 'video_agent_doctor',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const report = JSON.parse(content[0]?.text ?? '{}') as {checks: Array<{name: string; status: string}>; ok: boolean}
+
+      expect(report.ok).to.equal(true)
+      expect(report.checks.find((check) => check.name === 'provider:asr')).to.include({
+        name: 'provider:asr',
+        status: 'pass',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('calls the provider environment tool', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 

@@ -19,6 +19,7 @@ export interface RuntimeHealthOptions {
     ffmpeg?: string
     ffprobe?: string
   }
+  env?: Record<string, string | undefined>
   workspaceDir?: string
 }
 
@@ -35,7 +36,7 @@ export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Pr
     checkBunRuntime(),
     await checkWorkspaceAccess(workspaceDir),
     await checkConfig(workspaceDir),
-    ...(await checkProviderConfig(workspaceDir)),
+    ...(await checkProviderConfig(workspaceDir, options.env)),
     await checkProjectListing(workspaceDir),
     await checkBinary('ffmpeg', options.binaries?.ffmpeg ?? 'ffmpeg'),
     await checkBinary('ffprobe', options.binaries?.ffprobe ?? 'ffprobe'),
@@ -49,14 +50,14 @@ export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Pr
   }
 }
 
-async function checkProviderConfig(workspaceDir: string): Promise<HealthCheck[]> {
+async function checkProviderConfig(workspaceDir: string, env: Record<string, string | undefined> | undefined): Promise<HealthCheck[]> {
   try {
     const config = await readConfig(workspaceDir)
 
     return [
-      checkProviderRole('asr', config),
-      checkProviderRole('vlm', config),
-      checkProviderRole('tts', config),
+      checkProviderRole('asr', config, env),
+      checkProviderRole('vlm', config, env),
+      checkProviderRole('tts', config, env),
     ]
   } catch (error) {
     return [
@@ -69,7 +70,7 @@ async function checkProviderConfig(workspaceDir: string): Promise<HealthCheck[]>
   }
 }
 
-function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig): HealthCheck {
+function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig, env: Record<string, string | undefined> | undefined): HealthCheck {
   const provider = config.providers[role]
 
   if (provider === 'mock') {
@@ -82,11 +83,11 @@ function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig): He
   }
 
   if (provider === 'command') {
-    return checkCommandProvider(role)
+    return checkCommandProvider(role, env)
   }
 
   if (provider === 'http') {
-    return checkHttpProvider(role)
+    return checkHttpProvider(role, env)
   }
 
   return {
@@ -97,9 +98,9 @@ function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig): He
   }
 }
 
-function checkHttpProvider(role: 'asr' | 'tts' | 'vlm'): HealthCheck {
+function checkHttpProvider(role: 'asr' | 'tts' | 'vlm', env: Record<string, string | undefined> = process.env): HealthCheck {
   const envName = `VIDEO_AGENT_${role.toUpperCase()}_URL`
-  const value = process.env[envName]
+  const value = env[envName]
 
   if (value === undefined || value.trim() === '') {
     return {
@@ -138,9 +139,9 @@ function checkHttpProvider(role: 'asr' | 'tts' | 'vlm'): HealthCheck {
   }
 }
 
-function checkCommandProvider(role: 'asr' | 'tts' | 'vlm'): HealthCheck {
+function checkCommandProvider(role: 'asr' | 'tts' | 'vlm', env: Record<string, string | undefined> = process.env): HealthCheck {
   const envName = `VIDEO_AGENT_${role.toUpperCase()}_COMMAND`
-  const value = process.env[envName]
+  const value = env[envName]
 
   if (value === undefined || value.trim() === '') {
     return {

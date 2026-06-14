@@ -1,16 +1,25 @@
 import {Command, Flags} from '@oclif/core'
 import {checkRuntimeHealth, type HealthCheck} from '@video-agent/runtime'
 
+import {parseEnvFlags} from './env-flags.js'
+
 export default class Doctor extends Command {
   static description = 'Check local runtime, workspace, config, and media tool availability'
   static flags = {
+    env: Flags.string({
+      description: 'Environment variable to use for provider health checks, formatted as KEY=VALUE. Repeatable; when set, only explicit values are inspected.',
+      multiple: true,
+    }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Doctor)
-    const report = await checkRuntimeHealth({workspaceDir: flags.workspace})
+    const report = await checkRuntimeHealth({
+      env: flags.env === undefined ? undefined : parseEnvFlags(flags.env),
+      workspaceDir: flags.workspace,
+    })
 
     if (flags.json) {
       this.log(JSON.stringify(report, null, 2))

@@ -96,6 +96,28 @@ describe('api server handler', () => {
     }
   })
 
+  it('uses explicit provider env values for doctor readiness', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+    const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+
+    try {
+      await writeConfig(root, {asr: 'command'})
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(new Request(`http://localhost/doctor?env=VIDEO_AGENT_ASR_COMMAND=${encodeURIComponent(command)}`))
+      const report = (await response.json()) as {checks: Array<{name: string; status: string}>; ok: boolean}
+
+      expect(response.status).to.equal(200)
+      expect(report.ok).to.equal(true)
+      expect(report.checks.find((check) => check.name === 'provider:asr')).to.include({
+        name: 'provider:asr',
+        status: 'pass',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('uses explicit provider env values for environment reports and smoke tests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
     const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'

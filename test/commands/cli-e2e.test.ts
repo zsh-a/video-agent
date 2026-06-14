@@ -188,7 +188,7 @@ describe('cli end-to-end workflow', () => {
       const httpDoctor = await runCliJson<{
         checks: Array<{name: string; status: string}>
         ok: boolean
-      }>(['doctor', '--workspace', workspaceDir, '--json'], httpProviderEnv)
+      }>(['doctor', ...httpProviderEnvFlags, '--workspace', workspaceDir, '--json'])
 
       expect(httpDoctor.ok).to.equal(true)
       expect(httpDoctor.checks.filter((check) => check.name.startsWith('provider:')).map((check) => `${check.name}:${check.status}`)).to.include.members([

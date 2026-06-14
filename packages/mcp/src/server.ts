@@ -70,7 +70,9 @@ export interface McpServer {
 const STAGE_VALUES: InitialPipelineStage[] = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']
 const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 const TOOL_DEFINITIONS: McpTool[] = [
-  createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {}),
+  createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {
+    env: stringRecordSchema('Explicit environment variables for provider health checks. When set, only these values are checked and current shell environment is ignored.'),
+  }),
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
   createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {
     env: stringRecordSchema('Explicit environment variables to inspect. When set, only these values are checked and current shell environment is ignored.'),
@@ -225,7 +227,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     }
 
     case 'video_agent_doctor': {
-      return checkRuntimeHealth({workspaceDir})
+      return checkRuntimeHealth({env: readOptionalStringRecord(args, 'env'), workspaceDir})
     }
 
     case 'video_agent_events': {

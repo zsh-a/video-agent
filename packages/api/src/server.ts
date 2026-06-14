@@ -66,7 +66,7 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
       return methodNotAllowed()
     }
 
-    const report = await checkRuntimeHealth({workspaceDir})
+    const report = await checkRuntimeHealth({env: readEnvQuery(url.searchParams), workspaceDir})
 
     return jsonResponse(report, {status: report.ok ? 200 : 503})
   }

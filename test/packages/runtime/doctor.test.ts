@@ -80,6 +80,30 @@ describe('doctor', () => {
     }
   })
 
+  it('passes command provider checks with explicit env values', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
+
+    try {
+      await writeConfig(root, {asr: 'command'})
+
+      const report = await checkRuntimeHealth({
+        binaries: {
+          ffmpeg: 'true',
+          ffprobe: 'true',
+        },
+        env: {
+          VIDEO_AGENT_ASR_COMMAND: '["bun","examples/provider-adapters/mock-json-provider.ts"]',
+        },
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(true)
+      expect(report.checks.find((check) => check.name === 'provider:asr')?.status).to.equal('pass')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('fails when http providers are missing URL env', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
 
