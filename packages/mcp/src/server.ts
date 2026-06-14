@@ -6,6 +6,7 @@ import {
   inspectFfmpegAudio,
   listProjectArtifacts,
   listProjects,
+  PipelineCheckpointError,
   readProjectArtifact,
   readProjectEvents,
   readProjectQuality,
@@ -19,6 +20,7 @@ import {
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
+import {ZodError} from 'zod'
 
 export interface McpServerOptions {
   workspaceDir?: string
@@ -386,6 +388,45 @@ function createJsonRpcResult(id: JsonRpcId, result: unknown): JsonRpcResponse {
 }
 
 function createJsonRpcError(id: JsonRpcId, error: unknown): JsonRpcResponse {
+  if (error instanceof PipelineCheckpointError) {
+    return {
+      error: {
+        code: -32_000,
+        data: {
+          changedArtifacts: error.changedArtifacts,
+          code: 'checkpoint_invalid',
+          fromStage: error.fromStage,
+          missingArtifacts: error.missingArtifacts,
+          name: error.name,
+          untrackedArtifacts: error.untrackedArtifacts,
+        },
+        message: error.message,
+      },
+      id,
+      jsonrpc: '2.0',
+    }
+  }
+
+  if (error instanceof ZodError) {
+    return {
+      error: {
+        code: -32_000,
+        data: {
+          code: 'validation_error',
+          issues: error.issues.map((issue) => ({
+            code: issue.code,
+            message: issue.message,
+            path: issue.path.map(String),
+          })),
+          name: error.name,
+        },
+        message: 'Validation failed.',
+      },
+      id,
+      jsonrpc: '2.0',
+    }
+  }
+
   return {
     error: {
       code: -32_000,

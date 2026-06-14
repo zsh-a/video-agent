@@ -5,6 +5,7 @@ import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {createVideoAgentMcpServer} from '../../../packages/mcp/src/server.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
 
 describe('mcp server', () => {
   it('lists video-agent tools', async () => {
@@ -356,6 +357,75 @@ describe('mcp server', () => {
     }
   })
 
+  it('returns structured checkpoint errors from runtime tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createRerunProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'rerun-missing-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            fromStage: 'quality',
+            projectId: 'demo',
+          },
+          name: 'video_agent_rerun',
+        },
+      })
+
+      expect(response?.error?.message).to.include('Cannot resume from quality')
+      expect(response?.error?.data).to.deep.include({
+        code: 'checkpoint_invalid',
+        fromStage: 'quality',
+        name: 'PipelineCheckpointError',
+      })
+      expect((response?.error?.data as {missingArtifacts?: string[]}).missingArtifacts).to.include('ingest-report.json')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns structured validation errors from runtime tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createRerunProject(root, 'demo')
+      await writeRerunArtifacts(root, 'demo')
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await writeFile(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'rerun-invalid-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            fromStage: 'quality',
+            projectId: 'demo',
+          },
+          name: 'video_agent_rerun',
+        },
+      })
+      const data = response?.error?.data as {code?: string; issues?: Array<{path: string[]}>; name?: string}
+
+      expect(response?.error?.message).to.equal('Validation failed.')
+      expect(data).to.deep.include({
+        code: 'validation_error',
+        name: 'ZodError',
+      })
+      expect(data.issues?.map((issue) => issue.path.join('.'))).to.include('source')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('returns JSON-RPC errors for unknown tools', async () => {
     const server = createVideoAgentMcpServer()
     const response = await server.handleMessage({
@@ -380,6 +450,145 @@ async function createProject(root: string, projectId: string): Promise<void> {
     projectId,
     stages: ['ingest', 'quality'],
   })
+}
+
+async function createRerunProject(root: string, projectId: string): Promise<string> {
+  const projectDir = join(root, 'projects', projectId)
+  const inputPath = join(root, `${projectId}.mp4`)
+
+  await mkdir(join(projectDir, 'artifacts'), {recursive: true})
+  await writeFile(inputPath, 'placeholder')
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath,
+    projectId,
+    stages: ['quality'],
+  })
+
+  return inputPath
+}
+
+async function writeRerunArtifacts(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+  const inputPath = join(root, `${projectId}.mp4`)
+
+  await Promise.all([
+    writeFile(
+      join(artifactsDir, 'ingest-report.json'),
+      `${JSON.stringify({
+        artifacts: {},
+        completedAt: '2026-01-01T00:00:00.000Z',
+        inputPath,
+        stage: 'ingest',
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'media-info.json'),
+      `${JSON.stringify({
+        duration: 1,
+        inputPath,
+        probedAt: '2026-01-01T00:00:00.000Z',
+        streams: [],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'scene-analysis.json'),
+      `${JSON.stringify([
+        {
+          description: 'scene',
+          evidence: [],
+          sceneId: 'scene-1',
+        },
+      ])}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'transcript.json'),
+      `${JSON.stringify({
+        segments: [],
+        text: 'transcript',
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'storyboard.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        scenes: [
+          {
+            duration: 1,
+            evidence: [],
+            id: 'scene-1',
+            start: 0,
+            visualStyle: 'documentary',
+          },
+        ],
+        targetPlatform: 'generic',
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'clip-plan.json'),
+      `${JSON.stringify({
+        clips: [
+          {
+            duration: 1,
+            id: 'clip-1',
+            sceneId: 'scene-1',
+            source: inputPath,
+            sourceRange: [0, 1],
+            start: 0,
+          },
+        ],
+        duration: 1,
+        source: inputPath,
+        sourceDuration: 1,
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'timeline.json'),
+      `${JSON.stringify({
+        duration: 1,
+        fps: 30,
+        items: [
+          {
+            duration: 1,
+            id: 'video-1',
+            source: inputPath,
+            sourceRange: [0, 1],
+            start: 0,
+            track: 'video',
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'narration.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        segments: [
+          {
+            duration: 1,
+            id: 'narration-1',
+            start: 0,
+            text: 'hello',
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'tts-segments.json'),
+      `${JSON.stringify([
+        {
+          duration: 1,
+          narrationId: 'narration-1',
+          path: 'tts/narration-1.wav',
+        },
+      ])}\n`,
+    ),
+  ])
 }
 
 async function writeRenderableArtifacts(root: string, projectId: string): Promise<void> {

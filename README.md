@@ -445,6 +445,8 @@ video_agent_export
 
 `video_agent_provider_env` 返回当前 provider 配置对应的环境变量契约，只暴露变量名、必填状态和是否已配置，不返回具体值。
 
+MCP runtime failures keep the standard JSON-RPC error envelope and add structured `error.data` when available. Checkpoint failures include `code: "checkpoint_invalid"` plus missing/changed/untracked artifact lists; IR schema failures include `code: "validation_error"` plus Zod issue paths, codes, and messages.
+
 `video_agent_provider_test` 会按当前 provider 配置运行 ASR/VLM/TTS smoke test，可用 `role` 限定单个 provider，并返回输出摘要、request id/model metadata 和失败信息。
 
 `video_agent_worker` 复用本地 worker recovery runtime，可 dry-run 扫描 failed/running job，也可以用 `status` 和 `limit` 控制恢复范围。
@@ -580,6 +582,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - Agent client 安装检查：见 [docs/agent-client-checks.md](docs/agent-client-checks.md)
 - Provider adapter recipes：见 [docs/provider-adapter-recipes.md](docs/provider-adapter-recipes.md)
 - MCP schema：工具参数带有 client-facing description，便于外部 agent client 展示和生成调用参数
+- MCP errors：checkpoint 和 IR schema validation failure 会在 JSON-RPC `error.data` 中返回结构化 code/details
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量/排序恢复 failed/running job，用 `runningStaleAfterMs` 跳过仍活跃的 running job，预检 checkpoint artifacts，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
 - API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`

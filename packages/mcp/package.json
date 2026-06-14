@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
-    "@video-agent/runtime": "workspace:*"
+    "@video-agent/runtime": "workspace:*",
+    "zod": "^4.1.13"
   }
 }
