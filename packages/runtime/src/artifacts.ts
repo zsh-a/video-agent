@@ -1,6 +1,7 @@
 import type {ZodType} from 'zod'
 
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, readFile, stat} from 'node:fs/promises'
 import {extname, resolve} from 'node:path'
@@ -61,8 +62,11 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'clip-plan.json': ClipPlanSchema,
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
+  'scene-analysis.json': VlmScenesSchema,
   'storyboard.json': StoryboardSchema,
   'timeline.json': TimelineSchema,
+  'transcript.json': TranscriptSchema,
+  'tts-segments.json': TtsSegmentsSchema,
 }
 
 export async function listProjectArtifacts(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectArtifact[]> {

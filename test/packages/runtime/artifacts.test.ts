@@ -81,6 +81,26 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports provider JSON artifacts that fail their schemas', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeFile(join(artifactsDir, 'transcript.json'), '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['transcript.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('rejects paths outside the artifact directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 

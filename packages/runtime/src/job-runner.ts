@@ -6,7 +6,7 @@ import type {ProviderSet, Transcript, TTSSegment, VLMScene} from '@video-agent/p
 import {createClipPlan, createPlaceholderNarration, createPlaceholderStoryboard, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
-import {createProviders} from '@video-agent/providers'
+import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {access, appendFile, mkdir} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
@@ -310,16 +310,16 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'understand',
     async run(input) {
       const ingest = input as IngestOutput
-      const transcript = await ingest.providers.asr.transcribe({
+      const transcript = TranscriptSchema.parse(await ingest.providers.asr.transcribe({
         path: ingest.artifacts.sourceAudio ?? ingest.inputPath,
-      })
-      const sceneAnalysis = await ingest.providers.vlm.analyzeScenes([
+      }))
+      const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes([
         {
           frames: ingest.artifacts.frames === undefined ? [] : [ingest.artifacts.frames],
           sceneId: 'scene-1',
           timeRange: [0, ingest.mediaInfo.duration ?? 0],
         },
-      ])
+      ]))
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
       await ingest.workspace.store.writeJson('scene-analysis.json', sceneAnalysis)
@@ -399,7 +399,7 @@ function createVoiceoverStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'voiceover',
     async run(input) {
       const scripted = input as ScriptOutput
-      const ttsSegments = await scripted.providers.tts.synthesize(scripted.narration.segments)
+      const ttsSegments = TtsSegmentsSchema.parse(await scripted.providers.tts.synthesize(scripted.narration.segments))
 
       await scripted.workspace.store.writeJson('tts-segments.json', ttsSegments)
 
@@ -485,8 +485,8 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 
   const understood: UnderstandOutput = {
     ...ingest,
-    sceneAnalysis: await workspace.store.readJson<VLMScene[]>('scene-analysis.json'),
-    transcript: await workspace.store.readJson<Transcript>('transcript.json'),
+    sceneAnalysis: VlmScenesSchema.parse(await workspace.store.readJson('scene-analysis.json')),
+    transcript: TranscriptSchema.parse(await workspace.store.readJson('transcript.json')),
   }
 
   if (fromStage === 'plan') {
@@ -515,7 +515,7 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 
   return {
     ...scripted,
-    ttsSegments: await workspace.store.readJson<TTSSegment[]>('tts-segments.json'),
+    ttsSegments: TtsSegmentsSchema.parse(await workspace.store.readJson('tts-segments.json')),
   }
 }
 

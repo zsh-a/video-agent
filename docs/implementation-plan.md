@@ -167,14 +167,14 @@ Deliverables:
 Acceptance criteria:
 
 - A user can configure external ASR/VLM/TTS command or HTTP adapters without changing source code and inspect the required environment contract without leaking secret values.
-- Provider outputs are validated before artifact writes.
+- Provider outputs are validated before artifact writes and during checkpoint/artifact verification.
 - Provider calls are recorded with request id, status, latency, input/output summaries, optional model/usage/cost metadata, and failure details; HTTP providers propagate trace headers and provide fallback request ids when the provider response omits one.
 - Project status summarizes events, provider calls, provider costs, quality issues, and render output diagnostics for CLI/API/TUI adapters.
 - Project quality gives CLI/API/MCP/TUI adapters one deliverability summary across pipeline checks, render diagnostics, and artifact integrity.
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, first `clip-plan.json` source-range planning artifact, Zod validation for runtime-generated and checkpoint-loaded IR artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, shared ASR/VLM/TTS artifact schemas, first `clip-plan.json` source-range planning artifact, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
 
 ## Phase 5: Persistence and Recovery
 
@@ -186,7 +186,7 @@ Deliverables:
 - Runtime configuration for selecting `json` or `sqlite` job state storage.
 - Stage checkpoint metadata.
 - Stage retry policy and resumability rules.
-- Artifact manifest, content hash tracking, integrity checks, and known IR artifact schema checks.
+- Artifact manifest, content hash tracking, integrity checks, and known IR/provider artifact schema checks.
 - Worker recovery attempt limits and skip reasons.
 
 Acceptance criteria:
@@ -195,7 +195,7 @@ Acceptance criteria:
 - SQLite job state can be selected through runtime config and recover after process interruption.
 - Artifact files have a manifest with stable sha256 hashes and a CLI/API integrity/schema check for recovery decisions.
 - Stage retries can be configured and emit attempt-aware events.
-- Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, untracked by the artifact manifest, or invalid against their IR schema.
+- Checkpoint reruns fail before job-state mutation when required upstream artifacts are missing, changed, untracked by the artifact manifest, or invalid against their IR/provider schema.
 - Worker recovery can skip jobs that reached a configured stage attempt ceiling and explain skipped jobs.
 - Re-running a stage does not corrupt unrelated artifacts.
 
@@ -218,7 +218,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, provider smoke tests, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters, tool argument schemas include client-facing descriptions for external agent UIs, and runtime checkpoint/schema failures include structured JSON-RPC `error.data`. The MCP command can print reusable stdio config JSON with server naming, installed/dev command mode, server-only snippets, and explicit env injection. The API exposes provider environment reports, provider smoke tests, non-secret runtime config, visual sample metadata, `POST /worker` recovery, structured `422` validation errors for invalid IR checkpoints, and a dependency-free `GET /studio` Web Studio shell over project/status/quality/artifact/event endpoints with render, quality-gated export, stage-scoped rerun, worker dry-run actions, provider smoke-test actions, provider/config visibility, ffmpeg/HyperFrames render option controls, inline JSON/text artifact preview, rendered visual sample preview, template-quality diagnostics from `render-output.json`, render-quality diagnostics, and artifact integrity drilldowns. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, command suggestions, artifact inspection, provider smoke tests, controlled project reruns, and worker recovery. HyperFrames renders now include local template-quality checks for generated HTML/CSS/render-plan structure before optional external CLI validation. A first Claude Code skill adapter is available under `adapters/claude-code-skill/video-agent`, and agent-client installation checks are documented in `docs/agent-client-checks.md`.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, provider smoke tests, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters, tool argument schemas include client-facing descriptions for external agent UIs, and runtime checkpoint/schema failures include structured JSON-RPC `error.data`. The MCP command can print reusable stdio config JSON with server naming, installed/dev command mode, server-only snippets, and explicit env injection. The API exposes provider environment reports, provider smoke tests, non-secret runtime config, visual sample metadata, `POST /worker` recovery, structured `409` checkpoint errors for missing/changed/untracked/schema-invalid artifacts, and a dependency-free `GET /studio` Web Studio shell over project/status/quality/artifact/event endpoints with render, quality-gated export, stage-scoped rerun, worker dry-run actions, provider smoke-test actions, provider/config visibility, ffmpeg/HyperFrames render option controls, inline JSON/text artifact preview, rendered visual sample preview, template-quality diagnostics from `render-output.json`, render-quality diagnostics, and artifact integrity drilldowns. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, command suggestions, artifact inspection, provider smoke tests, controlled project reruns, and worker recovery. HyperFrames renders now include local template-quality checks for generated HTML/CSS/render-plan structure before optional external CLI validation. A first Claude Code skill adapter is available under `adapters/claude-code-skill/video-agent`, and agent-client installation checks are documented in `docs/agent-client-checks.md`.
 
 ## Immediate Next Tasks
 

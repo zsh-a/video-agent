@@ -294,7 +294,7 @@ frames/frame_%05d.jpg
 renders/preview.mp4
 ```
 
-`quality-report.json` 会检查 clip plan sourceRange 是否越界、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。
+`quality-report.json` 会检查 clip plan sourceRange 是否越界、clip duration 是否匹配 sourceRange、clip plan 是否和 timeline video items 对齐、timeline 越界、narration start/duration 完整性、narration 重叠或越界、TTS 是否覆盖每个 narration、TTS duration 是否明显偏离 narration timing，以及 TTS 是否引用未知 narration。ASR/VLM/TTS provider 产物会在写入 artifact 前通过共享 schema 校验。
 
 `render` 会读取项目的 `timeline.json`，用 `ffmpeg` 输出：
 
@@ -363,7 +363,7 @@ HyperFrames 渲染还会写入本地 `templateQuality`，检查 `index.html`、`
 
 默认导出不会强制质量门禁。需要交付前硬性检查时，可以传 `--require-quality`；它会先运行项目级 `quality` 聚合，只有 pipeline quality、render diagnostics 和 artifact integrity 都干净时才导出。
 
-`artifacts --verify` 会读取 `artifact-manifest.json`，重新计算 sha256，并报告缺失、变更、未纳入 manifest 的文件，以及已知 IR JSON artifact 的 schema 错误：
+`artifacts --verify` 会读取 `artifact-manifest.json`，重新计算 sha256，并报告缺失、变更、未纳入 manifest 的文件，以及已知 IR/provider JSON artifact 的 schema 错误：
 
 ```sh
 bun run dev artifacts <projectId> --verify
@@ -506,7 +506,7 @@ bun run dev mcp --print-config \
 }
 ```
 
-如果 checkpoint artifacts 不完整，HTTP API 会返回 `409`，并在 `error.missingArtifacts`、`error.changedArtifacts`、`error.untrackedArtifacts` 中列出问题文件。如果 IR checkpoint artifact 存在但不符合 Zod schema，API 会返回 `422`，并在 `error.issues[]` 中列出 `path`、`code` 和 `message`。
+如果 checkpoint artifacts 不完整或 schema 无效，HTTP API 会返回 `409`，并在 `error.missingArtifacts`、`error.changedArtifacts`、`error.untrackedArtifacts`、`error.schemaInvalidArtifacts` 中列出问题文件。
 
 `POST /projects/:projectId/render` 接收和 CLI render 对应的 JSON body：
 
@@ -567,7 +567,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `run` 命令：通过 `JobRunner` 生成 ingest、mock understand、placeholder storyboard/timeline/narration、mock TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
-- artifact verify：CLI/API 可按 `artifact-manifest.json` 校验 sha256，并对已知 IR JSON artifact 做 schema 校验，报告 missing/changed/untracked/schemaInvalid
+- artifact verify：CLI/API 可按 `artifact-manifest.json` 校验 sha256，并对已知 IR/provider JSON artifact 做 schema 校验，报告 missing/changed/untracked/schemaInvalid
 - `events` 命令：按时间读取 pipeline events 和 provider calls，支持 pipeline stage/type、provider role/status 和 limit 过滤
 - `projects` 命令：列出 workspace 内已有项目
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity，输出可交付性 summary
@@ -582,7 +582,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - Agent client 安装检查：见 [docs/agent-client-checks.md](docs/agent-client-checks.md)
 - Provider adapter recipes：见 [docs/provider-adapter-recipes.md](docs/provider-adapter-recipes.md)
 - MCP schema：工具参数带有 client-facing description，便于外部 agent client 展示和生成调用参数
-- MCP errors：checkpoint 和 IR schema validation failure 会在 JSON-RPC `error.data` 中返回结构化 code/details
+- MCP errors：checkpoint、IR schema 和 provider artifact schema failure 会在 JSON-RPC `error.data` 中返回结构化 code/details
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量/排序恢复 failed/running job，用 `runningStaleAfterMs` 跳过仍活跃的 running job，预检 checkpoint artifacts，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
 - API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
@@ -604,7 +604,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `config` 命令：读写 provider、job store 和 retry 配置，支持轻量交互模式
 - provider registry：支持 `mock`、`command` 和 `http` provider，`command` / `http` 通过环境变量配置外部 JSON adapter
 - provider call recorder：记录 ASR/VLM/TTS 调用的 provider、request id、耗时、输入/输出摘要、model/usage/cost metadata、状态和错误信息到 `provider-calls.jsonl`
-- artifact manifest：`artifact-manifest.json` 记录 artifacts 目录内文件的 kind、size、mtime 和 sha256，用于后续恢复/校验；`artifacts --verify` 还会校验已知 IR JSON artifact 的 schema
+- artifact manifest：`artifact-manifest.json` 记录 artifacts 目录内文件的 kind、size、mtime 和 sha256，用于后续恢复/校验；`artifacts --verify` 还会校验已知 IR/provider JSON artifact 的 schema
 - pipeline retry policy：支持配置 stage 级 `maxStageRetries` 和 `retryBackoffMs`，事件和 job state 会记录 attempt
 - checkpoint validation：`run --from-stage` / `rerun --from-stage` 会显式校验前置 artifacts，并在 manifest 可用时校验 hash/size/schema；API 对不完整或 schema 无效的 checkpoint 返回 409
 - `status` 命令：读取 durable `job-state.json`，展示 stage 状态和 artifact 摘要

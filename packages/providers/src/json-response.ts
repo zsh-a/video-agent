@@ -1,7 +1,8 @@
-import type {Transcript, TranscriptSegment, TTSSegment, VLMScene} from './contracts.js'
+import type {Transcript, TTSSegment, VLMScene} from './contracts.js'
 import type {ProviderResponseMetadata} from './metadata.js'
 
 import {attachProviderMetadata, parseProviderResponseMetadata} from './metadata.js'
+import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from './schemas.js'
 
 interface ProviderResponseEnvelope {
   data: unknown
@@ -13,15 +14,13 @@ export function parseTranscript(value: unknown): Transcript {
 
   value = envelope.data
 
-  if (!isRecord(value) || typeof value.text !== 'string' || !Array.isArray(value.segments)) {
+  const transcript = TranscriptSchema.safeParse(value)
+
+  if (!transcript.success) {
     throw new TypeError('ASR provider returned an invalid transcript.')
   }
 
-  return attachProviderMetadata({
-    ...(typeof value.language === 'string' ? {language: value.language} : {}),
-    segments: value.segments.map((segment) => parseTranscriptSegment(segment)),
-    text: value.text,
-  }, envelope.metadata)
+  return attachProviderMetadata(transcript.data, envelope.metadata)
 }
 
 export function parseVlmScenes(value: unknown): VLMScene[] {
@@ -29,27 +28,13 @@ export function parseVlmScenes(value: unknown): VLMScene[] {
 
   value = envelope.data
 
-  if (!Array.isArray(value)) {
+  const scenes = VlmScenesSchema.safeParse(value)
+
+  if (!scenes.success) {
     throw new TypeError('VLM provider returned an invalid scene list.')
   }
 
-  return attachProviderMetadata(value.map((scene) => {
-    if (!isRecord(scene) || typeof scene.description !== 'string' || !Array.isArray(scene.evidence) || typeof scene.sceneId !== 'string') {
-      throw new TypeError('VLM provider returned an invalid scene.')
-    }
-
-    return {
-      description: scene.description,
-      evidence: scene.evidence.map((item) => {
-        if (typeof item !== 'string') {
-          throw new TypeError('VLM provider returned invalid scene evidence.')
-        }
-
-        return item
-      }),
-      sceneId: scene.sceneId,
-    }
-  }), envelope.metadata)
+  return attachProviderMetadata(scenes.data, envelope.metadata)
 }
 
 export function parseTtsSegments(value: unknown): TTSSegment[] {
@@ -57,21 +42,13 @@ export function parseTtsSegments(value: unknown): TTSSegment[] {
 
   value = envelope.data
 
-  if (!Array.isArray(value)) {
+  const segments = TtsSegmentsSchema.safeParse(value)
+
+  if (!segments.success) {
     throw new TypeError('TTS provider returned an invalid segment list.')
   }
 
-  return attachProviderMetadata(value.map((segment) => {
-    if (!isRecord(segment) || typeof segment.duration !== 'number' || typeof segment.narrationId !== 'string' || typeof segment.path !== 'string') {
-      throw new TypeError('TTS provider returned an invalid segment.')
-    }
-
-    return {
-      duration: segment.duration,
-      narrationId: segment.narrationId,
-      path: segment.path,
-    }
-  }), envelope.metadata)
+  return attachProviderMetadata(segments.data, envelope.metadata)
 }
 
 function parseProviderResponseEnvelope(value: unknown): ProviderResponseEnvelope {
@@ -82,19 +59,6 @@ function parseProviderResponseEnvelope(value: unknown): ProviderResponseEnvelope
   return {
     data: value.data,
     ...(value.metadata === undefined ? {} : {metadata: parseProviderResponseMetadata(value.metadata)}),
-  }
-}
-
-function parseTranscriptSegment(value: unknown): TranscriptSegment {
-  if (!isRecord(value) || typeof value.start !== 'number' || typeof value.end !== 'number' || typeof value.text !== 'string') {
-    throw new TypeError('ASR provider returned an invalid transcript segment.')
-  }
-
-  return {
-    end: value.end,
-    ...(typeof value.speaker === 'string' ? {speaker: value.speaker} : {}),
-    start: value.start,
-    text: value.text,
   }
 }
 
