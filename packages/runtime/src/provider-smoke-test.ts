@@ -1,4 +1,4 @@
-import {createAsrProvider, createTtsProvider, createVlmProvider, readProviderMetadata} from '@video-agent/providers'
+import {createAsrProvider, createTtsProvider, createVlmProvider, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 
 import {readConfig} from './config.js'
 
@@ -25,6 +25,11 @@ export interface ProviderSmokeTestResult {
   error?: {
     message: string
     name: string
+    validationIssues?: {
+      code: string
+      message: string
+      path: string[]
+    }[]
   }
   metadata?: {
     model?: string
@@ -82,10 +87,7 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
     } catch (error) {
       results.push({
         durationMs: Date.now() - startedAt,
-        error: {
-          message: error instanceof Error ? error.message : String(error),
-          name: error instanceof Error ? error.name : 'Error',
-        },
+        error: normalizeSmokeTestError(error),
         provider: config.providers[role],
         role,
         status: 'failed',
@@ -98,6 +100,21 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
     ok: results.every((result) => result.status === 'succeeded'),
     results,
     workspaceDir,
+  }
+}
+
+function normalizeSmokeTestError(error: unknown): NonNullable<ProviderSmokeTestResult['error']> {
+  if (error instanceof ProviderResponseValidationError) {
+    return {
+      message: error.message,
+      name: error.name,
+      validationIssues: error.issues,
+    }
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    name: error instanceof Error ? error.name : 'Error',
   }
 }
 

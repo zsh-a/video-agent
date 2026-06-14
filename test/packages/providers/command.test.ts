@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider, createAsrProvider, readProviderMetadata} from '../../../packages/providers/src/index.js'
+import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider, createAsrProvider, ProviderResponseValidationError, readProviderMetadata} from '../../../packages/providers/src/index.js'
 
 describe('command providers', () => {
   it('runs an ASR command provider over JSON stdin/stdout', async () => {
@@ -68,6 +68,24 @@ describe('command providers', () => {
         path: 'tts/narration-1.wav',
       },
     ])
+  })
+
+  it('returns structured validation errors for invalid provider output', async () => {
+    const provider = new CommandASRProvider({
+      command: jsonCommand('{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}'),
+    })
+    let error: unknown
+
+    try {
+      await provider.transcribe({path: '/tmp/audio.wav'})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(ProviderResponseValidationError)
+    expect((error as ProviderResponseValidationError).role).to.equal('asr')
+    expect((error as ProviderResponseValidationError).issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
+    expect((error as Error).message).to.include('segments.0.end')
   })
 
   it('fails fast when command provider env is missing', () => {

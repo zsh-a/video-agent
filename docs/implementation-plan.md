@@ -167,14 +167,14 @@ Deliverables:
 Acceptance criteria:
 
 - A user can configure external ASR/VLM/TTS command or HTTP adapters without changing source code and inspect the required environment contract without leaking secret values.
-- Provider outputs are validated before artifact writes and during checkpoint/artifact verification.
+- Provider outputs are validated before artifact writes and during checkpoint/artifact verification, with structured validation issues for smoke-test diagnostics.
 - Provider calls are recorded with request id, status, latency, input/output summaries, optional model/usage/cost metadata, and failure details; HTTP providers propagate trace headers and provide fallback request ids when the provider response omits one.
 - Project status summarizes events, provider calls, provider costs, quality issues, and render output diagnostics for CLI/API/TUI adapters.
 - Project quality gives CLI/API/MCP/TUI adapters one deliverability summary across pipeline checks, render diagnostics, and artifact integrity.
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, shared ASR/VLM/TTS artifact schemas, first `clip-plan.json` source-range planning artifact, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests with structured provider response validation diagnostics, HTTP provider trace headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports, shared ASR/VLM/TTS artifact schemas, first `clip-plan.json` source-range planning artifact, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
 
 ## Phase 5: Persistence and Recovery
 

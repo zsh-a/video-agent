@@ -80,4 +80,33 @@ describe('provider smoke test', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('reports provider response validation issues without throwing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
+
+    try {
+      await writeConfig(root, {asr: 'command'})
+
+      const report = await runProviderSmokeTest({
+        env: {
+          VIDEO_AGENT_ASR_COMMAND: JSON.stringify(['sh', '-c', String.raw`cat >/dev/null; printf "%s\n" "$1"`, 'provider-json', '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}']),
+        },
+        roles: ['asr'],
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(false)
+      expect(report.results[0]).to.include({
+        provider: 'command',
+        role: 'asr',
+        status: 'failed',
+      })
+      expect(report.results[0]?.error).to.include({
+        name: 'ProviderResponseValidationError',
+      })
+      expect(report.results[0]?.error?.validationIssues?.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
