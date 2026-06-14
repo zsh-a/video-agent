@@ -83,7 +83,7 @@ packages/
     Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The existing root oclif CLI remains the first adapter during the initial scaffold. A later migration can move it into `apps/cli` when the core commands are ready.
+The existing root oclif CLI remains the first adapter during the initial scaffold. It includes a lightweight `vagent tui` terminal dashboard over runtime state; a later migration can move it into `apps/cli` or split a richer Ink workstation into `apps/tui` when the core commands are ready.
 
 ## Target Adapter Layout
 
@@ -191,5 +191,6 @@ Concrete providers can wrap remote APIs or local services. Local model inference
 1. Improve clip selection and source-range planning.
 2. Add Clack prompts for provider `config`.
 3. Replace mock ASR/VLM/TTS providers with real provider adapters behind the existing config contract.
-4. Add worker-oriented retry scheduling over the configurable `JobStore`.
-5. Expand MCP/client integration examples and future TUI surfaces.
+4. Add interactive TUI actions for reruns, worker recovery, and artifact opening.
+5. Add worker-oriented retry scheduling over the configurable `JobStore`.
+6. Expand MCP/client integration examples.

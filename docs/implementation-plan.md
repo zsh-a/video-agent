@@ -97,6 +97,7 @@ Deliverables:
 - `vagent events` for reading pipeline events and provider call logs.
 - `vagent rerun` for re-executing an existing project from a checkpoint stage.
 - `vagent worker` for local failed/running job recovery.
+- `vagent tui` for a lightweight terminal dashboard over projects, stages, artifacts, and events.
 - `vagent serve` for exposing runtime state and controlled workflow actions through HTTP.
 - `vagent render` for ffmpeg and HyperFrames-boundary rendering.
 - `vagent export` for copying final outputs or project bundles.
@@ -211,7 +212,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes visual sample metadata and `POST /worker` recovery for Web Studio/TUI consumers. TUI, Web Studio, and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes visual sample metadata and `POST /worker` recovery for Web Studio/TUI consumers. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, and watch refresh; interactive rerun actions, Web Studio, and Claude Code skill adapters are still pending.
 
 ## Immediate Next Tasks
 
@@ -219,9 +220,10 @@ Recommended order:
 
 1. Replace the readline interactive config with Clack-styled prompts when dependency policy allows it.
 2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
-3. Add worker-oriented retry scheduling and finer artifact recovery policies over the `JobStore` contract.
-4. Add MCP client configuration examples as external clients are tested.
-5. Expand render quality checks around deeper visual smoke tests.
+3. Add interactive TUI actions for rerun, worker recovery, and artifact opening.
+4. Add worker-oriented retry scheduling and finer artifact recovery policies over the `JobStore` contract.
+5. Add MCP client configuration examples as external clients are tested.
+6. Expand render quality checks around deeper visual smoke tests.
 
 ## v0 Completion Definition
 
