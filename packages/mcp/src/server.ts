@@ -11,6 +11,7 @@ import {
   readProjectQuality,
   readProjectStatus,
   readProjectVisualSamples,
+  readProviderEnvironment,
   recoverWorkspaceJobs,
   renderProject,
   rerunProject,
@@ -66,6 +67,7 @@ const STAGE_VALUES: InitialPipelineStage[] = ['ingest', 'understand', 'plan', 's
 const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {}),
   createTool('video_agent_list_projects', 'List projects in the video-agent workspace.', {}),
+  createTool('video_agent_provider_env', 'Read provider environment variable requirements without exposing configured values.', {}),
   createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: stringSchema()}),
   createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: stringSchema()}),
   createTool('video_agent_visual_samples', 'Read rendered visual frame sample metadata, optionally including base64 image content.', {includeContent: booleanSchema(), projectId: stringSchema()}),
@@ -225,6 +227,10 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_list_projects': {
       return {projects: await listProjects(workspaceDir)}
+    }
+
+    case 'video_agent_provider_env': {
+      return readProviderEnvironment(workspaceDir)
     }
 
     case 'video_agent_quality': {

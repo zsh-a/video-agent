@@ -18,6 +18,7 @@ describe('api server handler', () => {
       const fetch = createApiFetchHandler({workspaceDir: root})
       const health = await readJson<{ok: boolean}>(fetch, '/health')
       const projects = await readJson<{projects: unknown[]}>(fetch, '/projects')
+      const providerEnv = await readJson<{providers: Array<{provider: string; role: string}>}>(fetch, '/provider-env')
       const status = await readJson<{projectId: string; summary: {providers: {total: number}; quality: {errors: number; issues: number; warnings: number}; render: {rendered: boolean}}}>(fetch, '/projects/demo/status')
       const quality = await readJson<{ok: boolean; projectId: string}>(fetch, '/projects/demo/quality')
       const events = await readJson<{events: unknown[]}>(fetch, '/projects/demo/events?kind=provider&role=asr')
@@ -25,6 +26,7 @@ describe('api server handler', () => {
 
       expect(health.ok).to.equal(true)
       expect(projects.projects).to.have.length(1)
+      expect(providerEnv.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
       expect(status.projectId).to.equal('demo')
       expect(status.summary.providers.total).to.equal(1)
       expect(status.summary.quality).to.deep.equal({errors: 0, issues: 0, warnings: 0})

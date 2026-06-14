@@ -12,6 +12,7 @@ import {
   readProjectQuality,
   readProjectStatus,
   readProjectVisualSamples,
+  readProviderEnvironment,
   recoverWorkspaceJobs,
   renderProject,
   rerunProject,
@@ -58,6 +59,14 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse(await checkRuntimeHealth({workspaceDir}))
+  }
+
+  if (segments.length === 1 && segments[0] === 'provider-env') {
+    if (request.method !== 'GET') {
+      return methodNotAllowed()
+    }
+
+    return jsonResponse(await readProviderEnvironment(workspaceDir))
   }
 
   if (segments.length === 1 && segments[0] === 'projects') {

@@ -99,7 +99,7 @@ Deliverables:
 - `vagent rerun` for re-executing an existing project from a checkpoint stage.
 - `vagent worker` for local failed/running job recovery.
 - `vagent tui` for a lightweight terminal dashboard over projects, stages, artifacts, and events.
-- `vagent serve` for exposing runtime state and controlled workflow actions through HTTP.
+- `vagent serve` for exposing runtime state, provider environment requirements, and controlled workflow actions through HTTP.
 - `vagent render` for ffmpeg and HyperFrames-boundary rendering.
 - `vagent export` for copying final outputs or project bundles.
 - Optional export quality gate that refuses delivery when project quality is not clean.
@@ -109,7 +109,7 @@ Acceptance criteria:
 - Every command has JSON output where automation needs it.
 - Command failures return actionable errors.
 - Tests cover workspace path behavior, artifact reads, config updates, job persistence, renderer helpers, and project listing.
-- API handler tests cover health, project listing, project runs, worker dry-runs, status, events, artifact reads, project reruns, project renders, and project exports.
+- API handler tests cover health, provider environment reports, project listing, project runs, worker dry-runs, status, events, artifact reads, project reruns, project renders, and project exports.
 - API handler tests cover audio preflight diagnostics for render inputs.
 
 Status: completed for local CLI workflows.
@@ -205,7 +205,7 @@ Goal: expose the same core runtime to multiple interaction layers.
 
 Deliverables:
 
-- MCP server for `doctor`, `run`, `status`, `events`, `artifacts`, `render`, `worker`, and `export`.
+- MCP server for `doctor`, `provider-env`, `run`, `status`, `events`, `artifacts`, `render`, `worker`, and `export`.
 - Lightweight TUI for project selection, stage status, logs, artifact review, and reruns.
 - API server for Web Studio and batch jobs.
 - Claude Code skill that shells out to the CLI or MCP server.
@@ -216,7 +216,7 @@ Acceptance criteria:
 - Each adapter can operate on an existing project workspace.
 - Long-running operations expose status and logs.
 
-Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes visual sample metadata and `POST /worker` recovery for Web Studio/TUI consumers. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, artifact inspection, controlled project reruns, and worker recovery; Web Studio and Claude Code skill adapters are still pending.
+Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio tools expose the same ffmpeg volume, ducking, and HyperFrames command options used by the CLI/API adapters. The API exposes provider environment reports, visual sample metadata, and `POST /worker` recovery for Web Studio/TUI consumers. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact review, recent events, watch refresh, artifact inspection, controlled project reruns, and worker recovery; Web Studio and Claude Code skill adapters are still pending.
 
 ## Immediate Next Tasks
 

@@ -363,6 +363,7 @@ bun run dev rerun <projectId> --from-stage script
 ```text
 GET /health
 GET /doctor
+GET /provider-env
 GET /projects
 POST /projects
 POST /worker
@@ -384,6 +385,7 @@ POST /projects/:projectId/export
 ```text
 video_agent_doctor
 video_agent_list_projects
+video_agent_provider_env
 video_agent_status
 video_agent_quality
 video_agent_visual_samples
@@ -399,6 +401,8 @@ video_agent_export
 ```
 
 `video_agent_render` 支持 ffmpeg 音频开关、source/voiceover volume、sidechain ducking 参数，以及 HyperFrames validate/render/output/command 参数。`video_agent_inspect_audio` 支持同一组音频相关参数，用于在真正渲染前检查 voiceover 对齐和可用音频输入。
+
+`video_agent_provider_env` 返回当前 provider 配置对应的环境变量契约，只暴露变量名、必填状态和是否已配置，不返回具体值。
 
 `video_agent_worker` 复用本地 worker recovery runtime，可 dry-run 扫描 failed/running job，也可以用 `status` 和 `limit` 控制恢复范围。
 
@@ -506,8 +510,8 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `rerun` 命令：读取已有 project 的 job state，从指定 checkpoint stage 重跑
 - `worker` 命令：扫描 failed/running job，并从第一个未完成 stage 做单机恢复，支持 attempt 上限和 skip reason
 - `tui` 命令：提供轻量终端 dashboard，展示项目、stage、质量摘要、artifact 和最近事件，支持 watch 刷新，并可通过 action flag 检查 artifact、触发 rerun 或 worker recovery
-- `serve` 命令：启动 Bun HTTP API server，暴露 health、projects、status、events、artifacts、workflow actions 和 worker recovery
-- `mcp` 命令：启动 stdio MCP server，暴露 doctor/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
+- `serve` 命令：启动 Bun HTTP API server，暴露 health、provider-env、projects、status、events、artifacts、workflow actions 和 worker recovery
+- `mcp` 命令：启动 stdio MCP server，暴露 doctor/provider-env/projects/status/events/artifacts/run/rerun/render/audio/visual/worker/export 工具
 - MCP render/audio tools：`video_agent_render` 和 `video_agent_inspect_audio` 暴露 ffmpeg 音量、ducking 和 HyperFrames 外部 CLI 参数
 - MCP worker tool：`video_agent_worker` 复用 runtime worker recovery，可 dry-run、按状态/数量恢复 failed/running job，或用 `maxAttempts` 跳过已达到 attempt 上限的 job
 - API workflow actions：支持 `POST /projects`、`POST /worker`、`POST /projects/:id/rerun`、`POST /projects/:id/render`、`POST /projects/:id/export`
