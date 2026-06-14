@@ -163,6 +163,37 @@ describe('cli end-to-end workflow', () => {
         shape: 'server',
       })
       expect(mcpServerEntryInfo.placement).to.include('command/args/env')
+
+      await runCliJson(['config', '--asr', 'http', '--vlm', 'http', '--tts', 'http', '--workspace', workspaceDir, '--json'])
+      const httpProviderEnv = {
+        VIDEO_AGENT_ASR_URL: 'https://provider.example/asr',
+        VIDEO_AGENT_TTS_URL: 'https://provider.example/tts',
+        VIDEO_AGENT_VLM_URL: 'https://provider.example/vlm',
+      }
+      const configuredHttpProviderEnv = await runCliJson<{
+        providers: Array<{
+          requirements: Array<{configured: boolean; env: string; required: boolean}>
+          role: string
+        }>
+      }>(['provider-env', '--workspace', workspaceDir, '--json'], httpProviderEnv)
+
+      expect(configuredHttpProviderEnv.providers.flatMap((provider) => provider.requirements.filter((requirement) => requirement.required).map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
+        'asr:VIDEO_AGENT_ASR_URL:true',
+        'vlm:VIDEO_AGENT_VLM_URL:true',
+        'tts:VIDEO_AGENT_TTS_URL:true',
+      ])
+
+      const httpDoctor = await runCliJson<{
+        checks: Array<{name: string; status: string}>
+        ok: boolean
+      }>(['doctor', '--workspace', workspaceDir, '--json'], httpProviderEnv)
+
+      expect(httpDoctor.ok).to.equal(true)
+      expect(httpDoctor.checks.filter((check) => check.name.startsWith('provider:')).map((check) => `${check.name}:${check.status}`)).to.include.members([
+        'provider:asr:pass',
+        'provider:vlm:pass',
+        'provider:tts:pass',
+      ])
     } finally {
       await rm(root, {force: true, recursive: true})
     }

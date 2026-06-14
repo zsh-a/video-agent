@@ -3,6 +3,9 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
+import type {ProviderFetch} from '../../../packages/providers/src/index.js'
+
+import {createMockHttpProviderEnvelope} from '../../../examples/provider-adapters/mock-http-provider.js'
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {runProviderSmokeTest} from '../../../packages/runtime/src/provider-smoke-test.js'
 
@@ -51,6 +54,41 @@ describe('provider smoke test', () => {
       expect(report.results.find((result) => result.role === 'asr')?.output).to.include({
         type: 'transcript',
       })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs the documented HTTP adapter recipe through smoke tests', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
+
+    try {
+      await writeConfig(root, {
+        asr: 'http',
+        tts: 'http',
+        vlm: 'http',
+      })
+
+      const report = await runProviderSmokeTest({
+        env: {
+          VIDEO_AGENT_ASR_TIMEOUT_MS: '5000',
+          VIDEO_AGENT_ASR_URL: 'http://127.0.0.1:4318',
+          VIDEO_AGENT_TTS_TIMEOUT_MS: '5000',
+          VIDEO_AGENT_TTS_URL: 'http://127.0.0.1:4318',
+          VIDEO_AGENT_VLM_TIMEOUT_MS: '5000',
+          VIDEO_AGENT_VLM_URL: 'http://127.0.0.1:4318',
+        },
+        fetch: mockHttpRecipeFetch(),
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(true)
+      expect(report.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
+        'asr:http:succeeded:example-http-provider:transcript',
+        'vlm:http:succeeded:example-http-provider:scenes',
+        'tts:http:succeeded:example-http-provider:tts',
+      ])
+      expect(report.results.every((result) => result.metadata?.requestId?.startsWith('http_') === true)).to.equal(true)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -110,3 +148,20 @@ describe('provider smoke test', () => {
     }
   })
 })
+
+function mockHttpRecipeFetch(): ProviderFetch {
+  return async (_url, init) => {
+    const result = createMockHttpProviderEnvelope(JSON.parse(init.body) as Record<string, unknown>, init.headers)
+
+    return {
+      async json() {
+        return result
+      },
+      ok: true,
+      status: 200,
+      async text() {
+        return JSON.stringify(result)
+      },
+    }
+  }
+}

@@ -1,4 +1,4 @@
-import {createAsrProvider, createTtsProvider, createVlmProvider, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
+import {createAsrProvider, createTtsProvider, createVlmProvider, type ProviderFetch, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 
 import {readConfig} from './config.js'
 
@@ -7,6 +7,7 @@ export type ProviderSmokeTestStatus = 'failed' | 'succeeded'
 
 export interface ProviderSmokeTestOptions {
   env?: Record<string, string | undefined>
+  fetch?: ProviderFetch
   framePath?: string
   mediaPath?: string
   roles?: ProviderSmokeTestRole[]
@@ -120,7 +121,7 @@ function normalizeSmokeTestError(error: unknown): NonNullable<ProviderSmokeTestR
 
 async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, options: ProviderSmokeTestOptions): Promise<{raw: object; summary: ProviderSmokeTestOutput}> {
   if (role === 'asr') {
-    const transcript = await createAsrProvider(provider, {env: options.env}).transcribe({
+    const transcript = await createAsrProvider(provider, {env: options.env, fetch: options.fetch}).transcribe({
       mimeType: 'audio/wav',
       path: options.mediaPath ?? 'provider-smoke-test.wav',
     })
@@ -137,7 +138,7 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
   }
 
   if (role === 'tts') {
-    const segments = await createTtsProvider(provider, {env: options.env}).synthesize([
+    const segments = await createTtsProvider(provider, {env: options.env, fetch: options.fetch}).synthesize([
       {
         duration: 1,
         id: 'provider-smoke-test',
@@ -157,7 +158,7 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
     }
   }
 
-  const scenes = await createVlmProvider(provider, {env: options.env}).analyzeScenes([
+  const scenes = await createVlmProvider(provider, {env: options.env, fetch: options.fetch}).analyzeScenes([
     {
       frames: [options.framePath ?? 'provider-smoke-test-frame.jpg'],
       sceneId: 'provider-smoke-test-scene',

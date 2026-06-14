@@ -1,4 +1,5 @@
 import type {ASRProvider, TTSProvider, VLMProvider} from './contracts.js'
+import type {ProviderFetch} from './http.js'
 
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
 import {HttpASRProvider, HttpTTSProvider, HttpVLMProvider} from './http.js'
@@ -17,6 +18,7 @@ export interface ProviderConfig {
 
 export interface ProviderRegistryOptions {
   env?: Record<string, string | undefined>
+  fetch?: ProviderFetch
 }
 
 export interface ProviderSet {
@@ -45,7 +47,7 @@ export function createAsrProvider(name: string, options: ProviderRegistryOptions
   }
 
   if (name === 'http') {
-    return new HttpASRProvider(resolveHttpOptions('asr', options.env))
+    return new HttpASRProvider(resolveHttpOptions('asr', options))
   }
 
   throw new Error(`Unsupported ASR provider: ${name}`)
@@ -63,7 +65,7 @@ export function createTtsProvider(name: string, options: ProviderRegistryOptions
   }
 
   if (name === 'http') {
-    return new HttpTTSProvider(resolveHttpOptions('tts', options.env))
+    return new HttpTTSProvider(resolveHttpOptions('tts', options))
   }
 
   throw new Error(`Unsupported TTS provider: ${name}`)
@@ -81,13 +83,14 @@ export function createVlmProvider(name: string, options: ProviderRegistryOptions
   }
 
   if (name === 'http') {
-    return new HttpVLMProvider(resolveHttpOptions('vlm', options.env))
+    return new HttpVLMProvider(resolveHttpOptions('vlm', options))
   }
 
   throw new Error(`Unsupported VLM provider: ${name}`)
 }
 
-function resolveHttpOptions(role: ProviderRole, env: Record<string, string | undefined> = process.env): {headers?: Record<string, string>; timeoutMs?: number; url: string} {
+function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions): {fetch?: ProviderFetch; headers?: Record<string, string>; timeoutMs?: number; url: string} {
+  const env = options.env ?? process.env
   const urlEnv = `VIDEO_AGENT_${role.toUpperCase()}_URL`
   const tokenEnv = `VIDEO_AGENT_${role.toUpperCase()}_TOKEN`
   const timeoutEnv = `VIDEO_AGENT_${role.toUpperCase()}_TIMEOUT_MS`
@@ -98,6 +101,7 @@ function resolveHttpOptions(role: ProviderRole, env: Record<string, string | und
   }
 
   return {
+    ...(options.fetch === undefined ? {} : {fetch: options.fetch}),
     ...(env[tokenEnv] === undefined || env[tokenEnv]?.trim() === '' ? {} : {headers: {authorization: `Bearer ${env[tokenEnv]}`}}),
     ...(env[timeoutEnv] === undefined || env[timeoutEnv]?.trim() === '' ? {} : {timeoutMs: parseTimeout(timeoutEnv, env[timeoutEnv])}),
     url,
