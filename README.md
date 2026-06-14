@@ -290,7 +290,7 @@ ffmpeg 渲染成功后，`render-output.json` 还会包含 `outputQuality`，用
 
 如果最终视频包含音轨，`render-output.json` 还会包含 `audioQuality`。它通过 `ffmpeg volumedetect` 读取 mean/max volume，并对过静、过响、接近削波或探测失败写入 warning；项目级 `status` / `quality` 聚合会把这些 audio warning 计入 render diagnostics。
 
-如果最终视频包含视频流，`render-output.json` 还会包含 `visualQuality`。它通过 `ffmpeg blackdetect` 读取黑屏片段和黑屏占比，并抽取 first/middle/end 三张缩略图样本；`frameSamples` 保存完整样本列表，`frameSample` 保留第一张样本作为兼容字段。每张成功样本会记录 `sha256` 内容指纹；多个采样点完全一致会写入 static-frame warning。黑屏占比较高会写入 warning，几乎全黑会写入 error，缩略图抽样失败会写入 warning，并纳入项目级 `status` / `quality` 聚合。
+如果最终视频包含视频流，`render-output.json` 还会包含 `visualQuality`。它通过 `ffmpeg blackdetect` 读取黑屏片段和黑屏占比，并抽取 first/middle/end 三张缩略图样本；`frameSamples` 保存完整样本列表，`frameSample` 保留第一张样本作为兼容字段。每张成功样本会记录 `sha256` 内容指纹；多个采样点完全一致会写入 static-frame warning，三点样本的 JPEG 字节大小几乎无变化时会写入 low-variation warning。黑屏占比较高会写入 warning，几乎全黑会写入 error，缩略图抽样失败会写入 warning，并纳入项目级 `status` / `quality` 聚合。
 
 如果项目里存在 `audio/source.wav` 或 `tts-segments.json` 指向的真实音频文件，`render` 会混入可用音频并输出 AAC 音轨。mock TTS 的占位路径如果不存在，会在 `voiceover-plan.json`、`render-output.json` 和 CLI 输出里记录 missing voiceover diagnostic；可以用 `--no-audio` 关闭音频混合。
 
@@ -540,7 +540,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - runtime render API：CLI `render` 和 HTTP `POST /projects/:id/render` 共用同一套 `renderProject`
 - ffmpeg renderer：支持混入提取出的源音频和已存在的 TTS voiceover 音频，输出 AAC 音轨
 - ffmpeg audio controls：支持 source/voiceover volume 和可选 sidechain ducking
-- render output quality：ffmpeg render 会探测最终视频，记录视频流、音频流、时长、音频响度、黑屏烟测和多点缩略图样本 diagnostics
+- render output quality：ffmpeg render 会探测最终视频，记录视频流、音频流、时长、音频响度、黑屏烟测、多点缩略图样本和低视觉变化 diagnostics
 - voiceover plan：render 阶段写出 `voiceover-plan.json`，记录 TTS 段和 narration 时间轴的对齐状态，并支持同一 narration 的多段 TTS chunk 顺序拼接
 - render audio diagnostics：缺失的 TTS voiceover 文件会写入 `render-output.json`，CLI 非 JSON 输出也会打印 audio warning
 - render audio preflight：CLI `render --inspect-audio` 和 HTTP `GET /projects/:id/audio` 可在渲染前检查 voiceover alignment 和可用音频输入

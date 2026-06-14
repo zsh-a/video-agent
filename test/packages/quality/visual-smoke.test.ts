@@ -164,6 +164,71 @@ describe('visual smoke quality', () => {
     expect(result.warnings).to.equal(1)
   })
 
+  it('warns when successful frame samples have very low byte-size variation', () => {
+    const result = checkVisualSmoke({
+      blackDuration: 0,
+      blackSegments: [],
+      duration: 3,
+      frameSamples: [
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-first.jpg',
+          sha256: 'first',
+          size: 1000,
+          timestamp: 0,
+        },
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-middle.jpg',
+          sha256: 'middle',
+          size: 1003,
+          timestamp: 1.5,
+        },
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-end.jpg',
+          sha256: 'end',
+          size: 1005,
+          timestamp: 2.9,
+        },
+      ],
+    })
+
+    expect(result.issues.map((issue) => issue.code)).to.deep.equal(['visual.frame_sample.low_variation'])
+    expect(result.warnings).to.equal(1)
+  })
+
+  it('does not warn for low sample size variation with fewer than three samples', () => {
+    const result = checkVisualSmoke({
+      blackDuration: 0,
+      blackSegments: [],
+      duration: 2,
+      frameSamples: [
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-first.jpg',
+          sha256: 'first',
+          size: 1000,
+          timestamp: 0,
+        },
+        {
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          ok: true,
+          path: '/tmp/final-frame-middle.jpg',
+          sha256: 'middle',
+          size: 1003,
+          timestamp: 1,
+        },
+      ],
+    })
+
+    expect(result.issues).to.deep.equal([])
+  })
+
   it('creates a probe failure warning', () => {
     expect(createVisualSmokeProbeFailure('ffmpeg failed')).to.deep.equal({
       blackDuration: 0,

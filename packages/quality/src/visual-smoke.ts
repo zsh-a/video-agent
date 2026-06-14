@@ -159,6 +159,9 @@ function checkFrameSamples(frameSamples: VisualFrameSample[]): QualityIssue[] {
   const successfulHashes = frameSamples
     .filter((frameSample) => frameSample.ok && frameSample.sha256 !== undefined)
     .map((frameSample) => frameSample.sha256)
+  const successfulSizes = frameSamples
+    .filter((frameSample) => frameSample.ok && frameSample.size !== undefined && frameSample.size > 0)
+    .map((frameSample) => frameSample.size as number)
 
   if (successfulHashes.length >= 2 && new Set(successfulHashes).size === 1) {
     return [
@@ -171,7 +174,33 @@ function checkFrameSamples(frameSamples: VisualFrameSample[]): QualityIssue[] {
     ]
   }
 
+  if (hasLowSampleSizeVariation(successfulSizes)) {
+    return [
+      ...sampleIssues,
+      {
+        code: 'visual.frame_sample.low_variation',
+        message: `Rendered video frame samples have very low byte-size variation across ${successfulSizes.length} capture points.`,
+        severity: 'warning',
+      },
+    ]
+  }
+
   return sampleIssues
+}
+
+function hasLowSampleSizeVariation(sizes: number[]): boolean {
+  if (sizes.length < 3) {
+    return false
+  }
+
+  const min = Math.min(...sizes)
+  const max = Math.max(...sizes)
+
+  if (max <= 0) {
+    return false
+  }
+
+  return (max - min) / max <= 0.005
 }
 
 function normalizeFrameSamples(input: VisualSmokeInput): VisualFrameSample[] {
