@@ -253,6 +253,60 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats verify action results', () => {
+    expect(formatTuiActionResult({
+      projectId: 'demo',
+      result: {
+        changed: [
+          {
+            actualSha256: 'actual',
+            actualSize: 12,
+            expectedSha256: 'expected',
+            expectedSize: 10,
+            name: 'timeline.json',
+          },
+        ],
+        checked: 3,
+        manifestPath: '/tmp/project/artifacts/artifact-manifest.json',
+        missing: [{name: 'narration.json', reason: 'missing'}],
+        ok: false,
+        schemaInvalid: [
+          {
+            issues: [
+              {
+                code: 'invalid_type',
+                message: 'Required',
+                path: ['scenes'],
+              },
+            ],
+            name: 'storyboard.json',
+          },
+        ],
+        summary: {
+          changed: 1,
+          checked: 3,
+          errors: 3,
+          missing: 1,
+          schemaInvalid: 1,
+          untracked: 1,
+          warnings: 1,
+        },
+        untracked: ['render-output.json'],
+      },
+      type: 'verify',
+    })).to.equal([
+      'Action: verify demo -> failed',
+      'Manifest: /tmp/project/artifacts/artifact-manifest.json',
+      'Checked: 3',
+      'Summary: 3 errors, 1 warnings (1 missing, 1 changed, 1 schema invalid, 1 untracked)',
+      '  missing: narration.json',
+      '  changed: timeline.json',
+      '  schema invalid: storyboard.json',
+      '    scenes: Required',
+      '  untracked: render-output.json',
+    ].join('\n'))
+  })
+
   it('formats visual action results', () => {
     expect(formatTuiActionResult({
       report: {
@@ -377,6 +431,34 @@ describe('tui command', () => {
         role: 'vlm',
         status: 'failed',
       })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs verify action against a project workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-verify-'))
+
+    try {
+      await createQualityProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'verify',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('verify')
+      expect(result.type === 'verify' && result.result.ok).to.equal(true)
+      expect(result.type === 'verify' && result.result.summary.checked).to.equal(2)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -809,7 +891,7 @@ describe('tui command', () => {
     })
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action quality --quality-details --json --workspace 'workspace dir'")
-    expect(commands.map((item) => item.command)).to.include("vagent artifacts 'demo project' --verify --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action verify --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action events --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action visual --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")

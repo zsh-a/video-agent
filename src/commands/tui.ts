@@ -8,7 +8,7 @@ import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/ch
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 import {formatQualityRenderSummary} from './quality.js'
 
-export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'visual' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'verify' | 'visual' | 'worker'
 
 type TuiQualityReport = ProjectQualityReport & {qualityReport?: unknown; renderOutput?: unknown}
 
@@ -32,7 +32,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'visual', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'verify', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -266,6 +266,7 @@ export type TuiActionResult =
   | {diagnostics: FfmpegAudioDiagnostics; projectId: string; type: 'audio'}
   | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
+  | {projectId: string; result: ArtifactIntegrityResult; type: 'verify'}
   | {report: ProjectVisualSamplesReport; type: 'visual'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
   | {report: TuiQualityReport; type: 'quality'}
@@ -386,6 +387,16 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         workspaceDir: options.workspaceDir,
       }),
       type: 'events',
+    }
+  }
+
+  if (options.action === 'verify') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      projectId,
+      result: await verifyProjectArtifacts(projectId, options.workspaceDir),
+      type: 'verify',
     }
   }
 
@@ -617,6 +628,22 @@ export function formatTuiActionResult(result: TuiActionResult): string {
     return [
       `Action: events ${result.result.projectId} -> ${result.result.events.length} events`,
       ...(result.result.events.length === 0 ? ['  none'] : result.result.events.map((event) => `  ${formatTuiEventRecord(event)}`)),
+    ].join('\n')
+  }
+
+  if (result.type === 'verify') {
+    return [
+      `Action: verify ${result.projectId} -> ${result.result.ok ? 'ok' : 'failed'}`,
+      `Manifest: ${result.result.manifestPath}`,
+      `Checked: ${result.result.summary.checked}`,
+      `Summary: ${result.result.summary.errors} errors, ${result.result.summary.warnings} warnings (${result.result.summary.missing} missing, ${result.result.summary.changed} changed, ${result.result.summary.schemaInvalid} schema invalid, ${result.result.summary.untracked} untracked)`,
+      ...result.result.missing.map((issue) => `  missing: ${issue.name}`),
+      ...result.result.changed.map((issue) => `  changed: ${issue.name}`),
+      ...result.result.schemaInvalid.flatMap((issue) => [
+        `  schema invalid: ${issue.name}`,
+        ...issue.issues.map((schemaIssue) => `    ${schemaIssue.path.join('.') || '<root>'}: ${schemaIssue.message}`),
+      ]),
+      ...result.result.untracked.map((artifact) => `  untracked: ${artifact}`),
     ].join('\n')
   }
 

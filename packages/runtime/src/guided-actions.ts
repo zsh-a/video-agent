@@ -147,7 +147,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 36,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['artifacts', projectId, '--verify', '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'verify', '--workspace', options.workspaceDir],
       category: 'artifact',
       description: 'Verify artifact manifest hashes and known IR/provider schemas.',
       id: 'verify-artifacts',
