@@ -194,6 +194,39 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats visual action results', () => {
+    expect(formatTuiActionResult({
+      report: {
+        projectDir: '/tmp/project',
+        projectId: 'demo',
+        samples: [
+          {
+            contentBase64: Buffer.from('first').toString('base64'),
+            exists: true,
+            ok: true,
+            relativePath: 'renders/final-frame-first.jpg',
+            reportSha256: 'first-hash',
+            reportSize: 5,
+            size: 5,
+            timestamp: 0,
+          },
+          {
+            error: 'Visual sample file is missing.',
+            exists: false,
+            ok: false,
+            relativePath: 'renders/missing.jpg',
+            timestamp: 1,
+          },
+        ],
+      },
+      type: 'visual',
+    })).to.equal([
+      'Action: visual demo -> 2 samples',
+      '  t=0 ok renders/final-frame-first.jpg 5B sha256=first-hash content=8b64',
+      '  t=1 missing renders/missing.jpg error=Visual sample file is missing.',
+    ].join('\n'))
+  })
+
   it('runs audio action without rendering', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-audio-'))
 
@@ -215,6 +248,43 @@ describe('tui command', () => {
 
       expect(result.type).to.equal('audio')
       expect(result.type === 'audio' && result.diagnostics.warnings).to.deep.equal(['Audio mixing disabled by render options.'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs visual action against rendered frame samples', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-visual-'))
+
+    try {
+      await createVisualSampleProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'visual',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        visualIncludeContent: true,
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('visual')
+      expect(result.type === 'visual' && result.report.samples[0]).to.include({
+        contentBase64: Buffer.from('first').toString('base64'),
+        exists: true,
+        ok: true,
+        relativePath: 'renders/final-frame-first.jpg',
+        reportSha256: 'first-hash',
+        reportSize: 5,
+        size: 5,
+        timestamp: 0,
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -611,7 +681,7 @@ describe('tui command', () => {
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent quality 'demo project' --details --json --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent artifacts 'demo project' --verify --workspace 'workspace dir'")
-    expect(commands.map((item) => item.command)).to.include("vagent visual 'demo project' --json --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action visual --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
@@ -763,4 +833,30 @@ async function createRenderableProject(root: string, projectId: string): Promise
       })}\n`,
     ),
   ])
+}
+
+async function createVisualSampleProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const rendersDir = join(projectDir, 'renders')
+
+  await mkdir(artifactsDir, {recursive: true})
+  await mkdir(rendersDir, {recursive: true})
+  await writeFile(join(rendersDir, 'final-frame-first.jpg'), 'first')
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      visualQuality: {
+        frameSamples: [
+          {
+            ok: true,
+            path: join(rendersDir, 'final-frame-first.jpg'),
+            sha256: 'first-hash',
+            size: 5,
+            timestamp: 0,
+          },
+        ],
+      },
+    })}\n`,
+  )
 }

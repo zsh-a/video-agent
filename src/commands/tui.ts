@@ -1,13 +1,13 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 
-export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'render' | 'rerun' | 'select' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'render' | 'rerun' | 'select' | 'visual' | 'worker'
 
 export interface TuiSnapshot {
   artifactIntegrity?: ArtifactIntegrityResult
@@ -29,7 +29,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'export', 'provider-test', 'render', 'rerun', 'select', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'export', 'provider-test', 'render', 'rerun', 'select', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -71,6 +71,7 @@ export default class Tui extends Command {
     'running-stale-after-ms': Flags.integer({description: 'Skip running jobs updated more recently than this threshold when --action worker is used'}),
     status: Flags.string({default: 'active', description: 'Job status to recover when --action worker is used', options: ['active', 'failed', 'running']}),
     text: Flags.string({description: 'Sample narration text for TTS provider tests'}),
+    'visual-include-content': Flags.boolean({description: 'Include base64 image content when --action visual is used'}),
     watch: Flags.boolean({description: 'Refresh the dashboard until interrupted'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
@@ -134,6 +135,7 @@ export default class Tui extends Command {
       runningStaleAfterMs: flags['running-stale-after-ms'],
       status: flags.status,
       text: flags.text,
+      visualIncludeContent: flags['visual-include-content'],
       workspaceDir: flags.workspace,
     })
     const snapshot = await readTuiSnapshot({
@@ -226,6 +228,7 @@ export interface RunTuiActionOptions {
   runningStaleAfterMs?: number
   status: string
   text?: string
+  visualIncludeContent?: boolean
   workspaceDir: string
 }
 
@@ -240,11 +243,13 @@ export type TuiActionResult =
   | {diagnostics: FfmpegAudioDiagnostics; projectId: string; type: 'audio'}
   | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
+  | {report: ProjectVisualSamplesReport; type: 'visual'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
   | {result: ExportProjectResult; type: 'export'}
   | {result: RenderProjectResult; type: 'render'}
   | {type: 'dashboard'}
 
+// eslint-disable-next-line complexity
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
   if (options.action === 'dashboard') {
     return {type: 'dashboard'}
@@ -350,6 +355,18 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
       }),
       projectId,
       type: 'audio',
+    }
+  }
+
+  if (options.action === 'visual') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      report: await readProjectVisualSamples(projectId, {
+        includeContent: options.visualIncludeContent,
+        workspaceDir: options.workspaceDir,
+      }),
+      type: 'visual',
     }
   }
 
@@ -530,6 +547,26 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       ...result.diagnostics.warnings.map((warning) => `  warning: ${warning}`),
       ...result.diagnostics.missingVoiceovers.map((voiceover) => `  missing: ${voiceover.narrationId ?? `index ${voiceover.index}`} (${voiceover.reason})`),
       ...result.diagnostics.plan.segments.map((voiceover) => `  voiceover: ${voiceover.narrationId ?? `index ${voiceover.index}`}\t${voiceover.status}\tstart=${voiceover.start}`),
+    ].join('\n')
+  }
+
+  if (result.type === 'visual') {
+    return [
+      `Action: visual ${result.report.projectId} -> ${result.report.samples.length} samples`,
+      ...result.report.samples.map((sample) => {
+        const status = sample.exists ? (sample.ok ? 'ok' : 'failed') : 'missing'
+        const details = [
+          `t=${sample.timestamp}`,
+          status,
+          sample.relativePath ?? sample.path ?? 'no-path',
+          sample.size === undefined ? undefined : `${sample.size}B`,
+          sample.reportSha256 === undefined ? undefined : `sha256=${sample.reportSha256}`,
+          sample.contentBase64 === undefined ? undefined : `content=${sample.contentBase64.length}b64`,
+          sample.error === undefined ? undefined : `error=${sample.error}`,
+        ].filter((item): item is string => item !== undefined)
+
+        return `  ${details.join(' ')}`
+      }),
     ].join('\n')
   }
 

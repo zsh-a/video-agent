@@ -163,7 +163,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 50,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['visual', projectId, '--json', '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'visual', '--workspace', options.workspaceDir],
       category: 'inspect',
       description: 'Inspect rendered visual frame sample metadata and content hashes.',
       id: 'inspect-visual-samples',
