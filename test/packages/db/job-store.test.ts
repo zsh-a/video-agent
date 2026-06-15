@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'

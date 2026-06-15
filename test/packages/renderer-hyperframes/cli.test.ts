@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {buildHyperframesRenderArgs, buildHyperframesValidateArgs} from '../../../packages/renderer-hyperframes/src/cli.js'
 

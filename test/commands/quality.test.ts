@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {formatQualityRenderSummary} from '../../src/commands/quality.js'
 

@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {getProviderProfile, MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODELS, MIMO_PROVIDER_PROFILE, PROVIDER_PROFILE_NAMES} from '../../../packages/providers/src/index.js'
 

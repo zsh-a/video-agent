@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {formatProjectStatus} from '../../src/commands/status.js'
 

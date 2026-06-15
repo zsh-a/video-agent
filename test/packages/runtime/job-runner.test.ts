@@ -1,6 +1,6 @@
 import type {LanguageModel} from 'ai'
 
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 import {mkdtemp, readFile, rm, stat} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'

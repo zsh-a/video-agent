@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {PipelineCheckpointError} from '../../packages/runtime/src/job-runner.js'
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../../src/utils/checkpoint-errors.js'

@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {createLanguageModelFromConfig, createLLMClientFromConfig} from '../../../packages/llm/src/index.js'
 

@@ -33,10 +33,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@eslint/compat": "^1",
-    "@types/chai": "^4",
     "@types/node": "^18",
-    "chai": "^4",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
@@ -52,6 +49,9 @@
     "./oclif.manifest.json"
   ],
   "homepage": "https://github.com/zs/video-agent",
+  "imports": {
+    "#test/expect": "./test/support/expect.ts"
+  },
   "keywords": [
     "agent",
     "bun",

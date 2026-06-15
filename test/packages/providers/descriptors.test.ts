@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {BUILTIN_PROVIDER_NAMES, getProviderEnvironmentDefinitions, isProviderName, PROVIDER_ROLES, providerEnvName} from '../../../packages/providers/src/index.js'
 

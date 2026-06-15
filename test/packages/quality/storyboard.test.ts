@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {checkStoryboardConsistency} from '../../../packages/quality/src/storyboard.js'
 

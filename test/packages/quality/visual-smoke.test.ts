@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {addVisualFrameSample, addVisualFrameSamples, checkVisualSmoke, createVisualSmokeProbeFailure} from '../../../packages/quality/src/index.js'
 

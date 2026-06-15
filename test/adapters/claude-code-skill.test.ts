@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 import {readFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 

@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import type {ProjectQualityReport} from '../../packages/runtime/src/project-quality.js'
 

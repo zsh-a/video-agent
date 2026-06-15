@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {checkClipPlanConsistency} from '../../../packages/quality/src/clip-plan.js'
 

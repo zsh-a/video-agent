@@ -1,5 +1,5 @@
+import {expect} from '#test/expect'
 import {APICallError, type LanguageModel, simulateReadableStream} from 'ai'
-import {expect} from 'chai'
 import {z} from 'zod'
 
 import {AISDKLLMClient} from '../../../packages/llm/src/index.js'

@@ -1,5 +1,5 @@
+import {expect} from '#test/expect'
 import {attachProviderMetadata, type ProviderSet} from '@video-agent/providers'
-import {expect} from 'chai'
 import {mkdtemp, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'

@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {parseAudioVolumeOutput, parseVideoBlackDetectOutput} from '../../../packages/media/src/ffmpeg.js'
 

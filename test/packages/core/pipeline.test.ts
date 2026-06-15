@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import type {PipelineEvent, Stage} from '../../../packages/core/src/index.js'
 

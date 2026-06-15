@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {formatVisualSample} from '../../src/commands/visual.js'
 

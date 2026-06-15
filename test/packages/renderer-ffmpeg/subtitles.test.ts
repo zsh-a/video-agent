@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {narrationToSrt} from '../../../packages/renderer-ffmpeg/src/subtitles.js'
 

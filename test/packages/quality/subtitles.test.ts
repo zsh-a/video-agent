@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {checkSrtSubtitles, parseSrt} from '../../../packages/quality/src/index.js'
 

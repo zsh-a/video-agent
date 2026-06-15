@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider, createAsrProvider, ProviderResponseValidationError, readProviderMetadata} from '../../../packages/providers/src/index.js'
 

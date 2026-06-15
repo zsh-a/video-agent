@@ -1,4 +1,4 @@
-import {expect} from 'chai'
+import {expect} from '#test/expect'
 
 import type {Narration, Timeline} from '../../../packages/ir/src/index.js'
 

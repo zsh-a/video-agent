@@ -1,9 +1,24 @@
-import {includeIgnoreFile} from '@eslint/compat'
 import oclif from 'eslint-config-oclif'
 import prettier from 'eslint-config-prettier'
-import path from 'node:path'
-import {fileURLToPath} from 'node:url'
+import {globalIgnores} from 'eslint/config'
 
-const gitignorePath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.gitignore')
-
-export default [includeIgnoreFile(gitignorePath), ...oclif, prettier]
+export default [
+  globalIgnores([
+    '**/.DS_Store',
+    '**/*-debug.log',
+    '**/*-error.log',
+    '.bun/**',
+    '.idea/**',
+    '.video-agent/**',
+    'dist/**',
+    'node_modules/**',
+    'oclif.manifest.json',
+    'packages/*/dist/**',
+    'packages/*/node_modules/**',
+    'packages/*/tsconfig.tsbuildinfo',
+    'tmp/**',
+    'tsconfig.tsbuildinfo',
+  ]),
+  ...oclif,
+  prettier,
+]
