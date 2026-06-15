@@ -43,7 +43,7 @@ export default class Tui extends Command {
     'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: ['asr', 'tts', 'vlm']}),
     'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: ['failed', 'succeeded']}),
     'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
-    'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start']}),
+    'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
     'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats when --action export is used'}),
     'export-format': Flags.string({default: 'video', description: 'Export format when --action export is used', options: ['video', 'hyperframes', 'bundle']}),
     'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),
@@ -931,10 +931,25 @@ function formatTuiEventRecord(record: ProjectEventRecord): string {
 
 function formatEventDetail(record: ProjectEventRecord): string {
   if (record.kind === 'pipeline') {
-    return `${record.event.type}${record.event.stage === undefined ? '' : ` ${record.event.stage}`}${record.event.message === undefined ? '' : ` ${record.event.message}`}`
+    return `${record.event.type}${record.event.stage === undefined ? '' : ` ${record.event.stage}`}${formatPipelineProgress(record.event)}${record.event.message === undefined ? '' : ` ${record.event.message}`}`
   }
 
   return `${record.event.role} ${record.event.operation} ${record.event.status} ${record.event.durationMs}ms`
+}
+
+function formatPipelineProgress(event: Extract<ProjectEventRecord, {kind: 'pipeline'}>['event']): string {
+  const parts = [
+    ...(event.current === undefined ? [] : [`${event.current}`]),
+    ...(event.total === undefined ? [] : [`/${event.total}`]),
+    ...(event.percent === undefined ? [] : [` ${formatProgressPercent(event.percent)}%`]),
+    ...(event.unit === undefined ? [] : [` ${event.unit}`]),
+  ]
+
+  return parts.length === 0 ? '' : ` ${parts.join('')}`
+}
+
+function formatProgressPercent(percent: number): string {
+  return Number.isInteger(percent) ? String(percent) : percent.toFixed(1)
 }
 
 function formatArtifactPreview(content: unknown): string {

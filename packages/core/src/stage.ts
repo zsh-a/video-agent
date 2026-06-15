@@ -16,19 +16,25 @@ export interface PipelineRetryPolicy {
 export interface PipelineEvent {
   artifact?: ArtifactRef
   attempt?: number
+  current?: number
   data?: Record<string, unknown>
   level?: 'debug' | 'error' | 'info' | 'warn'
   maxAttempts?: number
   message?: string
+  percent?: number
   projectId: string
   retryDelayMs?: number
   stage?: StageName | string
   step?: string
   time: string
-  type: 'artifact' | 'log' | 'stage:complete' | 'stage:fail' | 'stage:retry' | 'stage:start'
+  total?: number
+  type: 'artifact' | 'log' | 'stage:complete' | 'stage:fail' | 'stage:progress' | 'stage:retry' | 'stage:start'
+  unit?: ProgressUnit
 }
 
 export interface Stage<I, O> {
   name: StageName | string
   run(input: I, ctx: PipelineContext): Promise<O>
 }
+
+export type ProgressUnit = 'files' | 'frames' | 'seconds' | 'segments' | 'tokens'

@@ -1,8 +1,33 @@
 import {expect} from '#test/expect'
 
-import {parseAudioVolumeOutput, parseVideoBlackDetectOutput} from '../../../packages/media/src/ffmpeg.js'
+import {parseAudioVolumeOutput, parseFfmpegProgressOutput, parseVideoBlackDetectOutput} from '../../../packages/media/src/ffmpeg.js'
 
 describe('ffmpeg media helpers', () => {
+  it('parses ffmpeg progress records', () => {
+    const records = parseFfmpegProgressOutput([
+      'frame=10',
+      'out_time_ms=1000000',
+      'progress=continue',
+      'frame=20',
+      'out_time_ms=2000000',
+      'progress=end',
+      '',
+    ].join('\n'))
+
+    expect(records).to.deep.equal([
+      {
+        frame: '10',
+        out_time_ms: '1000000',
+        progress: 'continue',
+      },
+      {
+        frame: '20',
+        out_time_ms: '2000000',
+        progress: 'end',
+      },
+    ])
+  })
+
   it('parses ffmpeg volumedetect output', () => {
     const result = parseAudioVolumeOutput(
       '/tmp/final.mp4',

@@ -1,5 +1,6 @@
 import {type MediaInfo, MediaInfoSchema, type MediaStream, MediaStreamTypeSchema} from '@video-agent/ir'
 
+import {bunRuntime, type BunReadableStream} from './bun-runtime.js'
 import {runProcess, type RunProcessOptions} from './process.js'
 
 export class MediaCommandError extends Error {
@@ -21,6 +22,34 @@ export async function runFfmpeg(args: string[], options?: RunProcessOptions): Pr
   }
 }
 
+export interface FfmpegProgressRecord {
+  [key: string]: string
+}
+
+export interface RunFfmpegWithProgressOptions extends RunProcessOptions {
+  onProgress?: (record: FfmpegProgressRecord) => Promise<void> | void
+  statsPeriodSeconds?: number
+}
+
+export async function runFfmpegWithProgress(args: string[], options: RunFfmpegWithProgressOptions = {}): Promise<void> {
+  const bun = bunRuntime()
+  const command = ['ffmpeg', '-nostdin', '-progress', 'pipe:1', '-stats_period', String(options.statsPeriodSeconds ?? 0.5), ...args]
+  const proc = bun.spawn(command, {
+    cwd: options.cwd,
+    env: createProcessEnv(bun.env, options.env),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  const [code, stderr] = await Promise.all([
+    proc.exited,
+    readFfmpegProgressStream(proc.stdout, options.onProgress),
+    proc.stderr.text(),
+  ]).then(([exitCode, , stderrText]) => [exitCode, stderrText] as const)
+
+  if (code !== 0) {
+    throw new MediaCommandError(`ffmpeg failed with exit code ${code}`, command, stderr)
+  }
+}
+
 export async function runFfprobe(args: string[], options?: RunProcessOptions): Promise<string> {
   const command = ['ffprobe', ...args]
   const result = await runProcess(command, options)
@@ -30,6 +59,138 @@ export async function runFfprobe(args: string[], options?: RunProcessOptions): P
   }
 
   return result.stdout
+}
+
+export function parseFfmpegProgressOutput(output: string): FfmpegProgressRecord[] {
+  const records: FfmpegProgressRecord[] = []
+  let current: FfmpegProgressRecord = {}
+
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim()
+
+    if (line === '') {
+      continue
+    }
+
+    const separator = line.indexOf('=')
+
+    if (separator < 1) {
+      continue
+    }
+
+    const key = line.slice(0, separator)
+    const value = line.slice(separator + 1)
+
+    current[key] = value
+
+    if (key === 'progress') {
+      records.push({...current})
+
+      if (value === 'end') {
+        current = {}
+      }
+    }
+  }
+
+  return records
+}
+
+async function readFfmpegProgressStream(stream: BunReadableStream, onProgress: RunFfmpegWithProgressOptions['onProgress']): Promise<void> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let current: FfmpegProgressRecord = {}
+  let progressFlush = Promise.resolve()
+
+  /* eslint-disable no-await-in-loop */
+  while (true) {
+    const {done, value} = await reader.read()
+
+    if (done === true) {
+      break
+    }
+
+    if (value === undefined) {
+      continue
+    }
+
+    buffer += decoder.decode(value, {stream: true})
+
+    const parsed = parseFfmpegProgressBuffer(buffer, current)
+
+    buffer = parsed.buffer
+    current = parsed.current
+
+    progressFlush = progressFlush.then(() => emitFfmpegProgressRecords(parsed.records, onProgress))
+  }
+  /* eslint-enable no-await-in-loop */
+
+  buffer += decoder.decode()
+
+  if (buffer.trim() !== '') {
+    const parsed = parseFfmpegProgressBuffer(`${buffer}\n`, current)
+
+    progressFlush = progressFlush.then(() => emitFfmpegProgressRecords(parsed.records, onProgress))
+  }
+
+  await progressFlush
+}
+
+function parseFfmpegProgressBuffer(buffer: string, current: FfmpegProgressRecord): {buffer: string; current: FfmpegProgressRecord; records: FfmpegProgressRecord[]} {
+  const records: FfmpegProgressRecord[] = []
+  let rest = buffer
+  let nextCurrent = current
+  let index = rest.indexOf('\n')
+
+  while (index >= 0) {
+    const line = rest.slice(0, index).trim()
+
+    rest = rest.slice(index + 1)
+
+    if (line !== '') {
+      const separator = line.indexOf('=')
+
+      if (separator > 0) {
+        const key = line.slice(0, separator)
+        const value = line.slice(separator + 1)
+
+        nextCurrent[key] = value
+
+        if (key === 'progress') {
+          records.push({...nextCurrent})
+
+          if (value === 'end') {
+            nextCurrent = {}
+          }
+        }
+      }
+    }
+
+    index = rest.indexOf('\n')
+  }
+
+  return {
+    buffer: rest,
+    current: nextCurrent,
+    records,
+  }
+}
+
+async function emitFfmpegProgressRecords(records: FfmpegProgressRecord[], onProgress: RunFfmpegWithProgressOptions['onProgress']): Promise<void> {
+  if (onProgress === undefined || records.length === 0) {
+    return
+  }
+
+  await Promise.all(records.map((record) => onProgress(record)))
+}
+
+function createProcessEnv(baseEnv: Record<string, string | undefined>, env: Record<string, string> | undefined): Record<string, string> {
+  const entries = Object.entries({
+    ...baseEnv,
+    ...env,
+  }).filter((entry): entry is [string, string] => entry[1] !== undefined)
+
+  return Object.fromEntries(entries)
 }
 
 export async function extractFrames(input: string, framesPattern: string, fps = 1): Promise<void> {

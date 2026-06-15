@@ -1,7 +1,7 @@
 type BunProcess = {
   exited: Promise<number>
-  stderr: {text(): Promise<string>}
-  stdout: {text(): Promise<string>}
+  stderr: BunReadableStream
+  stdout: BunReadableStream
 }
 
 export interface MediaBun {
@@ -11,6 +11,15 @@ export interface MediaBun {
     env?: Record<string, string>
     stdio?: ['ignore' | Blob, 'pipe', 'pipe']
   }): BunProcess
+}
+
+export interface BunReadableStream {
+  getReader(): BunReadableStreamReader
+  text(): Promise<string>
+}
+
+export interface BunReadableStreamReader {
+  read(): Promise<{done?: boolean; value?: Uint8Array}>
 }
 
 export function bunRuntime(): MediaBun {

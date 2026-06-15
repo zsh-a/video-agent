@@ -106,11 +106,16 @@ describe('job runner', () => {
       expect(qualityReport.summary).to.deep.equal({errors: 0, warnings: 0})
 
       const providerCalls = await readJsonLines(result.artifacts.providerCalls)
+      const pipelineEvents = await readJsonLines(result.artifacts.pipelineEvents)
+      const progressEvents = pipelineEvents.filter((event) => event.type === 'stage:progress')
 
       expect(providerCalls.map((call) => call.role)).to.include.members(['asr', 'tts', 'vlm'])
       expect(providerCalls.every((call) => call.provider === 'mock')).to.equal(true)
       expect(providerCalls.every((call) => call.status === 'succeeded')).to.equal(true)
       expect(events).to.include.members(['stage:start:ingest', 'stage:complete:ingest', 'stage:start:understand', 'stage:complete:quality'])
+      expect(progressEvents.map((event) => `${event.stage}:${event.step}`)).to.include.members(['understand:asr', 'understand:vlm', 'voiceover:tts', 'quality:checks'])
+      expect(progressEvents.some((event) => event.unit === 'segments')).to.equal(true)
+      expect(progressEvents.every((event) => event.percent === undefined || (typeof event.percent === 'number' && event.percent >= 0 && event.percent <= 100))).to.equal(true)
       expect(providerCallSummaries).to.include.members(['asr:mock:transcribe:succeeded', 'vlm:mock:analyzeScenes:succeeded', 'tts:mock:synthesize:succeeded'])
 
       const manifest = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}

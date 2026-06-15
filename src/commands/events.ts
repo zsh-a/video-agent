@@ -13,7 +13,7 @@ export default class Events extends Command {
     role: Flags.string({description: 'Provider role filter', options: ['asr', 'tts', 'vlm']}),
     stage: Flags.string({description: 'Pipeline stage filter'}),
     status: Flags.string({description: 'Provider status filter', options: ['failed', 'succeeded']}),
-    type: Flags.string({description: 'Pipeline event type filter', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start']}),
+    type: Flags.string({description: 'Pipeline event type filter', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -51,9 +51,10 @@ function formatEvent(record: ProjectEventRecord): string {
     const level = record.event.level === undefined ? '' : `\t${record.event.level}`
     const message = record.event.message === undefined ? '' : `\t${record.event.message}`
     const artifact = record.event.artifact?.path === undefined ? '' : `\tpath=${record.event.artifact.path}`
+    const progress = formatProgress(record.event)
     const data = formatData(record.event.data)
 
-    return `${record.time}\tpipeline\t${record.event.type}${stage}${level}${message}${artifact}${data}`
+    return `${record.time}\tpipeline\t${record.event.type}${stage}${level}${message}${artifact}${progress}${data}`
   }
 
   const error = record.event.error === undefined ? '' : `\terror=${record.event.error.message}`
@@ -63,6 +64,17 @@ function formatEvent(record: ProjectEventRecord): string {
   const summary = formatData(record.event.status === 'succeeded' ? record.event.output : record.event.input)
 
   return `${record.time}\tprovider\t${record.event.role}\t${record.event.provider}\t${record.event.operation}\t${record.event.status}\t${record.event.durationMs}ms${request}${model}${usage}${summary}${error}`
+}
+
+function formatProgress(event: Extract<ProjectEventRecord, {kind: 'pipeline'}>['event']): string {
+  const values = {
+    current: event.current,
+    percent: event.percent,
+    total: event.total,
+    unit: event.unit,
+  }
+
+  return formatData(Object.fromEntries(Object.entries(values).filter((entry) => entry[1] !== undefined)))
 }
 
 function formatData(data: object | undefined, prefix = ''): string {

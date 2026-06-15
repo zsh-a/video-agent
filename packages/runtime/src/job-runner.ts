@@ -358,10 +358,25 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       const transcript = TranscriptSchema.parse(await ingest.providers.asr.transcribe({
         path: asrInputPath,
       }))
+      await emitProgress(ctx, {
+        current: transcript.segments.length,
+        message: 'ASR transcript segments completed.',
+        stage: 'understand',
+        step: 'asr',
+        unit: 'segments',
+      })
       await emitStep(ctx, {data: summarizeTranscriptForLog(transcript), message: 'Transcript completed.', stage: 'understand', step: 'asr'})
       const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, ingest.artifacts.frames)
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
       const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches))
+      await emitProgress(ctx, {
+        current: sceneAnalysis.length,
+        message: 'VLM scene batches completed.',
+        stage: 'understand',
+        step: 'vlm',
+        total: sceneBatches.length,
+        unit: 'segments',
+      })
       await emitStep(ctx, {data: summarizeVlmScenesForLog(sceneAnalysis), message: 'Visual scene analysis completed.', stage: 'understand', step: 'vlm'})
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
@@ -475,6 +490,14 @@ function createVoiceoverStage(): Stage<InitialStageInput, InitialStageOutput> {
       const scripted = input as ScriptOutput
       await emitStep(ctx, {data: summarizeNarrationForLog(scripted.narration), message: 'Synthesizing voiceover manifest.', stage: 'voiceover', step: 'tts'})
       const ttsSegments = TtsSegmentsSchema.parse(await scripted.providers.tts.synthesize(scripted.narration.segments))
+      await emitProgress(ctx, {
+        current: ttsSegments.length,
+        message: 'TTS segments completed.',
+        stage: 'voiceover',
+        step: 'tts',
+        total: scripted.narration.segments.length,
+        unit: 'segments',
+      })
       await emitStep(ctx, {data: summarizeTtsSegmentsForLog(ttsSegments), message: 'Voiceover manifest completed.', stage: 'voiceover', step: 'tts'})
 
       await scripted.workspace.store.writeJson('tts-segments.json', ttsSegments)
@@ -510,6 +533,13 @@ function createQualityStage(): Stage<InitialStageInput, InitialStageOutput> {
         ...checkNarrationTiming(voiced.narration, voiced.timeline),
         ...checkTtsCoverage(voiced.narration, voiced.ttsSegments),
       ]
+      await emitProgress(ctx, {
+        current: 5,
+        message: 'Quality check groups completed.',
+        stage: 'quality',
+        step: 'checks',
+        total: 5,
+      })
       const qualityReport = {
         checkedAt: new Date().toISOString(),
         issues,
@@ -548,6 +578,16 @@ interface RuntimeStepEvent {
   step: string
 }
 
+interface RuntimeProgressEvent {
+  current?: number
+  message?: string
+  percent?: number
+  stage: InitialPipelineStage
+  step?: string
+  total?: number
+  unit?: PipelineEvent['unit']
+}
+
 async function emitStep(ctx: PipelineContext, event: RuntimeStepEvent): Promise<void> {
   await ctx.emit({
     data: event.data ?? {},
@@ -558,6 +598,22 @@ async function emitStep(ctx: PipelineContext, event: RuntimeStepEvent): Promise<
     step: event.step,
     time: new Date().toISOString(),
     type: 'log',
+  })
+}
+
+async function emitProgress(ctx: PipelineContext, event: RuntimeProgressEvent): Promise<void> {
+  await ctx.emit({
+    current: event.current,
+    level: 'info',
+    message: event.message,
+    percent: normalizePercent(event),
+    projectId: ctx.projectId,
+    stage: event.stage,
+    step: event.step,
+    time: new Date().toISOString(),
+    total: event.total,
+    type: 'stage:progress',
+    unit: event.unit,
   })
 }
 
@@ -575,6 +631,26 @@ async function emitArtifact(ctx: PipelineContext, stage: InitialPipelineStage, p
     time: new Date().toISOString(),
     type: 'artifact',
   })
+}
+
+function normalizePercent(event: RuntimeProgressEvent): number | undefined {
+  if (event.percent !== undefined) {
+    return clampPercent(event.percent)
+  }
+
+  if (event.current === undefined || event.total === undefined || event.total <= 0) {
+    return undefined
+  }
+
+  return clampPercent((event.current / event.total) * 100)
+}
+
+function clampPercent(percent: number): number | undefined {
+  if (!Number.isFinite(percent)) {
+    return undefined
+  }
+
+  return Math.min(100, Math.max(0, percent))
 }
 
 function summarizeMediaInfo(mediaInfo: MediaInfo): Record<string, unknown> {

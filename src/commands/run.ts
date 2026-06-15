@@ -104,6 +104,10 @@ class RunVerboseLogger {
       return `[pipeline] ${stage} retrying${attempt}${delay}${formatMessage(event.message)}`
     }
 
+    if (event.type === 'stage:progress') {
+      return `[pipeline] ${stage} progress${formatProgress(event)}${formatMessage(event.message)}`
+    }
+
     if (event.type === 'stage:fail') {
       return `[pipeline] ${stage} failed${attempt}${this.formatStageDuration(event)}${formatMessage(event.message)}`
     }
@@ -210,6 +214,17 @@ function formatMessage(message: string | undefined): string {
   return message === undefined ? '' : ` message=${quoteValue(message)}`
 }
 
+function formatProgress(event: PipelineEvent): string {
+  const parts = [
+    ...(event.current === undefined ? [] : [`current=${event.current}`]),
+    ...(event.total === undefined ? [] : [`total=${event.total}`]),
+    ...(event.percent === undefined ? [] : [`percent=${formatPercent(event.percent)}`]),
+    ...(event.unit === undefined ? [] : [`unit=${event.unit}`]),
+  ]
+
+  return parts.length === 0 ? '' : ` ${parts.join(' ')}`
+}
+
 function formatData(data: Record<string, unknown> | undefined): string {
   if (data === undefined || Object.keys(data).length === 0) {
     return ''
@@ -268,6 +283,10 @@ function formatDuration(ms: number): string {
   }
 
   return `${(ms / 1000).toFixed(1)}s`
+}
+
+function formatPercent(percent: number): string {
+  return Number.isInteger(percent) ? String(percent) : percent.toFixed(1)
 }
 
 function stageAttemptKey(event: PipelineEvent): string {

@@ -18,6 +18,7 @@ describe('project events', () => {
         join(artifactsDir, 'pipeline-events.jsonl'),
         [
           JSON.stringify({projectId: 'demo', stage: 'ingest', time: '2026-01-01T00:00:00.000Z', type: 'stage:start'}),
+          JSON.stringify({current: 5, percent: 50, projectId: 'demo', stage: 'understand', time: '2026-01-01T00:00:01.500Z', total: 10, type: 'stage:progress', unit: 'segments'}),
           JSON.stringify({projectId: 'demo', stage: 'quality', time: '2026-01-01T00:00:03.000Z', type: 'stage:complete'}),
         ].join('\n'),
       )
@@ -41,18 +42,32 @@ describe('project events', () => {
         pipelineType: 'stage:start',
         workspaceDir: root,
       })
+      const progress = await readProjectEvents('demo', {
+        kind: 'pipeline',
+        pipelineType: 'stage:progress',
+        workspaceDir: root,
+      })
       const limited = await readProjectEvents('demo', {
         limit: 2,
         workspaceDir: root,
       })
 
-      expect(all.events.map((event) => event.kind)).to.deep.equal(['pipeline', 'provider', 'provider', 'pipeline'])
+      expect(all.events.map((event) => event.kind)).to.deep.equal(['pipeline', 'provider', 'pipeline', 'provider', 'pipeline'])
       expect(failedProviders.events).to.have.length(1)
       expect(failedProviders.events[0].kind).to.equal('provider')
       expect(ingestStarts.events).to.have.length(1)
       expect(ingestStarts.events[0]).to.deep.include({
         kind: 'pipeline',
         time: '2026-01-01T00:00:00.000Z',
+      })
+      expect(progress.events).to.have.length(1)
+      expect(progress.events[0].kind).to.equal('pipeline')
+      expect(progress.events[0].event).to.deep.include({
+        current: 5,
+        percent: 50,
+        total: 10,
+        type: 'stage:progress',
+        unit: 'segments',
       })
       expect(limited.events.map((event) => event.time)).to.deep.equal(['2026-01-01T00:00:02.000Z', '2026-01-01T00:00:03.000Z'])
     } finally {
