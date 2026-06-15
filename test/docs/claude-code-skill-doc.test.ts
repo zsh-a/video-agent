@@ -1,13 +1,13 @@
 import {expect} from '#test/expect'
-import {readFile} from 'node:fs/promises'
+import {readText} from '#test/fs'
 import {resolve} from 'node:path'
 
 describe('Claude Code skill docs', () => {
   it('documents install and distribution paths for the skill adapter', async () => {
-    const doc = await readFile(resolve('docs', 'claude-code-skill.md'), 'utf8')
-    const checks = await readFile(resolve('docs', 'agent-client-checks.md'), 'utf8')
-    const providerRecipes = await readFile(resolve('docs', 'provider-adapter-recipes.md'), 'utf8')
-    const readme = await readFile(resolve('README.md'), 'utf8')
+    const doc = await readText(resolve('docs', 'claude-code-skill.md'))
+    const checks = await readText(resolve('docs', 'agent-client-checks.md'))
+    const providerRecipes = await readText(resolve('docs', 'provider-adapter-recipes.md'))
+    const readme = await readText(resolve('README.md'))
 
     expect(doc).to.include('adapters/claude-code-skill/video-agent')
     expect(doc).to.include('cp -R adapters/claude-code-skill/video-agent')

@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -17,7 +18,7 @@ describe('LLM media providers', () => {
     let request: GenerateTextRequest | undefined
 
     try {
-      await writeFile(audioPath, 'fake-audio')
+      await writeText(audioPath, 'fake-audio')
 
       const transcript = await new MimoASRProvider({
         async generateObject() {

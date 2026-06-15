@@ -3,7 +3,7 @@ import {probeMedia} from '@video-agent/media'
 import {createProjectWorkspace} from '@video-agent/runtime'
 import {resolve} from 'node:path'
 
-import {bunFile} from '../bun-runtime.js'
+import {assertFileExists} from '../bun-runtime.js'
 
 export default class Inspect extends Command {
   static args = {
@@ -20,7 +20,7 @@ export default class Inspect extends Command {
     const {args, flags} = await this.parse(Inspect)
     const inputPath = resolve(args.input)
 
-    await assertInputExists(inputPath)
+    await assertFileExists(inputPath)
 
     const workspace = await createProjectWorkspace({
       inputPath,
@@ -50,12 +50,4 @@ export default class Inspect extends Command {
     this.log(`Duration: ${mediaInfo.duration ?? 'unknown'}s`)
     this.log(`Streams: ${mediaInfo.streams.length}`)
   }
-}
-
-async function assertInputExists(path: string): Promise<void> {
-  if (await bunFile(path).exists()) {
-    return
-  }
-
-  throw Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), {code: 'ENOENT'})
 }

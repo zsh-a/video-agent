@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -35,7 +36,7 @@ describe('provider environment', () => {
       await writeConfig(root, {asr: 'command'})
 
       const report = await readProviderEnvironment(root, {
-        VIDEO_AGENT_ASR_COMMAND: '["node","asr.js"]',
+        VIDEO_AGENT_ASR_COMMAND: '["bun","examples/provider-adapters/mock-json-provider.ts"]',
       })
       const asr = report.providers.find((provider) => provider.role === 'asr')
 
@@ -65,7 +66,7 @@ describe('provider environment', () => {
 
     try {
       await writeConfig(root, {asr: 'command'})
-      await writeFile(join(root, '.env'), 'VIDEO_AGENT_ASR_COMMAND=\'["node","asr.js"]\'\n')
+      await writeText(join(root, '.env'), 'VIDEO_AGENT_ASR_COMMAND=\'["bun","examples/provider-adapters/mock-json-provider.ts"]\'\n')
 
       const report = await readProviderEnvironment(root)
       const asr = report.providers.find((provider) => provider.role === 'asr')
@@ -88,7 +89,7 @@ describe('provider environment', () => {
 
     try {
       await writeConfig(root, {asr: 'command'})
-      await writeFile(join(root, '.env'), 'VIDEO_AGENT_ASR_COMMAND=\'["node","asr.js"]\'\n')
+      await writeText(join(root, '.env'), 'VIDEO_AGENT_ASR_COMMAND=\'["bun","examples/provider-adapters/mock-json-provider.ts"]\'\n')
 
       const report = await readProviderEnvironment(root, {})
       const asr = report.providers.find((provider) => provider.role === 'asr')
@@ -139,7 +140,7 @@ describe('provider environment', () => {
       })
 
       const report = await readProviderEnvironment(root, {
-        VIDEO_AGENT_ASR_COMMAND: '["node","secret-asr.js"]',
+        VIDEO_AGENT_ASR_COMMAND: '["bun","secret-asr.ts"]',
       })
       const template = createProviderEnvironmentShellTemplate(report)
 

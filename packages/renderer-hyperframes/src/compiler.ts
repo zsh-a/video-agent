@@ -1,7 +1,9 @@
 import type {Narration, Storyboard, Timeline} from '@video-agent/ir'
 
-import {mkdir, writeFile} from 'node:fs/promises'
+import {mkdir} from 'node:fs/promises'
 import {resolve} from 'node:path'
+
+import {bunWrite} from './bun-runtime.js'
 
 export interface HyperframesRenderPlan {
   assetsDir: string
@@ -48,9 +50,9 @@ export async function writeHyperframesProject(input: WriteHyperframesProjectInpu
   })
 
   await mkdir(assetsDir, {recursive: true})
-  await writeFile(planPath, `${JSON.stringify(plan, null, 2)}\n`)
-  await writeFile(stylesPath, createStyles())
-  await writeFile(entryHtml, createHtml(plan))
+  await bunWrite(planPath, `${JSON.stringify(plan, null, 2)}\n`)
+  await bunWrite(stylesPath, createStyles())
+  await bunWrite(entryHtml, createHtml(plan))
 
   return {
     entryHtml,

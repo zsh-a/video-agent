@@ -2,6 +2,7 @@ import {stat} from 'node:fs/promises'
 import {isAbsolute, relative, resolve} from 'node:path'
 
 import {bunFile} from './bun-runtime.js'
+import {readOptionalJson} from './file-io.js'
 
 export interface ProjectVisualSamplesOptions {
   includeContent?: boolean
@@ -42,15 +43,7 @@ export async function readProjectVisualSamples(projectId: string, options: Proje
 }
 
 async function readRenderOutput(projectDir: string): Promise<RenderOutputLike | undefined> {
-  try {
-    return JSON.parse(await bunFile(resolve(projectDir, 'artifacts', 'render-output.json')).text()) as RenderOutputLike
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return undefined
-    }
-
-    throw error
-  }
+  return readOptionalJson<RenderOutputLike>(resolve(projectDir, 'artifacts', 'render-output.json'))
 }
 
 function readFrameSamples(renderOutput: RenderOutputLike | undefined): VisualFrameSampleLike[] {

@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, unlink, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdir, mkdtemp, rm, unlink} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -14,8 +15,8 @@ describe('artifacts', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
-      await writeFile(join(artifactsDir, 'pipeline-events.jsonl'), '{}\n')
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await writeText(join(artifactsDir, 'pipeline-events.jsonl'), '{}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const artifacts = await listProjectArtifacts('demo', root)
@@ -37,8 +38,8 @@ describe('artifacts', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(join(artifactsDir, 'media-info.json'), `${JSON.stringify(createMediaInfoArtifact())}\n`)
-      await writeFile(join(artifactsDir, 'pipeline-events.jsonl'), '{}\n')
+      await writeText(join(artifactsDir, 'media-info.json'), `${JSON.stringify(createMediaInfoArtifact())}\n`)
+      await writeText(join(artifactsDir, 'pipeline-events.jsonl'), '{}\n')
       await refreshArtifactManifest(artifactsDir)
 
       expect(await verifyProjectArtifacts('demo', root)).to.include({
@@ -55,9 +56,9 @@ describe('artifacts', () => {
         warnings: 0,
       })
 
-      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":2}\n')
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":2}\n')
       await unlink(join(artifactsDir, 'pipeline-events.jsonl'))
-      await writeFile(join(artifactsDir, 'extra.json'), '{}\n')
+      await writeText(join(artifactsDir, 'extra.json'), '{}\n')
 
       const result = await verifyProjectArtifacts('demo', root)
 
@@ -86,7 +87,7 @@ describe('artifacts', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const result = await verifyProjectArtifacts('demo', root)
@@ -111,7 +112,7 @@ describe('artifacts', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(join(artifactsDir, 'transcript.json'), '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}\n')
+      await writeText(join(artifactsDir, 'transcript.json'), '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const result = await verifyProjectArtifacts('demo', root)

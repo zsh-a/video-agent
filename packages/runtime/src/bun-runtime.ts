@@ -9,7 +9,11 @@ export interface RuntimeBun {
   env: Record<string, string | undefined>
   file(path: string): RuntimeBunFile
   version?: string
-  write(path: string, data: string): Promise<number>
+  write(path: string, data: Blob | RuntimeBunFile | string | Uint8Array): Promise<number>
+}
+
+export async function bunCopyFile(sourcePath: string, targetPath: string): Promise<void> {
+  await bunRuntime().write(targetPath, bunFile(sourcePath))
 }
 
 export function bunEnv(): Record<string, string | undefined> {
@@ -30,6 +34,6 @@ export function bunRuntime(): RuntimeBun {
   return bun
 }
 
-export async function bunWrite(path: string, data: string): Promise<void> {
+export async function bunWrite(path: string, data: Blob | RuntimeBunFile | string | Uint8Array): Promise<void> {
   await bunRuntime().write(path, data)
 }

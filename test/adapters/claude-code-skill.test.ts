@@ -1,10 +1,10 @@
 import {expect} from '#test/expect'
-import {readFile} from 'node:fs/promises'
+import {readText} from '#test/fs'
 import {resolve} from 'node:path'
 
 describe('Claude Code skill adapter', () => {
   it('documents the video-agent CLI, MCP, and Studio workflows', async () => {
-    const skill = await readFile(resolve('adapters', 'claude-code-skill', 'video-agent', 'SKILL.md'), 'utf8')
+    const skill = await readText(resolve('adapters', 'claude-code-skill', 'video-agent', 'SKILL.md'))
 
     expect(skill).to.include('name: video-agent')
     expect(skill).to.include('description: Operate the video-agent Bun/TypeScript video workflow')

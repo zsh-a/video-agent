@@ -10,6 +10,7 @@ import type {ArtifactManifest} from './artifact-store.js'
 
 import {ARTIFACT_MANIFEST_NAME} from './artifact-store.js'
 import {bunFile} from './bun-runtime.js'
+import {readOptionalJson} from './file-io.js'
 
 export interface ProjectArtifact {
   kind: 'json' | 'log' | 'other'
@@ -251,15 +252,7 @@ function summarizeArtifactIntegrity(result: {
 }
 
 async function readArtifactManifest(artifactsDir: string): Promise<ArtifactManifest | undefined> {
-  try {
-    return JSON.parse(await bunFile(resolve(artifactsDir, ARTIFACT_MANIFEST_NAME)).text()) as ArtifactManifest
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return undefined
-    }
-
-    throw error
-  }
+  return readOptionalJson<ArtifactManifest>(resolve(artifactsDir, ARTIFACT_MANIFEST_NAME))
 }
 
 function inferArtifactKind(name: string): ProjectArtifact['kind'] {

@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -58,7 +59,7 @@ describe('project quality', () => {
         projectId: 'demo',
         stages: ['ingest'],
       })
-      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const report = await readProjectQuality('demo', root)
@@ -85,7 +86,7 @@ async function createProject(root: string, projectId: string): Promise<void> {
     projectId,
     stages: ['ingest', 'quality'],
   })
-  await writeFile(
+  await writeText(
     join(artifactsDir, 'quality-report.json'),
     `${JSON.stringify({
       issues: [
@@ -107,7 +108,7 @@ async function createProject(root: string, projectId: string): Promise<void> {
       version: 1,
     })}\n`,
   )
-  await writeFile(
+  await writeText(
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
       audioDiagnostics: {
@@ -140,5 +141,5 @@ async function createProject(root: string, projectId: string): Promise<void> {
     })}\n`,
   )
   await refreshArtifactManifest(artifactsDir)
-  await writeFile(join(artifactsDir, 'untracked.json'), '{}\n')
+  await writeText(join(artifactsDir, 'untracked.json'), '{}\n')
 }

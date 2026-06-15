@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {readJson, writeText} from '#test/fs'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -47,7 +48,7 @@ describe('config', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-config-'))
 
     try {
-      await writeFile(
+      await writeText(
         join(root, 'config.json'),
         `${JSON.stringify({
           providers: {
@@ -187,7 +188,7 @@ describe('config', () => {
         name: 'mimo',
         provider: 'anthropic',
       })
-      expect(JSON.parse(await readFile(join(root, 'config.json'), 'utf8'))).to.deep.equal({
+      expect(await readJson(join(root, 'config.json'))).to.deep.equal({
         providerProfile: 'mimo',
         version: 1,
       })

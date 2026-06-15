@@ -4,7 +4,7 @@ import type {ArtifactIntegrityResult} from './artifacts.js'
 import type {ProjectStatus, QualitySummary, RenderSummary} from './project-status.js'
 
 import {verifyProjectArtifacts} from './artifacts.js'
-import {bunFile} from './bun-runtime.js'
+import {readOptionalJson as readOptionalJsonFile} from './file-io.js'
 import {readProjectStatus} from './project-status.js'
 
 export interface ProjectQualityReport {
@@ -43,8 +43,8 @@ export async function readProjectQualityDetails(projectId: string, workspaceDir 
 
   return {
     ...report,
-    ...(await readOptionalJson(resolve(artifactsDir, 'quality-report.json'), 'qualityReport')),
-    ...(await readOptionalJson(resolve(artifactsDir, 'render-output.json'), 'renderOutput')),
+    ...(await readOptionalJsonProperty(resolve(artifactsDir, 'quality-report.json'), 'qualityReport')),
+    ...(await readOptionalJsonProperty(resolve(artifactsDir, 'render-output.json'), 'renderOutput')),
   }
 }
 
@@ -74,16 +74,8 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
   }
 }
 
-async function readOptionalJson<T extends string>(path: string, key: T): Promise<Record<string, never> | Record<T, unknown>> {
-  try {
-    return {
-      [key]: JSON.parse(await bunFile(path).text()) as unknown,
-    } as Record<T, unknown>
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return {}
-    }
+async function readOptionalJsonProperty<T extends string>(path: string, key: T): Promise<Record<string, never> | Record<T, unknown>> {
+  const value = await readOptionalJsonFile(path)
 
-    throw error
-  }
+  return value === undefined ? {} : {[key]: value} as Record<T, unknown>
 }

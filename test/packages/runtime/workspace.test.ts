@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, readFile, rm} from 'node:fs/promises'
+import {readJson} from '#test/fs'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -22,7 +23,7 @@ describe('workspace', () => {
       })
       const artifactPath = await workspace.store.writeJson('example.json', {ok: true})
       const artifact = await workspace.store.readJson<{ok: boolean}>('example.json')
-      const manifest = JSON.parse(await readFile(join(workspace.artifactsDir, 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}
+      const manifest = await readJson<{artifacts: Array<{name: string; sha256: string}>}>(join(workspace.artifactsDir, 'artifact-manifest.json'))
 
       expect(workspace.projectId).to.equal('demo')
       expect(artifactPath).to.contain('example.json')

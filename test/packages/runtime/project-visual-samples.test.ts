@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -46,7 +47,7 @@ describe('project visual samples', () => {
     try {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(
+      await writeText(
         join(artifactsDir, 'render-output.json'),
         `${JSON.stringify({
           visualQuality: {
@@ -77,8 +78,8 @@ async function createVisualSampleProject(root: string, projectId: string): Promi
 
   await mkdir(artifactsDir, {recursive: true})
   await mkdir(rendersDir, {recursive: true})
-  await writeFile(join(rendersDir, 'final-frame-first.jpg'), 'first')
-  await writeFile(
+  await writeText(join(rendersDir, 'final-frame-first.jpg'), 'first')
+  await writeText(
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
       visualQuality: {

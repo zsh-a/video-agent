@@ -5,8 +5,8 @@ import {resolve} from 'node:path'
 
 import type {ProviderCallRecord, ProviderCallRole} from './provider-calls.js'
 
-import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
+import {readJsonLines, readOptionalJson} from './file-io.js'
 import {createConfiguredJobStore} from './job-store.js'
 
 export interface ProjectStatus {
@@ -176,37 +176,11 @@ function sumProviderCosts(calls: ProviderCallRecord[]): Record<string, number> {
   return costs
 }
 
-async function readJsonLines<T>(path: string): Promise<T[]> {
-  let text: string
-
-  try {
-    text = await bunFile(path).text()
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return []
-    }
-
-    throw error
-  }
-
-  return text
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T)
-}
-
 async function readQualitySummary(path: string): Promise<QualitySummary> {
-  let report: QualityReportLike
+  const report = await readOptionalJson<QualityReportLike>(path)
 
-  try {
-    report = JSON.parse(await bunFile(path).text()) as QualityReportLike
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return createEmptyQualitySummary()
-    }
-
-    throw error
+  if (report === undefined) {
+    return createEmptyQualitySummary()
   }
 
   if (isQualitySummary(report.summary)) {
@@ -243,15 +217,7 @@ async function readRenderSummary(path: string): Promise<RenderSummary> {
 }
 
 async function readOptionalRenderOutput(path: string): Promise<RenderOutputLike | undefined> {
-  try {
-    return JSON.parse(await bunFile(path).text()) as RenderOutputLike
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return undefined
-    }
-
-    throw error
-  }
+  return readOptionalJson<RenderOutputLike>(path)
 }
 
 function createRenderSummary(report: RenderOutputLike): RenderSummary {

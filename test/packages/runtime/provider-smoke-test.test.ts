@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeBytes} from '#test/fs'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -106,7 +107,7 @@ describe('provider smoke test', () => {
 
     try {
       await writeConfig(root, {providerProfile: 'mimo'})
-      await writeFile(audioPath, Buffer.from([1, 2, 3]))
+      await writeBytes(audioPath, Buffer.from([1, 2, 3]))
 
       Reflect.set(globalThis, 'fetch', async (_input: unknown, init: undefined | {body?: unknown}) => {
         requestBody = JSON.parse(String(init?.body)) as unknown

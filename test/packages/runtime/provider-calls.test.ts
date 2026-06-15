@@ -1,6 +1,7 @@
 import {expect} from '#test/expect'
+import {readJsonLines} from '#test/fs'
 import {attachProviderMetadata, type ProviderSet} from '@video-agent/providers'
-import {mkdtemp, readFile, rm} from 'node:fs/promises'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -56,7 +57,7 @@ describe('provider call recorder', () => {
     try {
       await providers.asr.transcribe({path: '/tmp/audio.wav'})
 
-      const [call] = (await readFile(path, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>)
+      const [call] = await readJsonLines<Record<string, unknown>>(path)
 
       expect(call.requestId).to.equal('req-asr-1')
       expect(call.model).to.equal('asr-test')
@@ -108,7 +109,7 @@ describe('provider call recorder', () => {
     } catch (error) {
       expect(error).to.be.instanceOf(Error)
     } finally {
-      const [call] = (await readFile(path, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as Record<string, unknown>)
+      const [call] = await readJsonLines<Record<string, unknown>>(path)
 
       expect(call.status).to.equal('failed')
       expect(call.role).to.equal('asr')

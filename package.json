@@ -47,7 +47,8 @@
   ],
   "homepage": "https://github.com/zs/video-agent",
   "imports": {
-    "#test/expect": "./test/support/expect.ts"
+    "#test/expect": "./test/support/expect.ts",
+    "#test/fs": "./test/support/fs.ts"
   },
   "keywords": [
     "agent",

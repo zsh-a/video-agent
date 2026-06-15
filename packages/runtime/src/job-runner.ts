@@ -18,6 +18,7 @@ import {verifyProjectArtifacts} from './artifacts.js'
 import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {readRuntimeEnv} from './env.js'
+import {assertFileExists} from './file-io.js'
 import {createConfiguredJobStore} from './job-store.js'
 import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecord, type ProviderCallRecorder, type ProviderCallStartRecord} from './provider-calls.js'
 import {createProviderEnv} from './provider-settings.js'
@@ -147,7 +148,7 @@ export class PipelineCheckpointError extends Error {
 export async function runInitialPipeline(options: RunInitialPipelineOptions): Promise<RunInitialPipelineResult> {
   const inputPath = resolve(options.inputPath)
 
-  await assertBunFileExists(inputPath)
+  await assertFileExists(inputPath)
 
   const workspace = await createProjectWorkspace({
     inputPath,
@@ -778,14 +779,6 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
       untrackedArtifacts,
     })
   }
-}
-
-async function assertBunFileExists(path: string): Promise<void> {
-  if (await bunFile(path).exists()) {
-    return
-  }
-
-  throw Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), {code: 'ENOENT'})
 }
 
 async function appendEvent(path: string, event: PipelineEvent): Promise<void> {

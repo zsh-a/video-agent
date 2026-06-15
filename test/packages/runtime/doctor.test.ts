@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -171,7 +172,7 @@ describe('doctor', () => {
 
     try {
       await writeConfig(root, {providerProfile: 'mimo'})
-      await writeFile(join(root, '.env'), 'VIDEO_AGENT_LLM_TOKEN=dotenv-token\n')
+      await writeText(join(root, '.env'), 'VIDEO_AGENT_LLM_TOKEN=dotenv-token\n')
 
       const report = await checkRuntimeHealth({
         binaries: {

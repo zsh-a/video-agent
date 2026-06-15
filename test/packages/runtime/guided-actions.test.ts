@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -87,5 +88,5 @@ async function createProject(root: string, projectId: string): Promise<void> {
     stages: ['ingest', 'quality'],
   })
   await store.updateStage('ingest', 'completed')
-  await writeFile(join(artifactsDir, 'quality report.json'), '{"ok":true}\n')
+  await writeText(join(artifactsDir, 'quality report.json'), '{"ok":true}\n')
 }

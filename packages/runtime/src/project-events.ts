@@ -4,7 +4,7 @@ import {resolve} from 'node:path'
 
 import type {ProviderCallRecord, ProviderCallRole, ProviderCallStatus} from './provider-calls.js'
 
-import {bunFile} from './bun-runtime.js'
+import {readJsonLines} from './file-io.js'
 
 export type ProjectEventKind = 'pipeline' | 'provider'
 export type ProjectPipelineEventType = PipelineEvent['type']
@@ -64,24 +64,4 @@ function matchesPipelineFilter(event: PipelineEvent, options: ReadProjectEventsO
 
 function matchesProviderFilter(event: ProviderCallRecord, options: ReadProjectEventsOptions): boolean {
   return (options.providerRole === undefined || event.role === options.providerRole) && (options.providerStatus === undefined || event.status === options.providerStatus)
-}
-
-async function readJsonLines<T>(path: string): Promise<T[]> {
-  let text: string
-
-  try {
-    text = await bunFile(path).text()
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return []
-    }
-
-    throw error
-  }
-
-  return text
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as T)
 }

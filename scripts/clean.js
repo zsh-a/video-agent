@@ -5,7 +5,7 @@ import {rm} from 'node:fs/promises'
 
 const paths = new Set(['dist', 'tsconfig.tsbuildinfo'])
 const matches = await Promise.all(
-  ['packages/*/dist', 'packages/*/*.tsbuildinfo'].map((pattern) => Array.fromAsync(new Glob(pattern).scan({cwd: process.cwd(), onlyFiles: false}))),
+  ['packages/*/dist', 'packages/*/*.tsbuildinfo'].map((pattern) => Array.fromAsync(new Glob(pattern).scan({cwd: Bun.cwd, onlyFiles: false}))),
 )
 
 for (const path of matches.flat()) {

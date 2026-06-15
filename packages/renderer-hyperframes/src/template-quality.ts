@@ -1,6 +1,8 @@
 import type {Narration, Storyboard, Timeline} from '@video-agent/ir'
 
-import {readFile, stat} from 'node:fs/promises'
+import {stat} from 'node:fs/promises'
+
+import {bunFile} from './bun-runtime.js'
 
 export interface HyperframesTemplateQualityResult {
   errors: number
@@ -49,7 +51,7 @@ export async function checkHyperframesTemplateProject(input: CheckHyperframesTem
 
 async function readRequiredText(path: string, code: string, message: string, issues: HyperframesTemplateIssue[]): Promise<string | undefined> {
   try {
-    const [content, info] = await Promise.all([readFile(path, 'utf8'), stat(path)])
+    const [content, info] = await Promise.all([bunFile(path).text(), stat(path)])
 
     if (info.size === 0 || content.trim().length === 0) {
       issues.push({

@@ -370,13 +370,13 @@ function envFlagArgs(env: Record<string, string>): string[] {
 
 async function runCli(args: string[]): Promise<{code: number; stderr: string; stdout: string}> {
   return runProcess(['bun', './bin/dev.js', ...args], {
-    cwd: process.cwd(),
+    cwd: Bun.cwd,
   })
 }
 
 async function expectCommand(command: string[], env?: Record<string, string>): Promise<{stderr: string; stdout: string}> {
   const result = await runProcess(command, {
-    cwd: process.cwd(),
+    cwd: Bun.cwd,
     env,
   })
 

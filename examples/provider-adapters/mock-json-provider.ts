@@ -1,5 +1,3 @@
-import {readFileSync} from 'node:fs'
-
 interface ProviderEnvelope {
   data: unknown
   metadata: {
@@ -9,7 +7,7 @@ interface ProviderEnvelope {
   }
 }
 
-const payload = parsePayload(readFileSync(0, 'utf8'))
+const payload = parsePayload(await Bun.stdin.text())
 const kind = typeof payload.kind === 'string' ? payload.kind : 'unknown'
 
 switch (kind) {
@@ -73,7 +71,7 @@ function emit(data: unknown, usage: Record<string, number>): void {
     },
   }
 
-  process.stdout.write(`${JSON.stringify(envelope)}\n`)
+  console.log(JSON.stringify(envelope))
 }
 
 function parsePayload(text: string): Record<string, unknown> {

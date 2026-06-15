@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -13,14 +14,14 @@ describe('project events', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(
+      await writeText(
         join(artifactsDir, 'pipeline-events.jsonl'),
         [
           JSON.stringify({projectId: 'demo', stage: 'ingest', time: '2026-01-01T00:00:00.000Z', type: 'stage:start'}),
           JSON.stringify({projectId: 'demo', stage: 'quality', time: '2026-01-01T00:00:03.000Z', type: 'stage:complete'}),
         ].join('\n'),
       )
-      await writeFile(
+      await writeText(
         join(artifactsDir, 'provider-calls.jsonl'),
         [
           JSON.stringify({completedAt: '2026-01-01T00:00:01.000Z', durationMs: 100, input: {}, operation: 'transcribe', output: {}, provider: 'mock', role: 'asr', startedAt: '2026-01-01T00:00:00.900Z', status: 'succeeded', version: 1}),

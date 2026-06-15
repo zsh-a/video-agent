@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
+import {readText, writeText} from '#test/fs'
+import {mkdtemp, rm, stat} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -53,7 +54,7 @@ describe('hyperframes compiler', () => {
 
       expect(await fileSize(result.entryHtml)).to.be.greaterThan(0)
       expect(await fileSize(result.planPath)).to.be.greaterThan(0)
-      expect(await readFile(result.entryHtml, 'utf8')).to.contain('data-duration="1"')
+      expect(await readText(result.entryHtml)).to.contain('data-duration="1"')
       expect(await checkHyperframesTemplateProject({
         entryHtml: result.entryHtml,
         narration,
@@ -68,7 +69,7 @@ describe('hyperframes compiler', () => {
         warnings: 0,
       })
 
-      await writeFile(result.entryHtml, '<main class="stage" data-duration="2"></main>')
+      await writeText(result.entryHtml, '<main class="stage" data-duration="2"></main>')
       const quality = await checkHyperframesTemplateProject({
         entryHtml: result.entryHtml,
         narration,

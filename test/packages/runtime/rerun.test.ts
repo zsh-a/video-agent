@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {writeText} from '#test/fs'
+import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -17,7 +18,7 @@ describe('rerun project', () => {
 
     try {
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(inputPath, 'placeholder')
+      await writeText(inputPath, 'placeholder')
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath,
         projectId: 'demo',
@@ -46,7 +47,7 @@ describe('rerun project', () => {
 
     try {
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(inputPath, 'placeholder')
+      await writeText(inputPath, 'placeholder')
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath,
         projectId: 'demo',
@@ -82,7 +83,7 @@ describe('rerun project', () => {
 
     try {
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(inputPath, 'placeholder')
+      await writeText(inputPath, 'placeholder')
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath,
         projectId: 'demo',
@@ -90,7 +91,7 @@ describe('rerun project', () => {
       })
       await writeRequiredArtifacts(artifactsDir, inputPath)
       await refreshArtifactManifest(artifactsDir)
-      await writeFile(join(artifactsDir, 'timeline.json'), '{"version":1,"duration":999,"fps":30,"items":[]}\n')
+      await writeText(join(artifactsDir, 'timeline.json'), '{"version":1,"duration":999,"fps":30,"items":[]}\n')
 
       let error: unknown
 
@@ -121,14 +122,14 @@ describe('rerun project', () => {
 
     try {
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(inputPath, 'placeholder')
+      await writeText(inputPath, 'placeholder')
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath,
         projectId: 'demo',
         stages: ['quality'],
       })
       await writeRequiredArtifacts(artifactsDir, inputPath)
-      await writeFile(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await writeText(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
       await refreshArtifactManifest(artifactsDir)
 
       let error: unknown
@@ -158,14 +159,14 @@ describe('rerun project', () => {
 
     try {
       await mkdir(artifactsDir, {recursive: true})
-      await writeFile(inputPath, 'placeholder')
+      await writeText(inputPath, 'placeholder')
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath,
         projectId: 'demo',
         stages: ['plan'],
       })
       await writeRequiredArtifacts(artifactsDir, inputPath)
-      await writeFile(join(artifactsDir, 'transcript.json'), '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}\n')
+      await writeText(join(artifactsDir, 'transcript.json'), '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}\n')
       await refreshArtifactManifest(artifactsDir)
 
       let error: unknown
@@ -190,7 +191,7 @@ describe('rerun project', () => {
 
 async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): Promise<void> {
   await Promise.all([
-    writeFile(
+    writeText(
       join(artifactsDir, 'ingest-report.json'),
       `${JSON.stringify({
         artifacts: {},
@@ -200,7 +201,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'media-info.json'),
       `${JSON.stringify({
         duration: 1,
@@ -210,7 +211,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'scene-analysis.json'),
       `${JSON.stringify([
         {
@@ -220,14 +221,14 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         },
       ])}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'transcript.json'),
       `${JSON.stringify({
         segments: [],
         text: 'transcript',
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'storyboard.json'),
       `${JSON.stringify({
         language: 'zh-CN',
@@ -244,7 +245,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'clip-plan.json'),
       `${JSON.stringify({
         clips: [
@@ -263,7 +264,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'timeline.json'),
       `${JSON.stringify({
         duration: 1,
@@ -281,7 +282,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'narration.json'),
       `${JSON.stringify({
         language: 'zh-CN',
@@ -296,7 +297,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
-    writeFile(
+    writeText(
       join(artifactsDir, 'tts-segments.json'),
       `${JSON.stringify([
         {

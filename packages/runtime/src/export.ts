@@ -1,8 +1,9 @@
-import {copyFile, mkdir, readdir, rm, stat} from 'node:fs/promises'
+import {mkdir, readdir, rm, stat} from 'node:fs/promises'
 import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import type {ProjectQualityReport} from './project-quality.js'
 
+import {bunCopyFile} from './bun-runtime.js'
 import {readProjectQuality} from './project-quality.js'
 import {createProjectWorkspace} from './workspace.js'
 
@@ -60,7 +61,7 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
   await mkdir(dirname(outputPath), {recursive: true})
 
   if (format === 'video') {
-    await copyFile(sourcePath, outputPath)
+    await bunCopyFile(sourcePath, outputPath)
   } else {
     if (cleanOutput) {
       await rm(outputPath, {force: true, recursive: true})
@@ -161,7 +162,7 @@ async function copyDirectory(sourceDir: string, outputDir: string): Promise<void
     if (entry.isDirectory()) {
       await copyDirectory(sourcePath, outputPath)
     } else if (entry.isFile()) {
-      await copyFile(sourcePath, outputPath)
+      await bunCopyFile(sourcePath, outputPath)
     }
   }
   /* eslint-enable no-await-in-loop */
