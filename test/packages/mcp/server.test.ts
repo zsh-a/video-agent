@@ -247,9 +247,15 @@ describe('mcp server', () => {
       const providerTest = JSON.parse(providerTestContent.content[0]?.text ?? '{}') as {
         ok: boolean
         results: Array<{metadata?: {model?: string}; output?: {type: string}; provider: string; role: string; status: string}>
+        summary: {failed: number; succeeded: number; total: number}
       }
 
       expect(providerTest.ok).to.equal(true)
+      expect(providerTest.summary).to.deep.include({
+        failed: 0,
+        succeeded: 3,
+        total: 3,
+      })
       expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
         'asr:command:succeeded:example-command-provider:transcript',
         'vlm:command:succeeded:example-command-provider:scenes',
@@ -279,9 +285,14 @@ describe('mcp server', () => {
         },
       })
       const {content} = response?.result as {content: Array<{text: string; type: string}>}
-      const result = JSON.parse(content[0]?.text ?? '{}') as {ok: boolean; results: Array<{provider: string; role: string; status: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {ok: boolean; results: Array<{provider: string; role: string; status: string}>; summary: {failed: number; succeeded: number; total: number}}
 
       expect(result.ok).to.equal(true)
+      expect(result.summary).to.deep.include({
+        failed: 0,
+        succeeded: 1,
+        total: 1,
+      })
       expect(result.results.find((item) => item.role === 'asr')).to.include({
         provider: 'mock',
         role: 'asr',

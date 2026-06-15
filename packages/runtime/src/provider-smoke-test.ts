@@ -18,7 +18,15 @@ export interface ProviderSmokeTestOptions {
 export interface ProviderSmokeTestReport {
   ok: boolean
   results: ProviderSmokeTestResult[]
+  summary: ProviderSmokeTestSummary
   workspaceDir: string
+}
+
+export interface ProviderSmokeTestSummary {
+  failed: number
+  failedRoles: ProviderSmokeTestRole[]
+  succeeded: number
+  total: number
 }
 
 export interface ProviderSmokeTestResult {
@@ -100,7 +108,17 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
   return {
     ok: results.every((result) => result.status === 'succeeded'),
     results,
+    summary: summarizeProviderSmokeTestResults(results),
     workspaceDir,
+  }
+}
+
+function summarizeProviderSmokeTestResults(results: ProviderSmokeTestResult[]): ProviderSmokeTestSummary {
+  return {
+    failed: results.filter((result) => result.status === 'failed').length,
+    failedRoles: results.filter((result) => result.status === 'failed').map((result) => result.role),
+    succeeded: results.filter((result) => result.status === 'succeeded').length,
+    total: results.length,
   }
 }
 

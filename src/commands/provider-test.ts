@@ -36,6 +36,7 @@ export default class ProviderTest extends Command {
     } else {
       this.log(`Workspace: ${report.workspaceDir}`)
       this.log(`Status: ${report.ok ? 'ok' : 'failed'}`)
+      this.log(`Summary: ${report.summary.succeeded}/${report.summary.total} succeeded, ${report.summary.failed} failed`)
 
       for (const result of report.results) {
         this.log(formatResult(result))

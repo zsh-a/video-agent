@@ -246,7 +246,7 @@ bun run dev provider-test --env VIDEO_AGENT_ASR_URL=https://provider.example/asr
 
 `--shell-template` 会按当前 provider config 输出可复制的 `export VIDEO_AGENT_*='...'` 占位模板。默认只启用必填变量，optional token/timeout 会以注释形式出现；需要把 optional 也输出成 active export 时可以加 `--include-optional`。模板不会读取或打印当前 shell 里的 secret 值。
 
-`provider-env` 和 `provider-test` 都支持重复传 `--env KEY=VALUE`。传入后命令只按这些显式变量检查 provider 配置，不会扫描当前 shell 环境，适合 agent client 生成配置后做安全预检。
+`provider-env` 和 `provider-test` 都支持重复传 `--env KEY=VALUE`。传入后命令只按这些显式变量检查 provider 配置，不会扫描当前 shell 环境，适合 agent client 生成配置后做安全预检。`provider-test` 的 JSON/API/MCP/TUI 结果包含 `summary.total/succeeded/failed/failedRoles`，方便上层入口直接判断 smoke test 覆盖和失败角色。
 
 job state 默认写入每个项目目录的 `job-state.json`。如果要让本地 worker/API 使用 workspace 级 SQLite 状态库，可以切换为：
 
@@ -596,7 +596,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`，CLI/API/MCP 都支持显式 env 注入
 - API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness
 - `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态、配置状态和 summary 统计，`config` 人工输出会提示缺失的必填 provider env，且可生成不泄露 secret 的 shell export 模板
-- `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
+- `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息，并输出 succeeded/failed summary
 - `run` 命令：通过 `JobRunner` 生成 ingest、provider understand、ASR/VLM evidence-backed storyboard、sequential clip plan、timeline、clip-plan-aligned narration、provider TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
 - `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity；人工输出会按 output/subtitle/audio/template/visual 分类展示 render error/warning 摘要

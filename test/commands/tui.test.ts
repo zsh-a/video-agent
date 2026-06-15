@@ -93,11 +93,17 @@ describe('tui command', () => {
             status: 'succeeded',
           },
         ],
+        summary: {
+          failed: 0,
+          failedRoles: [],
+          succeeded: 1,
+          total: 1,
+        },
         workspaceDir: '.video-agent',
       },
       type: 'provider-test',
     })).to.equal([
-      'Action: provider-test -> ok',
+      'Action: provider-test -> ok (1/1 succeeded, 0 failed)',
       '  asr:command succeeded 12ms segments=1 characters=42 request=req-1 model=example',
     ].join('\n'))
   })

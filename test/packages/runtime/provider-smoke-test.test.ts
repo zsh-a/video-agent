@@ -17,6 +17,12 @@ describe('provider smoke test', () => {
       const report = await runProviderSmokeTest({workspaceDir: root})
 
       expect(report.ok).to.equal(true)
+      expect(report.summary).to.deep.equal({
+        failed: 0,
+        failedRoles: [],
+        succeeded: 3,
+        total: 3,
+      })
       expect(report.results.map((result) => result.role)).to.deep.equal(['asr', 'vlm', 'tts'])
       expect(report.results.map((result) => result.status)).to.deep.equal(['succeeded', 'succeeded', 'succeeded'])
       expect(report.results.map((result) => result.output?.type)).to.deep.equal(['transcript', 'scenes', 'tts'])
@@ -107,6 +113,12 @@ describe('provider smoke test', () => {
       })
 
       expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        failed: 1,
+        failedRoles: ['asr'],
+        succeeded: 0,
+        total: 1,
+      })
       expect(report.results).to.have.length(1)
       expect(report.results[0]).to.include({
         provider: 'command',

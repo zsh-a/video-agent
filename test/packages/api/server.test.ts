@@ -21,7 +21,7 @@ describe('api server handler', () => {
       const projects = await readJson<{projects: unknown[]}>(fetch, '/projects')
       const providerEnv = await readJson<{providers: Array<{provider: string; role: string}>; summary: {total: number}}>(fetch, '/provider-env')
       const providerEnvTemplate = await readJson<{shellTemplate: string}>(fetch, '/provider-env?shellTemplate=true')
-      const providerTest = await readJson<{ok: boolean; results: Array<{provider: string; role: string; status: string}>}>(
+      const providerTest = await readJson<{ok: boolean; results: Array<{provider: string; role: string; status: string}>; summary: {failed: number; succeeded: number; total: number}}>(
         fetch,
         '/provider-test',
         {
@@ -43,6 +43,11 @@ describe('api server handler', () => {
       expect(providerEnv.summary.total).to.equal(0)
       expect(providerEnvTemplate.shellTemplate).to.include('# video-agent provider environment template')
       expect(providerTest.ok).to.equal(true)
+      expect(providerTest.summary).to.deep.include({
+        failed: 0,
+        succeeded: 1,
+        total: 1,
+      })
       expect(providerTest.results.find((result) => result.role === 'asr')).to.include({
         provider: 'mock',
         role: 'asr',
@@ -148,6 +153,7 @@ describe('api server handler', () => {
       const providerTest = await readJson<{
         ok: boolean
         results: Array<{metadata?: {model?: string}; output?: {type: string}; provider: string; role: string; status: string}>
+        summary: {failed: number; succeeded: number; total: number}
       }>(
         fetch,
         '/provider-test',
@@ -173,6 +179,11 @@ describe('api server handler', () => {
       expect(providerEnv.summary.missingRequired).to.deep.equal([])
       expect(JSON.stringify(providerEnv)).to.not.include(command)
       expect(providerTest.ok).to.equal(true)
+      expect(providerTest.summary).to.deep.include({
+        failed: 0,
+        succeeded: 3,
+        total: 3,
+      })
       expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
         'asr:command:succeeded:example-command-provider:transcript',
         'vlm:command:succeeded:example-command-provider:scenes',

@@ -71,9 +71,15 @@ describe('cli end-to-end workflow', () => {
       const providerTest = await runCliJson<{
         ok: boolean
         results: Array<{provider: string; role: string; status: string}>
+        summary: {failed: number; succeeded: number; total: number}
       }>(['provider-test', '--workspace', workspaceDir, '--role', 'all', '--json'])
 
       expect(providerTest.ok).to.equal(true)
+      expect(providerTest.summary).to.deep.include({
+        failed: 0,
+        succeeded: 3,
+        total: 3,
+      })
       expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}`)).to.deep.equal([
         'asr:mock:succeeded',
         'vlm:mock:succeeded',
@@ -154,9 +160,15 @@ describe('cli end-to-end workflow', () => {
           role: string
           status: string
         }>
+        summary: {failed: number; succeeded: number; total: number}
       }>(['provider-test', ...commandProviderEnvFlags, '--workspace', workspaceDir, '--role', 'all', '--json'])
 
       expect(commandProviderTest.ok).to.equal(true)
+      expect(commandProviderTest.summary).to.deep.include({
+        failed: 0,
+        succeeded: 3,
+        total: 3,
+      })
       expect(commandProviderTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
         'asr:command:succeeded:example-command-provider:transcript',
         'vlm:command:succeeded:example-command-provider:scenes',

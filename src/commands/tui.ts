@@ -356,7 +356,7 @@ export function formatTuiActionResult(result: TuiActionResult): string {
 
   if (result.type === 'provider-test') {
     return [
-      `Action: provider-test -> ${result.report.ok ? 'ok' : 'failed'}`,
+      `Action: provider-test -> ${result.report.ok ? 'ok' : 'failed'} (${result.report.summary.succeeded}/${result.report.summary.total} succeeded, ${result.report.summary.failed} failed)`,
       ...result.report.results.map((item) => {
         if (item.status === 'failed') {
           return `  ${item.role}:${item.provider} failed ${item.durationMs}ms - ${item.error?.message ?? 'unknown error'}`
