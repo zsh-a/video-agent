@@ -79,9 +79,9 @@ export function instrumentProviders(providers: ProviderSet, selection: ProviderS
     script: providers.script,
     storyboard: providers.storyboard,
     tts: {
-      async synthesize(segments) {
+      async synthesize(segments, options) {
         return recordProviderCall({
-          call: () => providers.tts.synthesize(segments),
+          call: () => providers.tts.synthesize(segments, options),
           input: summarizeNarrationSegments(segments),
           operation: 'synthesize',
           output: summarizeTtsSegments,

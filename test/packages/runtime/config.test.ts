@@ -109,7 +109,7 @@ describe('config', () => {
         llm: {
           authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
           baseURL: 'https://llm.example.test/anthropic',
-          model: 'mimo-v2.5-pro',
+          model: 'anthropic-test-model',
         },
         llmProvider: 'anthropic',
       })
@@ -117,7 +117,7 @@ describe('config', () => {
       expect(config.llm).to.deep.equal({
         authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
         baseURL: 'https://llm.example.test/anthropic',
-        model: 'mimo-v2.5-pro',
+        model: 'anthropic-test-model',
         provider: 'anthropic',
       })
       expect((await readConfig(root)).llm).to.deep.equal(config.llm)
@@ -182,11 +182,11 @@ describe('config', () => {
       expect(config.providerProfile).to.equal('mimo')
       expect(config.providerSettings).to.deep.equal({})
       expect(config.llm).to.deep.equal({
-        authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
-        baseURL: 'https://token-plan-cn.xiaomimimo.com/anthropic/v1',
+        apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
+        baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
         model: 'mimo-v2.5-pro',
         name: 'mimo',
-        provider: 'anthropic',
+        provider: 'openai-compatible',
       })
       expect(await readJson(join(root, 'config.json'))).to.deep.equal({
         providerProfile: 'mimo',

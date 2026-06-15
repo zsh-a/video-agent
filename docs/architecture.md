@@ -189,11 +189,11 @@ ScriptProvider
 AssetProvider
 ```
 
-Concrete providers can wrap local command adapters, deterministic fallback logic, or `@video-agent/llm`. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/TTS/storyboard/script providers that select `llm`; otherwise planning uses deterministic fallbacks and media roles should use `mock` or `command`. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms rather than through a generic HTTP provider path. Local model inference should still be isolated behind the same provider contracts.
+Concrete providers can wrap local command adapters, deterministic fallback logic, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/storyboard/script providers that select `llm`; TTS providers may also receive a project audio output directory so they can write real voiceover files. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms when possible; binary media endpoints such as MiMo TTS stay behind provider interfaces when they need to write artifacts directly. Local model inference should still be isolated behind the same provider contracts.
 
 ## Near-Term Roadmap
 
-1. Keep hosted ASR/VLM/TTS model endpoints on the shared AI SDK-backed `LLMClient` path, adding provider-specific transforms only inside `packages/llm`.
+1. Keep hosted ASR/VLM model endpoints on the shared AI SDK-backed `LLMClient` path, adding provider-specific transforms only inside `packages/llm`; keep binary TTS output behind the `TTSProvider` artifact boundary.
 2. Validate MCP config output against named external clients and document placement, env injection, config shape, command mode, limitations, and verification dates in a client matrix.
 3. Add named providers only for non-LLM/local execution boundaries that cannot fit the shared AI SDK path.
 4. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions after the dependency policy is accepted.

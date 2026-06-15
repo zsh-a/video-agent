@@ -489,7 +489,10 @@ function createVoiceoverStage(): Stage<InitialStageInput, InitialStageOutput> {
     async run(input, ctx) {
       const scripted = input as ScriptOutput
       await emitStep(ctx, {data: summarizeNarrationForLog(scripted.narration), message: 'Synthesizing voiceover manifest.', stage: 'voiceover', step: 'tts'})
-      const ttsSegments = TtsSegmentsSchema.parse(await scripted.providers.tts.synthesize(scripted.narration.segments))
+      const ttsSegments = TtsSegmentsSchema.parse(await scripted.providers.tts.synthesize(scripted.narration.segments, {
+        outputDir: join(scripted.workspace.audioDir, 'tts'),
+        pathPrefix: 'audio/tts',
+      }))
       await emitProgress(ctx, {
         current: ttsSegments.length,
         message: 'TTS segments completed.',

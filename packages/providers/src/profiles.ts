@@ -30,7 +30,7 @@ export interface ProviderRoleSettings {
   command?: string[]
 }
 
-export const MIMO_PROVIDER_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic/v1'
+export const MIMO_PROVIDER_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1'
 
 export const MIMO_PROVIDER_MODELS: ProviderProfileModel[] = [
   {
@@ -40,13 +40,13 @@ export const MIMO_PROVIDER_MODELS: ProviderProfileModel[] = [
 ]
 
 export const MIMO_PROVIDER_PROFILE: ProviderProfile = {
-  description: 'Mimo hosted provider profile using the Anthropic-compatible endpoint.',
+  description: 'Mimo hosted provider profile using the shared OpenAI-compatible endpoint.',
   llm: {
-    authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
+    apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
     baseURL: MIMO_PROVIDER_BASE_URL,
     model: 'mimo-v2.5-pro',
     name: 'mimo',
-    provider: 'anthropic',
+    provider: 'openai-compatible',
   },
   models: MIMO_PROVIDER_MODELS,
   name: 'mimo',

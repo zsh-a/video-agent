@@ -50,8 +50,9 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
   }
 
   if (config.provider === 'openai-compatible') {
+    const env = options.env ?? bunEnv()
     const provider = createOpenAICompatible({
-      apiKey: resolveEnvValue(config.apiKeyEnv ?? config.authTokenEnv ?? 'VIDEO_AGENT_LLM_TOKEN', options.env ?? bunEnv()),
+      apiKey: resolveOpenAICompatibleApiKey(config, env),
       baseURL: normalizeNonEmptyString('llm.baseURL', config.baseURL),
       ...(config.headers === undefined ? {} : {headers: config.headers}),
       includeUsage: true,
@@ -64,6 +65,31 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
   }
 
   throw new Error(`Unsupported LLM provider: ${(config as {provider: string}).provider}`)
+}
+
+function resolveOpenAICompatibleApiKey(config: LLMClientConfig, env: Record<string, string | undefined>): string | undefined {
+  if (config.name === 'mimo') {
+    return resolveFirstEnvValue([
+      config.apiKeyEnv,
+      config.authTokenEnv,
+      'MIMO_API_KEY',
+      'VIDEO_AGENT_LLM_TOKEN',
+    ], env)
+  }
+
+  return resolveEnvValue(config.apiKeyEnv ?? config.authTokenEnv ?? 'VIDEO_AGENT_LLM_TOKEN', env)
+}
+
+function resolveFirstEnvValue(names: Array<string | undefined>, env: Record<string, string | undefined>): string | undefined {
+  for (const name of names) {
+    const value = resolveEnvValue(name, env)
+
+    if (value !== undefined) {
+      return value
+    }
+  }
+
+  return undefined
 }
 
 function transformMimoRequestBody(body: Record<string, unknown>): Record<string, unknown> {

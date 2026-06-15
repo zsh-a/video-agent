@@ -17,9 +17,9 @@ Provider selection remains role-based and string-valued for v0:
 - `command` runs an external JSON stdin/stdout adapter.
 - `llm` uses the configured shared `LLMClient`.
 
-Provider profiles prefill non-secret LLM configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `llm` for ASR, VLM, and TTS and enables the AI SDK-backed planner/script path with `mimo-v2.5-pro`. MiMo ASR uses the same token but a role-specific AI SDK OpenAI-compatible model config for `mimo-v2.5-asr`.
+Provider profiles prefill non-secret LLM configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `llm` for ASR, VLM, and TTS and enables the AI SDK-backed planner/script path with `mimo-v2.5-pro`. MiMo ASR uses the same token but a role-specific AI SDK OpenAI-compatible model config for `mimo-v2.5-asr`. MiMo TTS uses the MiMo-V2.5-TTS chat-completions audio API to write real wav files into the project workspace before render.
 
-Hosted LLM-like services should be integrated through `packages/llm` and the Vercel AI SDK first. Provider-specific request shape differences belong in the AI SDK config boundary, for example `transformRequestBody`; ASR/VLM/TTS providers should continue to call the internal `LLMClient`. Add named providers only for boundaries that are not a good fit for AI SDK, such as local command services or non-LLM executors.
+Hosted LLM-like services should be integrated through `packages/llm` and the Vercel AI SDK first. Provider-specific request shape differences belong in the AI SDK config boundary, for example `transformRequestBody`. Media-producing endpoints may stay behind provider interfaces when the SDK boundary cannot return required binary artifacts cleanly, as with MiMo TTS wav output. Add named providers only for boundaries that are not a good fit for AI SDK, such as local command services or non-LLM executors.
 
 ## Environment Contract
 
@@ -40,10 +40,10 @@ The simplified LLM path is resolved from the active profile or from explicit run
 ```json
 {
   "llm": {
-    "provider": "anthropic",
-    "baseURL": "https://token-plan-cn.xiaomimimo.com/anthropic/v1",
+    "provider": "openai-compatible",
+    "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
     "model": "mimo-v2.5-pro",
-    "authTokenEnv": "VIDEO_AGENT_LLM_TOKEN",
+    "apiKeyEnv": "VIDEO_AGENT_LLM_TOKEN",
     "name": "mimo"
   }
 }
@@ -68,7 +68,9 @@ The profile writes only the selected profile to disk:
 }
 ```
 
-At runtime that resolves to `llm` ASR/VLM/TTS providers and the Mimo LLM config. `GET /config` and `config --json` return the resolved non-secret view.
+At runtime that resolves to `llm` ASR/VLM/TTS providers and the Mimo LLM config. `GET /config` and `config --json` return the resolved non-secret view. For TTS, the registry detects the Mimo profile and calls `mimo-v2.5-tts` through the chat-completions audio endpoint, writing wav files under `audio/tts/` and returning those paths in `tts-segments.json`.
+
+All MiMo models in the profile use the same base URL, `https://token-plan-cn.xiaomimimo.com/v1`, and the same key resolution order.
 
 The profile keeps one active LLM model:
 
@@ -82,6 +84,20 @@ The profile does not write tokens. Configure credentials through `.env` or the s
 VIDEO_AGENT_LLM_TOKEN=<token>
 ```
 
+The whole MiMo profile also accepts the documentation-style key name:
+
+```dotenv
+MIMO_API_KEY=<token>
+```
+
+Optional TTS controls can be provided through environment variables:
+
+```dotenv
+VIDEO_AGENT_TTS_MIMO_VOICE=mimo_default
+VIDEO_AGENT_TTS_MIMO_STYLE=清晰自然地播报
+VIDEO_AGENT_TTS_MIMO_MODEL=mimo-v2.5-tts
+```
+
 The runtime reads `.env` from the current working directory and from the workspace directory. Values from the workspace `.env` override the current working directory `.env`; real process environment variables override both. Explicit `--env KEY=VALUE` flags and API/MCP `env` objects bypass `.env` and use only the supplied values.
 
 ## Adding A Named Provider
@@ -90,7 +106,7 @@ When a new hosted model endpoint is selected:
 
 1. Prefer adding or extending an AI SDK provider config in `packages/llm`.
 2. Keep credentials on the shared LLM env path, normally `VIDEO_AGENT_LLM_TOKEN`.
-3. Keep ASR/VLM/TTS implementations behind the internal `LLMClient`; do not add a generic HTTP provider path.
+3. Keep ASR/VLM/TTS implementations behind the internal `LLMClient` unless the endpoint needs to produce binary media artifacts directly.
 4. Use AI SDK request-body transforms only for provider-specific protocol differences.
 5. Add `provider-test`, doctor, and no-network tests that validate request shape, response parsing, metadata, and failures.
 6. Document model, endpoint, and credential behavior without printing secret values.

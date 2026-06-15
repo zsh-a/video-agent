@@ -59,8 +59,13 @@ export interface StoryboardProviderInput {
   transcript: Transcript
 }
 
+export interface TTSProviderSynthesizeOptions {
+  outputDir?: string
+  pathPrefix?: string
+}
+
 export interface TTSProvider {
-  synthesize(segments: NarrationSegment[]): Promise<TTSSegment[]>
+  synthesize(segments: NarrationSegment[], options?: TTSProviderSynthesizeOptions): Promise<TTSSegment[]>
 }
 
 export interface VLMProvider {

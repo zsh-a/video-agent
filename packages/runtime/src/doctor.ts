@@ -132,6 +132,26 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
     }
   }
 
+  if (config.llm.name === 'mimo') {
+    const authEnvs = createMimoAuthEnvCandidates(config)
+
+    if (authEnvs.some((name) => env[name] !== undefined && env[name]?.trim() !== '')) {
+      return {
+        details: {env: authEnvs, model: role === 'tts' ? 'mimo-v2.5-tts' : config.llm.model, provider: 'llm'},
+        message: `${role} provider uses configured Mimo profile`,
+        name: `provider:${role}`,
+        status: 'pass',
+      }
+    }
+
+    return {
+      details: {env: authEnvs, model: role === 'tts' ? 'mimo-v2.5-tts' : config.llm.model, provider: 'llm'},
+      message: `${authEnvs.join(' or ')} is required for Mimo profile`,
+      name: `provider:${role}`,
+      status: 'fail',
+    }
+  }
+
   const authEnv = config.llm.authTokenEnv ?? config.llm.apiKeyEnv ?? (config.llm.provider === 'openai-compatible' ? 'VIDEO_AGENT_LLM_TOKEN' : undefined)
 
   if (authEnv === undefined) {
@@ -158,6 +178,15 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
     name: `provider:${role}`,
     status: 'pass',
   }
+}
+
+function createMimoAuthEnvCandidates(config: AgentConfig): string[] {
+  return [
+    config.llm?.apiKeyEnv,
+    config.llm?.authTokenEnv,
+    'MIMO_API_KEY',
+    'VIDEO_AGENT_LLM_TOKEN',
+  ].filter((name, index, names): name is string => typeof name === 'string' && name.trim() !== '' && names.indexOf(name) === index)
 }
 
 function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = bunEnv()): HealthCheck {

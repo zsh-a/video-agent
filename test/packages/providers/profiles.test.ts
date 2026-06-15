@@ -6,11 +6,18 @@ describe('provider profiles', () => {
   it('defines the Mimo hosted provider defaults', () => {
     expect(PROVIDER_PROFILE_NAMES).to.deep.equal(['mimo'])
     expect(getProviderProfile('mimo')).to.equal(MIMO_PROVIDER_PROFILE)
-    expect(MIMO_PROVIDER_BASE_URL).to.equal('https://token-plan-cn.xiaomimimo.com/anthropic/v1')
+    expect(MIMO_PROVIDER_BASE_URL).to.equal('https://token-plan-cn.xiaomimimo.com/v1')
     expect(MIMO_PROVIDER_PROFILE.providers).to.deep.equal({
       asr: 'llm',
       tts: 'llm',
       vlm: 'llm',
+    })
+    expect(MIMO_PROVIDER_PROFILE.llm).to.deep.equal({
+      apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
+      baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+      model: 'mimo-v2.5-pro',
+      name: 'mimo',
+      provider: 'openai-compatible',
     })
     expect(MIMO_PROVIDER_PROFILE.providerSettings).to.deep.equal({})
   })

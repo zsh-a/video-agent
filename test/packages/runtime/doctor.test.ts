@@ -148,6 +148,7 @@ describe('doctor', () => {
 
       expect(missing.ok).to.equal(false)
       expect(missing.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('VIDEO_AGENT_LLM_TOKEN')
+      expect(missing.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('MIMO_API_KEY')
 
       const configured = await checkRuntimeHealth({
         binaries: {
@@ -155,13 +156,15 @@ describe('doctor', () => {
           ffprobe: 'true',
         },
         env: {
-          VIDEO_AGENT_LLM_TOKEN: 'secret',
+          MIMO_API_KEY: 'secret',
         },
         workspaceDir: root,
       })
 
       expect(configured.ok).to.equal(true)
       expect(configured.checks.find((check) => check.name === 'provider:asr')?.status).to.equal('pass')
+      expect(configured.checks.find((check) => check.name === 'provider:vlm')?.status).to.equal('pass')
+      expect(configured.checks.find((check) => check.name === 'provider:tts')?.status).to.equal('pass')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

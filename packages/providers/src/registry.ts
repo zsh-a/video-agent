@@ -5,7 +5,7 @@ import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMPr
 import {bunEnv} from './bun-runtime.js'
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
 import {providerEnvName, type ProviderRole} from './descriptors.js'
-import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MimoASRProvider} from './llm-media.js'
+import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MIMO_TTS_BASE_URL, MIMO_TTS_DEFAULT_VOICE, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from './llm-media.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
 import {DeterministicScriptProvider, DeterministicStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
 
@@ -42,6 +42,7 @@ export interface ProviderConfig {
 
 export interface ProviderRegistryOptions {
   env?: Record<string, string | undefined>
+  fetch?: typeof fetch
   llmClient?: LLMClient
   llmConfig?: LLMClientConfig
 }
@@ -110,6 +111,12 @@ export function createTtsProvider(name: string, options: ProviderRegistryOptions
   }
 
   if (name === 'llm') {
+    const mimoTtsProvider = createMimoTtsProvider(options)
+
+    if (mimoTtsProvider !== undefined) {
+      return mimoTtsProvider
+    }
+
     return new LLMTTSProvider(resolveLLMClient('tts', options))
   }
 
@@ -165,6 +172,53 @@ function createMimoAsrClient(options: ProviderRegistryOptions): LLMClient | unde
   }
 
   return client
+}
+
+function createMimoTtsProvider(options: ProviderRegistryOptions): MimoTTSProvider | undefined {
+  if (options.llmConfig?.name !== 'mimo') {
+    return undefined
+  }
+
+  const env = options.env ?? bunEnv()
+  const apiKey = resolveMimoApiKey(options.llmConfig, env)
+
+  if (apiKey === undefined) {
+    throw new Error('Provider tts is set to llm with Mimo profile, but Mimo API key is not configured. Set VIDEO_AGENT_LLM_TOKEN or MIMO_API_KEY.')
+  }
+
+  return new MimoTTSProvider({
+    apiKey,
+    baseURL: MIMO_TTS_BASE_URL,
+    fetch: options.fetch,
+    model: resolveOptionalEnv(env, 'VIDEO_AGENT_TTS_MIMO_MODEL') ?? MIMO_TTS_MODEL,
+    style: resolveOptionalEnv(env, 'VIDEO_AGENT_TTS_MIMO_STYLE'),
+    voice: resolveOptionalEnv(env, 'VIDEO_AGENT_TTS_MIMO_VOICE') ?? MIMO_TTS_DEFAULT_VOICE,
+  })
+}
+
+function resolveMimoApiKey(config: LLMClientConfig, env: Record<string, string | undefined>): string | undefined {
+  const names = [
+    config.apiKeyEnv,
+    config.authTokenEnv,
+    'MIMO_API_KEY',
+    'VIDEO_AGENT_LLM_TOKEN',
+  ].filter((name, index, names): name is string => typeof name === 'string' && name.trim() !== '' && names.indexOf(name) === index)
+
+  for (const name of names) {
+    const value = resolveOptionalEnv(env, name)
+
+    if (value !== undefined) {
+      return value
+    }
+  }
+
+  return undefined
+}
+
+function resolveOptionalEnv(env: Record<string, string | undefined>, name: string): string | undefined {
+  const value = env[name]
+
+  return value === undefined || value.trim() === '' ? undefined : value.trim()
 }
 
 function resolveLLMClient(role: ProviderRole, options: ProviderRegistryOptions): LLMClient {

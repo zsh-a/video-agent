@@ -113,10 +113,12 @@ That writes:
 }
 ```
 
-At runtime the profile resolves ASR/VLM/TTS, storyboard, and script generation through the shared Mimo LLM config. The token stays outside persisted config and can live in `.env`:
+At runtime the profile resolves ASR/VLM, storyboard, and script generation through the shared Mimo LLM config. TTS uses MiMo-V2.5-TTS to write real wav files under each project before render. The token stays outside persisted config and can live in `.env`:
 
 ```dotenv
 VIDEO_AGENT_LLM_TOKEN=<token>
+# Also accepted for the whole MiMo profile:
+MIMO_API_KEY=<token>
 ```
 
 For local adapters:

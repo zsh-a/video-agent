@@ -14,8 +14,8 @@ describe('LLM config factory', () => {
     const model = createLanguageModelFromConfig({
       authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
       baseURL: 'https://llm.example.test/anthropic',
-      model: 'mimo-v2.5-pro',
-      name: 'mimo',
+      model: 'anthropic-test-model',
+      name: 'anthropic-test',
       provider: 'anthropic',
     }, {
       env: {
@@ -25,8 +25,8 @@ describe('LLM config factory', () => {
 
     const modelMetadata = model as {modelId: string; provider: string; specificationVersion: string}
 
-    expect(modelMetadata.provider).to.equal('mimo')
-    expect(modelMetadata.modelId).to.equal('mimo-v2.5-pro')
+    expect(modelMetadata.provider).to.equal('anthropic-test')
+    expect(modelMetadata.modelId).to.equal('anthropic-test-model')
     expect(modelMetadata.specificationVersion).to.equal('v3')
   })
 
@@ -75,7 +75,7 @@ describe('LLM config factory', () => {
         provider: 'openai-compatible',
       }, {
         env: {
-          VIDEO_AGENT_LLM_TOKEN: 'test-token',
+          MIMO_API_KEY: 'test-token',
         },
       })
 

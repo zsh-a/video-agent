@@ -2,6 +2,7 @@ import type {LLMClient, LLMClientConfig} from '@video-agent/llm'
 
 import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createAsrProvider, createTtsProvider, createVlmProvider, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
+import {resolve} from 'node:path'
 
 import {readConfig} from './config.js'
 import {readRuntimeEnv} from './env.js'
@@ -169,14 +170,20 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
   }
 
   if (role === 'tts') {
-    const segments = await createTtsProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig}).synthesize([
+    const segments = await createTtsProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig}).synthesize(
+      [
+        {
+          duration: 1,
+          id: 'provider-smoke-test',
+          start: 0,
+          text: options.text ?? 'Provider smoke test narration.',
+        },
+      ],
       {
-        duration: 1,
-        id: 'provider-smoke-test',
-        start: 0,
-        text: options.text ?? 'Provider smoke test narration.',
+        outputDir: resolve(options.workspaceDir ?? '.video-agent', 'provider-smoke-test', 'tts'),
+        pathPrefix: 'provider-smoke-test/tts',
       },
-    ])
+    )
 
     return {
       raw: segments,
