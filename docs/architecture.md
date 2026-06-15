@@ -126,7 +126,7 @@ render
   render through HyperFrames or ffmpeg
 
 quality
-  inspect clip plan consistency, timeline bounds, narration timing, TTS coverage, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
+  inspect storyboard source ranges, clip plan consistency, timeline bounds, narration timing, TTS coverage, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
 
 export
   copy final video, HyperFrames render directory, or project bundle to a user-selected path
