@@ -4,9 +4,10 @@ import {BUILTIN_PROVIDER_NAMES, getProviderEnvironmentDefinitions, isProviderNam
 
 describe('provider descriptors', () => {
   it('defines stable built-in provider names and role ordering', () => {
-    expect(BUILTIN_PROVIDER_NAMES).to.deep.equal(['command', 'http', 'mock'])
+    expect(BUILTIN_PROVIDER_NAMES).to.deep.equal(['command', 'llm', 'mock'])
     expect(PROVIDER_ROLES).to.deep.equal(['asr', 'vlm', 'tts'])
-    expect(isProviderName('http')).to.equal(true)
+    expect(isProviderName('llm')).to.equal(true)
+    expect(isProviderName('http')).to.equal(false)
     expect(isProviderName('hosted-service')).to.equal(false)
   })
 
@@ -23,24 +24,11 @@ describe('provider descriptors', () => {
     ])
   })
 
-  it('describes HTTP provider environment requirements without real secret values', () => {
-    const requirements = getProviderEnvironmentDefinitions('tts', 'http')
-
-    expect(requirements.map((requirement) => requirement.env)).to.deep.equal([
-      'VIDEO_AGENT_TTS_URL',
-      'VIDEO_AGENT_TTS_TOKEN',
-      'VIDEO_AGENT_TTS_HEADERS',
-      'VIDEO_AGENT_TTS_MODEL',
-      'VIDEO_AGENT_TTS_TIMEOUT_MS',
-    ])
-    expect(requirements.filter((requirement) => requirement.secret).map((requirement) => requirement.env)).to.deep.equal([
-      'VIDEO_AGENT_TTS_TOKEN',
-      'VIDEO_AGENT_TTS_HEADERS',
-    ])
-    expect(requirements.find((requirement) => requirement.env === 'VIDEO_AGENT_TTS_TOKEN')?.placeholder).to.equal('<token>')
+  it('describes llm provider as using shared LLM config', () => {
+    expect(getProviderEnvironmentDefinitions('tts', 'llm')).to.deep.equal([])
   })
 
   it('builds provider env names consistently', () => {
-    expect(providerEnvName('vlm', 'URL')).to.equal('VIDEO_AGENT_VLM_URL')
+    expect(providerEnvName('vlm', 'COMMAND')).to.equal('VIDEO_AGENT_VLM_COMMAND')
   })
 })

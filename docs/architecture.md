@@ -40,7 +40,7 @@ Domain Packages
   IR, providers, LLM adapters, media wrappers, renderers, quality checks, DB schema
 
 Executors
-  ffmpeg, ffprobe, Chromium, HyperFrames, provider APIs
+  ffmpeg, ffprobe, Chromium, HyperFrames, AI SDK-backed hosted models, local command adapters
 ```
 
 Adapters can submit commands and render state. They must not own pipeline logic.
@@ -189,11 +189,11 @@ ScriptProvider
 AssetProvider
 ```
 
-Concrete providers can wrap remote APIs, local services, deterministic fallback logic, or `@video-agent/llm`. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into the storyboard/script providers; otherwise those providers use deterministic fallbacks. Local model inference should still be isolated behind the same provider contracts.
+Concrete providers can wrap local command adapters, deterministic fallback logic, or `@video-agent/llm`. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/TTS/storyboard/script providers that select `llm`; otherwise planning uses deterministic fallbacks and media roles should use `mock` or `command`. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms rather than through a generic HTTP provider path. Local model inference should still be isolated behind the same provider contracts.
 
 ## Near-Term Roadmap
 
-1. Select the first hosted ASR/VLM/TTS service and implement a real-provider vertical slice behind the existing contracts, using the shared provider descriptor documented in `docs/provider-configuration-model.md`.
+1. Keep hosted ASR/VLM/TTS model endpoints on the shared AI SDK-backed `LLMClient` path, adding provider-specific transforms only inside `packages/llm`.
 2. Validate MCP config output against named external clients and document placement, env injection, config shape, command mode, limitations, and verification dates in a client matrix.
-3. Expand real-provider support to additional hosted ASR/VLM/TTS services after the first slice proves the configuration model.
+3. Add named providers only for non-LLM/local execution boundaries that cannot fit the shared AI SDK path.
 4. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions after the dependency policy is accepted.

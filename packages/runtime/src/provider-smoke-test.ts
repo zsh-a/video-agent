@@ -1,6 +1,10 @@
-import {createAsrProvider, createTtsProvider, createVlmProvider, type ProviderFetch, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
+import type {LLMClient, LLMClientConfig} from '@video-agent/llm'
+
+import {createLLMClientFromConfig} from '@video-agent/llm'
+import {createAsrProvider, createTtsProvider, createVlmProvider, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 
 import {readConfig} from './config.js'
+import {readRuntimeEnv} from './env.js'
 import {createProviderEnv} from './provider-settings.js'
 
 export type ProviderSmokeTestRole = 'asr' | 'tts' | 'vlm'
@@ -8,8 +12,9 @@ export type ProviderSmokeTestStatus = 'failed' | 'succeeded'
 
 export interface ProviderSmokeTestOptions {
   env?: Record<string, string | undefined>
-  fetch?: ProviderFetch
   framePath?: string
+  llmClient?: LLMClient
+  llmConfig?: LLMClientConfig
   mediaPath?: string
   roles?: ProviderSmokeTestRole[]
   text?: string
@@ -75,6 +80,8 @@ const DEFAULT_ROLES: ProviderSmokeTestRole[] = ['asr', 'vlm', 'tts']
 export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {}): Promise<ProviderSmokeTestReport> {
   const workspaceDir = options.workspaceDir ?? '.video-agent'
   const config = await readConfig(workspaceDir)
+  const runtimeEnv = options.env ?? await readRuntimeEnv(workspaceDir)
+  const llmClient = options.llmClient ?? createLLMClientFromConfig(config.llm, {env: runtimeEnv})
   const roles = options.roles ?? DEFAULT_ROLES
   const results: ProviderSmokeTestResult[] = []
 
@@ -85,7 +92,9 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
     try {
       const output = await runRoleSmokeTest(role, config.providers[role], {
         ...options,
-        env: createProviderEnv(config, options.env ?? process.env),
+        env: createProviderEnv(config, runtimeEnv),
+        llmClient,
+        llmConfig: config.llm,
       })
       const metadata = readSmokeTestMetadata(output.raw)
 
@@ -143,7 +152,7 @@ function normalizeSmokeTestError(error: unknown): NonNullable<ProviderSmokeTestR
 
 async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, options: ProviderSmokeTestOptions): Promise<{raw: object; summary: ProviderSmokeTestOutput}> {
   if (role === 'asr') {
-    const transcript = await createAsrProvider(provider, {env: options.env, fetch: options.fetch}).transcribe({
+    const transcript = await createAsrProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig}).transcribe({
       mimeType: 'audio/wav',
       path: options.mediaPath ?? 'provider-smoke-test.wav',
     })
@@ -160,7 +169,7 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
   }
 
   if (role === 'tts') {
-    const segments = await createTtsProvider(provider, {env: options.env, fetch: options.fetch}).synthesize([
+    const segments = await createTtsProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig}).synthesize([
       {
         duration: 1,
         id: 'provider-smoke-test',
@@ -180,7 +189,7 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
     }
   }
 
-  const scenes = await createVlmProvider(provider, {env: options.env, fetch: options.fetch}).analyzeScenes([
+  const scenes = await createVlmProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig}).analyzeScenes([
     {
       frames: [options.framePath ?? 'provider-smoke-test-frame.jpg'],
       sceneId: 'provider-smoke-test-scene',

@@ -1,4 +1,4 @@
-import {type LanguageModel, simulateReadableStream} from 'ai'
+import {APICallError, type LanguageModel, simulateReadableStream} from 'ai'
 import {expect} from 'chai'
 import {z} from 'zod'
 
@@ -81,6 +81,98 @@ describe('AI SDK LLM adapter', () => {
     expect(result.usage?.totalTokens).to.equal(13)
   })
 
+  it('falls back to text JSON when structured object generation returns no object', async () => {
+    let calls = 0
+    const model = createMockLanguageModel({
+      async generateResult() {
+        calls += 1
+
+        return calls === 1
+          ? {
+              content: [],
+              finishReason: 'stop',
+              usage: {
+                inputTokens: 1,
+                outputTokens: 0,
+                totalTokens: 1,
+              },
+              warnings: [],
+            }
+          : {
+              content: [
+                {
+                  text: '```json\n{"ok":true}\n```',
+                  type: 'text',
+                },
+              ],
+              finishReason: 'stop',
+              usage: {
+                inputTokens: 4,
+                outputTokens: 3,
+                totalTokens: 7,
+              },
+              warnings: [],
+            }
+      },
+    })
+    const client = new AISDKLLMClient({model})
+
+    const result = await client.generateObject({
+      prompt: 'Return JSON',
+      schema: z.object({
+        ok: z.boolean(),
+      }),
+    })
+
+    expect(result.object).to.deep.equal({ok: true})
+    expect(result.usage?.totalTokens).to.equal(7)
+  })
+
+  it('falls back to text JSON when structured object generation receives a bad request', async () => {
+    let calls = 0
+    const model = createMockLanguageModel({
+      async generateResult() {
+        calls += 1
+
+        if (calls === 1) {
+          throw new APICallError({
+            isRetryable: false,
+            message: 'Bad Request',
+            requestBodyValues: {},
+            statusCode: 400,
+            url: 'https://example.test/messages',
+          })
+        }
+
+        return {
+          content: [
+            {
+              text: '{"ok":true}',
+              type: 'text',
+            },
+          ],
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 4,
+            outputTokens: 3,
+            totalTokens: 7,
+          },
+          warnings: [],
+        }
+      },
+    })
+    const client = new AISDKLLMClient({model})
+
+    const result = await client.generateObject({
+      prompt: 'Return JSON',
+      schema: z.object({
+        ok: z.boolean(),
+      }),
+    })
+
+    expect(result.object).to.deep.equal({ok: true})
+  })
+
   it('streams text events while preserving final usage', async () => {
     const model = createMockLanguageModel({
       streamResult: {
@@ -147,11 +239,11 @@ describe('AI SDK LLM adapter', () => {
 })
 
 function createMockLanguageModel(options: {
-  generateResult?: unknown
+  generateResult?: (() => unknown) | unknown
   streamResult?: unknown
 }): LanguageModel {
   return {
-    doGenerate: async () => options.generateResult,
+    doGenerate: async () => typeof options.generateResult === 'function' ? options.generateResult() : options.generateResult,
     doStream: async () => options.streamResult,
     modelId: 'mock-model',
     provider: 'mock-provider',

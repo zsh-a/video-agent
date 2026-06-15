@@ -74,8 +74,16 @@ describe('job runner', () => {
         inputPath,
       ])
 
+      const events: string[] = []
+      const providerCallSummaries: string[] = []
       const result = await runInitialPipeline({
         inputPath,
+        onEvent(event) {
+          events.push(`${event.type}:${event.stage ?? ''}`)
+        },
+        onProviderCall(call) {
+          providerCallSummaries.push(`${call.role}:${call.provider}:${call.operation}:${call.status}`)
+        },
         projectId: 'demo',
         workspaceDir: root,
       })
@@ -104,6 +112,8 @@ describe('job runner', () => {
       expect(providerCalls.map((call) => call.role)).to.include.members(['asr', 'tts', 'vlm'])
       expect(providerCalls.every((call) => call.provider === 'mock')).to.equal(true)
       expect(providerCalls.every((call) => call.status === 'succeeded')).to.equal(true)
+      expect(events).to.include.members(['stage:start:ingest', 'stage:complete:ingest', 'stage:start:understand', 'stage:complete:quality'])
+      expect(providerCallSummaries).to.include.members(['asr:mock:transcribe:succeeded', 'vlm:mock:analyzeScenes:succeeded', 'tts:mock:synthesize:succeeded'])
 
       const manifest = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}
 

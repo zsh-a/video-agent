@@ -16,11 +16,14 @@ export interface PipelineRetryPolicy {
 export interface PipelineEvent {
   artifact?: ArtifactRef
   attempt?: number
+  data?: Record<string, unknown>
+  level?: 'debug' | 'error' | 'info' | 'warn'
   maxAttempts?: number
   message?: string
   projectId: string
   retryDelayMs?: number
   stage?: StageName | string
+  step?: string
   time: string
   type: 'artifact' | 'log' | 'stage:complete' | 'stage:fail' | 'stage:retry' | 'stage:start'
 }

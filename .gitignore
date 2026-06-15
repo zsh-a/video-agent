@@ -9,6 +9,9 @@
 /node_modules
 /packages/*/node_modules
 /.bun
+.env
+.env.*
+!.env.example
 tsconfig.tsbuildinfo
 oclif.manifest.json
 

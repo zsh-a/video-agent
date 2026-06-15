@@ -30,8 +30,20 @@ export interface ProviderCallRecord {
   version: 1
 }
 
+export interface ProviderCallStartRecord {
+  input: Record<string, unknown>
+  operation: string
+  provider: string
+  requestId: string
+  role: ProviderCallRole
+  startedAt: string
+  status: 'started'
+  version: 1
+}
+
 export interface ProviderCallRecorder {
   record(call: ProviderCallRecord): Promise<void>
+  start?(call: ProviderCallStartRecord): Promise<void>
 }
 
 export interface ProviderSelection {
@@ -109,6 +121,17 @@ async function recordProviderCall<T>(options: RecordProviderCallOptions<T>): Pro
   const startedAtMs = Date.now()
   const startedAt = new Date(startedAtMs).toISOString()
   const fallbackRequestId = createProviderRequestId(options.role)
+
+  await options.recorder.start?.({
+    input: options.input,
+    operation: options.operation,
+    provider: options.provider,
+    requestId: fallbackRequestId,
+    role: options.role,
+    startedAt,
+    status: 'started',
+    version: 1,
+  })
 
   try {
     const output = await options.call()

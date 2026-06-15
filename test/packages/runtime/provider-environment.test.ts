@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -60,58 +60,69 @@ describe('provider environment', () => {
     }
   })
 
-  it('describes http provider requirements without exposing values', async () => {
+  it('reads command provider values from workspace .env by default', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
 
     try {
-      await writeConfig(root, {tts: 'http'})
+      await writeConfig(root, {asr: 'command'})
+      await writeFile(join(root, '.env'), 'VIDEO_AGENT_ASR_COMMAND=\'["node","asr.js"]\'\n')
 
-      const report = await readProviderEnvironment(root, {
-        VIDEO_AGENT_TTS_HEADERS: '{"x-api-key":"secret-header"}',
-        VIDEO_AGENT_TTS_TOKEN: 'secret',
-        VIDEO_AGENT_TTS_URL: 'https://example.test/tts',
-      })
-      const tts = report.providers.find((provider) => provider.role === 'tts')
+      const report = await readProviderEnvironment(root)
+      const asr = report.providers.find((provider) => provider.role === 'asr')
 
-      expect(tts?.requirements).to.deep.equal([
+      expect(asr?.requirements).to.deep.equal([
         {
           configured: true,
-          description: 'TTS HTTP adapter endpoint.',
-          env: 'VIDEO_AGENT_TTS_URL',
+          description: 'ASR command adapter argv as a JSON string array.',
+          env: 'VIDEO_AGENT_ASR_COMMAND',
           required: true,
         },
-        {
-          configured: true,
-          description: 'TTS bearer token for HTTP adapter requests.',
-          env: 'VIDEO_AGENT_TTS_TOKEN',
-          required: false,
-        },
-        {
-          configured: true,
-          description: 'TTS HTTP adapter custom headers as a JSON object of string values.',
-          env: 'VIDEO_AGENT_TTS_HEADERS',
-          required: false,
-        },
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('does not read .env when explicit env values are provided', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
+
+    try {
+      await writeConfig(root, {asr: 'command'})
+      await writeFile(join(root, '.env'), 'VIDEO_AGENT_ASR_COMMAND=\'["node","asr.js"]\'\n')
+
+      const report = await readProviderEnvironment(root, {})
+      const asr = report.providers.find((provider) => provider.role === 'asr')
+
+      expect(asr?.requirements).to.deep.equal([
         {
           configured: false,
-          description: 'TTS model name sent with HTTP adapter requests.',
-          env: 'VIDEO_AGENT_TTS_MODEL',
-          required: false,
-        },
-        {
-          configured: false,
-          description: 'TTS HTTP adapter timeout in milliseconds.',
-          env: 'VIDEO_AGENT_TTS_TIMEOUT_MS',
-          required: false,
+          description: 'ASR command adapter argv as a JSON string array.',
+          env: 'VIDEO_AGENT_ASR_COMMAND',
+          required: true,
         },
       ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns no role-specific requirements for llm providers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
+
+    try {
+      await writeConfig(root, {tts: 'llm'})
+
+      const report = await readProviderEnvironment(root, {})
+      const tts = report.providers.find((provider) => provider.role === 'tts')
+
+      expect(tts?.requirements).to.deep.equal([])
       expect(report.summary).to.deep.equal({
-        configured: 3,
-        missing: 2,
+        configured: 0,
+        missing: 0,
         missingRequired: [],
-        optional: 4,
-        required: 1,
-        total: 5,
+        optional: 0,
+        required: 0,
+        total: 0,
       })
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -124,39 +135,30 @@ describe('provider environment', () => {
     try {
       await writeConfig(root, {
         asr: 'command',
-        tts: 'http',
+        tts: 'llm',
       })
 
       const report = await readProviderEnvironment(root, {
         VIDEO_AGENT_ASR_COMMAND: '["node","secret-asr.js"]',
-        VIDEO_AGENT_TTS_HEADERS: '{"x-api-key":"secret-header"}',
-        VIDEO_AGENT_TTS_TOKEN: 'secret-token',
-        VIDEO_AGENT_TTS_URL: 'https://secret.example/tts',
       })
       const template = createProviderEnvironmentShellTemplate(report)
 
       expect(template).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
-      expect(template).to.include("export VIDEO_AGENT_TTS_URL='https://provider.example/tts'")
-      expect(template).to.include("# export VIDEO_AGENT_TTS_TOKEN='<token>'")
-      expect(template).to.include("# export VIDEO_AGENT_TTS_HEADERS='{\"x-api-key\":\"<token>\"}'")
       expect(template).to.not.include('secret')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('can include optional shell template variables as exports', async () => {
+  it('does not add optional shell variables for llm providers', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
 
     try {
-      await writeConfig(root, {vlm: 'http'})
+      await writeConfig(root, {vlm: 'llm'})
 
       const template = createProviderEnvironmentShellTemplate(await readProviderEnvironment(root, {}), {includeOptional: true})
 
-      expect(template).to.include("export VIDEO_AGENT_VLM_TOKEN='<token>'")
-      expect(template).to.include("export VIDEO_AGENT_VLM_HEADERS='{\"x-api-key\":\"<token>\"}'")
-      expect(template).to.include("export VIDEO_AGENT_VLM_MODEL='provider-model'")
-      expect(template).to.include("export VIDEO_AGENT_VLM_TIMEOUT_MS='60000'")
+      expect(template).to.not.include('VIDEO_AGENT_VLM_')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -170,12 +172,9 @@ describe('provider environment', () => {
 
       const report = await readProviderEnvironment(root, {})
 
-      expect(report.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:http', 'vlm:http', 'tts:http'])
+      expect(report.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:llm', 'vlm:llm', 'tts:llm'])
       expect(report.summary.missingRequired).to.deep.equal([])
-      expect(report.providers.find((provider) => provider.role === 'vlm')?.requirements.find((requirement) => requirement.env === 'VIDEO_AGENT_VLM_MODEL')).to.include({
-        configured: true,
-        required: false,
-      })
+      expect(report.providers.flatMap((provider) => provider.requirements)).to.deep.equal([])
     } finally {
       await rm(root, {force: true, recursive: true})
     }

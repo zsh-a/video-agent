@@ -107,8 +107,8 @@ async function promptProviderChoice(label: string, current: string): Promise<Pro
       message: label,
       options: [
         {hint: 'deterministic local development provider', label: 'mock', value: 'mock'},
+        {hint: 'configured LLM client for structured outputs', label: 'llm', value: 'llm'},
         {hint: 'external process adapter over JSON stdin/stdout', label: 'command', value: 'command'},
-        {hint: 'hosted or local HTTP JSON adapter', label: 'http', value: 'http'},
       ],
     }),
   )
@@ -151,7 +151,7 @@ function readPromptValue<T>(value: symbol | T): T {
 }
 
 function normalizeProviderKind(value: string): ProviderName {
-  if (value === 'command' || value === 'http' || value === 'mock') {
+  if (value === 'command' || value === 'llm' || value === 'mock') {
     return value
   }
 

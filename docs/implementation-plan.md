@@ -42,7 +42,7 @@ Out of scope for v0:
 1. Core logic must be headless. CLI, TUI, MCP, API, Web Studio, and Claude Code skill adapters should call the same runtime APIs.
 2. All cross-stage data must be validated through TypeScript types and Zod schemas.
 3. Large media stays in the filesystem or object storage. Job state stores paths, metadata, hashes, and stage status.
-4. External executors are replaceable boundaries: `ffmpeg`, `ffprobe`, Chromium, HyperFrames, and provider APIs.
+4. External executors are replaceable boundaries: `ffmpeg`, `ffprobe`, Chromium, HyperFrames, AI SDK-backed hosted models, and local command adapters.
 5. Bun is the default runtime, but shared packages should avoid unnecessary Bun-only coupling when a Node fallback is practical.
 
 ## Phase 0: Repository Foundation
@@ -165,27 +165,26 @@ Deliverables:
 - Command JSON ASR provider adapter behind `ASRProvider`.
 - Command JSON VLM provider adapter behind `VLMProvider`.
 - Command JSON TTS provider adapter behind `TTSProvider`.
-- HTTP JSON ASR/VLM/TTS provider adapters behind the same provider contracts.
+- LLM-backed ASR/VLM/TTS providers behind the same provider contracts.
 - Clip selection and source-range planning improvements.
 - Better voiceover placement, voiceover plan artifacts with alignment sources, multi-segment stitching, and ducking controls.
 - Provider call records with request identifiers, cost, usage, model, and latency metadata.
-- HTTP provider request headers for role/kind/version tracing, fallback request ids, bearer tokens, and custom hosted-service headers.
-- Provider environment requirement reports and shell templates for command and HTTP adapters, including non-secret custom-header placeholders.
+- Provider environment requirement reports and shell templates for command adapters.
 - Clack-styled interactive prompts for configuration with a non-TTY guard for scripts and agent clients.
 - `@video-agent/llm` with an internal `LLMClient` interface, latest AI SDK-backed default adapter, and minimal AI SDK provider config factory for Anthropic-compatible and OpenAI-compatible endpoints.
 - `StoryboardProvider` and `ScriptProvider` business interfaces with deterministic fallbacks and LLM-backed implementations for plan/script stages.
 
 Acceptance criteria:
 
-- A user can configure external ASR/VLM/TTS command or HTTP adapters without changing source code and inspect the required environment contract without leaking secret values.
+- A user can configure external ASR/VLM/TTS command adapters or the shared LLM path without changing source code and inspect the required environment contract without leaking secret values.
 - Provider outputs are validated before artifact writes and during checkpoint/artifact verification, with structured validation issues for smoke-test diagnostics.
-- Provider calls are recorded with request id, status, latency, input/output summaries, optional model/usage/cost metadata, and failure details; HTTP providers propagate trace headers and provide fallback request ids when the provider response omits one.
+- Provider calls are recorded with request id, status, latency, input/output summaries, optional model/usage/cost metadata, and failure details.
 - Project status summarizes events, provider calls, provider costs, quality issues, and render output diagnostics for CLI/API/TUI adapters.
 - Project quality gives CLI/API/MCP/TUI adapters one deliverability summary across pipeline checks, render diagnostics, and artifact integrity.
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests with structured provider response validation diagnostics and shared summary counts, HTTP provider trace headers/custom headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports with shared summary counts, non-secret shell templates, config-time provider env summaries, explicit env injection across CLI/API/MCP provider and doctor checks, shared ASR/VLM/TTS artifact schemas, transcript-aligned VLM scene batches, ASR/VLM evidence-backed storyboard generation with scene-level source ranges, storyboard sourceRange quality checks, sequential fallback `clip-plan.json` source-range planning with gap/overlap diagnostics, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, Clack-styled interactive configuration, the shared provider configuration descriptor documented in `docs/provider-configuration-model.md`, the latest AI SDK-backed `@video-agent/llm` abstraction, config-driven AI SDK LLM client creation, and LLM-backed storyboard/script provider implementations for plan/script stages are implemented; provider-specific hosted-service adapters are still pending.
+Status: in progress. The command JSON provider boundary, runnable command-provider recipe, LLM-backed ASR/VLM/TTS/storyboard/script providers, provider smoke tests with structured provider response validation diagnostics and shared summary counts, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports with shared summary counts, non-secret shell templates, config-time provider env summaries, explicit env injection across CLI/API/MCP provider and doctor checks, shared ASR/VLM/TTS artifact schemas, transcript-aligned VLM scene batches, ASR/VLM evidence-backed storyboard generation with scene-level source ranges, storyboard sourceRange quality checks, sequential fallback `clip-plan.json` source-range planning with gap/overlap diagnostics, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, Clack-styled interactive configuration, the shared provider configuration descriptor documented in `docs/provider-configuration-model.md`, the latest AI SDK-backed `@video-agent/llm` abstraction, config-driven AI SDK LLM client creation, and MiMo ASR over the AI SDK OpenAI-compatible path are implemented. Hosted LLM-like services should continue to use this shared AI SDK path instead of provider-specific HTTP adapters.
 
 ## Phase 5: Persistence and Recovery
 
@@ -235,9 +234,9 @@ Status: in progress. A first stdio MCP adapter is implemented with tools for doc
 
 These were the recommended tasks when this plan was active. Treat them as backlog context, not as canonical current status:
 
-1. Select the first hosted ASR/VLM/TTS service target and implement one real-provider vertical slice behind the existing contracts. The first slice must include provider-specific request/response mapping, Zod validation, descriptor-based `provider-env` requirements, `provider-test` smoke coverage with injected fetch or command shims, provider call metadata, failure diagnostics, and no secret values in reports.
+1. Keep hosted ASR/VLM/TTS services on the shared AI SDK-backed LLM path. Provider-specific protocol differences should be handled in `packages/llm` with request transforms and no-network tests.
 2. Create a named MCP client validation matrix for the generic config output. Test each target client hands-on, then document config shape, placement path, env injection behavior, installed/dev command mode, observed limitations, and verification date in one place.
-3. Expand the first real-provider slice to additional ASR/VLM/TTS services only after the configuration model and validation matrix are stable.
+3. Add named providers only for non-LLM/local execution boundaries after the configuration model and validation matrix are stable.
 4. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions after the dependency policy is explicitly accepted. This is an experience upgrade and should not block real-provider or MCP-client validation work.
 
 ## v0 Completion Definition
@@ -250,4 +249,4 @@ The first implementation version is complete when:
 - The architecture is documented well enough to add real providers without changing the pipeline shape.
 - Tests cover the contracts most likely to break future adapters.
 
-Current evidence: `test/commands/cli-e2e.test.ts` exercises workspace bootstrap through `init`, `config`, `provider-env`, `provider-test`, and `doctor`; validates command provider env, HTTP provider env, explicit `--env` injection for provider and doctor checks, MCP client config output, and the documented command adapter recipe through CLI-level smoke tests; then generates a short local media file with ffmpeg and exercises the development CLI through `inspect`, `run`, `render --no-audio --no-subtitles`, `export`, `artifacts --verify`, and `status` against one workspace. `test/packages/api/server.test.ts` and `test/packages/mcp/server.test.ts` validate explicit env injection for provider and doctor checks through API and MCP adapters. `test/packages/runtime/provider-smoke-test.test.ts` also validates the documented HTTP adapter recipe through the runtime smoke-test path with injected fetch.
+Current evidence: `test/commands/cli-e2e.test.ts` exercises workspace bootstrap through `init`, `config`, `provider-env`, `provider-test`, and `doctor`; validates command provider env, LLM profile doctor checks, explicit `--env` injection for provider and doctor checks, MCP client config output, and the documented command adapter recipe through CLI-level smoke tests; then generates a short local media file with ffmpeg and exercises the development CLI through `inspect`, `run`, `render --no-audio --no-subtitles`, `export`, `artifacts --verify`, and `status` against one workspace. `test/packages/api/server.test.ts` and `test/packages/mcp/server.test.ts` validate explicit env injection for provider and doctor checks through API and MCP adapters. `test/packages/runtime/provider-smoke-test.test.ts` also validates the LLM provider path with an injected LLM client.

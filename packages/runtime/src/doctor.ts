@@ -4,6 +4,7 @@ import {mkdir, unlink, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
 import {type AgentConfig, readConfig, resolveConfigPath} from './config.js'
+import {readRuntimeEnv} from './env.js'
 import {listProjects} from './projects.js'
 import {createProviderEnv} from './provider-settings.js'
 
@@ -73,7 +74,7 @@ function summarizeHealthChecks(checks: HealthCheck[]): RuntimeHealthSummary {
 async function checkProviderConfig(workspaceDir: string, env: Record<string, string | undefined> | undefined): Promise<HealthCheck[]> {
   try {
     const config = await readConfig(workspaceDir)
-    const providerEnv = createProviderEnv(config, env ?? process.env)
+    const providerEnv = createProviderEnv(config, env ?? await readRuntimeEnv(workspaceDir))
 
     return PROVIDER_ROLES.map((role) => checkProviderRole(role, config, providerEnv))
   } catch (error) {
@@ -113,51 +114,48 @@ function checkProviderRole(role: ProviderRole, config: AgentConfig, env: Record<
     return checkCommandProvider(role, env)
   }
 
-  if (provider === 'http') {
-    return checkHttpProvider(role, env)
+  if (provider === 'llm') {
+    return checkLLMProvider(role, config, env)
   }
 
   return checkUnsupportedConfiguredProvider(role, provider)
 }
 
-function checkHttpProvider(role: ProviderRole, env: Record<string, string | undefined> = process.env): HealthCheck {
-  const envName = providerEnvName(role, 'URL')
-  const value = env[envName]
-
-  if (value === undefined || value.trim() === '') {
+function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> = process.env): HealthCheck {
+  if (config.llm === undefined) {
     return {
-      details: {env: envName, provider: 'http'},
-      message: `${envName} is required for http provider`,
+      details: {provider: 'llm'},
+      message: `${role} provider is llm, but llm is not configured`,
       name: `provider:${role}`,
       status: 'fail',
     }
   }
 
-  try {
-    const url = new URL(value)
+  const authEnv = config.llm.authTokenEnv ?? config.llm.apiKeyEnv ?? (config.llm.provider === 'openai-compatible' ? 'VIDEO_AGENT_LLM_TOKEN' : undefined)
 
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return {
-        details: {env: envName, provider: 'http', url: value},
-        message: `${envName} must be an http or https URL`,
-        name: `provider:${role}`,
-        status: 'fail',
-      }
-    }
-
+  if (authEnv === undefined) {
     return {
-      details: {env: envName, provider: 'http', url: value},
-      message: `${envName} is configured`,
+      details: {model: config.llm.model, provider: 'llm'},
+      message: `${role} provider uses configured LLM`,
       name: `provider:${role}`,
       status: 'pass',
     }
-  } catch (error) {
+  }
+
+  if (env[authEnv] === undefined || env[authEnv]?.trim() === '') {
     return {
-      details: {env: envName, provider: 'http'},
-      message: `${envName} is not a valid URL: ${error instanceof Error ? error.message : String(error)}`,
+      details: {env: authEnv, model: config.llm.model, provider: 'llm'},
+      message: `${authEnv} is required for llm provider`,
       name: `provider:${role}`,
       status: 'fail',
     }
+  }
+
+  return {
+    details: {env: authEnv, model: config.llm.model, provider: 'llm'},
+    message: `${role} provider uses configured LLM`,
+    name: `provider:${role}`,
+    status: 'pass',
   }
 }
 

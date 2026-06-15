@@ -1,9 +1,9 @@
 export const PROVIDER_ROLES = ['asr', 'vlm', 'tts'] as const
-export const BUILTIN_PROVIDER_NAMES = ['command', 'http', 'mock'] as const
+export const BUILTIN_PROVIDER_NAMES = ['command', 'llm', 'mock'] as const
 
 export type ProviderName = typeof BUILTIN_PROVIDER_NAMES[number]
 export type ProviderRole = typeof PROVIDER_ROLES[number]
-export type ProviderRequirementKind = 'commandArgvJson' | 'customHeadersJson' | 'httpUrl' | 'model' | 'timeoutMs' | 'token'
+export type ProviderRequirementKind = 'commandArgvJson'
 
 export interface ProviderEnvironmentDefinition {
   description: string
@@ -35,51 +35,10 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderName, ProviderDescriptor> = {
       },
     ],
   },
-  http: {
-    description: 'Hosted or local HTTP JSON adapter.',
-    name: 'http',
-    requirements: (role) => [
-      {
-        description: `${role.toUpperCase()} HTTP adapter endpoint.`,
-        env: providerEnvName(role, 'URL'),
-        kind: 'httpUrl',
-        placeholder: `https://provider.example/${role}`,
-        required: true,
-        secret: false,
-      },
-      {
-        description: `${role.toUpperCase()} bearer token for HTTP adapter requests.`,
-        env: providerEnvName(role, 'TOKEN'),
-        kind: 'token',
-        placeholder: '<token>',
-        required: false,
-        secret: true,
-      },
-      {
-        description: `${role.toUpperCase()} HTTP adapter custom headers as a JSON object of string values.`,
-        env: providerEnvName(role, 'HEADERS'),
-        kind: 'customHeadersJson',
-        placeholder: '{"x-api-key":"<token>"}',
-        required: false,
-        secret: true,
-      },
-      {
-        description: `${role.toUpperCase()} model name sent with HTTP adapter requests.`,
-        env: providerEnvName(role, 'MODEL'),
-        kind: 'model',
-        placeholder: 'provider-model',
-        required: false,
-        secret: false,
-      },
-      {
-        description: `${role.toUpperCase()} HTTP adapter timeout in milliseconds.`,
-        env: providerEnvName(role, 'TIMEOUT_MS'),
-        kind: 'timeoutMs',
-        placeholder: '60000',
-        required: false,
-        secret: false,
-      },
-    ],
+  llm: {
+    description: 'Configured LLM client for structured ASR/VLM/TTS outputs.',
+    name: 'llm',
+    requirements: () => [],
   },
   mock: {
     description: 'Deterministic local development provider.',

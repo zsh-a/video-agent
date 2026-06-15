@@ -1,4 +1,4 @@
-import type {PipelineEvent, Stage} from '@video-agent/core'
+import type {PipelineContext, PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
 import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
@@ -16,8 +16,9 @@ import {join, resolve} from 'node:path'
 import {refreshArtifactManifest} from './artifact-store.js'
 import {verifyProjectArtifacts} from './artifacts.js'
 import {readConfig} from './config.js'
+import {readRuntimeEnv} from './env.js'
 import {createConfiguredJobStore} from './job-store.js'
-import {createJsonlProviderCallRecorder, instrumentProviders} from './provider-calls.js'
+import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecord, type ProviderCallRecorder, type ProviderCallStartRecord} from './provider-calls.js'
 import {createProviderEnv} from './provider-settings.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
@@ -25,6 +26,9 @@ export interface RunInitialPipelineOptions {
   fromStage?: InitialPipelineStage
   inputPath: string
   llmClient?: LLMClient
+  onEvent?: (event: PipelineEvent) => Promise<void> | void
+  onProviderCall?: (call: ProviderCallRecord) => Promise<void> | void
+  onProviderCallStart?: (call: ProviderCallStartRecord) => Promise<void> | void
   projectId?: string
   workspaceDir?: string
 }
@@ -167,12 +171,12 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     ttsSegments: workspace.store.resolve('tts-segments.json'),
   }
   const config = await readConfig(workspace.workspaceDir)
-  const providerEnv = createProviderEnv(config)
+  const providerEnv = createProviderEnv(config, await readRuntimeEnv(workspace.workspaceDir))
   const llmClient = options.llmClient ?? createLLMClientFromConfig(config.llm, {
     env: providerEnv,
   })
   const providerSet = createProviders(config, {env: providerEnv, llmClient})
-  const providers = instrumentProviders(providerSet, config.providers, createJsonlProviderCallRecorder(providerCallsPath))
+  const providers = instrumentProviders(providerSet, config.providers, createRuntimeProviderCallRecorder(providerCallsPath, options.onProviderCall, options.onProviderCallStart))
   const ctx = {
     artifactsDir: workspace.artifactsDir,
     emit: async (event: PipelineEvent) => appendEvent(pipelineEventsPath, event),
@@ -210,6 +214,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
       async emit(event: PipelineEvent) {
         await appendEvent(pipelineEventsPath, event)
         await updateJobStateFromEvent(jobStore, event)
+        await options.onEvent?.(event)
       },
       retryPolicy: {
         backoffMs: config.pipeline.retryBackoffMs,
@@ -250,6 +255,20 @@ async function updateJobStateFromEvent(jobStore: JobStore, event: PipelineEvent)
   }
 }
 
+function createRuntimeProviderCallRecorder(path: string, onProviderCall: RunInitialPipelineOptions['onProviderCall'], onProviderCallStart: RunInitialPipelineOptions['onProviderCallStart']): ProviderCallRecorder {
+  const jsonlRecorder = createJsonlProviderCallRecorder(path)
+
+  return {
+    async record(call) {
+      await jsonlRecorder.record(call)
+      await onProviderCall?.(call)
+    },
+    async start(call) {
+      await onProviderCallStart?.(call)
+    },
+  }
+}
+
 function createStageChain(fromStage: InitialPipelineStage, artifacts: RunInitialPipelineResult['artifacts']): Stage<InitialStageInput, InitialStageOutput>[] {
   const stageIndex = resolveStageIndex(fromStage)
 
@@ -276,15 +295,20 @@ function resolveStageIndex(fromStage: InitialPipelineStage): number {
 function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'ingest',
-    async run(input) {
+    async run(input, ctx) {
       const initial = input as InitialPipelineInput
+      await emitStep(ctx, {data: {inputPath: initial.inputPath}, message: 'Probing source media.', stage: 'ingest', step: 'probe-media'})
       const mediaInfo = await probeMedia(initial.inputPath)
       const previewDuration = Math.min(mediaInfo.duration ?? 10, 10)
       const framePattern = join(initial.workspace.framesDir, 'frame_%05d.jpg')
 
+      await emitStep(ctx, {data: summarizeMediaInfo(mediaInfo), message: 'Media probe completed.', stage: 'ingest', step: 'probe-media'})
+      await emitStep(ctx, {data: {framePattern}, message: 'Extracting analysis frames.', stage: 'ingest', step: 'extract-frames'})
       await mkdir(initial.workspace.framesDir, {recursive: true})
       await extractFrames(initial.inputPath, framePattern)
+      await emitStep(ctx, {data: {duration: previewDuration, outputPath: artifacts.preview}, message: 'Creating preview render.', stage: 'ingest', step: 'create-preview'})
       await createPreview(initial.inputPath, artifacts.preview, previewDuration)
+      await emitArtifact(ctx, 'ingest', artifacts.preview, 'video')
 
       const nextArtifacts = {
         ...artifacts,
@@ -293,7 +317,11 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
 
       if (mediaInfo.streams.some((stream) => stream.type === 'audio')) {
         nextArtifacts.sourceAudio = join(initial.workspace.audioDir, 'source.wav')
+        await emitStep(ctx, {data: {outputPath: nextArtifacts.sourceAudio}, message: 'Extracting source audio for ASR.', stage: 'ingest', step: 'extract-audio'})
         await extractAudio(initial.inputPath, nextArtifacts.sourceAudio)
+        await emitArtifact(ctx, 'ingest', nextArtifacts.sourceAudio, 'audio')
+      } else {
+        await emitStep(ctx, {level: 'warn', message: 'Source has no audio stream; ASR will use media input directly.', stage: 'ingest', step: 'extract-audio'})
       }
 
       const ingestReport = {
@@ -305,7 +333,9 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
       }
 
       await initial.workspace.store.writeJson('media-info.json', MediaInfoSchema.parse(mediaInfo))
+      await emitArtifact(ctx, 'ingest', artifacts.mediaInfo, 'json')
       await initial.workspace.store.writeJson('ingest-report.json', ingestReport)
+      await emitArtifact(ctx, 'ingest', artifacts.ingestReport, 'json')
 
       return {
         ...initial,
@@ -319,15 +349,23 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
 function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'understand',
-    async run(input) {
+    async run(input, ctx) {
       const ingest = input as IngestOutput
+      const asrInputPath = ingest.artifacts.sourceAudio ?? ingest.inputPath
+      await emitStep(ctx, {data: {inputPath: asrInputPath, providerInput: ingest.artifacts.sourceAudio === undefined ? 'media' : 'audio'}, message: 'Transcribing source audio.', stage: 'understand', step: 'asr'})
       const transcript = TranscriptSchema.parse(await ingest.providers.asr.transcribe({
-        path: ingest.artifacts.sourceAudio ?? ingest.inputPath,
+        path: asrInputPath,
       }))
-      const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, ingest.artifacts.frames)))
+      await emitStep(ctx, {data: summarizeTranscriptForLog(transcript), message: 'Transcript completed.', stage: 'understand', step: 'asr'})
+      const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, ingest.artifacts.frames)
+      await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
+      const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches))
+      await emitStep(ctx, {data: summarizeVlmScenesForLog(sceneAnalysis), message: 'Visual scene analysis completed.', stage: 'understand', step: 'vlm'})
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
+      await emitArtifact(ctx, 'understand', ingest.artifacts.transcript, 'json')
       await ingest.workspace.store.writeJson('scene-analysis.json', sceneAnalysis)
+      await emitArtifact(ctx, 'understand', ingest.artifacts.sceneAnalysis, 'json')
 
       return {
         ...ingest,
@@ -351,19 +389,41 @@ export function createSceneFrameBatchesFromTranscript(transcript: Transcript, me
 function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'plan',
-    async run(input) {
+    async run(input, ctx) {
       const understood = input as UnderstandOutput
+      await emitStep(ctx, {
+        data: {
+          scenes: understood.sceneAnalysis.length,
+          transcriptSegments: understood.transcript.segments.length,
+        },
+        message: 'Creating storyboard.',
+        stage: 'plan',
+        step: 'storyboard',
+      })
       const storyboard = StoryboardSchema.parse(await understood.providers.storyboard.createStoryboard({
         mediaInfo: understood.mediaInfo,
         sceneAnalysis: understood.sceneAnalysis,
         transcript: understood.transcript,
       }))
+      await emitStep(ctx, {data: {storyboardScenes: storyboard.scenes.length}, message: 'Creating clip plan and timeline.', stage: 'plan', step: 'clip-plan'})
       const clipPlan = ClipPlanSchema.parse(createClipPlan(storyboard, understood.mediaInfo))
       const timeline = TimelineSchema.parse(createTimelineFromClipPlan(understood.mediaInfo, clipPlan))
+      await emitStep(ctx, {
+        data: {
+          clips: clipPlan.clips.length,
+          timelineItems: timeline.items.length,
+        },
+        message: 'Plan completed.',
+        stage: 'plan',
+        step: 'timeline',
+      })
 
       await understood.workspace.store.writeJson('clip-plan.json', clipPlan)
+      await emitArtifact(ctx, 'plan', understood.artifacts.clipPlan, 'json')
       await understood.workspace.store.writeJson('storyboard.json', StoryboardSchema.parse(storyboard))
+      await emitArtifact(ctx, 'plan', understood.artifacts.storyboard, 'json')
       await understood.workspace.store.writeJson('timeline.json', timeline)
+      await emitArtifact(ctx, 'plan', understood.artifacts.timeline, 'json')
 
       return {
         ...understood,
@@ -378,14 +438,25 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
 function createScriptStage(): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'script',
-    async run(input) {
+    async run(input, ctx) {
       const planned = input as PlanOutput
+      await emitStep(ctx, {
+        data: {
+          clips: planned.clipPlan.clips.length,
+          storyboardScenes: planned.storyboard.scenes.length,
+        },
+        message: 'Creating narration script.',
+        stage: 'script',
+        step: 'narration',
+      })
       const narration = NarrationSchema.parse(await planned.providers.script.createNarration({
         clipPlan: planned.clipPlan,
         storyboard: planned.storyboard,
       }))
+      await emitStep(ctx, {data: summarizeNarrationForLog(narration), message: 'Narration completed.', stage: 'script', step: 'narration'})
 
       await planned.workspace.store.writeJson('narration.json', narration)
+      await emitArtifact(ctx, 'script', planned.artifacts.narration, 'json')
 
       return {
         ...planned,
@@ -398,11 +469,14 @@ function createScriptStage(): Stage<InitialStageInput, InitialStageOutput> {
 function createVoiceoverStage(): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'voiceover',
-    async run(input) {
+    async run(input, ctx) {
       const scripted = input as ScriptOutput
+      await emitStep(ctx, {data: summarizeNarrationForLog(scripted.narration), message: 'Synthesizing voiceover manifest.', stage: 'voiceover', step: 'tts'})
       const ttsSegments = TtsSegmentsSchema.parse(await scripted.providers.tts.synthesize(scripted.narration.segments))
+      await emitStep(ctx, {data: summarizeTtsSegmentsForLog(ttsSegments), message: 'Voiceover manifest completed.', stage: 'voiceover', step: 'tts'})
 
       await scripted.workspace.store.writeJson('tts-segments.json', ttsSegments)
+      await emitArtifact(ctx, 'voiceover', scripted.artifacts.ttsSegments, 'json')
 
       return {
         ...scripted,
@@ -415,8 +489,18 @@ function createVoiceoverStage(): Stage<InitialStageInput, InitialStageOutput> {
 function createQualityStage(): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'quality',
-    async run(input) {
+    async run(input, ctx) {
       const voiced = input as VoiceoverOutput
+      await emitStep(ctx, {
+        data: {
+          clips: voiced.clipPlan.clips.length,
+          narrationSegments: voiced.narration.segments.length,
+          ttsSegments: voiced.ttsSegments.length,
+        },
+        message: 'Running quality checks.',
+        stage: 'quality',
+        step: 'checks',
+      })
       const issues = [
         ...checkStoryboardConsistency(voiced.storyboard, voiced.mediaInfo),
         ...checkClipPlanConsistency(voiced.clipPlan, voiced.timeline),
@@ -432,14 +516,149 @@ function createQualityStage(): Stage<InitialStageInput, InitialStageOutput> {
         ttsSegments: voiced.ttsSegments.length,
         version: 1,
       }
+      await emitStep(ctx, {
+        data: {
+          issueCodes: issues.map((issue) => issue.code),
+          ...qualityReport.summary,
+        },
+        level: qualityReport.summary.errors > 0 ? 'error' : qualityReport.summary.warnings > 0 ? 'warn' : 'info',
+        message: 'Quality checks completed.',
+        stage: 'quality',
+        step: 'checks',
+      })
 
       await voiced.workspace.store.writeJson('quality-report.json', qualityReport)
+      await emitArtifact(ctx, 'quality', voiced.artifacts.qualityReport, 'json')
 
       return {
         ...voiced,
         issues,
       }
     },
+  }
+}
+
+interface RuntimeStepEvent {
+  data?: Record<string, unknown>
+  level?: PipelineEvent['level']
+  message: string
+  stage: InitialPipelineStage
+  step: string
+}
+
+async function emitStep(ctx: PipelineContext, event: RuntimeStepEvent): Promise<void> {
+  await ctx.emit({
+    data: event.data ?? {},
+    level: event.level ?? 'info',
+    message: event.message,
+    projectId: ctx.projectId,
+    stage: event.stage,
+    step: event.step,
+    time: new Date().toISOString(),
+    type: 'log',
+  })
+}
+
+async function emitArtifact(ctx: PipelineContext, stage: InitialPipelineStage, path: string, kind: ArtifactRef['kind']): Promise<void> {
+  await ctx.emit({
+    artifact: {
+      kind,
+      path,
+    },
+    level: 'debug',
+    message: `Artifact written: ${path}`,
+    projectId: ctx.projectId,
+    stage,
+    step: 'artifact',
+    time: new Date().toISOString(),
+    type: 'artifact',
+  })
+}
+
+function summarizeMediaInfo(mediaInfo: MediaInfo): Record<string, unknown> {
+  const video = mediaInfo.streams.find((stream) => stream.type === 'video')
+  const audioStreams = mediaInfo.streams.filter((stream) => stream.type === 'audio')
+
+  return {
+    ...(mediaInfo.bitrate === undefined ? {} : {bitrate: mediaInfo.bitrate}),
+    ...(mediaInfo.duration === undefined ? {} : {duration: mediaInfo.duration}),
+    ...(mediaInfo.formatName === undefined ? {} : {format: mediaInfo.formatName}),
+    ...(mediaInfo.size === undefined ? {} : {size: mediaInfo.size}),
+    audioStreams: audioStreams.length,
+    streams: mediaInfo.streams.length,
+    ...(video?.fps === undefined ? {} : {fps: video.fps}),
+    ...(video?.height === undefined ? {} : {height: video.height}),
+    ...(video?.width === undefined ? {} : {width: video.width}),
+  }
+}
+
+function summarizeTranscriptForLog(transcript: Transcript): Record<string, unknown> {
+  let duration = 0
+
+  for (const segment of transcript.segments) {
+    duration = Math.max(duration, segment.end)
+  }
+
+  return {
+    ...(transcript.language === undefined ? {} : {language: transcript.language}),
+    duration,
+    segments: transcript.segments.length,
+    textLength: transcript.text.length,
+  }
+}
+
+function summarizeSceneBatchesForLog(sceneBatches: SceneFrameBatch[]): Record<string, unknown> {
+  let frames = 0
+
+  for (const batch of sceneBatches) {
+    frames += batch.frames.length
+  }
+
+  return {
+    frames,
+    scenes: sceneBatches.length,
+  }
+}
+
+function summarizeVlmScenesForLog(scenes: VLMScene[]): Record<string, unknown> {
+  let evidence = 0
+
+  for (const scene of scenes) {
+    evidence += scene.evidence.length
+  }
+
+  return {
+    evidence,
+    scenes: scenes.length,
+  }
+}
+
+function summarizeNarrationForLog(narration: Narration): Record<string, unknown> {
+  let duration = 0
+  let textLength = 0
+
+  for (const segment of narration.segments) {
+    duration += segment.duration ?? 0
+    textLength += segment.text.length
+  }
+
+  return {
+    duration,
+    segments: narration.segments.length,
+    textLength,
+  }
+}
+
+function summarizeTtsSegmentsForLog(segments: TTSSegment[]): Record<string, unknown> {
+  let duration = 0
+
+  for (const segment of segments) {
+    duration += segment.duration
+  }
+
+  return {
+    duration,
+    segments: segments.length,
   }
 }
 

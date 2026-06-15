@@ -21,56 +21,21 @@ export interface ProviderProfile {
 
 export interface ProviderProfileModel {
   id: string
-  roles: Array<'asr' | 'tts' | 'vlm'>
+  roles: Array<'llm'>
 }
 
 export type ProviderSettings = Partial<Record<ProviderRole, ProviderRoleSettings>>
 
 export interface ProviderRoleSettings {
   command?: string[]
-  model?: string
-  timeoutMs?: number
-  url?: string
 }
 
-export const MIMO_PROVIDER_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic'
+export const MIMO_PROVIDER_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic/v1'
 
 export const MIMO_PROVIDER_MODELS: ProviderProfileModel[] = [
   {
     id: 'mimo-v2.5-pro',
-    roles: ['vlm'],
-  },
-  {
-    id: 'mimo-v2.5',
-    roles: ['vlm'],
-  },
-  {
-    id: 'mimo-v2.5-asr',
-    roles: ['asr'],
-  },
-  {
-    id: 'mimo-v2.5-tts-voiceclone',
-    roles: ['tts'],
-  },
-  {
-    id: 'mimo-v2.5-tts-voicedesign',
-    roles: ['tts'],
-  },
-  {
-    id: 'mimo-v2.5-tts',
-    roles: ['tts'],
-  },
-  {
-    id: 'mimo-v2-pro',
-    roles: ['vlm'],
-  },
-  {
-    id: 'mimo-v2-omni',
-    roles: ['vlm'],
-  },
-  {
-    id: 'mimo-v2-tts',
-    roles: ['tts'],
+    roles: ['llm'],
   },
 ]
 
@@ -86,27 +51,11 @@ export const MIMO_PROVIDER_PROFILE: ProviderProfile = {
   models: MIMO_PROVIDER_MODELS,
   name: 'mimo',
   providers: {
-    asr: 'http',
-    tts: 'http',
-    vlm: 'http',
+    asr: 'llm',
+    tts: 'llm',
+    vlm: 'llm',
   },
-  providerSettings: {
-    asr: {
-      model: 'mimo-v2.5-asr',
-      timeoutMs: 120_000,
-      url: MIMO_PROVIDER_BASE_URL,
-    },
-    tts: {
-      model: 'mimo-v2.5-tts',
-      timeoutMs: 120_000,
-      url: MIMO_PROVIDER_BASE_URL,
-    },
-    vlm: {
-      model: 'mimo-v2.5-pro',
-      timeoutMs: 120_000,
-      url: MIMO_PROVIDER_BASE_URL,
-    },
-  },
+  providerSettings: {},
 }
 
 export const PROVIDER_PROFILES: Record<ProviderProfileName, ProviderProfile> = {

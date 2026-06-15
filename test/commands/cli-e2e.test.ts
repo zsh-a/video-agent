@@ -228,33 +228,27 @@ describe('cli end-to-end workflow', () => {
       ])
       expect(mcpClientPresets.at(-1)?.placement).to.include('command/args/env')
 
-      await runCliJson(['config', '--asr', 'http', '--vlm', 'http', '--tts', 'http', '--workspace', workspaceDir, '--json'])
-      const httpProviderEnv = {
-        VIDEO_AGENT_ASR_URL: 'https://provider.example/asr',
-        VIDEO_AGENT_TTS_URL: 'https://provider.example/tts',
-        VIDEO_AGENT_VLM_URL: 'https://provider.example/vlm',
+      await runCliJson(['config', '--provider-profile', 'mimo', '--workspace', workspaceDir, '--json'])
+      const llmProviderEnv = {
+        VIDEO_AGENT_LLM_TOKEN: 'secret',
       }
-      const httpProviderEnvFlags = envFlagArgs(httpProviderEnv)
-      const configuredHttpProviderEnv = await runCliJson<{
+      const llmProviderEnvFlags = envFlagArgs(llmProviderEnv)
+      const configuredLLMProviderEnv = await runCliJson<{
         providers: Array<{
           requirements: Array<{configured: boolean; env: string; required: boolean}>
           role: string
         }>
-      }>(['provider-env', ...httpProviderEnvFlags, '--workspace', workspaceDir, '--json'])
+      }>(['provider-env', ...llmProviderEnvFlags, '--workspace', workspaceDir, '--json'])
 
-      expect(configuredHttpProviderEnv.providers.flatMap((provider) => provider.requirements.filter((requirement) => requirement.required).map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
-        'asr:VIDEO_AGENT_ASR_URL:true',
-        'vlm:VIDEO_AGENT_VLM_URL:true',
-        'tts:VIDEO_AGENT_TTS_URL:true',
-      ])
+      expect(configuredLLMProviderEnv.providers.flatMap((provider) => provider.requirements)).to.deep.equal([])
 
-      const httpDoctor = await runCliJson<{
+      const llmDoctor = await runCliJson<{
         checks: Array<{name: string; status: string}>
         ok: boolean
-      }>(['doctor', ...httpProviderEnvFlags, '--workspace', workspaceDir, '--json'])
+      }>(['doctor', ...llmProviderEnvFlags, '--workspace', workspaceDir, '--json'])
 
-      expect(httpDoctor.ok).to.equal(true)
-      expect(httpDoctor.checks.filter((check) => check.name.startsWith('provider:')).map((check) => `${check.name}:${check.status}`)).to.include.members([
+      expect(llmDoctor.ok).to.equal(true)
+      expect(llmDoctor.checks.filter((check) => check.name.startsWith('provider:')).map((check) => `${check.name}:${check.status}`)).to.include.members([
         'provider:asr:pass',
         'provider:vlm:pass',
         'provider:tts:pass',
@@ -290,15 +284,15 @@ describe('cli end-to-end workflow', () => {
       expect(inspect.streams).to.be.greaterThan(0)
       expect(inspect.duration).to.be.greaterThan(0)
 
-      const run = await runCliJson<{
-        artifacts: Record<string, string>
-        projectId: string
-        status: string
-      }>(['run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--json'])
+      const run = await expectCommand(['bun', './bin/dev.js', 'run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--verbose'])
 
-      expect(run.projectId).to.equal(projectId)
-      expect(run.status).to.equal('completed')
-      expect(Object.keys(run.artifacts)).to.include.members(['mediaInfo', 'timeline', 'narration', 'qualityReport'])
+      expect(run.stdout).to.include('[pipeline] ingest started')
+      expect(run.stdout).to.include('[pipeline] quality completed')
+      expect(run.stdout).to.include('[provider] asr mock transcribe succeeded')
+      expect(run.stdout).to.include('[provider] vlm mock analyzeScenes succeeded')
+      expect(run.stdout).to.include('[provider] tts mock synthesize succeeded')
+      expect(run.stdout).to.include(`Project: ${projectId}`)
+      expect(run.stdout).to.include('Status: completed')
 
       const render = await runCliJson<{
         artifactPath: string

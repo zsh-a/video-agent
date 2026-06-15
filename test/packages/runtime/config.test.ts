@@ -145,20 +145,20 @@ describe('config', () => {
     }
   })
 
-  it('writes http provider configuration', async () => {
+  it('writes llm provider configuration', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-config-'))
 
     try {
       const {config} = await writeConfig(root, {
-        asr: 'http',
-        tts: 'http',
-        vlm: 'http',
+        asr: 'llm',
+        tts: 'llm',
+        vlm: 'llm',
       })
 
       expect(config.providers).to.deep.equal({
-        asr: 'http',
-        tts: 'http',
-        vlm: 'http',
+        asr: 'llm',
+        tts: 'llm',
+        vlm: 'llm',
       })
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -174,31 +174,15 @@ describe('config', () => {
       })
 
       expect(config.providers).to.deep.equal({
-        asr: 'http',
-        tts: 'http',
-        vlm: 'http',
+        asr: 'llm',
+        tts: 'llm',
+        vlm: 'llm',
       })
       expect(config.providerProfile).to.equal('mimo')
-      expect(config.providerSettings).to.deep.include({
-        asr: {
-          model: 'mimo-v2.5-asr',
-          timeoutMs: 120_000,
-          url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-        },
-        tts: {
-          model: 'mimo-v2.5-tts',
-          timeoutMs: 120_000,
-          url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-        },
-        vlm: {
-          model: 'mimo-v2.5-pro',
-          timeoutMs: 120_000,
-          url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-        },
-      })
+      expect(config.providerSettings).to.deep.equal({})
       expect(config.llm).to.deep.equal({
         authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
-        baseURL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        baseURL: 'https://token-plan-cn.xiaomimimo.com/anthropic/v1',
         model: 'mimo-v2.5-pro',
         name: 'mimo',
         provider: 'anthropic',

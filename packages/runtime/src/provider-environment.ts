@@ -3,6 +3,7 @@ import {getProviderEnvironmentDefinitions, PROVIDER_ROLES, type ProviderRole} fr
 import type {AgentConfig} from './config.js'
 
 import {readConfig} from './config.js'
+import {readRuntimeEnv} from './env.js'
 import {createProviderEnv} from './provider-settings.js'
 
 export interface ProviderEnvironmentReport {
@@ -37,9 +38,10 @@ export interface ProviderEnvironmentShellTemplateOptions {
   includeOptional?: boolean
 }
 
-export async function readProviderEnvironment(workspaceDir = '.video-agent', env: Record<string, string | undefined> = process.env): Promise<ProviderEnvironmentReport> {
+export async function readProviderEnvironment(workspaceDir = '.video-agent', env?: Record<string, string | undefined>): Promise<ProviderEnvironmentReport> {
   const config = await readConfig(workspaceDir)
-  const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, createProviderEnv(config, env)))
+  const providerEnv = createProviderEnv(config, env ?? await readRuntimeEnv(workspaceDir))
+  const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, providerEnv))
 
   return {
     providers,

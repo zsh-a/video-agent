@@ -1,15 +1,17 @@
+import type {ModelMessage} from 'ai'
 import type {z} from 'zod'
 
 export type LLMMessageRole = 'assistant' | 'system' | 'user'
 
-export interface LLMMessage {
-  content: string
-  role: LLMMessageRole
-}
+export type LLMMessage = ModelMessage
+export type LLMProviderOptions = Record<string, Record<string, LLMJsonValue>>
+
+export type LLMJsonValue = boolean | LLMJsonValue[] | null | number | string | {[key: string]: LLMJsonValue | undefined}
 
 export interface GenerateTextRequest {
   messages?: LLMMessage[]
   prompt?: string
+  providerOptions?: LLMProviderOptions
   temperature?: number
 }
 

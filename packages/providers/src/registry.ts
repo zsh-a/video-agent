@@ -1,11 +1,10 @@
-import type {LLMClient} from '@video-agent/llm'
+import {createLLMClientFromConfig, type LLMClient, type LLMClientConfig} from '@video-agent/llm'
 
 import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMProvider} from './contracts.js'
-import type {ProviderFetch} from './http.js'
 
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
 import {providerEnvName, type ProviderRole} from './descriptors.js'
-import {HttpASRProvider, HttpTTSProvider, HttpVLMProvider} from './http.js'
+import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MimoASRProvider} from './llm-media.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
 import {DeterministicScriptProvider, DeterministicStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
 
@@ -31,6 +30,7 @@ export {
 export type {ProviderProfile, ProviderProfileModel, ProviderProfileName, ProviderRoleSettings, ProviderSettings} from './profiles.js'
 
 export interface ProviderConfig {
+  llm?: LLMClientConfig
   providerEnv?: Record<string, string | undefined>
   providers: {
     asr: string
@@ -41,8 +41,8 @@ export interface ProviderConfig {
 
 export interface ProviderRegistryOptions {
   env?: Record<string, string | undefined>
-  fetch?: ProviderFetch
   llmClient?: LLMClient
+  llmConfig?: LLMClientConfig
 }
 
 export interface ProviderSet {
@@ -76,8 +76,14 @@ export function createAsrProvider(name: string, options: ProviderRegistryOptions
     })
   }
 
-  if (name === 'http') {
-    return new HttpASRProvider(resolveHttpOptions('asr', options))
+  if (name === 'llm') {
+    const mimoAsrClient = createMimoAsrClient(options)
+
+    if (mimoAsrClient !== undefined) {
+      return new MimoASRProvider(mimoAsrClient)
+    }
+
+    return new LLMASRProvider(resolveLLMClient('asr', options))
   }
 
   throw new Error(`Unsupported ASR provider: ${name}`)
@@ -102,8 +108,8 @@ export function createTtsProvider(name: string, options: ProviderRegistryOptions
     })
   }
 
-  if (name === 'http') {
-    return new HttpTTSProvider(resolveHttpOptions('tts', options))
+  if (name === 'llm') {
+    return new LLMTTSProvider(resolveLLMClient('tts', options))
   }
 
   throw new Error(`Unsupported TTS provider: ${name}`)
@@ -120,8 +126,8 @@ export function createVlmProvider(name: string, options: ProviderRegistryOptions
     })
   }
 
-  if (name === 'http') {
-    return new HttpVLMProvider(resolveHttpOptions('vlm', options))
+  if (name === 'llm') {
+    return new LLMVLMProvider(resolveLLMClient('vlm', options))
   }
 
   throw new Error(`Unsupported VLM provider: ${name}`)
@@ -134,77 +140,38 @@ function mergeProviderRegistryOptions(config: ProviderConfig, options: ProviderR
       ...config.providerEnv,
       ...(options.env ?? process.env),
     },
+    llmConfig: config.llm,
   }
 }
 
-function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions): {fetch?: ProviderFetch; headers?: Record<string, string>; model?: string; timeoutMs?: number; url: string} {
+function createMimoAsrClient(options: ProviderRegistryOptions): LLMClient | undefined {
+  if (options.llmConfig?.name !== 'mimo') {
+    return undefined
+  }
+
   const env = options.env ?? process.env
-  const urlEnv = providerEnvName(role, 'URL')
-  const tokenEnv = providerEnvName(role, 'TOKEN')
-  const headersEnv = providerEnvName(role, 'HEADERS')
-  const modelEnv = providerEnvName(role, 'MODEL')
-  const timeoutEnv = providerEnvName(role, 'TIMEOUT_MS')
-  const url = env[urlEnv]
+  const client = createLLMClientFromConfig({
+    ...options.llmConfig,
+    baseURL: MIMO_ASR_BASE_URL,
+    model: MIMO_ASR_MODEL,
+    provider: 'openai-compatible',
+  }, {
+    env,
+  })
 
-  if (url === undefined || url.trim() === '') {
-    throw new Error(`Provider ${role} is set to http, but ${urlEnv} is not configured.`)
+  if (client === undefined) {
+    throw new Error('Provider asr is set to llm with Mimo profile, but LLM is not configured.')
   }
 
-  return {
-    ...(options.fetch === undefined ? {} : {fetch: options.fetch}),
-    ...resolveHttpHeaders({headersEnv, headersValue: env[headersEnv], tokenEnv, tokenValue: env[tokenEnv]}),
-    ...(env[modelEnv] === undefined || env[modelEnv]?.trim() === '' ? {} : {model: env[modelEnv]}),
-    ...(env[timeoutEnv] === undefined || env[timeoutEnv]?.trim() === '' ? {} : {timeoutMs: parseTimeout(timeoutEnv, env[timeoutEnv])}),
-    url,
-  }
+  return client
 }
 
-function resolveHttpHeaders(options: {headersEnv: string; headersValue: string | undefined; tokenEnv: string; tokenValue: string | undefined}): {headers?: Record<string, string>} {
-  const headers = {
-    ...parseHeaderEnv(options.headersEnv, options.headersValue),
-    ...(options.tokenValue === undefined || options.tokenValue.trim() === '' ? {} : {authorization: `Bearer ${options.tokenValue}`}),
+function resolveLLMClient(role: ProviderRole, options: ProviderRegistryOptions): LLMClient {
+  if (options.llmClient === undefined) {
+    throw new Error(`Provider ${role} is set to llm, but LLM is not configured.`)
   }
 
-  return Object.keys(headers).length === 0 ? {} : {headers}
-}
-
-function parseHeaderEnv(envName: string, value: string | undefined): Record<string, string> {
-  if (value === undefined || value.trim() === '') {
-    return {}
-  }
-
-  let parsed: unknown
-
-  try {
-    parsed = JSON.parse(value)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-
-    throw new Error(`${envName} must be a JSON object of string header names to string values: ${message}`)
-  }
-
-  if (!isHeaderRecord(parsed)) {
-    throw new Error(`${envName} must be a JSON object of string header names to string values.`)
-  }
-
-  return parsed
-}
-
-function isHeaderRecord(value: unknown): value is Record<string, string> {
-  return typeof value === 'object'
-    && value !== null
-    && !Array.isArray(value)
-    && Object.entries(value).every(([key, headerValue]) => key.trim() !== '' && typeof headerValue === 'string')
-}
-
-function parseTimeout(envName: string, value: string | undefined): number {
-  const parsed = Number(value)
-
-  if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(`${envName} must be a positive integer.`)
-  }
-
-  return parsed
+  return options.llmClient
 }
 
 function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = process.env): string[] {

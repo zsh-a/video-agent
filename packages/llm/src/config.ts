@@ -56,12 +56,72 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
       includeUsage: true,
       name: config.name ?? 'openai-compatible',
       supportsStructuredOutputs: config.supportsStructuredOutputs ?? true,
+      ...(config.name === 'mimo' ? {transformRequestBody: transformMimoRequestBody} : {}),
     })
 
     return provider(config.model)
   }
 
   throw new Error(`Unsupported LLM provider: ${(config as {provider: string}).provider}`)
+}
+
+function transformMimoRequestBody(body: Record<string, unknown>): Record<string, unknown> {
+  if (body.model !== 'mimo-v2.5-asr') {
+    return body
+  }
+
+  return {
+    ...body,
+    messages: Array.isArray(body.messages) ? body.messages.map((message) => transformMimoMessage(message)) : body.messages,
+  }
+}
+
+function transformMimoMessage(message: unknown): unknown {
+  if (!isRecord(message) || !Array.isArray(message.content)) {
+    return message
+  }
+
+  return {
+    ...message,
+    content: message.content.map((part) => transformMimoContentPart(part)),
+  }
+}
+
+function transformMimoContentPart(part: unknown): unknown {
+  if (!isRecord(part) || part.type !== 'input_audio') {
+    return part
+  }
+
+  const {'input_audio': inputAudio} = part
+
+  if (!isRecord(inputAudio)) {
+    return part
+  }
+
+  const {data, format} = inputAudio
+
+  if (typeof data !== 'string' || typeof format !== 'string') {
+    return part
+  }
+
+  return {
+    ...part,
+    'input_audio': {
+      data: data.startsWith('data:') ? data : `data:${audioMimeTypeFromFormat(format)};base64,${data}`,
+    },
+  }
+}
+
+function audioMimeTypeFromFormat(format: string): string {
+  if (format === 'mp3') {
+    return 'audio/mpeg'
+  }
+
+  return 'audio/wav'
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function resolveAnthropicAuth(config: LLMClientConfig, env: Record<string, string | undefined>): {apiKey?: string; authToken?: string} {

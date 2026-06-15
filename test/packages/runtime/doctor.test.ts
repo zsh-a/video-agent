@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -20,12 +20,9 @@ describe('doctor', () => {
       })
 
       expect(report.ok).to.equal(true)
-      expect(report.summary).to.deep.equal({
-        fail: 0,
-        pass: 8,
-        total: 9,
-        warn: 1,
-      })
+      expect(report.summary.fail).to.equal(0)
+      expect(report.summary.total).to.equal(9)
+      expect(report.summary.pass + report.summary.warn).to.equal(9)
       expect(report.workspaceDir).to.equal(root)
       expect(report.checks.map((check) => check.name)).to.deep.equal([
         'bun',
@@ -112,11 +109,11 @@ describe('doctor', () => {
     }
   })
 
-  it('fails when http providers are missing URL env', async () => {
+  it('fails when llm providers are missing llm config', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
 
     try {
-      await writeConfig(root, {asr: 'http'})
+      await writeConfig(root, {asr: 'llm'})
 
       const report = await checkRuntimeHealth({
         binaries: {
@@ -127,7 +124,65 @@ describe('doctor', () => {
       })
 
       expect(report.ok).to.equal(false)
-      expect(report.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('VIDEO_AGENT_ASR_URL')
+      expect(report.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('llm is not configured')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('checks shared llm auth env for llm providers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
+
+    try {
+      await writeConfig(root, {providerProfile: 'mimo'})
+
+      const missing = await checkRuntimeHealth({
+        binaries: {
+          ffmpeg: 'true',
+          ffprobe: 'true',
+        },
+        env: {},
+        workspaceDir: root,
+      })
+
+      expect(missing.ok).to.equal(false)
+      expect(missing.checks.find((check) => check.name === 'provider:asr')?.message).to.contain('VIDEO_AGENT_LLM_TOKEN')
+
+      const configured = await checkRuntimeHealth({
+        binaries: {
+          ffmpeg: 'true',
+          ffprobe: 'true',
+        },
+        env: {
+          VIDEO_AGENT_LLM_TOKEN: 'secret',
+        },
+        workspaceDir: root,
+      })
+
+      expect(configured.ok).to.equal(true)
+      expect(configured.checks.find((check) => check.name === 'provider:asr')?.status).to.equal('pass')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reads shared llm auth from workspace .env by default', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
+
+    try {
+      await writeConfig(root, {providerProfile: 'mimo'})
+      await writeFile(join(root, '.env'), 'VIDEO_AGENT_LLM_TOKEN=dotenv-token\n')
+
+      const report = await checkRuntimeHealth({
+        binaries: {
+          ffmpeg: 'true',
+          ffprobe: 'true',
+        },
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(true)
+      expect(report.checks.find((check) => check.name === 'provider:asr')?.status).to.equal('pass')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

@@ -18,18 +18,6 @@ function providerSettingsToEnv(settings: ProviderSettings): Record<string, strin
     if (roleSettings?.command !== undefined) {
       env[providerEnvName(providerRole, 'COMMAND')] = JSON.stringify(roleSettings.command)
     }
-
-    if (roleSettings?.model !== undefined) {
-      env[providerEnvName(providerRole, 'MODEL')] = roleSettings.model
-    }
-
-    if (roleSettings?.timeoutMs !== undefined) {
-      env[providerEnvName(providerRole, 'TIMEOUT_MS')] = String(roleSettings.timeoutMs)
-    }
-
-    if (roleSettings?.url !== undefined) {
-      env[providerEnvName(providerRole, 'URL')] = roleSettings.url
-    }
   }
 
   return env

@@ -6,42 +6,19 @@ describe('provider profiles', () => {
   it('defines the Mimo hosted provider defaults', () => {
     expect(PROVIDER_PROFILE_NAMES).to.deep.equal(['mimo'])
     expect(getProviderProfile('mimo')).to.equal(MIMO_PROVIDER_PROFILE)
-    expect(MIMO_PROVIDER_BASE_URL).to.equal('https://token-plan-cn.xiaomimimo.com/anthropic')
+    expect(MIMO_PROVIDER_BASE_URL).to.equal('https://token-plan-cn.xiaomimimo.com/anthropic/v1')
     expect(MIMO_PROVIDER_PROFILE.providers).to.deep.equal({
-      asr: 'http',
-      tts: 'http',
-      vlm: 'http',
+      asr: 'llm',
+      tts: 'llm',
+      vlm: 'llm',
     })
-    expect(MIMO_PROVIDER_PROFILE.providerSettings).to.deep.equal({
-      asr: {
-        model: 'mimo-v2.5-asr',
-        timeoutMs: 120_000,
-        url: MIMO_PROVIDER_BASE_URL,
-      },
-      tts: {
-        model: 'mimo-v2.5-tts',
-        timeoutMs: 120_000,
-        url: MIMO_PROVIDER_BASE_URL,
-      },
-      vlm: {
-        model: 'mimo-v2.5-pro',
-        timeoutMs: 120_000,
-        url: MIMO_PROVIDER_BASE_URL,
-      },
-    })
+    expect(MIMO_PROVIDER_PROFILE.providerSettings).to.deep.equal({})
   })
 
-  it('keeps the known Mimo model catalog', () => {
+  it('keeps a single LLM model catalog entry', () => {
     expect(MIMO_PROVIDER_MODELS.map((model) => model.id)).to.deep.equal([
       'mimo-v2.5-pro',
-      'mimo-v2.5',
-      'mimo-v2.5-asr',
-      'mimo-v2.5-tts-voiceclone',
-      'mimo-v2.5-tts-voicedesign',
-      'mimo-v2.5-tts',
-      'mimo-v2-pro',
-      'mimo-v2-omni',
-      'mimo-v2-tts',
     ])
+    expect(MIMO_PROVIDER_MODELS.map((model) => model.roles)).to.deep.equal([['llm']])
   })
 })

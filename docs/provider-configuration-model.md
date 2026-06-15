@@ -15,11 +15,11 @@ Provider selection remains role-based and string-valued for v0:
 
 - `mock` is the deterministic local development provider.
 - `command` runs an external JSON stdin/stdout adapter.
-- `http` calls a hosted or local JSON HTTP adapter.
+- `llm` uses the configured shared `LLMClient`.
 
-Provider profiles prefill non-secret configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `http` for ASR, VLM, and TTS, provides endpoint/model/timeout defaults through structured `providerSettings`, and enables the AI SDK-backed LLM planner/script path with `mimo-v2.5-pro`.
+Provider profiles prefill non-secret LLM configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `llm` for ASR, VLM, and TTS and enables the AI SDK-backed planner/script path with `mimo-v2.5-pro`. MiMo ASR uses the same token but a role-specific AI SDK OpenAI-compatible model config for `mimo-v2.5-asr`.
 
-Named hosted-service providers should be added only after a target service is selected and a single vertical slice proves the request/response mapping. A named provider must still implement the existing `ASRProvider`, `VLMProvider`, or `TTSProvider` contract and must not require pipeline changes.
+Hosted LLM-like services should be integrated through `packages/llm` and the Vercel AI SDK first. Provider-specific request shape differences belong in the AI SDK config boundary, for example `transformRequestBody`; ASR/VLM/TTS providers should continue to call the internal `LLMClient`. Add named providers only for boundaries that are not a good fit for AI SDK, such as local command services or non-LLM executors.
 
 ## Environment Contract
 
@@ -31,24 +31,6 @@ Current generic provider env names are:
 VIDEO_AGENT_ASR_COMMAND
 VIDEO_AGENT_VLM_COMMAND
 VIDEO_AGENT_TTS_COMMAND
-
-VIDEO_AGENT_ASR_URL
-VIDEO_AGENT_ASR_TOKEN
-VIDEO_AGENT_ASR_HEADERS
-VIDEO_AGENT_ASR_MODEL
-VIDEO_AGENT_ASR_TIMEOUT_MS
-
-VIDEO_AGENT_VLM_URL
-VIDEO_AGENT_VLM_TOKEN
-VIDEO_AGENT_VLM_HEADERS
-VIDEO_AGENT_VLM_MODEL
-VIDEO_AGENT_VLM_TIMEOUT_MS
-
-VIDEO_AGENT_TTS_URL
-VIDEO_AGENT_TTS_TOKEN
-VIDEO_AGENT_TTS_HEADERS
-VIDEO_AGENT_TTS_MODEL
-VIDEO_AGENT_TTS_TIMEOUT_MS
 ```
 
 `provider-env`, `doctor`, provider registry setup, shell templates, and future named providers should read from the shared descriptor instead of copying env-name rules.
@@ -59,7 +41,7 @@ The simplified LLM path is resolved from the active profile or from explicit run
 {
   "llm": {
     "provider": "anthropic",
-    "baseURL": "https://token-plan-cn.xiaomimimo.com/anthropic",
+    "baseURL": "https://token-plan-cn.xiaomimimo.com/anthropic/v1",
     "model": "mimo-v2.5-pro",
     "authTokenEnv": "VIDEO_AGENT_LLM_TOKEN",
     "name": "mimo"
@@ -67,7 +49,7 @@ The simplified LLM path is resolved from the active profile or from explicit run
 }
 ```
 
-When `llm` is present, the `plan` and `script` stages use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. When it is absent, those stages use deterministic local fallbacks.
+When `llm` is present, ASR/VLM/TTS plus `plan` and `script` can use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. When it is absent, planning uses deterministic local fallbacks and media roles must use `mock` or `command`.
 
 ## Mimo Profile
 
@@ -86,40 +68,33 @@ The profile writes only the selected profile to disk:
 }
 ```
 
-At runtime that resolves to `http` ASR/VLM/TTS providers, Mimo endpoint/model/timeout settings, and the Mimo LLM config. `GET /config` and `config --json` return the resolved non-secret view.
+At runtime that resolves to `llm` ASR/VLM/TTS providers and the Mimo LLM config. `GET /config` and `config --json` return the resolved non-secret view.
 
-The full known Mimo model catalog captured by the profile is:
+The profile keeps one active LLM model:
 
 ```text
 mimo-v2.5-pro
-mimo-v2.5
-mimo-v2.5-asr
-mimo-v2.5-tts-voiceclone
-mimo-v2.5-tts-voicedesign
-mimo-v2.5-tts
-mimo-v2-pro
-mimo-v2-omni
-mimo-v2-tts
 ```
 
-The profile does not write tokens or custom headers. Configure credentials through the existing non-persistent env path, for example:
+The profile does not write tokens. Configure credentials through `.env` or the shell:
 
-```sh
-export VIDEO_AGENT_ASR_TOKEN='<token>'
-export VIDEO_AGENT_VLM_TOKEN='<token>'
-export VIDEO_AGENT_TTS_TOKEN='<token>'
-export VIDEO_AGENT_LLM_TOKEN='<token>'
+```dotenv
+VIDEO_AGENT_LLM_TOKEN=<token>
 ```
+
+The runtime reads `.env` from the current working directory and from the workspace directory. Values from the workspace `.env` override the current working directory `.env`; real process environment variables override both. Explicit `--env KEY=VALUE` flags and API/MCP `env` objects bypass `.env` and use only the supplied values.
 
 ## Adding A Named Provider
 
-When a hosted provider is selected:
+When a new hosted model endpoint is selected:
 
-1. Add a provider descriptor with explicit env requirements, placeholders, and secret flags.
-2. Add the provider implementation behind the existing role contract.
-3. Register the provider in `createAsrProvider`, `createVlmProvider`, or `createTtsProvider` without changing pipeline code.
-4. Add `provider-env`, `provider-test`, and doctor coverage for required and optional env.
-5. Add injected-fetch or command-shim tests that validate request shape, response parsing, metadata, and failures without network access.
-6. Document any model, endpoint, timeout, or credential behavior without printing secret values.
+1. Prefer adding or extending an AI SDK provider config in `packages/llm`.
+2. Keep credentials on the shared LLM env path, normally `VIDEO_AGENT_LLM_TOKEN`.
+3. Keep ASR/VLM/TTS implementations behind the internal `LLMClient`; do not add a generic HTTP provider path.
+4. Use AI SDK request-body transforms only for provider-specific protocol differences.
+5. Add `provider-test`, doctor, and no-network tests that validate request shape, response parsing, metadata, and failures.
+6. Document model, endpoint, and credential behavior without printing secret values.
+
+Add a named provider descriptor only when the service cannot reasonably be represented through the AI SDK-backed LLM boundary.
 
 Keep persisted config concise: defaults are omitted, profile defaults stay in code, and only user overrides are written to `config.json`.

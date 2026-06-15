@@ -1,13 +1,19 @@
 import {expect} from 'chai'
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import type {ProviderFetch} from '../../../packages/providers/src/index.js'
+import type {GenerateObjectRequest, LLMClient} from '../../../packages/llm/src/index.js'
 
-import {createMockHttpProviderEnvelope} from '../../../examples/provider-adapters/mock-http-provider.js'
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {runProviderSmokeTest} from '../../../packages/runtime/src/provider-smoke-test.js'
+
+const asrOptionsKey = 'asr_options'
+const completionTokensKey = 'completion_tokens'
+const finishReasonKey = 'finish_reason'
+const inputAudioKey = 'input_audio'
+const promptTokensKey = 'prompt_tokens'
+const totalTokensKey = 'total_tokens'
 
 describe('provider smoke test', () => {
   it('runs all mock providers by default', async () => {
@@ -65,37 +71,100 @@ describe('provider smoke test', () => {
     }
   })
 
-  it('runs the documented HTTP adapter recipe through smoke tests', async () => {
+  it('runs llm providers through smoke tests with an injected LLM client', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
 
     try {
       await writeConfig(root, {
-        asr: 'http',
-        tts: 'http',
-        vlm: 'http',
+        asr: 'llm',
+        tts: 'llm',
+        vlm: 'llm',
       })
 
       const report = await runProviderSmokeTest({
-        env: {
-          VIDEO_AGENT_ASR_TIMEOUT_MS: '5000',
-          VIDEO_AGENT_ASR_URL: 'http://127.0.0.1:4318',
-          VIDEO_AGENT_TTS_TIMEOUT_MS: '5000',
-          VIDEO_AGENT_TTS_URL: 'http://127.0.0.1:4318',
-          VIDEO_AGENT_VLM_TIMEOUT_MS: '5000',
-          VIDEO_AGENT_VLM_URL: 'http://127.0.0.1:4318',
-        },
-        fetch: mockHttpRecipeFetch(),
+        llmClient: createSmokeTestLLMClient(),
         workspaceDir: root,
       })
 
       expect(report.ok).to.equal(true)
-      expect(report.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
-        'asr:http:succeeded:example-http-provider:transcript',
-        'vlm:http:succeeded:example-http-provider:scenes',
-        'tts:http:succeeded:example-http-provider:tts',
+      expect(report.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.output?.type}`)).to.deep.equal([
+        'asr:llm:succeeded:transcript',
+        'vlm:llm:succeeded:scenes',
+        'tts:llm:succeeded:tts',
       ])
-      expect(report.results.every((result) => result.metadata?.requestId?.startsWith('http_') === true)).to.equal(true)
     } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs Mimo profile ASR smoke tests through the AI SDK ASR client', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-mimo-'))
+    const audioPath = join(root, 'source.wav')
+    const originalFetch = Reflect.get(globalThis, 'fetch')
+    const ResponseConstructor = Reflect.get(globalThis, 'Response') as new (body?: string, init?: {headers?: Record<string, string>}) => unknown
+    let requestBody: unknown
+
+    try {
+      await writeConfig(root, {providerProfile: 'mimo'})
+      await writeFile(audioPath, Buffer.from([1, 2, 3]))
+
+      Reflect.set(globalThis, 'fetch', async (_input: unknown, init: undefined | {body?: unknown}) => {
+        requestBody = JSON.parse(String(init?.body)) as unknown
+
+        return new ResponseConstructor(JSON.stringify({
+          choices: [
+            {
+              [finishReasonKey]: 'stop',
+              message: {
+                content: '这是中文转写。',
+                role: 'assistant',
+              },
+            },
+          ],
+          id: 'chatcmpl-test',
+          model: 'mimo-v2.5-asr',
+          usage: {
+            [completionTokensKey]: 4,
+            [promptTokensKey]: 8,
+            [totalTokensKey]: 12,
+          },
+        }), {
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      })
+
+      const report = await runProviderSmokeTest({
+        env: {
+          VIDEO_AGENT_LLM_TOKEN: 'test-token',
+        },
+        mediaPath: audioPath,
+        roles: ['asr'],
+        workspaceDir: root,
+      })
+      const body = requestBody as {
+        [asrOptionsKey]?: {language?: string}
+        messages?: Array<{content?: Array<Record<string, string | {data?: string}>>}>
+        model?: string
+      }
+      const audioPart = body.messages?.[0]?.content?.[0]?.[inputAudioKey]
+
+      expect(report.ok).to.equal(true)
+      expect(report.results[0]?.output).to.include({
+        language: 'zh-CN',
+        type: 'transcript',
+      })
+      expect(report.results[0]?.metadata).to.deep.equal({
+        model: 'mimo-v2.5-asr',
+      })
+      expect(body.model).to.equal('mimo-v2.5-asr')
+      expect(body[asrOptionsKey]).to.deep.equal({language: 'auto'})
+      expect(audioPart).to.deep.equal({
+        data: 'data:audio/wav;base64,AQID',
+      })
+    } finally {
+      Reflect.set(globalThis, 'fetch', originalFetch)
       await rm(root, {force: true, recursive: true})
     }
   })
@@ -161,19 +230,49 @@ describe('provider smoke test', () => {
   })
 })
 
-function mockHttpRecipeFetch(): ProviderFetch {
-  return async (_url, init) => {
-    const result = createMockHttpProviderEnvelope(JSON.parse(init.body) as Record<string, unknown>, init.headers)
+function createSmokeTestLLMClient(): LLMClient {
+  return {
+    async generateObject<T>(request: GenerateObjectRequest<T>) {
+      const prompt = JSON.stringify(request.messages ?? request.prompt ?? '')
+      let object: unknown
 
-    return {
-      async json() {
-        return result
-      },
-      ok: true,
-      status: 200,
-      async text() {
-        return JSON.stringify(result)
-      },
-    }
+      if (prompt.includes('sceneBatches')) {
+        object = [
+          {
+            description: 'LLM smoke test scene.',
+            evidence: ['provider-smoke-test-frame.jpg'],
+            sceneId: 'provider-smoke-test-scene',
+          },
+        ]
+      } else if (prompt.includes('llm-tts')) {
+        object = [
+          {
+            duration: 1,
+            narrationId: 'provider-smoke-test',
+            path: 'llm-tts/provider-smoke-test.wav',
+          },
+        ]
+      } else {
+        object = {
+          language: 'en',
+          segments: [
+            {
+              end: 1,
+              start: 0,
+              text: 'LLM smoke test transcript.',
+            },
+          ],
+          text: 'LLM smoke test transcript.',
+        }
+      }
+
+      return {object: object as T}
+    },
+    async generateText() {
+      throw new Error('Not used by this test.')
+    },
+    streamText() {
+      throw new Error('Not used by this test.')
+    },
   }
 }

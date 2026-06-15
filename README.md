@@ -1,6 +1,6 @@
 # video-agent
 
-`video-agent` is a Bun-first TypeScript video agent framework. The core stays headless: TypeScript owns orchestration, IR, provider contracts, runtime state, and adapters; media-heavy work stays behind external executors such as `ffmpeg`, `ffprobe`, Chromium, HyperFrames, hosted providers, or local provider services.
+`video-agent` is a Bun-first TypeScript video agent framework. The core stays headless: TypeScript owns orchestration, IR, provider contracts, runtime state, and adapters; media-heavy work stays behind external executors such as `ffmpeg`, `ffprobe`, Chromium, HyperFrames, or the AI SDK-backed LLM boundary.
 
 The repository is runnable today through the root oclif CLI. API, TUI, MCP, Web Studio, and the Claude Code skill are adapters over the same runtime APIs, not separate workflow owners.
 
@@ -11,7 +11,7 @@ TypeScript:
   pipeline orchestration, IR schemas, provider contracts, runtime state, adapters
 
 External executors:
-  ffmpeg, ffprobe, Chromium, HyperFrames CLI, provider APIs or local provider services
+  ffmpeg, ffprobe, Chromium, HyperFrames CLI, AI SDK-backed hosted models, local command adapters
 
 Not in scope:
   TypeScript video codecs, muxing, audio mixing engines, ASR/VLM/TTS inference kernels
@@ -113,13 +113,10 @@ That writes:
 }
 ```
 
-At runtime the profile resolves to HTTP ASR/VLM/TTS providers, Mimo endpoint/model/timeout settings, and the Mimo LLM config. Tokens and custom headers stay outside persisted config:
+At runtime the profile resolves ASR/VLM/TTS, storyboard, and script generation through the shared Mimo LLM config. The token stays outside persisted config and can live in `.env`:
 
-```sh
-export VIDEO_AGENT_ASR_TOKEN='<token>'
-export VIDEO_AGENT_VLM_TOKEN='<token>'
-export VIDEO_AGENT_TTS_TOKEN='<token>'
-export VIDEO_AGENT_LLM_TOKEN='<token>'
+```dotenv
+VIDEO_AGENT_LLM_TOKEN=<token>
 ```
 
 For local adapters:
@@ -134,6 +131,8 @@ bun run dev provider-test --json
 ```
 
 The provider configuration source of truth is [docs/provider-configuration-model.md](./docs/provider-configuration-model.md). Adapter recipes are in [docs/provider-adapter-recipes.md](./docs/provider-adapter-recipes.md).
+
+The runtime reads `.env` from the repository root and from the workspace directory, for example `.video-agent/.env`. Real shell environment variables take precedence over `.env`; explicit `--env KEY=VALUE` flags intentionally bypass `.env` for isolated client checks.
 
 ## Runtime Configuration
 
@@ -153,7 +152,7 @@ bun run dev config --max-stage-retries 2 --retry-backoff-ms 500
 
 - [Architecture](./docs/architecture.md): package boundaries, runtime strategy, provider strategy.
 - [Provider Configuration Model](./docs/provider-configuration-model.md): persisted config, profiles, env contract, adding providers.
-- [Provider Adapter Recipes](./docs/provider-adapter-recipes.md): command and HTTP JSON adapter examples.
+- [Provider Adapter Recipes](./docs/provider-adapter-recipes.md): command JSON adapter examples.
 - [Agent Client Checks](./docs/agent-client-checks.md): MCP/skill/client validation and secret-handling checks.
 - [Claude Code Skill](./docs/claude-code-skill.md): skill adapter installation and use.
 - [Historical Implementation Plan](./docs/implementation-plan.md): archived phase plan and context.
@@ -164,13 +163,13 @@ The current runnable slice supports:
 
 - Bun workspace build/test/lint.
 - Headless runtime with durable workspace artifacts, job state, events, provider call logs, and checkpoint validation.
-- Mock, command, HTTP, and Mimo-profile provider configuration.
-- LLM-backed storyboard/script provider path through the internal `LLMClient`.
+- Mock, command, LLM, and Mimo-profile provider configuration.
+- LLM-backed ASR/VLM/TTS/storyboard/script provider path through the internal AI SDK-backed `LLMClient`.
 - ffmpeg and HyperFrames render boundaries, render diagnostics, quality aggregation, export, and quality-gated export.
 - CLI, TUI, Fetch API, MCP, and Claude Code skill adapters over the same runtime APIs.
 
 Near-term work:
 
-1. Add provider-specific hosted-service adapters after the generic HTTP/command contracts remain stable.
+1. Keep hosted LLM-like services on the shared AI SDK path; add named adapters only for non-LLM or local execution boundaries.
 2. Record a real external MCP client validation matrix.
 3. Decide whether richer TUI interactions justify adding Ink/Clack runtime dependencies.

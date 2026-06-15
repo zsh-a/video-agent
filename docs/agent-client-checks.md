@@ -63,14 +63,14 @@ Do not paste provider token values into issue reports, prompts, screenshots, or 
 ```sh
 bun run dev provider-env --json --workspace "$WORKSPACE"
 bun run dev provider-env --shell-template --workspace "$WORKSPACE"
-bun run dev doctor --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --json --workspace "$WORKSPACE"
-bun run dev provider-env --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --json --workspace "$WORKSPACE"
+bun run dev doctor --env VIDEO_AGENT_LLM_TOKEN=redacted --json --workspace "$WORKSPACE"
+bun run dev provider-env --env VIDEO_AGENT_LLM_TOKEN=redacted --json --workspace "$WORKSPACE"
 bun run dev provider-test --json --workspace "$WORKSPACE"
-bun run dev provider-test --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --role asr --json --workspace "$WORKSPACE"
-bun run dev mcp --print-config --env VIDEO_AGENT_ASR_URL=https://example.invalid/asr --workspace "$WORKSPACE"
+bun run dev provider-test --env VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]' --role asr --json --workspace "$WORKSPACE"
+bun run dev mcp --print-config --env VIDEO_AGENT_LLM_TOKEN=redacted --workspace "$WORKSPACE"
 ```
 
-`provider-env` reports variable names and configured/missing state only. `provider-env --shell-template`, `GET /provider-env?shellTemplate=true`, and `video_agent_provider_env` with `shellTemplate: true` generate placeholder exports without scraping the current shell environment. `doctor --env`, `provider-env --env`, `provider-test --env`, `GET /doctor?env=KEY=VALUE`, `GET /provider-env?env=KEY=VALUE`, `POST /provider-test` with an `env` object, `video_agent_doctor` / `video_agent_provider_env` / `video_agent_provider_test` with an `env` object, and `mcp --print-config --env` use only variables explicitly passed to that command/request, so a client config can be reviewed without scraping the current shell environment. `provider-test` reports response summaries and provider metadata without printing configured tokens.
+`provider-env` reports variable names and configured/missing state only. `provider-env --shell-template`, `GET /provider-env?shellTemplate=true`, and `video_agent_provider_env` with `shellTemplate: true` generate placeholder exports without scraping the current shell environment. Default runtime checks may read `.env`; `doctor --env`, `provider-env --env`, `provider-test --env`, `GET /doctor?env=KEY=VALUE`, `GET /provider-env?env=KEY=VALUE`, `POST /provider-test` with an `env` object, `video_agent_doctor` / `video_agent_provider_env` / `video_agent_provider_test` with an `env` object, and `mcp --print-config --env` use only variables explicitly passed to that command/request, so a client config can be reviewed without scraping the current shell environment or `.env`. `provider-test` reports response summaries and provider metadata without printing configured tokens.
 
 ## Acceptance Checklist
 

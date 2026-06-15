@@ -282,9 +282,6 @@ function normalizeProviderSettings(value: ProviderSettings): ProviderSettings {
   for (const [role, settings] of Object.entries(value)) {
     const normalizedSettings = {
       ...(Array.isArray(settings?.command) && settings.command.length > 0 ? {command: settings.command.filter((part) => typeof part === 'string' && part.trim() !== '')} : {}),
-      ...(normalizeOptionalString(settings?.model) === undefined ? {} : {model: normalizeOptionalString(settings?.model)}),
-      ...(settings?.timeoutMs === undefined ? {} : {timeoutMs: normalizePositiveInteger(settings.timeoutMs)}),
-      ...(normalizeOptionalString(settings?.url) === undefined ? {} : {url: normalizeOptionalString(settings?.url)}),
     }
 
     if (Object.keys(normalizedSettings).length > 0) {
@@ -314,14 +311,6 @@ function normalizeNonNegativeInteger(value: number | undefined, fallback: number
 
   if (!Number.isInteger(value) || value < 0) {
     throw new TypeError(`Expected non-negative integer config value, received: ${value}`)
-  }
-
-  return value
-}
-
-function normalizePositiveInteger(value: number): number {
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new TypeError(`Expected positive integer config value, received: ${value}`)
   }
 
   return value

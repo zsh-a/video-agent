@@ -47,8 +47,44 @@ export default class Events extends Command {
 
 function formatEvent(record: ProjectEventRecord): string {
   if (record.kind === 'pipeline') {
-    return `${record.time}\tpipeline\t${record.event.type}${record.event.stage === undefined ? '' : `\t${record.event.stage}`}${record.event.message === undefined ? '' : `\t${record.event.message}`}`
+    const stage = record.event.stage === undefined ? '' : `\t${record.event.stage}${record.event.step === undefined ? '' : `.${record.event.step}`}`
+    const level = record.event.level === undefined ? '' : `\t${record.event.level}`
+    const message = record.event.message === undefined ? '' : `\t${record.event.message}`
+    const artifact = record.event.artifact?.path === undefined ? '' : `\tpath=${record.event.artifact.path}`
+    const data = formatData(record.event.data)
+
+    return `${record.time}\tpipeline\t${record.event.type}${stage}${level}${message}${artifact}${data}`
   }
 
-  return `${record.time}\tprovider\t${record.event.role}\t${record.event.operation}\t${record.event.status}\t${record.event.durationMs}ms`
+  const error = record.event.error === undefined ? '' : `\terror=${record.event.error.message}`
+  const request = `\trequestId=${record.event.requestId}`
+  const model = record.event.model === undefined ? '' : `\tmodel=${record.event.model}`
+  const usage = formatData(record.event.usage, 'usage.')
+  const summary = formatData(record.event.status === 'succeeded' ? record.event.output : record.event.input)
+
+  return `${record.time}\tprovider\t${record.event.role}\t${record.event.provider}\t${record.event.operation}\t${record.event.status}\t${record.event.durationMs}ms${request}${model}${usage}${summary}${error}`
+}
+
+function formatData(data: object | undefined, prefix = ''): string {
+  if (data === undefined || Object.keys(data).length === 0) {
+    return ''
+  }
+
+  return `\t${Object.entries(data).map(([key, value]) => `${prefix}${key}=${formatScalar(value)}`).join('\t')}`
+}
+
+function formatScalar(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+
+  if (value === null) {
+    return 'null'
+  }
+
+  return JSON.stringify(value)
 }
