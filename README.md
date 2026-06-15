@@ -471,7 +471,7 @@ video_agent_export
 
 `video_agent_provider_env` 返回当前 provider 配置对应的环境变量契约，只暴露变量名、必填状态和是否已配置，不返回具体值。传 `shellTemplate: true` 时会额外返回非 secret 的 shell export 模板；`includeOptional: true` 可把 token/timeout 这类 optional 变量也输出为 active export。
 
-MCP runtime failures keep the standard JSON-RPC error envelope and add structured `error.data` when available. Checkpoint failures include `code: "checkpoint_invalid"` plus missing/changed/untracked/schema-invalid artifact lists. Non-checkpoint request validation failures still use `code: "validation_error"` plus Zod issue paths, codes, and messages.
+MCP runtime failures keep the standard JSON-RPC error envelope and add structured `error.data` when available. Checkpoint failures include `code: "checkpoint_invalid"` plus missing/changed/untracked/schema-invalid artifact lists. Export quality gate failures include `code: "export_quality_failed"`, `projectId`, and the full project `quality` report. Non-checkpoint request validation failures still use `code: "validation_error"` plus Zod issue paths, codes, and messages.
 
 `video_agent_provider_test` 会按当前 provider 配置运行 ASR/VLM/TTS smoke test，可用 `role` 限定单个 provider，并返回输出摘要、request id/model metadata 和失败信息。provider 响应不符合 contract 时，失败结果会包含 `validationIssues`，列出字段 path、code 和 message。
 

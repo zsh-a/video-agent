@@ -4,6 +4,7 @@ import {
   checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
   exportProject,
+  ExportQualityError,
   inspectFfmpegAudio,
   listProjectArtifacts,
   listProjects,
@@ -433,6 +434,23 @@ function createJsonRpcError(id: JsonRpcId, error: unknown): JsonRpcResponse {
           name: error.name,
           schemaInvalidArtifacts: error.schemaInvalidArtifacts,
           untrackedArtifacts: error.untrackedArtifacts,
+        },
+        message: error.message,
+      },
+      id,
+      jsonrpc: '2.0',
+    }
+  }
+
+  if (error instanceof ExportQualityError) {
+    return {
+      error: {
+        code: -32_000,
+        data: {
+          code: 'export_quality_failed',
+          name: error.name,
+          projectId: error.projectId,
+          quality: error.quality,
         },
         message: error.message,
       },

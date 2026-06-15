@@ -400,6 +400,40 @@ describe('mcp server', () => {
     }
   })
 
+  it('returns structured export quality gate errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'export-quality-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            projectId: 'demo',
+            requireQuality: true,
+          },
+          name: 'video_agent_export',
+        },
+      })
+      const data = response?.error?.data as {code?: string; name?: string; projectId?: string; quality?: {ok: boolean; summary: {errors: number; warnings: number}}}
+
+      expect(response?.error?.message).to.include('Project demo did not pass quality checks')
+      expect(data).to.deep.include({
+        code: 'export_quality_failed',
+        name: 'ExportQualityError',
+        projectId: 'demo',
+      })
+      expect(data.quality?.ok).to.equal(false)
+      expect(data.quality?.summary.errors).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('calls the worker recovery tool in dry-run mode', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 
