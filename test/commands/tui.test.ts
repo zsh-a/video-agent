@@ -15,6 +15,29 @@ describe('tui command', () => {
       type: 'rerun',
     })).to.equal('Action: rerun demo from script -> completed')
     expect(formatTuiActionResult({
+      action: 'rerun',
+      error: {
+        changedArtifacts: ['timeline.json'],
+        code: 'checkpoint_invalid',
+        fromStage: 'quality',
+        message: 'Cannot resume from quality; checkpoint artifact issue(s): missing: narration.json; changed: timeline.json.',
+        missingArtifacts: ['narration.json'],
+        name: 'PipelineCheckpointError',
+        schemaInvalidArtifacts: [],
+        untrackedArtifacts: [],
+      },
+      projectId: 'demo',
+      type: 'checkpoint-error',
+    })).to.equal([
+      'Action: rerun demo from quality -> checkpoint-invalid',
+      '  Checkpoint blocked: cannot resume from quality.',
+      '  Missing artifacts: narration.json',
+      '  Changed artifacts: timeline.json',
+      '  Schema invalid artifacts: none',
+      '  Untracked required artifacts: none',
+      '  Message: Cannot resume from quality; checkpoint artifact issue(s): missing: narration.json; changed: timeline.json.',
+    ].join('\n'))
+    expect(formatTuiActionResult({
       dryRun: true,
       recovered: 0,
       results: [],

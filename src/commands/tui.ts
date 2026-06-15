@@ -1,8 +1,10 @@
-import type {InitialPipelineStage, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, listProjectArtifacts, listProjects, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
+
+import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 
 export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'select' | 'worker'
 
@@ -109,10 +111,17 @@ export default class Tui extends Command {
 
     if (flags.json) {
       this.log(JSON.stringify({action: actionResult, snapshot}, null, 2))
+      if (actionResult.type === 'checkpoint-error') {
+        process.exitCode = 1
+      }
+
       return
     }
 
     this.log([formatTuiActionResult(actionResult), formatTuiSnapshot(snapshot, options)].filter(Boolean).join('\n\n'))
+    if (actionResult.type === 'checkpoint-error') {
+      process.exitCode = 1
+    }
   }
 
   private async watchDashboard(workspaceDir: string, projectId: string | undefined, refreshMs: number, options: FormatTuiSnapshotOptions): Promise<void> {
@@ -159,7 +168,16 @@ export interface RunTuiActionOptions {
   workspaceDir: string
 }
 
-export type TuiActionResult = {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'} | {commands: TuiCommandSuggestion[]; selected?: TuiCommandSuggestion; type: 'select'} | {commands: TuiCommandSuggestion[]; type: 'commands'} | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'} | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'} | {report: ProviderSmokeTestReport; type: 'provider-test'} | {type: 'dashboard'}
+export type TuiCheckpointErrorActionResult = {action: 'rerun'; error: ReturnType<typeof createCheckpointErrorPayload>['error']; projectId: string; type: 'checkpoint-error'}
+export type TuiActionResult =
+  | TuiCheckpointErrorActionResult
+  | {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'}
+  | {commands: TuiCommandSuggestion[]; selected?: TuiCommandSuggestion; type: 'select'}
+  | {commands: TuiCommandSuggestion[]; type: 'commands'}
+  | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
+  | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
+  | {report: ProviderSmokeTestReport; type: 'provider-test'}
+  | {type: 'dashboard'}
 
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
   if (options.action === 'dashboard') {
@@ -208,10 +226,25 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
 
   if (options.action === 'rerun') {
     const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
-    const result = await rerunProject(projectId, {
-      fromStage: options.fromStage,
-      workspaceDir: options.workspaceDir,
-    })
+    let result: Awaited<ReturnType<typeof rerunProject>>
+
+    try {
+      result = await rerunProject(projectId, {
+        fromStage: options.fromStage,
+        workspaceDir: options.workspaceDir,
+      })
+    } catch (error) {
+      if (error instanceof PipelineCheckpointError) {
+        return {
+          action: 'rerun',
+          error: createCheckpointErrorPayload(error).error,
+          projectId,
+          type: 'checkpoint-error',
+        }
+      }
+
+      throw error
+    }
 
     return {
       fromStage: options.fromStage,
@@ -314,6 +347,13 @@ export function formatTuiActionResult(result: TuiActionResult): string {
     return `Action: rerun ${result.projectId} from ${result.fromStage} -> ${result.status}`
   }
 
+  if (result.type === 'checkpoint-error') {
+    return [
+      `Action: ${result.action} ${result.projectId} from ${result.error.fromStage} -> checkpoint-invalid`,
+      indent(formatCheckpointFailure(createCheckpointErrorFromPayload(result.error))),
+    ].join('\n')
+  }
+
   if (result.type === 'provider-test') {
     return [
       `Action: provider-test -> ${result.report.ok ? 'ok' : 'failed'}`,
@@ -341,6 +381,19 @@ function formatTuiWorkerIssue(result: RecoverWorkspaceJobResult): string[] {
   const validationIssues = result.validationIssues?.map((issue) => `    ${issue.path.join('.') || '<root>'}: ${issue.message}`) ?? []
 
   return [summary, ...schemaInvalid, ...validationIssues]
+}
+
+function createCheckpointErrorFromPayload(error: TuiCheckpointErrorActionResult['error']): PipelineCheckpointErrorType {
+  return new PipelineCheckpointError(error.fromStage as InitialPipelineStage, {
+    changedArtifacts: error.changedArtifacts,
+    missingArtifacts: error.missingArtifacts,
+    schemaInvalidArtifacts: error.schemaInvalidArtifacts,
+    untrackedArtifacts: error.untrackedArtifacts,
+  })
+}
+
+function indent(text: string): string {
+  return text.split('\n').map((line) => `  ${line}`).join('\n')
 }
 
 export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnapshotOptions): string {
