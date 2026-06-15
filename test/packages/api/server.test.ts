@@ -1,6 +1,6 @@
 /* eslint-disable n/no-unsupported-features/node-builtins */
 import {expect} from 'chai'
-import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -621,6 +621,43 @@ describe('api server handler', () => {
     }
   })
 
+  it('passes clean output through the export API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+
+      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
+      const outputPath = join(root, 'hyperframes-export')
+
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+      await mkdir(outputPath, {recursive: true})
+      await writeFile(join(outputPath, 'stale.txt'), 'old')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(
+        new Request('http://localhost/projects/demo/export', {
+          body: JSON.stringify({
+            cleanOutput: true,
+            format: 'hyperframes',
+            outputPath,
+          }),
+          method: 'POST',
+        }),
+      )
+      const result = (await response.json()) as {cleanOutput: boolean; outputPath: string}
+
+      expect(response.status).to.equal(200)
+      expect(result.cleanOutput).to.equal(true)
+      expect(result.outputPath).to.equal(outputPath)
+      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('returns a conflict when export quality gate fails from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 
@@ -664,6 +701,20 @@ async function readJson<T>(fetch: (request: Request) => Promise<Response>, path:
   expect(response.status).to.equal(200)
 
   return (await response.json()) as T
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+
+    throw error
+  }
 }
 
 async function createApiProject(root: string, projectId: string): Promise<void> {

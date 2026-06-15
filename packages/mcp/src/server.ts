@@ -150,6 +150,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
   }),
   createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {
+    cleanOutput: booleanSchema('When true for directory exports, remove the existing output directory before copying the new HyperFrames or bundle output.'),
     format: enumSchema(['video', 'hyperframes', 'bundle'], 'Export format. Defaults to video.'),
     outputPath: stringSchema('Destination path for the exported output.'),
     projectId: projectIdSchema(),
@@ -257,6 +258,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_export': {
       return exportProject({
+        cleanOutput: readOptionalBoolean(args, 'cleanOutput'),
         format: readOptionalEnum(args, 'format', ['video', 'hyperframes', 'bundle']) as ExportFormat | undefined,
         outputPath: readOptionalString(args, 'outputPath'),
         projectId: readRequiredString(args, 'projectId'),

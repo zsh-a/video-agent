@@ -129,6 +129,7 @@ bun run dev render <projectId> --renderer hyperframes --hyperframes-render --hyp
 bun run dev export <projectId> --output ./final.mp4
 bun run dev export <projectId> --require-quality --output ./final.mp4
 bun run dev export <projectId> --format hyperframes --output ./hyperframes-render
+bun run dev export <projectId> --format hyperframes --clean-output --output ./hyperframes-render
 ```
 
 当前 CLI 入口：
@@ -380,7 +381,7 @@ HyperFrames 渲染还会写入本地 `templateQuality`，检查 `index.html`、`
 .video-agent/projects/<projectId>/artifacts/export-output.json
 ```
 
-默认导出不会强制质量门禁。需要交付前硬性检查时，可以传 `--require-quality`；它会先运行项目级 `quality` 聚合，只有 pipeline quality、render diagnostics 和 artifact integrity 都干净时才导出。门禁失败时，人类可读输出会打印 quality / pipeline / render / artifacts 摘要；`--json` 会返回 `export_quality_failed`、兼容字段 `legacyCode: "export.quality_failed"` 和完整 `quality` report，方便上层适配器处理。
+默认导出不会强制质量门禁。需要交付前硬性检查时，可以传 `--require-quality`；它会先运行项目级 `quality` 聚合，只有 pipeline quality、render diagnostics 和 artifact integrity 都干净时才导出。目录型导出默认会合并写入目标目录；如果要避免旧文件残留，可以对 `hyperframes` 或 `bundle` 导出传 `--clean-output`，导出前删除并重建目标目录。门禁失败时，人类可读输出会打印 quality / pipeline / render / artifacts 摘要；`--json` 会返回 `export_quality_failed`、兼容字段 `legacyCode: "export.quality_failed"` 和完整 `quality` report，方便上层适配器处理。
 
 `artifacts --verify` 会读取 `artifact-manifest.json`，重新计算 sha256，并报告缺失、变更、未纳入 manifest 的文件，以及已知 IR/provider JSON artifact 的 schema 错误。JSON 输出包含 `summary.checked/errors/warnings/missing/changed/schemaInvalid/untracked`，供 CLI/API/MCP/TUI/Web Studio 复用：
 
@@ -478,7 +479,7 @@ video_agent_export
 
 MCP runtime failures keep the standard JSON-RPC error envelope and add structured `error.data` when available. Checkpoint failures include `code: "checkpoint_invalid"` plus missing/changed/untracked/schema-invalid artifact lists. Export quality gate failures include `code: "export_quality_failed"`, `projectId`, and the full project `quality` report. Non-checkpoint request validation failures still use `code: "validation_error"` plus Zod issue paths, codes, and messages.
 
-`video_agent_guided_actions` 支持 `commandPrefix` 和 `artifactLimit`，与 API guided actions 参数保持一致。`video_agent_quality` 支持 `details: true`，返回与 API `quality?details=true` 相同的 raw `qualityReport` / `renderOutput` 字段。
+`video_agent_guided_actions` 支持 `commandPrefix` 和 `artifactLimit`，与 API guided actions 参数保持一致。`video_agent_quality` 支持 `details: true`，返回与 API `quality?details=true` 相同的 raw `qualityReport` / `renderOutput` 字段。`video_agent_export` 支持 `cleanOutput: true`，用于目录型导出前清理已有目标目录。
 
 `video_agent_provider_test` 会按当前 provider 配置运行 ASR/VLM/TTS smoke test，可用 `role` 限定单个 provider，并返回输出摘要、request id/model metadata 和失败信息。provider 响应不符合 contract 时，失败结果会包含 `validationIssues`，列出字段 path、code 和 message。
 
@@ -569,6 +570,7 @@ bun run dev mcp --print-config \
 
 ```json
 {
+  "cleanOutput": false,
   "format": "video",
   "outputPath": "./final.mp4",
   "requireQuality": true
@@ -637,7 +639,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - render audio preflight：CLI `render --inspect-audio` 和 HTTP `GET /projects/:id/audio` 可在渲染前检查 voiceover alignment 和可用音频输入
 - render visual samples：CLI `visual`、HTTP `GET /projects/:id/visual` 和 MCP `video_agent_visual_samples` 可读取渲染缩略图样本元数据和 sha256 内容指纹，并可选返回 base64 图像内容
 - HyperFrames renderer：支持生成 HTML 项目，并可选调用 HyperFrames CLI validate/render
-- `export` 命令：导出 `final.mp4`、HyperFrames render directory 或完整 project bundle
+- `export` 命令：导出 `final.mp4`、HyperFrames render directory 或完整 project bundle，目录型导出可用 `--clean-output` 清理旧目标目录
 - export quality gate：`export --require-quality` / API `requireQuality` 可在质量聚合不通过时拒绝导出
 - `init` 命令：初始化 workspace 并检查 `ffmpeg` / `ffprobe`
 - `config` 命令：读写 provider、job store 和 retry 配置，支持轻量交互模式

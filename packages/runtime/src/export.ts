@@ -1,5 +1,5 @@
-import {copyFile, mkdir, readdir, stat} from 'node:fs/promises'
-import {dirname, join, resolve} from 'node:path'
+import {copyFile, mkdir, readdir, rm, stat} from 'node:fs/promises'
+import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import type {ProjectQualityReport} from './project-quality.js'
 
@@ -9,6 +9,7 @@ import {createProjectWorkspace} from './workspace.js'
 export type ExportFormat = 'bundle' | 'hyperframes' | 'video'
 
 export interface ExportProjectOptions {
+  cleanOutput?: boolean
   format?: ExportFormat
   outputPath?: string
   projectId: string
@@ -18,6 +19,7 @@ export interface ExportProjectOptions {
 
 export interface ExportProjectResult {
   artifactPath: string
+  cleanOutput: boolean
   format: ExportFormat
   outputPath: string
   projectDir: string
@@ -51,13 +53,24 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
   })
   const sourcePath = resolveExportSource(workspace.projectDir, format)
   const outputPath = resolve(options.outputPath ?? defaultOutputPath(options.projectId, format))
+  const cleanOutput = options.cleanOutput === true
 
   await assertExists(sourcePath)
+  assertExportTarget(sourcePath, outputPath, format)
   await mkdir(dirname(outputPath), {recursive: true})
 
-  await (format === 'video' ? copyFile(sourcePath, outputPath) : copyDirectory(sourcePath, outputPath))
+  if (format === 'video') {
+    await copyFile(sourcePath, outputPath)
+  } else {
+    if (cleanOutput) {
+      await rm(outputPath, {force: true, recursive: true})
+    }
+
+    await copyDirectory(sourcePath, outputPath)
+  }
 
   const artifactPath = await workspace.store.writeJson('export-output.json', {
+    cleanOutput,
     completedAt: new Date().toISOString(),
     format,
     outputPath,
@@ -69,6 +82,7 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
 
   return {
     artifactPath,
+    cleanOutput,
     format,
     outputPath,
     projectDir: workspace.projectDir,
@@ -109,6 +123,30 @@ async function assertExists(path: string): Promise<void> {
 
     throw error
   }
+}
+
+function assertExportTarget(sourcePath: string, outputPath: string, format: ExportFormat): void {
+  if (sourcePath === outputPath) {
+    throw new Error(`Export output path must differ from source path: ${outputPath}`)
+  }
+
+  if (format === 'video') {
+    return
+  }
+
+  if (isInside(outputPath, sourcePath)) {
+    throw new Error(`Export output directory cannot be inside export source: ${outputPath}`)
+  }
+
+  if (isInside(sourcePath, outputPath)) {
+    throw new Error(`Export output directory cannot contain export source: ${outputPath}`)
+  }
+}
+
+function isInside(childPath: string, parentPath: string): boolean {
+  const path = relative(parentPath, childPath)
+
+  return path !== '' && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
 }
 
 async function copyDirectory(sourceDir: string, outputDir: string): Promise<void> {

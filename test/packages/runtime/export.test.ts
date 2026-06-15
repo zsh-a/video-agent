@@ -25,6 +25,7 @@ describe('export project', () => {
       })
 
       expect(result.outputPath).to.equal(outputPath)
+      expect(result.cleanOutput).to.equal(false)
       expect(result.requireQuality).to.equal(false)
       expect(await readFile(outputPath, 'utf8')).to.equal('video')
       expect(await fileSize(result.artifactPath)).to.be.greaterThan(0)
@@ -51,7 +52,106 @@ describe('export project', () => {
       })
 
       expect(result.outputPath).to.equal(outputPath)
+      expect(result.cleanOutput).to.equal(false)
       expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('can clean stale directory output before exporting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
+
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+
+      const outputPath = join(root, 'out-hyperframes')
+
+      await mkdir(outputPath, {recursive: true})
+      await writeFile(join(outputPath, 'stale.txt'), 'old')
+
+      const result = await exportProject({
+        cleanOutput: true,
+        format: 'hyperframes',
+        outputPath,
+        projectId: 'demo',
+        workspaceDir: root,
+      })
+
+      expect(result.cleanOutput).to.equal(true)
+      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('keeps stale directory output when clean output is not requested', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
+
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+
+      const outputPath = join(root, 'out-hyperframes')
+
+      await mkdir(outputPath, {recursive: true})
+      await writeFile(join(outputPath, 'stale.txt'), 'old')
+
+      await exportProject({
+        format: 'hyperframes',
+        outputPath,
+        projectId: 'demo',
+        workspaceDir: root,
+      })
+
+      expect(await readFile(join(outputPath, 'stale.txt'), 'utf8')).to.equal('old')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects directory export targets that overlap the source directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
+
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+
+      let insideError: unknown
+      let containingError: unknown
+
+      try {
+        await exportProject({
+          format: 'hyperframes',
+          outputPath: join(renderDir, 'nested-export'),
+          projectId: 'demo',
+          workspaceDir: root,
+        })
+      } catch (error) {
+        insideError = error
+      }
+
+      try {
+        await exportProject({
+          format: 'hyperframes',
+          outputPath: join(root, 'projects', 'demo', 'renders'),
+          projectId: 'demo',
+          workspaceDir: root,
+        })
+      } catch (error) {
+        containingError = error
+      }
+
+      expect((insideError as Error).message).to.include('cannot be inside export source')
+      expect((containingError as Error).message).to.include('cannot contain export source')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -110,6 +210,20 @@ describe('export project', () => {
 
 async function fileSize(path: string): Promise<number> {
   return (await stat(path)).size
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+
+    throw error
+  }
 }
 
 async function createRenderedProject(root: string, projectId: string): Promise<void> {

@@ -9,6 +9,7 @@ export default class Export extends Command {
   }
   static description = 'Export a rendered project'
   static flags = {
+    'clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats'}),
     format: Flags.string({default: 'video', description: 'Export format', options: ['video', 'hyperframes', 'bundle']}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     output: Flags.string({description: 'Output file or directory path'}),
@@ -22,6 +23,7 @@ export default class Export extends Command {
 
     try {
       output = await exportProject({
+        cleanOutput: flags['clean-output'],
         format: flags.format as ExportFormat,
         outputPath: flags.output,
         projectId: args.project,
@@ -52,6 +54,7 @@ export default class Export extends Command {
     this.log(`Format: ${output.format}`)
     this.log(`Source: ${output.sourcePath}`)
     this.log(`Output: ${output.outputPath}`)
+    this.log(`Clean output: ${output.cleanOutput ? 'yes' : 'no'}`)
     this.log(`Quality gate: ${output.requireQuality ? 'required' : 'not required'}`)
     this.log(`Artifact: ${output.artifactPath}`)
   }

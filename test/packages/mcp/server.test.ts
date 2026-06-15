@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -39,11 +39,13 @@ describe('mcp server', () => {
     const audioProperties = toolsByName.get('video_agent_inspect_audio')?.inputSchema.properties ?? {}
     const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties ?? {}
     const qualityProperties = toolsByName.get('video_agent_quality')?.inputSchema.properties ?? {}
+    const exportProperties = toolsByName.get('video_agent_export')?.inputSchema.properties ?? {}
 
     expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'orderBy', 'runningStaleAfterMs', 'status'])
     expect(Object.keys(qualityProperties)).to.include('details')
+    expect(Object.keys(exportProperties)).to.include('cleanOutput')
   })
 
   it('adds client-facing descriptions to important tool arguments', () => {
@@ -485,6 +487,47 @@ describe('mcp server', () => {
     }
   })
 
+  it('passes clean output through the export tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+
+      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
+      const outputPath = join(root, 'hyperframes-export')
+
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+      await mkdir(outputPath, {recursive: true})
+      await writeFile(join(outputPath, 'stale.txt'), 'old')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'export-clean-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            cleanOutput: true,
+            format: 'hyperframes',
+            outputPath,
+            projectId: 'demo',
+          },
+          name: 'video_agent_export',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {cleanOutput: boolean; outputPath: string}
+
+      expect(result.cleanOutput).to.equal(true)
+      expect(result.outputPath).to.equal(outputPath)
+      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('calls the worker recovery tool in dry-run mode', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 
@@ -735,6 +778,20 @@ async function writeQualityArtifacts(root: string, projectId: string): Promise<v
       version: 1,
     })}\n`,
   )
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+
+    throw error
+  }
 }
 
 async function createRerunProject(root: string, projectId: string): Promise<string> {

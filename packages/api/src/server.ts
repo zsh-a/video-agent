@@ -272,6 +272,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
 
     return jsonResponse(
       await exportProject({
+        cleanOutput: readBooleanField(body, 'cleanOutput'),
         format: parseOptionalEnum(readStringField(body, 'format'), ['video', 'hyperframes', 'bundle']),
         outputPath: readStringField(body, 'outputPath') ?? undefined,
         projectId,
