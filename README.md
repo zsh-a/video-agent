@@ -382,7 +382,7 @@ HyperFrames 渲染还会写入本地 `templateQuality`，检查 `index.html`、`
 
 默认导出不会强制质量门禁。需要交付前硬性检查时，可以传 `--require-quality`；它会先运行项目级 `quality` 聚合，只有 pipeline quality、render diagnostics 和 artifact integrity 都干净时才导出。门禁失败时，人类可读输出会打印 quality / pipeline / render / artifacts 摘要；`--json` 会返回 `export.quality_failed` 和完整 `quality` report，方便上层适配器处理。
 
-`artifacts --verify` 会读取 `artifact-manifest.json`，重新计算 sha256，并报告缺失、变更、未纳入 manifest 的文件，以及已知 IR/provider JSON artifact 的 schema 错误：
+`artifacts --verify` 会读取 `artifact-manifest.json`，重新计算 sha256，并报告缺失、变更、未纳入 manifest 的文件，以及已知 IR/provider JSON artifact 的 schema 错误。JSON 输出包含 `summary.checked/errors/warnings/missing/changed/schemaInvalid/untracked`，供 CLI/API/MCP/TUI/Web Studio 复用：
 
 ```sh
 bun run dev artifacts <projectId> --verify
@@ -439,7 +439,7 @@ POST /projects/:projectId/export
 
 API workflow failures use JSON error bodies with stable `error.code` values when the runtime can classify the failure. Checkpoint rerun failures return HTTP `409` with `code: "checkpoint_invalid"` plus missing/changed/untracked/schema-invalid artifact lists. Export quality gate failures return HTTP `409` with `code: "export_quality_failed"`, `projectId`, and the full project `quality` report.
 
-`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run、provider smoke test 和 guided action copy 操作。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。Studio action 失败时会解析 API 的结构化错误体，把 `checkpoint_invalid` 的 artifact 列表和 `export_quality_failed` 的 quality errors/warnings 摘要显示在状态栏里。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
+`GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run、provider smoke test 和 guided action copy 操作。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 和 schema invalid 结果。Studio action 失败时会解析 API 的结构化错误体，把 `checkpoint_invalid` 的 artifact 列表和 `export_quality_failed` 的 quality errors/warnings 摘要显示在状态栏里。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `GET /actions` 和 `GET /projects/:projectId/actions` 返回与 TUI 共用的 guided action 元数据，包括 `id`、`category`、`description`、`priority` 和可复制 `command`。默认命令前缀是 `vagent`，可以用 `?commandPrefix=bun%20run%20dev` 覆盖，方便开发期 Studio 或外部 agent client 生成本地可执行命令。
 
@@ -554,7 +554,7 @@ bun run dev mcp --print-config \
 }
 ```
 
-`GET /projects/:projectId/artifacts/verify` 会返回 artifact integrity check 结果，包含 `ok`、`checked`、`missing`、`changed`、`schemaInvalid` 和 `untracked`。
+`GET /projects/:projectId/artifacts/verify` 会返回 artifact integrity check 结果，包含 `ok`、`checked`、`summary`、`missing`、`changed`、`schemaInvalid` 和 `untracked`。
 
 `GET /projects/:projectId/audio` 会返回和 `render --inspect-audio --json` 相同的音频预检结果。支持通过 query string 传入 `audio`、`sourceVolume`、`voiceoverVolume`、`audioDucking`、`duckingThreshold`、`duckingRatio`、`duckingAttackMs` 和 `duckingReleaseMs`。
 

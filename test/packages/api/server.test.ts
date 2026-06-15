@@ -224,6 +224,8 @@ describe('api server handler', () => {
     expect(html).to.include('id="render-quality-issues"')
     expect(html).to.include('id="artifact-integrity-summary"')
     expect(html).to.include('id="artifact-integrity-issues"')
+    expect(html).to.include('schema invalid')
+    expect(html).to.include('summary.errors + " errors, " + summary.warnings + " warnings')
     expect(html).to.include('id="render-renderer"')
     expect(html).to.include('id="render-subtitles"')
     expect(html).to.include('id="render-audio"')
@@ -506,10 +508,15 @@ describe('api server handler', () => {
       await refreshArtifactManifest(join(root, 'projects', 'demo', 'artifacts'))
 
       const fetch = createApiFetchHandler({workspaceDir: root})
-      const result = await readJson<{checked: number; ok: boolean}>(fetch, '/projects/demo/artifacts/verify')
+      const result = await readJson<{checked: number; ok: boolean; summary: {checked: number; errors: number; warnings: number}}>(fetch, '/projects/demo/artifacts/verify')
 
       expect(result.ok).to.equal(true)
       expect(result.checked).to.be.greaterThan(0)
+      expect(result.summary).to.deep.include({
+        checked: result.checked,
+        errors: 0,
+        warnings: 0,
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }

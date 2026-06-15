@@ -27,7 +27,7 @@ export default class Quality extends Command {
     this.log(`Warnings: ${report.summary.warnings}`)
     this.log(`Pipeline: ${report.pipeline.errors} errors, ${report.pipeline.warnings} warnings`)
     this.log(`Render: ${formatQualityRenderSummary(report.render)}`)
-    this.log(`Artifacts: ${report.artifacts.ok ? 'ok' : 'not ok'} (${report.artifacts.changed.length} changed, ${report.artifacts.missing.length} missing, ${report.artifacts.untracked.length} untracked)`)
+    this.log(`Artifacts: ${report.artifacts.ok ? 'ok' : 'not ok'} (${report.artifacts.summary.changed} changed, ${report.artifacts.summary.missing} missing, ${report.artifacts.summary.schemaInvalid} schema invalid, ${report.artifacts.summary.untracked} untracked)`)
   }
 }
 

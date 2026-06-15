@@ -45,6 +45,15 @@ describe('artifacts', () => {
         checked: 2,
         ok: true,
       })
+      expect((await verifyProjectArtifacts('demo', root)).summary).to.deep.equal({
+        changed: 0,
+        checked: 2,
+        errors: 0,
+        missing: 0,
+        schemaInvalid: 0,
+        untracked: 0,
+        warnings: 0,
+      })
 
       await writeFile(join(artifactsDir, 'media-info.json'), '{"version":2}\n')
       await unlink(join(artifactsDir, 'pipeline-events.jsonl'))
@@ -55,6 +64,15 @@ describe('artifacts', () => {
       expect(result.ok).to.equal(false)
       expect(result.changed.map((issue) => issue.name)).to.deep.equal(['media-info.json'])
       expect(result.missing.map((issue) => issue.name)).to.deep.equal(['pipeline-events.jsonl'])
+      expect(result.summary).to.deep.equal({
+        changed: 1,
+        checked: 2,
+        errors: 3,
+        missing: 1,
+        schemaInvalid: 1,
+        untracked: 1,
+        warnings: 1,
+      })
       expect(result.untracked).to.deep.equal(['extra.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -74,6 +92,11 @@ describe('artifacts', () => {
       const result = await verifyProjectArtifacts('demo', root)
 
       expect(result.ok).to.equal(false)
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+        warnings: 0,
+      })
       expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['media-info.json'])
       expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('inputPath')
     } finally {

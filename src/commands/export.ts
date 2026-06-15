@@ -71,6 +71,6 @@ export function formatExportQualityFailure(projectId: string, quality: ProjectQu
     `Quality: ${quality.summary.errors} errors, ${quality.summary.warnings} warnings`,
     `Pipeline: ${quality.pipeline.errors} errors, ${quality.pipeline.warnings} warnings`,
     `Render: ${formatQualityRenderSummary(quality.render)}`,
-    `Artifacts: ${quality.artifacts.ok ? 'ok' : 'not ok'} (${quality.artifacts.changed.length} changed, ${quality.artifacts.missing.length} missing, ${quality.artifacts.schemaInvalid.length} schema invalid, ${quality.artifacts.untracked.length} untracked)`,
+    `Artifacts: ${quality.artifacts.ok ? 'ok' : 'not ok'} (${quality.artifacts.summary.changed} changed, ${quality.artifacts.summary.missing} missing, ${quality.artifacts.summary.schemaInvalid} schema invalid, ${quality.artifacts.summary.untracked} untracked)`,
   ].join('\n')
 }

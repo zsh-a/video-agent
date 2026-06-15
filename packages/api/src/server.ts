@@ -1301,10 +1301,20 @@ function renderStudioHtml(): string {
         setRows("artifact-integrity-issues", [], 3);
         return;
       }
-      byId("artifact-integrity-summary").textContent = (integrity.ok ? "ok" : "needs attention") + " - " + integrity.checked + " checked, " + integrity.missing.length + " missing, " + integrity.changed.length + " changed, " + integrity.untracked.length + " untracked";
+      const summary = integrity.summary ?? {
+        changed: integrity.changed.length,
+        checked: integrity.checked,
+        errors: integrity.changed.length + integrity.missing.length + (integrity.schemaInvalid ?? []).length,
+        missing: integrity.missing.length,
+        schemaInvalid: (integrity.schemaInvalid ?? []).length,
+        untracked: integrity.untracked.length,
+        warnings: integrity.untracked.length,
+      };
+      byId("artifact-integrity-summary").textContent = (integrity.ok ? "ok" : "needs attention") + " - " + summary.errors + " errors, " + summary.warnings + " warnings, " + summary.checked + " checked";
       setRows("artifact-integrity-issues", [
         ...integrity.missing.map((issue) => integrityRow("missing", issue.name, issue.reason)),
         ...integrity.changed.map((issue) => integrityRow("changed", issue.name, "size " + issue.expectedSize + " -> " + issue.actualSize)),
+        ...(integrity.schemaInvalid ?? []).map((issue) => integrityRow("schema invalid", issue.name, issue.issues.map((schemaIssue) => (schemaIssue.path.join(".") || "<root>") + ": " + schemaIssue.message).join("; "))),
         ...integrity.untracked.map((name) => integrityRow("untracked", name, "not present in artifact-manifest.json")),
       ], 3);
     };

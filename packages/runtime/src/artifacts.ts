@@ -55,7 +55,18 @@ export interface ArtifactIntegrityResult {
   missing: ArtifactIntegrityMissingIssue[]
   ok: boolean
   schemaInvalid: ArtifactSchemaInvalidIssue[]
+  summary: ArtifactIntegritySummary
   untracked: string[]
+}
+
+export interface ArtifactIntegritySummary {
+  changed: number
+  checked: number
+  errors: number
+  missing: number
+  schemaInvalid: number
+  untracked: number
+  warnings: number
 }
 
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
@@ -133,13 +144,22 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
   const manifest = await readArtifactManifest(artifactsDir)
 
   if (manifest === undefined) {
+    const missing = [{name: ARTIFACT_MANIFEST_NAME, reason: 'missing'}] satisfies ArtifactIntegrityMissingIssue[]
+
     return {
       changed: [],
       checked: 0,
       manifestPath,
-      missing: [{name: ARTIFACT_MANIFEST_NAME, reason: 'missing'}],
+      missing,
       ok: false,
       schemaInvalid: [],
+      summary: summarizeArtifactIntegrity({
+        changed: [],
+        checked: 0,
+        missing,
+        schemaInvalid: [],
+        untracked: [],
+      }),
       untracked: [],
     }
   }
@@ -186,14 +206,46 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b))
 
+  const sortedChanged = changed.sort((a, b) => a.name.localeCompare(b.name))
+  const sortedMissing = missing.sort((a, b) => a.name.localeCompare(b.name))
+  const sortedSchemaInvalid = schemaInvalid.sort((a, b) => a.name.localeCompare(b.name))
+
   return {
-    changed: changed.sort((a, b) => a.name.localeCompare(b.name)),
+    changed: sortedChanged,
     checked: manifest.artifacts.length,
     manifestPath,
-    missing: missing.sort((a, b) => a.name.localeCompare(b.name)),
+    missing: sortedMissing,
     ok: changed.length === 0 && missing.length === 0 && schemaInvalid.length === 0 && untracked.length === 0,
-    schemaInvalid: schemaInvalid.sort((a, b) => a.name.localeCompare(b.name)),
+    schemaInvalid: sortedSchemaInvalid,
+    summary: summarizeArtifactIntegrity({
+      changed: sortedChanged,
+      checked: manifest.artifacts.length,
+      missing: sortedMissing,
+      schemaInvalid: sortedSchemaInvalid,
+      untracked,
+    }),
     untracked,
+  }
+}
+
+function summarizeArtifactIntegrity(result: {
+  changed: ArtifactIntegrityChangedIssue[]
+  checked: number
+  missing: ArtifactIntegrityMissingIssue[]
+  schemaInvalid: ArtifactSchemaInvalidIssue[]
+  untracked: string[]
+}): ArtifactIntegritySummary {
+  const errors = result.changed.length + result.missing.length + result.schemaInvalid.length
+  const warnings = result.untracked.length
+
+  return {
+    changed: result.changed.length,
+    checked: result.checked,
+    errors,
+    missing: result.missing.length,
+    schemaInvalid: result.schemaInvalid.length,
+    untracked: result.untracked.length,
+    warnings,
   }
 }
 

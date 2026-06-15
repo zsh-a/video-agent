@@ -27,8 +27,9 @@ export default class Artifacts extends Command {
       }
 
       this.log(`Manifest: ${result.manifestPath}`)
-      this.log(`Checked: ${result.checked}`)
+      this.log(`Checked: ${result.summary.checked}`)
       this.log(`Status: ${result.ok ? 'ok' : 'failed'}`)
+      this.log(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings (${result.summary.missing} missing, ${result.summary.changed} changed, ${result.summary.schemaInvalid} schema invalid, ${result.summary.untracked} untracked)`)
 
       for (const issue of result.missing) {
         this.log(`Missing: ${issue.name}`)
