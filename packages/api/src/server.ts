@@ -1501,9 +1501,11 @@ function errorResponse(error: unknown): Response {
       {
         error: {
           changedArtifacts: error.changedArtifacts,
+          code: 'checkpoint_invalid',
           fromStage: error.fromStage,
           message: error.message,
           missingArtifacts: error.missingArtifacts,
+          name: error.name,
           schemaInvalidArtifacts: error.schemaInvalidArtifacts,
           untrackedArtifacts: error.untrackedArtifacts,
         },
@@ -1533,7 +1535,10 @@ function errorResponse(error: unknown): Response {
     return jsonResponse(
       {
         error: {
+          code: 'export_quality_failed',
           message: error.message,
+          name: error.name,
+          projectId: error.projectId,
           quality: error.quality,
         },
       },

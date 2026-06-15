@@ -437,6 +437,8 @@ POST /projects/:projectId/export
 
 `GET /health` 是轻量 liveness endpoint，只要 API 进程可响应就返回 `200`。`GET /doctor` 是 runtime readiness endpoint，会返回与 CLI `doctor` 相同的 workspace/config/provider/media 工具报告；当任一检查失败时，响应体仍包含完整报告，但 HTTP 状态码为 `503`，方便负载均衡器、CI 和外部 agent client fail fast。需要只按显式变量做 provider readiness 检查时，可以重复传 `GET /doctor?env=KEY=VALUE`。
 
+API workflow failures use JSON error bodies with stable `error.code` values when the runtime can classify the failure. Checkpoint rerun failures return HTTP `409` with `code: "checkpoint_invalid"` plus missing/changed/untracked/schema-invalid artifact lists. Export quality gate failures return HTTP `409` with `code: "export_quality_failed"`, `projectId`, and the full project `quality` report.
+
 `GET /studio` 返回一个最小 Web Studio shell，直接调用同一个 API surface 展示 provider 环境状态、runtime config、项目列表、stage 状态、质量摘要、artifacts 和最近事件，并提供 render、quality-gated export、按 stage rerun、worker dry-run、provider smoke test 和 guided action copy 操作。Render controls 支持选择 ffmpeg/HyperFrames renderer、字幕/音频开关、音量、ducking，以及 HyperFrames validate/render/command/output 参数。artifact 表格可以直接预览 JSON/text artifact，Visual Samples 面板会读取 `GET /projects/:projectId/visual?includeContent=true` 展示渲染缩略图样本，Template Quality 面板会从 `render-output.json` 展示 HyperFrames 模板检查摘要和 issue 明细，Render Quality 面板会展开 output/audio/subtitle/visual diagnostics，Artifact Integrity 面板会展示 manifest missing/changed/untracked 结果。它不包含单独的前端构建步骤，适合作为后续可视化编辑器入口。
 
 `GET /actions` 和 `GET /projects/:projectId/actions` 返回与 TUI 共用的 guided action 元数据，包括 `id`、`category`、`description`、`priority` 和可复制 `command`。默认命令前缀是 `vagent`，可以用 `?commandPrefix=bun%20run%20dev` 覆盖，方便开发期 Studio 或外部 agent client 生成本地可执行命令。

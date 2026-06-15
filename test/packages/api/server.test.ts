@@ -405,9 +405,11 @@ describe('api server handler', () => {
           method: 'POST',
         }),
       )
-      const result = (await response.json()) as {error: {changedArtifacts: string[]; fromStage: string; missingArtifacts: string[]; untrackedArtifacts: string[]}}
+      const result = (await response.json()) as {error: {changedArtifacts: string[]; code: string; fromStage: string; missingArtifacts: string[]; name: string; untrackedArtifacts: string[]}}
 
       expect(response.status).to.equal(409)
+      expect(result.error.code).to.equal('checkpoint_invalid')
+      expect(result.error.name).to.equal('PipelineCheckpointError')
       expect(result.error.fromStage).to.equal('quality')
       expect(result.error.missingArtifacts).to.include.members(['ingest-report.json', 'tts-segments.json'])
       expect(result.error.changedArtifacts).to.deep.equal([])
@@ -435,9 +437,11 @@ describe('api server handler', () => {
           method: 'POST',
         }),
       )
-      const result = (await response.json()) as {error: {fromStage: string; message: string; schemaInvalidArtifacts: string[]}}
+      const result = (await response.json()) as {error: {code: string; fromStage: string; message: string; name: string; schemaInvalidArtifacts: string[]}}
 
       expect(response.status).to.equal(409)
+      expect(result.error.code).to.equal('checkpoint_invalid')
+      expect(result.error.name).to.equal('PipelineCheckpointError')
       expect(result.error.fromStage).to.equal('quality')
       expect(result.error.message).to.include('schema invalid: clip-plan.json')
       expect(result.error.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
@@ -570,9 +574,14 @@ describe('api server handler', () => {
           method: 'POST',
         }),
       )
-      const result = (await response.json()) as {error: {quality: {ok: boolean}}}
+      const result = (await response.json()) as {error: {code: string; name: string; projectId: string; quality: {ok: boolean}}}
 
       expect(response.status).to.equal(409)
+      expect(result.error).to.deep.include({
+        code: 'export_quality_failed',
+        name: 'ExportQualityError',
+        projectId: 'demo',
+      })
       expect(result.error.quality.ok).to.equal(false)
     } finally {
       await rm(root, {force: true, recursive: true})
