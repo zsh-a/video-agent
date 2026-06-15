@@ -3,7 +3,7 @@ export const BUILTIN_PROVIDER_NAMES = ['command', 'http', 'mock'] as const
 
 export type ProviderName = typeof BUILTIN_PROVIDER_NAMES[number]
 export type ProviderRole = typeof PROVIDER_ROLES[number]
-export type ProviderRequirementKind = 'commandArgvJson' | 'customHeadersJson' | 'httpUrl' | 'timeoutMs' | 'token'
+export type ProviderRequirementKind = 'commandArgvJson' | 'customHeadersJson' | 'httpUrl' | 'model' | 'timeoutMs' | 'token'
 
 export interface ProviderEnvironmentDefinition {
   description: string
@@ -62,6 +62,14 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderName, ProviderDescriptor> = {
         placeholder: '{"x-api-key":"<token>"}',
         required: false,
         secret: true,
+      },
+      {
+        description: `${role.toUpperCase()} model name sent with HTTP adapter requests.`,
+        env: providerEnvName(role, 'MODEL'),
+        kind: 'model',
+        placeholder: 'provider-model',
+        required: false,
+        secret: false,
       },
       {
         description: `${role.toUpperCase()} HTTP adapter timeout in milliseconds.`,

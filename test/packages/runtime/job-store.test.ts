@@ -20,6 +20,7 @@ describe('runtime job store', () => {
             maxStageRetries: 0,
             retryBackoffMs: 0,
           },
+          providerEnv: {},
           providers: {
             asr: 'mock',
             tts: 'mock',
@@ -61,6 +62,7 @@ describe('runtime job store', () => {
             maxStageRetries: 0,
             retryBackoffMs: 0,
           },
+          providerEnv: {},
           providers: {
             asr: 'mock',
             tts: 'mock',

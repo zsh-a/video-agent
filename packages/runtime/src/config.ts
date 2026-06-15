@@ -1,3 +1,4 @@
+import {getProviderProfile, type ProviderProfileName} from '@video-agent/providers'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {dirname, resolve} from 'node:path'
 
@@ -9,6 +10,7 @@ export interface AgentConfig {
     maxStageRetries: number
     retryBackoffMs: number
   }
+  providerEnv: Record<string, string>
   providers: {
     asr: string
     tts: string
@@ -23,6 +25,8 @@ export interface ConfigUpdate {
   asr?: string
   jobStore?: JobStoreKind
   maxStageRetries?: number
+  providerEnv?: Record<string, string | undefined>
+  providerProfile?: ProviderProfileName
   retryBackoffMs?: number
   tts?: string
   vlm?: string
@@ -36,6 +40,7 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     maxStageRetries: 0,
     retryBackoffMs: 0,
   },
+  providerEnv: {},
   providers: {
     asr: 'mock',
     tts: 'mock',
@@ -63,6 +68,8 @@ export async function readConfig(workspaceDir = '.video-agent'): Promise<AgentCo
 export async function writeConfig(workspaceDir: string, update: ConfigUpdate): Promise<{config: AgentConfig; path: string}> {
   const path = resolveConfigPath(workspaceDir)
   const current = await readConfig(workspaceDir)
+  const profile = update.providerProfile === undefined ? undefined : getProviderProfile(update.providerProfile)
+  const providerEnv = mergeProviderEnv(current.providerEnv, profile?.providerEnv, update.providerEnv)
   const config: AgentConfig = {
     ...current,
     persistence: {
@@ -72,10 +79,11 @@ export async function writeConfig(workspaceDir: string, update: ConfigUpdate): P
       maxStageRetries: update.maxStageRetries === undefined ? current.pipeline.maxStageRetries : normalizeNonNegativeInteger(update.maxStageRetries, current.pipeline.maxStageRetries),
       retryBackoffMs: update.retryBackoffMs === undefined ? current.pipeline.retryBackoffMs : normalizeNonNegativeInteger(update.retryBackoffMs, current.pipeline.retryBackoffMs),
     },
+    providerEnv,
     providers: {
-      asr: update.asr ?? current.providers.asr,
-      tts: update.tts ?? current.providers.tts,
-      vlm: update.vlm ?? current.providers.vlm,
+      asr: update.asr ?? profile?.providers.asr ?? current.providers.asr,
+      tts: update.tts ?? profile?.providers.tts ?? current.providers.tts,
+      vlm: update.vlm ?? profile?.providers.vlm ?? current.providers.vlm,
     },
     version: 1,
   }
@@ -95,6 +103,7 @@ function normalizeConfig(config: Partial<AgentConfig>): AgentConfig {
       maxStageRetries: normalizeNonNegativeInteger(config.pipeline?.maxStageRetries, DEFAULT_AGENT_CONFIG.pipeline.maxStageRetries),
       retryBackoffMs: normalizeNonNegativeInteger(config.pipeline?.retryBackoffMs, DEFAULT_AGENT_CONFIG.pipeline.retryBackoffMs),
     },
+    providerEnv: normalizeProviderEnv(config.providerEnv),
     providers: {
       asr: config.providers?.asr ?? DEFAULT_AGENT_CONFIG.providers.asr,
       tts: config.providers?.tts ?? DEFAULT_AGENT_CONFIG.providers.tts,
@@ -102,6 +111,31 @@ function normalizeConfig(config: Partial<AgentConfig>): AgentConfig {
     },
     version: 1,
   }
+}
+
+function mergeProviderEnv(...values: Array<Record<string, string | undefined> | undefined>): Record<string, string> {
+  const merged: Record<string, string> = {}
+
+  for (const value of values) {
+    for (const [key, envValue] of Object.entries(value ?? {})) {
+      if (envValue === undefined || envValue.trim() === '') {
+        delete merged[key]
+        continue
+      }
+
+      merged[key] = envValue
+    }
+  }
+
+  return merged
+}
+
+function normalizeProviderEnv(value: Record<string, unknown> | undefined): Record<string, string> {
+  if (value === undefined) {
+    return {}
+  }
+
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[0].trim() !== '' && typeof entry[1] === 'string' && entry[1].trim() !== ''))
 }
 
 function normalizeNonNegativeInteger(value: number | undefined, fallback: number): number {

@@ -94,6 +94,12 @@ describe('provider environment', () => {
         },
         {
           configured: false,
+          description: 'TTS model name sent with HTTP adapter requests.',
+          env: 'VIDEO_AGENT_TTS_MODEL',
+          required: false,
+        },
+        {
+          configured: false,
           description: 'TTS HTTP adapter timeout in milliseconds.',
           env: 'VIDEO_AGENT_TTS_TIMEOUT_MS',
           required: false,
@@ -101,11 +107,11 @@ describe('provider environment', () => {
       ])
       expect(report.summary).to.deep.equal({
         configured: 3,
-        missing: 1,
+        missing: 2,
         missingRequired: [],
-        optional: 3,
+        optional: 4,
         required: 1,
-        total: 4,
+        total: 5,
       })
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -149,7 +155,27 @@ describe('provider environment', () => {
 
       expect(template).to.include("export VIDEO_AGENT_VLM_TOKEN='<token>'")
       expect(template).to.include("export VIDEO_AGENT_VLM_HEADERS='{\"x-api-key\":\"<token>\"}'")
+      expect(template).to.include("export VIDEO_AGENT_VLM_MODEL='provider-model'")
       expect(template).to.include("export VIDEO_AGENT_VLM_TIMEOUT_MS='60000'")
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('uses provider environment defaults from config', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
+
+    try {
+      await writeConfig(root, {providerProfile: 'mimo'})
+
+      const report = await readProviderEnvironment(root, {})
+
+      expect(report.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:http', 'vlm:http', 'tts:http'])
+      expect(report.summary.missingRequired).to.deep.equal([])
+      expect(report.providers.find((provider) => provider.role === 'vlm')?.requirements.find((requirement) => requirement.env === 'VIDEO_AGENT_VLM_MODEL')).to.include({
+        configured: true,
+        required: false,
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }

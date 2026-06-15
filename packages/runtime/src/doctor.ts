@@ -72,8 +72,9 @@ function summarizeHealthChecks(checks: HealthCheck[]): RuntimeHealthSummary {
 async function checkProviderConfig(workspaceDir: string, env: Record<string, string | undefined> | undefined): Promise<HealthCheck[]> {
   try {
     const config = await readConfig(workspaceDir)
+    const providerEnv = mergeProviderEnv(config.providerEnv, env ?? process.env)
 
-    return PROVIDER_ROLES.map((role) => checkProviderRole(role, config, env))
+    return PROVIDER_ROLES.map((role) => checkProviderRole(role, config, providerEnv))
   } catch (error) {
     return [
       {
@@ -206,6 +207,13 @@ function checkUnsupportedConfiguredProvider(role: ProviderRole, provider: string
     message: `Unsupported ${role} provider: ${provider}`,
     name: `provider:${role}`,
     status: 'fail',
+  }
+}
+
+function mergeProviderEnv(configEnv: Record<string, string>, env: Record<string, string | undefined>): Record<string, string | undefined> {
+  return {
+    ...configEnv,
+    ...env,
   }
 }
 

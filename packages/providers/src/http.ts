@@ -11,6 +11,7 @@ import {parseProviderResponseMetadata} from './metadata.js'
 export interface HttpProviderOptions {
   fetch?: ProviderFetch
   headers?: Record<string, string>
+  model?: string
   timeoutMs?: number
   url: string
 }
@@ -80,14 +81,14 @@ async function runProviderRequest(options: HttpProviderOptions, payload: unknown
   const timeout = setTimeout(() => {
     controller.abort()
   }, options.timeoutMs ?? 60_000)
-  const payloadRecord = isRecord(payload) ? payload : {}
+  const payloadRecord = isRecord(payload) ? withProviderModel(payload, options.model) : {}
   const kind = typeof payloadRecord.kind === 'string' ? payloadRecord.kind : 'provider'
   const version = typeof payloadRecord.version === 'number' ? String(payloadRecord.version) : '1'
 
   try {
     const request = options.fetch ?? fetch
     const response = await request(options.url, {
-      body: JSON.stringify(payload),
+        body: JSON.stringify(payloadRecord),
       headers: {
         'content-type': 'application/json',
         'x-video-agent-kind': kind,
@@ -106,6 +107,17 @@ async function runProviderRequest(options: HttpProviderOptions, payload: unknown
     return withHttpProviderMetadata((await response.json()) as unknown, providerRequestId)
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+function withProviderModel(payload: Record<string, unknown>, model: string | undefined): Record<string, unknown> {
+  if (model === undefined || model.trim() === '' || typeof payload.model === 'string') {
+    return payload
+  }
+
+  return {
+    ...payload,
+    model,
   }
 }
 

@@ -3,7 +3,7 @@ import {expect} from 'chai'
 import type {ProviderFetch} from '../../../packages/providers/src/index.js'
 
 import {createMockHttpProviderEnvelope} from '../../../examples/provider-adapters/mock-http-provider.js'
-import {createAsrProvider, HttpASRProvider, HttpTTSProvider, HttpVLMProvider, readProviderMetadata} from '../../../packages/providers/src/index.js'
+import {createAsrProvider, createProviders, HttpASRProvider, HttpTTSProvider, HttpVLMProvider, readProviderMetadata} from '../../../packages/providers/src/index.js'
 
 describe('http providers', () => {
   it('runs ASR over HTTP JSON payloads and preserves metadata', async () => {
@@ -107,6 +107,99 @@ describe('http providers', () => {
     const transcript = await provider.transcribe({path: '/tmp/audio.wav'})
 
     expect(transcript.text).to.equal('header transcript')
+  })
+
+  it('adds configured HTTP provider models from environment', async () => {
+    const provider = createAsrProvider('http', {
+      env: {
+        VIDEO_AGENT_ASR_MODEL: 'mimo-v2.5-asr',
+        VIDEO_AGENT_ASR_URL: 'https://provider.test/asr',
+      },
+      fetch: jsonFetch((payload) => {
+        expect(payload).to.include({
+          kind: 'asr',
+          model: 'mimo-v2.5-asr',
+          version: 1,
+        })
+
+        return {
+          segments: [
+            {
+              end: 1,
+              start: 0,
+              text: 'model transcript',
+            },
+          ],
+          text: 'model transcript',
+        }
+      }),
+    })
+
+    const transcript = await provider.transcribe({path: '/tmp/audio.wav'})
+
+    expect(transcript.text).to.equal('model transcript')
+  })
+
+  it('uses config provider environment defaults for HTTP providers', async () => {
+    const provider = createAsrProvider('http', {
+      env: {
+        VIDEO_AGENT_ASR_URL: 'https://provider.test/asr',
+      },
+      fetch: jsonFetch((payload) => {
+        expect(payload.model).to.equal(undefined)
+
+        return {
+          segments: [
+            {
+              end: 1,
+              start: 0,
+              text: 'direct provider transcript',
+            },
+          ],
+          text: 'direct provider transcript',
+        }
+      }),
+    })
+
+    const transcript = await provider.transcribe({path: '/tmp/audio.wav'})
+
+    expect(transcript.text).to.equal('direct provider transcript')
+  })
+
+  it('uses profile provider environment defaults when creating a provider set', async () => {
+    const providers = createProviders({
+      providerEnv: {
+        VIDEO_AGENT_ASR_MODEL: 'mimo-v2.5-asr',
+        VIDEO_AGENT_ASR_URL: 'https://provider.test/asr',
+        VIDEO_AGENT_TTS_URL: 'https://provider.test/tts',
+        VIDEO_AGENT_VLM_URL: 'https://provider.test/vlm',
+      },
+      providers: {
+        asr: 'http',
+        tts: 'http',
+        vlm: 'http',
+      },
+    }, {
+      env: {},
+      fetch: jsonFetch((payload) => {
+        expect(payload.model).to.equal('mimo-v2.5-asr')
+
+        return {
+          segments: [
+            {
+              end: 1,
+              start: 0,
+              text: 'profile transcript',
+            },
+          ],
+          text: 'profile transcript',
+        }
+      }),
+    })
+
+    const transcript = await providers.asr.transcribe({path: '/tmp/audio.wav'})
+
+    expect(transcript.text).to.equal('profile transcript')
   })
 
   it('rejects invalid HTTP provider header configuration', () => {

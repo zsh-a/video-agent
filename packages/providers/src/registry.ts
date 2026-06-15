@@ -16,8 +16,19 @@ export {
   providerEnvName,
 } from './descriptors.js'
 export type {ProviderDescriptor, ProviderEnvironmentDefinition, ProviderName, ProviderRequirementKind, ProviderRole} from './descriptors.js'
+export {
+  getProviderProfile,
+  isProviderProfileName,
+  MIMO_PROVIDER_BASE_URL,
+  MIMO_PROVIDER_MODELS,
+  MIMO_PROVIDER_PROFILE,
+  PROVIDER_PROFILE_NAMES,
+  PROVIDER_PROFILES,
+} from './profiles.js'
+export type {ProviderProfile, ProviderProfileModel, ProviderProfileName} from './profiles.js'
 
 export interface ProviderConfig {
+  providerEnv?: Record<string, string | undefined>
   providers: {
     asr: string
     tts: string
@@ -37,10 +48,12 @@ export interface ProviderSet {
 }
 
 export function createProviders(config: ProviderConfig, options: ProviderRegistryOptions = {}): ProviderSet {
+  const mergedOptions = mergeProviderRegistryOptions(config, options)
+
   return {
-    asr: createAsrProvider(config.providers.asr, options),
-    tts: createTtsProvider(config.providers.tts, options),
-    vlm: createVlmProvider(config.providers.vlm, options),
+    asr: createAsrProvider(config.providers.asr, mergedOptions),
+    tts: createTtsProvider(config.providers.tts, mergedOptions),
+    vlm: createVlmProvider(config.providers.vlm, mergedOptions),
   }
 }
 
@@ -98,11 +111,22 @@ export function createVlmProvider(name: string, options: ProviderRegistryOptions
   throw new Error(`Unsupported VLM provider: ${name}`)
 }
 
-function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions): {fetch?: ProviderFetch; headers?: Record<string, string>; timeoutMs?: number; url: string} {
+function mergeProviderRegistryOptions(config: ProviderConfig, options: ProviderRegistryOptions): ProviderRegistryOptions {
+  return {
+    ...options,
+    env: {
+      ...config.providerEnv,
+      ...(options.env ?? process.env),
+    },
+  }
+}
+
+function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions): {fetch?: ProviderFetch; headers?: Record<string, string>; model?: string; timeoutMs?: number; url: string} {
   const env = options.env ?? process.env
   const urlEnv = providerEnvName(role, 'URL')
   const tokenEnv = providerEnvName(role, 'TOKEN')
   const headersEnv = providerEnvName(role, 'HEADERS')
+  const modelEnv = providerEnvName(role, 'MODEL')
   const timeoutEnv = providerEnvName(role, 'TIMEOUT_MS')
   const url = env[urlEnv]
 
@@ -113,6 +137,7 @@ function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions
   return {
     ...(options.fetch === undefined ? {} : {fetch: options.fetch}),
     ...resolveHttpHeaders({headersEnv, headersValue: env[headersEnv], tokenEnv, tokenValue: env[tokenEnv]}),
+    ...(env[modelEnv] === undefined || env[modelEnv]?.trim() === '' ? {} : {model: env[modelEnv]}),
     ...(env[timeoutEnv] === undefined || env[timeoutEnv]?.trim() === '' ? {} : {timeoutMs: parseTimeout(timeoutEnv, env[timeoutEnv])}),
     url,
   }

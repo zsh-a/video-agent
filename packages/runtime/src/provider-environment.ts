@@ -38,7 +38,7 @@ export interface ProviderEnvironmentShellTemplateOptions {
 
 export async function readProviderEnvironment(workspaceDir = '.video-agent', env: Record<string, string | undefined> = process.env): Promise<ProviderEnvironmentReport> {
   const config = await readConfig(workspaceDir)
-  const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, env))
+  const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, mergeProviderEnv(config.providerEnv, env)))
 
   return {
     providers,
@@ -123,4 +123,11 @@ function summarizeProviderEnvironment(providers: ProviderEnvironmentRoleReport[]
 
 function placeholderForRequirement(provider: ProviderEnvironmentRoleReport, requirement: ProviderEnvironmentRequirement): string {
   return getProviderEnvironmentDefinitions(provider.role, provider.provider).find((definition) => definition.env === requirement.env)?.placeholder ?? '<value>'
+}
+
+function mergeProviderEnv(configEnv: Record<string, string>, env: Record<string, string | undefined>): Record<string, string | undefined> {
+  return {
+    ...configEnv,
+    ...env,
+  }
 }

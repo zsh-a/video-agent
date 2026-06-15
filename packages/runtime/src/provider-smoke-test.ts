@@ -82,7 +82,10 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
     const startedAt = Date.now()
 
     try {
-      const output = await runRoleSmokeTest(role, config.providers[role], options)
+      const output = await runRoleSmokeTest(role, config.providers[role], {
+        ...options,
+        env: mergeProviderEnv(config.providerEnv, options.env ?? process.env),
+      })
       const metadata = readSmokeTestMetadata(output.raw)
 
       results.push({
@@ -204,5 +207,12 @@ function readSmokeTestMetadata(value: object): ProviderSmokeTestResult['metadata
   return {
     ...(metadata.model === undefined ? {} : {model: metadata.model}),
     ...(metadata.requestId === undefined ? {} : {requestId: metadata.requestId}),
+  }
+}
+
+function mergeProviderEnv(configEnv: Record<string, string>, env: Record<string, string | undefined>): Record<string, string | undefined> {
+  return {
+    ...configEnv,
+    ...env,
   }
 }

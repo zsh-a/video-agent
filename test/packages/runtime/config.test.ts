@@ -22,6 +22,7 @@ describe('config', () => {
         maxStageRetries: 0,
         retryBackoffMs: 0,
       })
+      expect(config.providerEnv).to.deep.equal({})
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -133,6 +134,33 @@ describe('config', () => {
         tts: 'http',
         vlm: 'http',
       })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('writes the Mimo hosted provider profile', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-config-'))
+
+    try {
+      const {config} = await writeConfig(root, {
+        providerProfile: 'mimo',
+      })
+
+      expect(config.providers).to.deep.equal({
+        asr: 'http',
+        tts: 'http',
+        vlm: 'http',
+      })
+      expect(config.providerEnv).to.include({
+        VIDEO_AGENT_ASR_MODEL: 'mimo-v2.5-asr',
+        VIDEO_AGENT_ASR_URL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        VIDEO_AGENT_TTS_MODEL: 'mimo-v2.5-tts',
+        VIDEO_AGENT_TTS_URL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        VIDEO_AGENT_VLM_MODEL: 'mimo-v2.5-pro',
+        VIDEO_AGENT_VLM_URL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+      })
+      expect((await readConfig(root)).providerEnv).to.deep.equal(config.providerEnv)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

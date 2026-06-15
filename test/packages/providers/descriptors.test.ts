@@ -30,6 +30,7 @@ describe('provider descriptors', () => {
       'VIDEO_AGENT_TTS_URL',
       'VIDEO_AGENT_TTS_TOKEN',
       'VIDEO_AGENT_TTS_HEADERS',
+      'VIDEO_AGENT_TTS_MODEL',
       'VIDEO_AGENT_TTS_TIMEOUT_MS',
     ])
     expect(requirements.filter((requirement) => requirement.secret).map((requirement) => requirement.env)).to.deep.equal([
