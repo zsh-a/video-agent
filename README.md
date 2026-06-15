@@ -380,7 +380,7 @@ HyperFrames 渲染还会写入本地 `templateQuality`，检查 `index.html`、`
 .video-agent/projects/<projectId>/artifacts/export-output.json
 ```
 
-默认导出不会强制质量门禁。需要交付前硬性检查时，可以传 `--require-quality`；它会先运行项目级 `quality` 聚合，只有 pipeline quality、render diagnostics 和 artifact integrity 都干净时才导出。门禁失败时，人类可读输出会打印 quality / pipeline / render / artifacts 摘要；`--json` 会返回 `export.quality_failed` 和完整 `quality` report，方便上层适配器处理。
+默认导出不会强制质量门禁。需要交付前硬性检查时，可以传 `--require-quality`；它会先运行项目级 `quality` 聚合，只有 pipeline quality、render diagnostics 和 artifact integrity 都干净时才导出。门禁失败时，人类可读输出会打印 quality / pipeline / render / artifacts 摘要；`--json` 会返回 `export_quality_failed`、兼容字段 `legacyCode: "export.quality_failed"` 和完整 `quality` report，方便上层适配器处理。
 
 `artifacts --verify` 会读取 `artifact-manifest.json`，重新计算 sha256，并报告缺失、变更、未纳入 manifest 的文件，以及已知 IR/provider JSON artifact 的 schema 错误。JSON 输出包含 `summary.checked/errors/warnings/missing/changed/schemaInvalid/untracked`，供 CLI/API/MCP/TUI/Web Studio 复用：
 

@@ -31,15 +31,7 @@ export default class Export extends Command {
     } catch (error) {
       if (error instanceof ExportQualityError) {
         if (flags.json) {
-          this.log(JSON.stringify({
-            error: {
-              code: 'export.quality_failed',
-              message: error.message,
-            },
-            ok: false,
-            projectId: error.projectId,
-            quality: error.quality,
-          }, null, 2))
+          this.log(JSON.stringify(createExportQualityFailurePayload(error.projectId, error.quality, error.message), null, 2))
         } else {
           this.log(formatExportQualityFailure(error.projectId, error.quality))
         }
@@ -62,6 +54,30 @@ export default class Export extends Command {
     this.log(`Output: ${output.outputPath}`)
     this.log(`Quality gate: ${output.requireQuality ? 'required' : 'not required'}`)
     this.log(`Artifact: ${output.artifactPath}`)
+  }
+}
+
+export function createExportQualityFailurePayload(projectId: string, quality: ProjectQualityReport, message: string): {
+  error: {
+    code: 'export_quality_failed'
+    legacyCode: 'export.quality_failed'
+    message: string
+    name: 'ExportQualityError'
+  }
+  ok: false
+  projectId: string
+  quality: ProjectQualityReport
+} {
+  return {
+    error: {
+      code: 'export_quality_failed',
+      legacyCode: 'export.quality_failed',
+      message,
+      name: 'ExportQualityError',
+    },
+    ok: false,
+    projectId,
+    quality,
   }
 }
 
