@@ -390,7 +390,7 @@ bun run dev artifacts <projectId> --verify
 
 `status` 会读取 `job-state.json`、artifact 列表、`pipeline-events.jsonl`、`provider-calls.jsonl`、`quality-report.json` 和 `render-output.json`，展示 stage 状态、事件数量、provider 调用总数、失败数、quality warning/error summary 和 render output diagnostics。
 
-`quality` 会聚合 pipeline quality、render diagnostics、HyperFrames template quality 和 artifact integrity，给出项目是否可交付的 `ok/errors/warnings` 总结。`--details` 会一并输出原始 `quality-report.json` 和 `render-output.json` 内容。
+`quality` 会聚合 pipeline quality、render diagnostics、HyperFrames template quality 和 artifact integrity，给出项目是否可交付的 `ok/errors/warnings` 总结。缺失、变更或 schema 无效的 artifact 会计入 errors；未纳入 manifest 的 artifact 会计入 warnings。`--details` 会一并输出原始 `quality-report.json` 和 `render-output.json` 内容。
 
 `visual` 会读取 `render-output.json` 中记录的渲染缩略图样本，输出时间点、状态、相对路径和文件大小。默认只输出元数据；`--json --include-content` 会额外返回 base64 图像内容。
 
@@ -554,7 +554,7 @@ bun run dev mcp --print-config \
 }
 ```
 
-`GET /projects/:projectId/artifacts/verify` 会返回 artifact integrity check 结果，包含 `ok`、`checked`、`missing`、`changed` 和 `untracked`。
+`GET /projects/:projectId/artifacts/verify` 会返回 artifact integrity check 结果，包含 `ok`、`checked`、`missing`、`changed`、`schemaInvalid` 和 `untracked`。
 
 `GET /projects/:projectId/audio` 会返回和 `render --inspect-audio --json` 相同的音频预检结果。支持通过 query string 传入 `audio`、`sourceVolume`、`voiceoverVolume`、`audioDucking`、`duckingThreshold`、`duckingRatio`、`duckingAttackMs` 和 `duckingReleaseMs`。
 

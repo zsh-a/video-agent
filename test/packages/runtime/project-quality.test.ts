@@ -44,6 +44,35 @@ describe('project quality', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('counts schema-invalid artifacts as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest'],
+      })
+      await writeFile(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['media-info.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function createProject(root: string, projectId: string): Promise<void> {

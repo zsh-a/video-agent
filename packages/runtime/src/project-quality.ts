@@ -49,6 +49,7 @@ export async function readProjectQualityDetails(projectId: string, workspaceDir 
 }
 
 function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactIntegrityResult): ProjectQualitySummary {
+  const artifactErrors = artifacts.changed.length + artifacts.missing.length + artifacts.schemaInvalid.length
   const errors =
     status.summary.quality.errors +
     status.summary.render.outputErrors +
@@ -56,7 +57,7 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
     status.summary.render.audioQualityErrors +
     status.summary.render.templateErrors +
     status.summary.render.visualErrors +
-    (artifacts.ok ? 0 : artifacts.changed.length + artifacts.missing.length)
+    artifactErrors
   const warnings =
     status.summary.quality.warnings +
     status.summary.render.outputWarnings +
