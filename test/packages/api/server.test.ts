@@ -86,6 +86,23 @@ describe('api server handler', () => {
     expect(response.status).to.equal(404)
   })
 
+  it('can include raw quality details from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      await writeQualityArtifacts(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const report = await readJson<{qualityReport?: {summary: {errors: number}}; renderOutput?: {renderer: string}}>(fetch, '/projects/demo/quality?details=true')
+
+      expect(report.qualityReport?.summary.errors).to.equal(1)
+      expect(report.renderOutput?.renderer).to.equal('ffmpeg')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('returns 503 for unhealthy doctor reports', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 
@@ -667,6 +684,29 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
       role: 'asr',
       startedAt: '2026-01-01T00:00:00.990Z',
       status: 'succeeded',
+      version: 1,
+    })}\n`,
+  )
+}
+
+async function writeQualityArtifacts(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+  await writeFile(
+    join(artifactsDir, 'quality-report.json'),
+    `${JSON.stringify({
+      issues: [{code: 'timeline.invalid', message: 'bad timeline', severity: 'error'}],
+      summary: {
+        errors: 1,
+        warnings: 0,
+      },
+      version: 1,
+    })}\n`,
+  )
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      renderer: 'ffmpeg',
       version: 1,
     })}\n`,
   )

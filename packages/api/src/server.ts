@@ -13,6 +13,7 @@ import {
   readProjectArtifact,
   readProjectEvents,
   readProjectQuality,
+  readProjectQualityDetails,
   readProjectStatus,
   readProjectVisualSamples,
   readProviderEnvironment,
@@ -302,7 +303,9 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
   }
 
   if (resource === 'quality') {
-    return jsonResponse(await readProjectQuality(projectId, workspaceDir))
+    const includeDetails = parseOptionalBoolean(url.searchParams.get('details')) === true
+
+    return jsonResponse(includeDetails ? await readProjectQualityDetails(projectId, workspaceDir) : await readProjectQuality(projectId, workspaceDir))
   }
 
   if (resource === 'actions') {

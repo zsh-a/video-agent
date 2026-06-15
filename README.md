@@ -423,6 +423,7 @@ POST /projects
 POST /worker
 GET /projects/:projectId/status
 GET /projects/:projectId/quality
+GET /projects/:projectId/quality?details=true
 GET /projects/:projectId/actions
 GET /projects/:projectId/events
 GET /projects/:projectId/artifacts
@@ -444,6 +445,8 @@ API workflow failures use JSON error bodies with stable `error.code` values when
 `GET /actions` 和 `GET /projects/:projectId/actions` 返回与 TUI 共用的 guided action 元数据，包括 `id`、`category`、`description`、`priority` 和可复制 `command`。默认命令前缀是 `vagent`，可以用 `?commandPrefix=bun%20run%20dev` 覆盖，方便开发期 Studio 或外部 agent client 生成本地可执行命令。
 
 `GET /config` 返回当前 workspace 的非 secret runtime config，包括 provider 选择、job store 和 pipeline retry 策略。provider credential 是否配置由 `GET /provider-env` 以 `configured` 布尔值展示，不返回 secret 内容。需要给外部运行环境生成占位模板时，可以调用 `GET /provider-env?shellTemplate=true`；optional 变量可加 `includeOptional=true`。需要让 agent client 只验证显式变量时，可以重复传 `GET /provider-env?env=KEY=VALUE`；`POST /provider-test` 也支持 body 里的 `{ "env": { "KEY": "VALUE" } }`。
+
+`GET /projects/:projectId/quality?details=true` 会在质量聚合外额外返回原始 `qualityReport` 和 `renderOutput` 内容，便于 API/MCP 客户端做深度诊断；默认 `details=false` 时只返回聚合摘要。
 
 `mcp` 会启动 stdio MCP adapter，支持 `initialize`、`tools/list` 和 `tools/call`，工具直接复用 runtime API：
 
@@ -474,6 +477,8 @@ video_agent_export
 `video_agent_provider_env` 返回当前 provider 配置对应的环境变量契约，只暴露变量名、必填状态和是否已配置，不返回具体值。传 `shellTemplate: true` 时会额外返回非 secret 的 shell export 模板；`includeOptional: true` 可把 token/timeout 这类 optional 变量也输出为 active export。
 
 MCP runtime failures keep the standard JSON-RPC error envelope and add structured `error.data` when available. Checkpoint failures include `code: "checkpoint_invalid"` plus missing/changed/untracked/schema-invalid artifact lists. Export quality gate failures include `code: "export_quality_failed"`, `projectId`, and the full project `quality` report. Non-checkpoint request validation failures still use `code: "validation_error"` plus Zod issue paths, codes, and messages.
+
+`video_agent_quality` 支持 `details: true`，返回与 API `quality?details=true` 相同的 raw `qualityReport` / `renderOutput` 字段。
 
 `video_agent_provider_test` 会按当前 provider 配置运行 ASR/VLM/TTS smoke test，可用 `role` 限定单个 provider，并返回输出摘要、request id/model metadata 和失败信息。provider 响应不符合 contract 时，失败结果会包含 `validationIssues`，列出字段 path、code 和 message。
 

@@ -38,10 +38,12 @@ describe('mcp server', () => {
     const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties ?? {}
     const audioProperties = toolsByName.get('video_agent_inspect_audio')?.inputSchema.properties ?? {}
     const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties ?? {}
+    const qualityProperties = toolsByName.get('video_agent_quality')?.inputSchema.properties ?? {}
 
     expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'orderBy', 'runningStaleAfterMs', 'status'])
+    expect(Object.keys(qualityProperties)).to.include('details')
   })
 
   it('adds client-facing descriptions to important tool arguments', () => {
@@ -87,6 +89,36 @@ describe('mcp server', () => {
       expect(firstContent?.type).to.equal('text')
       expect(status.projectId).to.equal('demo')
       expect(status.summary.quality.issues).to.equal(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('can include raw quality details from the quality tool', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeQualityArtifacts(root, 'demo')
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'quality-details-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            details: true,
+            projectId: 'demo',
+          },
+          name: 'video_agent_quality',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const report = JSON.parse(content[0]?.text ?? '{}') as {qualityReport?: {summary: {errors: number}}; renderOutput?: {renderer: string}}
+
+      expect(report.qualityReport?.summary.errors).to.equal(1)
+      expect(report.renderOutput?.renderer).to.equal('ffmpeg')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -677,6 +709,29 @@ async function createProject(root: string, projectId: string): Promise<void> {
     projectId,
     stages: ['ingest', 'quality'],
   })
+}
+
+async function writeQualityArtifacts(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+  await writeFile(
+    join(artifactsDir, 'quality-report.json'),
+    `${JSON.stringify({
+      issues: [{code: 'timeline.invalid', message: 'bad timeline', severity: 'error'}],
+      summary: {
+        errors: 1,
+        warnings: 0,
+      },
+      version: 1,
+    })}\n`,
+  )
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      renderer: 'ffmpeg',
+      version: 1,
+    })}\n`,
+  )
 }
 
 async function createRerunProject(root: string, projectId: string): Promise<string> {

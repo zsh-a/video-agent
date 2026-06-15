@@ -12,6 +12,7 @@ import {
   readProjectArtifact,
   readProjectEvents,
   readProjectQuality,
+  readProjectQualityDetails,
   readProjectStatus,
   readProjectVisualSamples,
   readProviderEnvironment,
@@ -93,7 +94,10 @@ const TOOL_DEFINITIONS: McpTool[] = [
     projectId: stringSchema('Optional project id to focus. Defaults to the most recently updated project when one exists.'),
   }),
   createTool('video_agent_status', 'Read job state, artifact list, provider summary, and quality summary for a project.', {projectId: projectIdSchema()}),
-  createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {projectId: projectIdSchema()}),
+  createTool('video_agent_quality', 'Read project quality, render diagnostics, and artifact integrity summary.', {
+    details: booleanSchema('When true, include raw quality-report.json and render-output.json content when present.'),
+    projectId: projectIdSchema(),
+  }),
   createTool('video_agent_visual_samples', 'Read rendered visual frame sample metadata, optionally including base64 image content.', {
     includeContent: booleanSchema('When true, include base64 JPEG content for each available frame sample. Defaults to metadata only.'),
     projectId: projectIdSchema(),
@@ -311,7 +315,9 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     }
 
     case 'video_agent_quality': {
-      return readProjectQuality(readRequiredString(args, 'projectId'), workspaceDir)
+      const projectId = readRequiredString(args, 'projectId')
+
+      return readOptionalBoolean(args, 'details') === true ? readProjectQualityDetails(projectId, workspaceDir) : readProjectQuality(projectId, workspaceDir)
     }
 
     case 'video_agent_render': {
