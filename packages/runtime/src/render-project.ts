@@ -18,9 +18,10 @@ import {
 import {narrationToSrt, renderTimelineWithFfmpeg} from '@video-agent/renderer-ffmpeg'
 import {checkHyperframesTemplateProject, renderHyperframesProject, validateHyperframesProject, writeHyperframesProject} from '@video-agent/renderer-hyperframes'
 import {createHash} from 'node:crypto'
-import {access, readFile, stat, writeFile} from 'node:fs/promises'
+import {stat} from 'node:fs/promises'
 import {isAbsolute, resolve} from 'node:path'
 
+import {bunFile, bunWrite} from './bun-runtime.js'
 import {createProjectWorkspace} from './workspace.js'
 
 export type ProjectRenderer = 'ffmpeg' | 'hyperframes'
@@ -217,7 +218,7 @@ async function captureVisualFrameSamples(outputPath: string, rendersDir: string,
 async function captureVisualFrameSample(outputPath: string, target: VisualFrameSampleTarget): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>> {
   try {
     await extractVideoFrame(outputPath, target.path, target.timestamp)
-    const [content, info] = await Promise.all([readFile(target.path), stat(target.path)])
+    const [content, info] = await Promise.all([bunFile(target.path).bytes(), stat(target.path)])
 
     return {
       capturedAt: new Date().toISOString(),
@@ -346,7 +347,7 @@ async function writeSubtitlesIfAvailable(workspace: Awaited<ReturnType<typeof cr
 
   const subtitlePath = resolve(workspace.rendersDir, 'subtitles.srt')
 
-  await writeFile(subtitlePath, narrationToSrt(narration))
+  await bunWrite(subtitlePath, narrationToSrt(narration))
 
   return subtitlePath
 }
@@ -354,7 +355,7 @@ async function writeSubtitlesIfAvailable(workspace: Awaited<ReturnType<typeof cr
 async function inspectSubtitleFile(subtitlePath: string, workspace: Awaited<ReturnType<typeof createProjectWorkspace>>, maxEnd: number): Promise<SubtitleQualityResult> {
   const narration = await readNarrationIfAvailable(workspace)
 
-  return checkSrtSubtitles(await readFile(subtitlePath, 'utf8'), {
+  return checkSrtSubtitles(await bunFile(subtitlePath).text(), {
     expectedCues: narration?.segments.length,
     maxEnd,
   })
@@ -678,14 +679,5 @@ function resolveTtsPath(path: string, workspace: Awaited<ReturnType<typeof creat
 }
 
 async function findExistingPath(path: string): Promise<string | undefined> {
-  try {
-    await access(path)
-    return path
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return undefined
-    }
-
-    throw error
-  }
+  return await bunFile(path).exists() ? path : undefined
 }

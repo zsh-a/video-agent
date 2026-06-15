@@ -2,12 +2,10 @@ import {Args, Command, Flags} from '@oclif/core'
 import {listProjectArtifacts, readProjectArtifact, verifyProjectArtifacts} from '@video-agent/runtime'
 
 export default class Artifacts extends Command {
-  /* eslint-disable perfectionist/sort-objects */
   static args = {
     project: Args.string({description: 'Project id to inspect', required: true}),
     artifact: Args.string({description: 'Artifact filename to read'}),
   }
-  /* eslint-enable perfectionist/sort-objects */
   static description = 'List or read project artifacts'
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),

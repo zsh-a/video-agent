@@ -1,5 +1,7 @@
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'
+
+import {bunFile, bunWrite} from './bun-runtime.js'
 
 export type JobRunStatus = 'completed' | 'failed' | 'running'
 export type JobStageStatus = 'completed' | 'failed' | 'pending' | 'running'
@@ -74,7 +76,7 @@ export class JsonJobStore implements JobStore {
   }
 
   async read(): Promise<JobState> {
-    return JSON.parse(await readFile(this.path, 'utf8')) as JobState
+    return bunFile(this.path).json<JobState>()
   }
 
   async updateStage(name: string, status: JobStageStatus, message?: string, attempt?: number): Promise<JobState> {
@@ -107,19 +109,15 @@ export class JsonJobStore implements JobStore {
   }
 
   private async readOptional(): Promise<JobState | undefined> {
-    try {
-      return await this.read()
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-        return undefined
-      }
-
-      throw error
+    if (!await bunFile(this.path).exists()) {
+      return undefined
     }
+
+    return this.read()
   }
 
   private async write(state: JobState): Promise<void> {
     await mkdir(dirname(this.path), {recursive: true})
-    await writeFile(this.path, `${JSON.stringify(state, null, 2)}\n`)
+    await bunWrite(this.path, `${JSON.stringify(state, null, 2)}\n`)
   }
 }

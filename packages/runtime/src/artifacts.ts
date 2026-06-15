@@ -3,12 +3,13 @@ import type {ZodType} from 'zod'
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
-import {readdir, readFile, stat} from 'node:fs/promises'
+import {readdir, stat} from 'node:fs/promises'
 import {extname, resolve} from 'node:path'
 
 import type {ArtifactManifest} from './artifact-store.js'
 
 import {ARTIFACT_MANIFEST_NAME} from './artifact-store.js'
+import {bunFile} from './bun-runtime.js'
 
 export interface ProjectArtifact {
   kind: 'json' | 'log' | 'other'
@@ -125,7 +126,7 @@ export async function readProjectArtifact(projectId: string, artifactName: strin
     size: metadata.size,
     updatedAt: metadata.mtime.toISOString(),
   }
-  const text = await readFile(path, 'utf8')
+  const text = await bunFile(path).text()
   const content = artifact.kind === 'json' ? JSON.parse(text) : text
 
   return {
@@ -173,7 +174,7 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     const path = resolve(artifactsDir, artifact.name)
 
     try {
-      const [content, metadata] = await Promise.all([readFile(path), stat(path)])
+      const [content, metadata] = await Promise.all([bunFile(path).bytes(), stat(path)])
       const sha256 = createHash('sha256').update(content).digest('hex')
       const schemaIssue = validateKnownArtifactSchema(artifact.name, content)
 
@@ -251,7 +252,7 @@ function summarizeArtifactIntegrity(result: {
 
 async function readArtifactManifest(artifactsDir: string): Promise<ArtifactManifest | undefined> {
   try {
-    return JSON.parse(await readFile(resolve(artifactsDir, ARTIFACT_MANIFEST_NAME), 'utf8')) as ArtifactManifest
+    return JSON.parse(await bunFile(resolve(artifactsDir, ARTIFACT_MANIFEST_NAME)).text()) as ArtifactManifest
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return undefined
@@ -273,7 +274,7 @@ function inferArtifactKind(name: string): ProjectArtifact['kind'] {
   return 'other'
 }
 
-function validateKnownArtifactSchema(name: string, content: Buffer): ArtifactSchemaInvalidIssue | undefined {
+function validateKnownArtifactSchema(name: string, content: Uint8Array): ArtifactSchemaInvalidIssue | undefined {
   const schema = ARTIFACT_SCHEMAS[name]
 
   if (schema === undefined) {
@@ -283,7 +284,7 @@ function validateKnownArtifactSchema(name: string, content: Buffer): ArtifactSch
   let value: unknown
 
   try {
-    value = JSON.parse(content.toString('utf8'))
+    value = JSON.parse(new TextDecoder().decode(content))
   } catch (error) {
     return {
       issues: [{

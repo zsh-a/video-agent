@@ -1,8 +1,10 @@
 import type {LLMClientConfig, LLMProviderName} from '@video-agent/llm'
 
 import {getProviderProfile, type ProviderProfileName, type ProviderSettings} from '@video-agent/providers'
-import {mkdir, readFile, writeFile} from 'node:fs/promises'
+import {mkdir} from 'node:fs/promises'
 import {dirname, resolve} from 'node:path'
+
+import {bunFile, bunWrite} from './bun-runtime.js'
 
 export type {LLMClientConfig, LLMProviderName} from '@video-agent/llm'
 export type {ProviderSettings} from '@video-agent/providers'
@@ -82,15 +84,13 @@ export function resolveConfigPath(workspaceDir = '.video-agent'): string {
 }
 
 export async function readConfig(workspaceDir = '.video-agent'): Promise<AgentConfig> {
-  try {
-    return normalizeConfig(JSON.parse(await readFile(resolveConfigPath(workspaceDir), 'utf8')) as StoredAgentConfig)
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return DEFAULT_AGENT_CONFIG
-    }
+  const path = resolveConfigPath(workspaceDir)
 
-    throw error
+  if (!await bunFile(path).exists()) {
+    return DEFAULT_AGENT_CONFIG
   }
+
+  return normalizeConfig(await bunFile(path).json<StoredAgentConfig>())
 }
 
 export async function writeConfig(workspaceDir: string, update: ConfigUpdate): Promise<{config: AgentConfig; path: string}> {
@@ -131,21 +131,19 @@ export async function writeConfig(workspaceDir: string, update: ConfigUpdate): P
   const config = normalizeConfig(stored)
 
   await mkdir(dirname(path), {recursive: true})
-  await writeFile(path, `${JSON.stringify(stored, null, 2)}\n`)
+  await bunWrite(path, `${JSON.stringify(stored, null, 2)}\n`)
 
   return {config, path}
 }
 
 async function readStoredConfig(workspaceDir: string): Promise<StoredAgentConfig> {
-  try {
-    return JSON.parse(await readFile(resolveConfigPath(workspaceDir), 'utf8')) as StoredAgentConfig
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return {version: 1}
-    }
+  const path = resolveConfigPath(workspaceDir)
 
-    throw error
+  if (!await bunFile(path).exists()) {
+    return {version: 1}
   }
+
+  return bunFile(path).json<StoredAgentConfig>()
 }
 
 function normalizeConfig(config: StoredAgentConfig): AgentConfig {

@@ -1,8 +1,9 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {probeMedia} from '@video-agent/media'
 import {createProjectWorkspace} from '@video-agent/runtime'
-import {access} from 'node:fs/promises'
 import {resolve} from 'node:path'
+
+import {bunFile} from '../bun-runtime.js'
 
 export default class Inspect extends Command {
   static args = {
@@ -19,7 +20,7 @@ export default class Inspect extends Command {
     const {args, flags} = await this.parse(Inspect)
     const inputPath = resolve(args.input)
 
-    await access(inputPath)
+    await assertInputExists(inputPath)
 
     const workspace = await createProjectWorkspace({
       inputPath,
@@ -49,4 +50,12 @@ export default class Inspect extends Command {
     this.log(`Duration: ${mediaInfo.duration ?? 'unknown'}s`)
     this.log(`Streams: ${mediaInfo.streams.length}`)
   }
+}
+
+async function assertInputExists(path: string): Promise<void> {
+  if (await bunFile(path).exists()) {
+    return
+  }
+
+  throw Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), {code: 'ENOENT'})
 }

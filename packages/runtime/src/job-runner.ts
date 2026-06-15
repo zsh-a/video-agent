@@ -10,11 +10,12 @@ import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
-import {access, appendFile, mkdir} from 'node:fs/promises'
+import {appendFile, mkdir} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
 import {refreshArtifactManifest} from './artifact-store.js'
 import {verifyProjectArtifacts} from './artifacts.js'
+import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {readRuntimeEnv} from './env.js'
 import {createConfiguredJobStore} from './job-store.js'
@@ -146,7 +147,7 @@ export class PipelineCheckpointError extends Error {
 export async function runInitialPipeline(options: RunInitialPipelineOptions): Promise<RunInitialPipelineResult> {
   const inputPath = resolve(options.inputPath)
 
-  await access(inputPath)
+  await assertBunFileExists(inputPath)
 
   const workspace = await createProjectWorkspace({
     inputPath,
@@ -754,16 +755,9 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
   const missing = (
     await Promise.all(
       requiredArtifacts.map(async (artifact) => {
-        try {
-          await access(workspace.store.resolve(artifact))
-          return null
-        } catch (error) {
-          if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-            return artifact
-          }
+        const exists = await bunFile(workspace.store.resolve(artifact)).exists()
 
-          throw error
-        }
+        return exists ? null : artifact
       }),
     )
   ).filter((artifact): artifact is string => artifact !== null)
@@ -784,6 +778,14 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
       untrackedArtifacts,
     })
   }
+}
+
+async function assertBunFileExists(path: string): Promise<void> {
+  if (await bunFile(path).exists()) {
+    return
+  }
+
+  throw Object.assign(new Error(`ENOENT: no such file or directory, access '${path}'`), {code: 'ENOENT'})
 }
 
 async function appendEvent(path: string, event: PipelineEvent): Promise<void> {

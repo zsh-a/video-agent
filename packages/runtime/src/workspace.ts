@@ -1,7 +1,8 @@
-import {mkdir, writeFile} from 'node:fs/promises'
+import {mkdir} from 'node:fs/promises'
 import {basename, extname, resolve} from 'node:path'
 
 import {FilesystemArtifactStore} from './artifact-store.js'
+import {bunFile, bunWrite} from './bun-runtime.js'
 import {writeConfig} from './config.js'
 
 export interface ProjectWorkspace {
@@ -64,15 +65,13 @@ export async function initializeWorkspace(workspaceDir = DEFAULT_WORKSPACE_DIR):
 }
 
 async function writeWorkspaceReadme(workspaceDir: string): Promise<void> {
-  try {
-    await writeFile(resolve(workspaceDir, 'README.md'), 'This directory stores video-agent project artifacts.\n', {flag: 'wx'})
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
-      return
-    }
+  const readmePath = resolve(workspaceDir, 'README.md')
 
-    throw error
+  if (await bunFile(readmePath).exists()) {
+    return
   }
+
+  await bunWrite(readmePath, 'This directory stores video-agent project artifacts.\n')
 }
 
 export function createProjectId(inputPath?: string, now = new Date()): string {

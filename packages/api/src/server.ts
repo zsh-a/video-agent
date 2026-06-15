@@ -1,4 +1,3 @@
-/* eslint-disable max-lines, n/no-unsupported-features/node-builtins */
 import {
   checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
@@ -182,7 +181,6 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
 }
 
 // Route dispatch is intentionally centralized so the API handler remains dependency-light.
-// eslint-disable-next-line complexity
 async function routeProjectRequest(request: Request, segments: string[], url: URL, workspaceDir: string): Promise<Response> {
   const [projectId, resource, artifactName] = segments
 

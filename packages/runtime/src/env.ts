@@ -1,15 +1,8 @@
 import {resolve} from 'node:path'
 
-interface BunFile {
-  text(): Promise<string>
-}
+import {bunEnv, bunFile} from './bun-runtime.js'
 
-interface BunRuntime {
-  env: Record<string, string | undefined>
-  file(path: string): BunFile
-}
-
-export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<string, string | undefined> = getBunEnv()): Promise<Record<string, string | undefined>> {
+export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<string, string | undefined> = bunEnv()): Promise<Record<string, string | undefined>> {
   const workspaceEnvPath = resolve(workspaceDir, '.env')
   const dotenv = await readDotEnvFile(workspaceEnvPath)
 
@@ -21,7 +14,7 @@ export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<
 
 async function readDotEnvFile(path: string): Promise<Record<string, string>> {
   try {
-    return parseDotEnv(await getBunRuntime().file(path).text(), path)
+    return parseDotEnv(await bunFile(path).text(), path)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return {}
@@ -104,18 +97,4 @@ function stripInlineComment(value: string): string {
   const commentIndex = value.search(/\s+#/)
 
   return commentIndex === -1 ? value : value.slice(0, commentIndex)
-}
-
-function getBunEnv(): Record<string, string | undefined> {
-  return getBunRuntime().env
-}
-
-function getBunRuntime(): BunRuntime {
-  const bun = (globalThis as typeof globalThis & {Bun?: BunRuntime}).Bun
-
-  if (bun === undefined) {
-    throw new Error('readRuntimeEnv requires Bun runtime.')
-  }
-
-  return bun
 }

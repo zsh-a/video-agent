@@ -1,10 +1,11 @@
 import type {JobState} from '@video-agent/db'
 
-import {readdir, readFile} from 'node:fs/promises'
+import {readdir} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
 import type {ProviderCallRecord, ProviderCallRole} from './provider-calls.js'
 
+import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {createConfiguredJobStore} from './job-store.js'
 
@@ -179,7 +180,7 @@ async function readJsonLines<T>(path: string): Promise<T[]> {
   let text: string
 
   try {
-    text = await readFile(path, 'utf8')
+    text = await bunFile(path).text()
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return []
@@ -199,7 +200,7 @@ async function readQualitySummary(path: string): Promise<QualitySummary> {
   let report: QualityReportLike
 
   try {
-    report = JSON.parse(await readFile(path, 'utf8')) as QualityReportLike
+    report = JSON.parse(await bunFile(path).text()) as QualityReportLike
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return createEmptyQualitySummary()
@@ -243,7 +244,7 @@ async function readRenderSummary(path: string): Promise<RenderSummary> {
 
 async function readOptionalRenderOutput(path: string): Promise<RenderOutputLike | undefined> {
   try {
-    return JSON.parse(await readFile(path, 'utf8')) as RenderOutputLike
+    return JSON.parse(await bunFile(path).text()) as RenderOutputLike
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return undefined

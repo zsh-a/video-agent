@@ -1,8 +1,9 @@
 import {runProcess} from '@video-agent/media'
 import {getProviderDescriptor, PROVIDER_ROLES, providerEnvName, type ProviderRole} from '@video-agent/providers'
-import {mkdir, unlink, writeFile} from 'node:fs/promises'
+import {mkdir, unlink} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
+import {bunEnv, bunRuntime, bunWrite} from './bun-runtime.js'
 import {type AgentConfig, readConfig, resolveConfigPath} from './config.js'
 import {readRuntimeEnv} from './env.js'
 import {listProjects} from './projects.js'
@@ -121,7 +122,7 @@ function checkProviderRole(role: ProviderRole, config: AgentConfig, env: Record<
   return checkUnsupportedConfiguredProvider(role, provider)
 }
 
-function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> = getBunEnv()): HealthCheck {
+function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> = bunEnv()): HealthCheck {
   if (config.llm === undefined) {
     return {
       details: {provider: 'llm'},
@@ -159,7 +160,7 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
   }
 }
 
-function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = getBunEnv()): HealthCheck {
+function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = bunEnv()): HealthCheck {
   const envName = providerEnvName(role, 'COMMAND')
   const value = env[envName]
 
@@ -210,7 +211,7 @@ function checkUnsupportedConfiguredProvider(role: ProviderRole, provider: string
 }
 
 function checkBunRuntime(): HealthCheck {
-  const bun = (globalThis as typeof globalThis & {Bun?: {version?: string}}).Bun
+  const bun = bunRuntime()
 
   if (bun?.version !== undefined) {
     return {
@@ -228,22 +229,12 @@ function checkBunRuntime(): HealthCheck {
   }
 }
 
-function getBunEnv(): Record<string, string | undefined> {
-  const bun = (globalThis as typeof globalThis & {Bun?: {env: Record<string, string | undefined>}}).Bun
-
-  if (bun === undefined) {
-    throw new Error('Runtime health checks require Bun runtime.')
-  }
-
-  return bun.env
-}
-
 async function checkWorkspaceAccess(workspaceDir: string): Promise<HealthCheck> {
   const checkPath = resolve(workspaceDir, '.doctor-write-check')
 
   try {
     await mkdir(workspaceDir, {recursive: true})
-    await writeFile(checkPath, 'ok\n')
+    await bunWrite(checkPath, 'ok\n')
     await unlink(checkPath)
 
     return {

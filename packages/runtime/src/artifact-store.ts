@@ -1,6 +1,8 @@
 import {createHash} from 'node:crypto'
-import {mkdir, readdir, readFile, stat, writeFile} from 'node:fs/promises'
+import {mkdir, readdir, stat} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
+
+import {bunFile, bunWrite} from './bun-runtime.js'
 
 export const ARTIFACT_MANIFEST_NAME = 'artifact-manifest.json'
 
@@ -28,7 +30,7 @@ export class FilesystemArtifactStore implements ArtifactStore {
   constructor(private readonly rootDir: string) {}
 
   async readJson<T>(path: string): Promise<T> {
-    return JSON.parse(await readFile(this.resolve(path), 'utf8')) as T
+    return bunFile(this.resolve(path)).json<T>()
   }
 
   resolve(path: string): string {
@@ -38,7 +40,7 @@ export class FilesystemArtifactStore implements ArtifactStore {
   async writeJson(path: string, value: unknown): Promise<string> {
     const resolved = this.resolve(path)
     await mkdir(dirname(resolved), {recursive: true})
-    await writeFile(resolved, `${JSON.stringify(value, null, 2)}\n`)
+    await bunWrite(resolved, `${JSON.stringify(value, null, 2)}\n`)
     await refreshArtifactManifest(this.rootDir)
     return resolved
   }
@@ -53,7 +55,7 @@ export async function refreshArtifactManifest(artifactsDir: string): Promise<Art
       .filter((entry) => entry.isFile() && entry.name !== ARTIFACT_MANIFEST_NAME)
       .map(async (entry) => {
         const path = join(artifactsDir, entry.name)
-        const [content, metadata] = await Promise.all([readFile(path), stat(path)])
+        const [content, metadata] = await Promise.all([bunFile(path).bytes(), stat(path)])
 
         return {
           kind: inferArtifactKind(entry.name),
@@ -70,7 +72,7 @@ export async function refreshArtifactManifest(artifactsDir: string): Promise<Art
     version: 1,
   }
 
-  await writeFile(join(artifactsDir, ARTIFACT_MANIFEST_NAME), `${JSON.stringify(manifest, null, 2)}\n`)
+  await bunWrite(join(artifactsDir, ARTIFACT_MANIFEST_NAME), `${JSON.stringify(manifest, null, 2)}\n`)
 
   return manifest
 }

@@ -2,6 +2,7 @@ import {createLLMClientFromConfig, type LLMClient, type LLMClientConfig} from '@
 
 import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMProvider} from './contracts.js'
 
+import {bunEnv} from './bun-runtime.js'
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
 import {providerEnvName, type ProviderRole} from './descriptors.js'
 import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MimoASRProvider} from './llm-media.js'
@@ -138,7 +139,7 @@ function mergeProviderRegistryOptions(config: ProviderConfig, options: ProviderR
     ...options,
     env: {
       ...config.providerEnv,
-      ...(options.env ?? getBunEnv()),
+      ...(options.env ?? bunEnv()),
     },
     llmConfig: config.llm,
   }
@@ -149,7 +150,7 @@ function createMimoAsrClient(options: ProviderRegistryOptions): LLMClient | unde
     return undefined
   }
 
-  const env = options.env ?? getBunEnv()
+  const env = options.env ?? bunEnv()
   const client = createLLMClientFromConfig({
     ...options.llmConfig,
     baseURL: MIMO_ASR_BASE_URL,
@@ -174,7 +175,7 @@ function resolveLLMClient(role: ProviderRole, options: ProviderRegistryOptions):
   return options.llmClient
 }
 
-function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = getBunEnv()): string[] {
+function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = bunEnv()): string[] {
   const name = providerEnvName(role, 'COMMAND')
   const value = env[name]
 
@@ -197,14 +198,4 @@ function resolveCommand(role: ProviderRole, env: Record<string, string | undefin
   }
 
   return parsed
-}
-
-function getBunEnv(): Record<string, string | undefined> {
-  const bun = (globalThis as typeof globalThis & {Bun?: {env: Record<string, string | undefined>}}).Bun
-
-  if (bun === undefined) {
-    throw new Error('Provider registry requires Bun runtime.')
-  }
-
-  return bun.env
 }

@@ -1,19 +1,4 @@
-/* eslint-disable n/no-unsupported-features/node-builtins */
-
-type BunProcess = {
-  exited: Promise<number>
-  stderr: {text(): Promise<string>}
-  stdout: {text(): Promise<string>}
-}
-
-interface BunRuntime {
-  env: Record<string, string | undefined>
-  spawn(command: string[], options?: {
-    cwd?: string
-    env?: Record<string, string>
-    stdio?: ['ignore' | Blob, 'pipe', 'pipe']
-  }): BunProcess
-}
+import {bunRuntime} from './bun-runtime.js'
 
 export interface ProcessResult {
   code: number
@@ -28,11 +13,7 @@ export interface RunProcessOptions {
 }
 
 export async function runProcess(command: string[], options: RunProcessOptions = {}): Promise<ProcessResult> {
-  const bun = getBunRuntime()
-
-  if (bun === undefined) {
-    throw new Error('runProcess requires Bun runtime.')
-  }
+  const bun = bunRuntime()
 
   const proc = bun.spawn(command, {
     cwd: options.cwd,
@@ -42,10 +23,6 @@ export async function runProcess(command: string[], options: RunProcessOptions =
 
   const [code, stdout, stderr] = await Promise.all([proc.exited, proc.stdout.text(), proc.stderr.text()])
   return {code, stderr, stdout}
-}
-
-function getBunRuntime(): BunRuntime | undefined {
-  return (globalThis as typeof globalThis & {Bun?: BunRuntime}).Bun
 }
 
 function createBunStdin(stdin: string | undefined): 'ignore' | Blob {

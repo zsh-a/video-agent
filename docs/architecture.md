@@ -14,7 +14,7 @@ Not in scope: implementing video encoding, audio mixing, ASR, or VLM inference i
 
 ## Runtime Strategy
 
-The runtime is Bun for local CLI, worker, workspace IO, SQLite, subprocess orchestration, API, and adapter contexts. Packages may still use stable Node-compatible standard library imports where Bun supports them, but project behavior and tests target Bun only.
+The runtime is Bun for local CLI, worker, workspace IO, SQLite, subprocess orchestration, API, and adapter contexts. Packages use Bun APIs for runtime file IO, environment access, subprocess orchestration, and server startup; project behavior and tests target Bun only.
 
 ```text
 Development: Bun

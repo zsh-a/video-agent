@@ -1,9 +1,10 @@
 import type {PipelineEvent} from '@video-agent/core'
 
-import {readFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
 import type {ProviderCallRecord, ProviderCallRole, ProviderCallStatus} from './provider-calls.js'
+
+import {bunFile} from './bun-runtime.js'
 
 export type ProjectEventKind = 'pipeline' | 'provider'
 export type ProjectPipelineEventType = PipelineEvent['type']
@@ -69,7 +70,7 @@ async function readJsonLines<T>(path: string): Promise<T[]> {
   let text: string
 
   try {
-    text = await readFile(path, 'utf8')
+    text = await bunFile(path).text()
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return []

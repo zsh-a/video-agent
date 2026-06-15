@@ -1,10 +1,10 @@
 import type {LLMClient} from '@video-agent/llm'
 
-import {readFile} from 'node:fs/promises'
 import {extname} from 'node:path'
 
 import type {ASRProvider, MediaInput, SceneFrameBatch, Transcript, TTSProvider, TTSSegment, VLMProvider, VLMScene} from './contracts.js'
 
+import {bunFile} from './bun-runtime.js'
 import {attachProviderMetadata} from './metadata.js'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from './schemas.js'
 
@@ -44,7 +44,7 @@ export class MimoASRProvider implements ASRProvider {
   constructor(private readonly llm: LLMClient) {}
 
   async transcribe(input: MediaInput): Promise<Transcript> {
-    const audio = await readFile(input.path)
+    const audio = await bunFile(input.path).bytes()
     const result = await this.llm.generateText({
       messages: [
         {

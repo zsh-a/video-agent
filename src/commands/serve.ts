@@ -1,17 +1,7 @@
-/* eslint-disable n/no-unsupported-features/node-builtins */
-
 import {Command, Flags} from '@oclif/core'
 import {createApiFetchHandler} from '@video-agent/api'
 
-interface BunServer {
-  hostname: string
-  port: number
-  url: URL
-}
-
-interface BunRuntime {
-  serve(options: {fetch(request: Request): Promise<Response> | Response; hostname: string; port: number}): BunServer
-}
+import {bunServe} from '../bun-runtime.js'
 
 export default class Serve extends Command {
   static description = 'Start a Bun HTTP API server for video-agent runtime state'
@@ -24,13 +14,7 @@ export default class Serve extends Command {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Serve)
-    const bun = getBunRuntime()
-
-    if (bun === undefined) {
-      throw new Error('The API server requires Bun runtime. Use `bun run dev serve`.')
-    }
-
-    const server = bun.serve({
+    const server = bunServe({
       fetch: createApiFetchHandler({workspaceDir: flags.workspace}),
       hostname: flags.host,
       port: flags.port,
@@ -50,8 +34,4 @@ export default class Serve extends Command {
     this.log(`API: ${output.url}`)
     this.log(`Workspace: ${output.workspaceDir}`)
   }
-}
-
-function getBunRuntime(): BunRuntime | undefined {
-  return (globalThis as typeof globalThis & {Bun?: BunRuntime}).Bun
 }

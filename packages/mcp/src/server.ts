@@ -227,7 +227,6 @@ async function handleRequest(request: JsonRpcRequest, options: McpServerOptions)
 }
 
 // MCP tool dispatch stays centralized so tool behavior is easy to audit.
-// eslint-disable-next-line complexity
 async function callTool(params: ToolCallParams, options: McpServerOptions): Promise<unknown> {
   const args = params.arguments
   const workspaceDir = readOptionalString(args, 'workspaceDir') ?? options.workspaceDir

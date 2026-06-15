@@ -1,10 +1,10 @@
-import {readFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
 import type {ArtifactIntegrityResult} from './artifacts.js'
 import type {ProjectStatus, QualitySummary, RenderSummary} from './project-status.js'
 
 import {verifyProjectArtifacts} from './artifacts.js'
+import {bunFile} from './bun-runtime.js'
 import {readProjectStatus} from './project-status.js'
 
 export interface ProjectQualityReport {
@@ -77,7 +77,7 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
 async function readOptionalJson<T extends string>(path: string, key: T): Promise<Record<string, never> | Record<T, unknown>> {
   try {
     return {
-      [key]: JSON.parse(await readFile(path, 'utf8')) as unknown,
+      [key]: JSON.parse(await bunFile(path).text()) as unknown,
     } as Record<T, unknown>
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
