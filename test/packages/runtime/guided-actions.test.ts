@@ -58,7 +58,7 @@ describe('guided actions', () => {
         label: 'Export clean HyperFrames',
       })
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace ${root}`)
-      expect(result.actions.map((action) => action.command)).to.include(`bun run dev quality 'demo project' --details --json --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action quality --quality-details --json --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev artifacts 'demo project' --verify --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action visual --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action audio --workspace ${root}`)

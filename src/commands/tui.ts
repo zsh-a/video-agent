@@ -1,13 +1,16 @@
 import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
+import {formatQualityRenderSummary} from './quality.js'
 
-export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'render' | 'rerun' | 'select' | 'visual' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'visual' | 'worker'
+
+type TuiQualityReport = ProjectQualityReport & {qualityReport?: unknown; renderOutput?: unknown}
 
 export interface TuiSnapshot {
   artifactIntegrity?: ArtifactIntegrityResult
@@ -29,7 +32,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'export', 'provider-test', 'render', 'rerun', 'select', 'visual', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -52,6 +55,7 @@ export default class Tui extends Command {
     'order-by': Flags.string({description: 'Recovery candidate ordering when --action worker is used', options: ['attempt', 'oldest', 'recent']}),
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
     'provider-role': Flags.string({default: 'all', description: 'Provider role to test when --action provider-test is used', options: ['all', 'asr', 'tts', 'vlm']}),
+    'quality-details': Flags.boolean({description: 'Include raw quality-report.json and render-output.json content when --action quality is used'}),
     'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval when --watch is enabled'}),
     'render-audio': Flags.boolean({allowNo: true, default: true, description: 'Mix available source audio and TTS voiceover segments when --action render is used'}),
     'render-audio-ducking': Flags.boolean({description: 'Use voiceover sidechain compression to duck source audio when --action render is used'}),
@@ -117,6 +121,7 @@ export default class Tui extends Command {
       orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
       projectId: flags.project,
       providerRole: flags['provider-role'],
+      qualityDetails: flags['quality-details'],
       renderAudio: flags['render-audio'],
       renderAudioDucking: flags['render-audio-ducking'],
       renderDuckingAttackMs: flags['render-ducking-attack-ms'],
@@ -210,6 +215,7 @@ export interface RunTuiActionOptions {
   orderBy?: RecoveryOrderBy
   projectId?: string
   providerRole: string
+  qualityDetails?: boolean
   renderAudio?: boolean
   renderAudioDucking?: boolean
   renderDuckingAttackMs?: number
@@ -245,6 +251,7 @@ export type TuiActionResult =
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
   | {report: ProjectVisualSamplesReport; type: 'visual'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
+  | {report: TuiQualityReport; type: 'quality'}
   | {result: ExportProjectResult; type: 'export'}
   | {result: RenderProjectResult; type: 'render'}
   | {type: 'dashboard'}
@@ -335,6 +342,15 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         workspaceDir: options.workspaceDir,
       }),
       type: 'provider-test',
+    }
+  }
+
+  if (options.action === 'quality') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      report: options.qualityDetails === true ? await readProjectQualityDetails(projectId, options.workspaceDir) : await readProjectQuality(projectId, options.workspaceDir),
+      type: 'quality',
     }
   }
 
@@ -547,6 +563,18 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       ...result.diagnostics.warnings.map((warning) => `  warning: ${warning}`),
       ...result.diagnostics.missingVoiceovers.map((voiceover) => `  missing: ${voiceover.narrationId ?? `index ${voiceover.index}`} (${voiceover.reason})`),
       ...result.diagnostics.plan.segments.map((voiceover) => `  voiceover: ${voiceover.narrationId ?? `index ${voiceover.index}`}\t${voiceover.status}\tstart=${voiceover.start}`),
+    ].join('\n')
+  }
+
+  if (result.type === 'quality') {
+    return [
+      `Action: quality ${result.report.projectId} -> ${result.report.ok ? 'ok' : 'needs attention'}`,
+      `Errors: ${result.report.summary.errors}`,
+      `Warnings: ${result.report.summary.warnings}`,
+      `Pipeline: ${result.report.pipeline.errors} errors, ${result.report.pipeline.warnings} warnings`,
+      `Render: ${formatQualityRenderSummary(result.report.render)}`,
+      `Artifacts: ${result.report.artifacts.ok ? 'ok' : 'not ok'} (${result.report.artifacts.summary.changed} changed, ${result.report.artifacts.summary.missing} missing, ${result.report.artifacts.summary.schemaInvalid} schema invalid, ${result.report.artifacts.summary.untracked} untracked)`,
+      `Details: ${result.report.qualityReport === undefined && result.report.renderOutput === undefined ? 'not included' : 'included'}`,
     ].join('\n')
   }
 

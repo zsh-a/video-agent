@@ -5,6 +5,8 @@ import {join} from 'node:path'
 
 import type {ProjectQualityReport} from '../../packages/runtime/src/project-quality.js'
 
+import {JsonJobStore} from '../../packages/db/src/job-store.js'
+import {refreshArtifactManifest} from '../../packages/runtime/src/artifact-store.js'
 import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection, runTuiAction} from '../../src/commands/tui.js'
 
 describe('tui command', () => {
@@ -194,6 +196,21 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats quality action results', () => {
+    expect(formatTuiActionResult({
+      report: createProjectQualityReport(),
+      type: 'quality',
+    })).to.equal([
+      'Action: quality demo -> needs attention',
+      'Errors: 36',
+      'Warnings: 48',
+      'Pipeline: 2 errors, 3 warnings',
+      'Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
+      'Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
+      'Details: not included',
+    ].join('\n'))
+  })
+
   it('formats visual action results', () => {
     expect(formatTuiActionResult({
       report: {
@@ -248,6 +265,39 @@ describe('tui command', () => {
 
       expect(result.type).to.equal('audio')
       expect(result.type === 'audio' && result.diagnostics.warnings).to.deep.equal(['Audio mixing disabled by render options.'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs quality action against a project workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-quality-'))
+
+    try {
+      await createQualityProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'quality',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        qualityDetails: true,
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('quality')
+      expect(result.type === 'quality' && result.report).to.include({
+        ok: true,
+        projectId: 'demo',
+      })
+      expect(result.type === 'quality' && result.report.qualityReport).to.be.an('object')
+      expect(result.type === 'quality' && result.report.renderOutput).to.be.an('object')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -679,7 +729,7 @@ describe('tui command', () => {
       description: 'Verify artifact manifest hashes and known IR/provider schemas.',
     })
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
-    expect(commands.map((item) => item.command)).to.include("vagent quality 'demo project' --details --json --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action quality --quality-details --json --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent artifacts 'demo project' --verify --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action visual --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")
@@ -833,6 +883,38 @@ async function createRenderableProject(root: string, projectId: string): Promise
       })}\n`,
     ),
   ])
+}
+
+async function createQualityProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+
+  await mkdir(artifactsDir, {recursive: true})
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath: '/tmp/input.mp4',
+    projectId,
+    stages: ['ingest', 'quality'],
+  })
+  await writeFile(
+    join(artifactsDir, 'quality-report.json'),
+    `${JSON.stringify({
+      issues: [],
+      summary: {
+        errors: 0,
+        warnings: 0,
+      },
+      version: 1,
+    })}\n`,
+  )
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      audioInputs: 0,
+      renderer: 'ffmpeg',
+      version: 1,
+    })}\n`,
+  )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function createVisualSampleProject(root: string, projectId: string): Promise<void> {

@@ -131,7 +131,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 25,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['quality', projectId, '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'quality', '--workspace', options.workspaceDir],
       category: 'inspect',
       description: 'Inspect aggregate project quality and deliverability diagnostics.',
       id: 'inspect-quality',
@@ -139,7 +139,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 35,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['quality', projectId, '--details', '--json', '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'quality', '--quality-details', '--json', '--workspace', options.workspaceDir],
       category: 'inspect',
       description: 'Inspect aggregate quality with raw quality-report and render-output details.',
       id: 'inspect-quality-details',
