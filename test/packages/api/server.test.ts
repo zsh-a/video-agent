@@ -94,11 +94,12 @@ describe('api server handler', () => {
 
       const fetch = createApiFetchHandler({workspaceDir: root})
       const response = await fetch(new Request('http://localhost/doctor'))
-      const report = (await response.json()) as {checks: Array<{message: string; name: string; status: string}>; ok: boolean}
+      const report = (await response.json()) as {checks: Array<{message: string; name: string; status: string}>; ok: boolean; summary: {fail: number}}
       const asrCheck = report.checks.find((check) => check.name === 'provider:asr')
 
       expect(response.status).to.equal(503)
       expect(report.ok).to.equal(false)
+      expect(report.summary.fail).to.equal(1)
       expect(asrCheck).to.include({
         name: 'provider:asr',
         status: 'fail',
@@ -118,10 +119,11 @@ describe('api server handler', () => {
 
       const fetch = createApiFetchHandler({workspaceDir: root})
       const response = await fetch(new Request(`http://localhost/doctor?env=VIDEO_AGENT_ASR_COMMAND=${encodeURIComponent(command)}`))
-      const report = (await response.json()) as {checks: Array<{name: string; status: string}>; ok: boolean}
+      const report = (await response.json()) as {checks: Array<{name: string; status: string}>; ok: boolean; summary: {fail: number}}
 
       expect(response.status).to.equal(200)
       expect(report.ok).to.equal(true)
+      expect(report.summary.fail).to.equal(0)
       expect(report.checks.find((check) => check.name === 'provider:asr')).to.include({
         name: 'provider:asr',
         status: 'pass',

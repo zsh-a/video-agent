@@ -30,6 +30,7 @@ export default class Doctor extends Command {
     this.log(`Workspace: ${report.workspaceDir}`)
     this.log(`Config: ${report.configPath}`)
     this.log(`Status: ${report.ok ? 'ok' : 'failed'}`)
+    this.log(`Summary: ${report.summary.pass}/${report.summary.total} passed, ${report.summary.warn} warnings, ${report.summary.fail} failed`)
 
     for (const check of report.checks) {
       this.log(formatCheck(check))

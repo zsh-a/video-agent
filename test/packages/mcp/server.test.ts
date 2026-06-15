@@ -115,9 +115,10 @@ describe('mcp server', () => {
         },
       })
       const {content} = response?.result as {content: Array<{text: string; type: string}>}
-      const report = JSON.parse(content[0]?.text ?? '{}') as {checks: Array<{name: string; status: string}>; ok: boolean}
+      const report = JSON.parse(content[0]?.text ?? '{}') as {checks: Array<{name: string; status: string}>; ok: boolean; summary: {fail: number}}
 
       expect(report.ok).to.equal(true)
+      expect(report.summary.fail).to.equal(0)
       expect(report.checks.find((check) => check.name === 'provider:asr')).to.include({
         name: 'provider:asr',
         status: 'pass',

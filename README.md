@@ -162,7 +162,7 @@ vagent export
 .video-agent/projects/<projectId>/artifacts/media-info.json
 ```
 
-`doctor` 会检查当前运行时、workspace、配置、项目索引和本地媒体工具：
+`doctor` 会检查当前运行时、workspace、配置、项目索引和本地媒体工具，并在 JSON/API/MCP 报告里返回 `summary.total/pass/warn/fail`：
 
 ```text
 bun
@@ -591,7 +591,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - artifact store / event bus
 - ffmpeg / ffprobe wrapper
 - `inspect` 命令：probe 媒体并写 `media-info.json`
-- `doctor` 命令：检查 Bun/Node fallback、workspace、配置、项目索引、`ffmpeg` 和 `ffprobe`
+- `doctor` 命令：检查 Bun/Node fallback、workspace、配置、项目索引、`ffmpeg` 和 `ffprobe`，并输出 pass/warn/fail summary
 - doctor exit codes：当 runtime、provider env 或媒体工具检查失败时，`doctor` / `init` 会先输出报告再以非零状态退出
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`，CLI/API/MCP 都支持显式 env 注入
 - API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness

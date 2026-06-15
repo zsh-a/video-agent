@@ -27,7 +27,15 @@ export interface RuntimeHealthReport {
   checks: HealthCheck[]
   configPath: string
   ok: boolean
+  summary: RuntimeHealthSummary
   workspaceDir: string
+}
+
+export interface RuntimeHealthSummary {
+  fail: number
+  pass: number
+  total: number
+  warn: number
 }
 
 export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Promise<RuntimeHealthReport> {
@@ -46,7 +54,17 @@ export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Pr
     checks,
     configPath: resolveConfigPath(workspaceDir),
     ok: checks.every((check) => check.status !== 'fail'),
+    summary: summarizeHealthChecks(checks),
     workspaceDir,
+  }
+}
+
+function summarizeHealthChecks(checks: HealthCheck[]): RuntimeHealthSummary {
+  return {
+    fail: checks.filter((check) => check.status === 'fail').length,
+    pass: checks.filter((check) => check.status === 'pass').length,
+    total: checks.length,
+    warn: checks.filter((check) => check.status === 'warn').length,
   }
 }
 

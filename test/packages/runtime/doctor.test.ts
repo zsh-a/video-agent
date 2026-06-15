@@ -20,6 +20,12 @@ describe('doctor', () => {
       })
 
       expect(report.ok).to.equal(true)
+      expect(report.summary).to.deep.equal({
+        fail: 0,
+        pass: 8,
+        total: 9,
+        warn: 1,
+      })
       expect(report.workspaceDir).to.equal(root)
       expect(report.checks.map((check) => check.name)).to.deep.equal([
         'bun',
@@ -53,6 +59,7 @@ describe('doctor', () => {
       })
 
       expect(report.ok).to.equal(false)
+      expect(report.summary.fail).to.equal(1)
       expect(report.checks.find((check) => check.name === 'ffmpeg')?.status).to.equal('fail')
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -74,6 +81,7 @@ describe('doctor', () => {
       })
 
       expect(report.ok).to.equal(false)
+      expect(report.summary.fail).to.equal(1)
       expect(report.checks.find((check) => check.name === 'provider:asr')?.status).to.equal('fail')
     } finally {
       await rm(root, {force: true, recursive: true})

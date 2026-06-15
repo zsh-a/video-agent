@@ -13,10 +13,15 @@ describe('cli end-to-end workflow', () => {
     try {
       const init = await runCliJson<{
         checks: Record<string, {status: string}>
+        summary: {fail: number; total: number}
         workspaceDir: string
       }>(['init', '--workspace', workspaceDir, '--json'])
 
       expect(init.workspaceDir).to.equal(workspaceDir)
+      expect(init.summary).to.deep.include({
+        fail: 0,
+        total: 9,
+      })
       expect(init.checks).to.have.keys(['bun', 'config', 'ffmpeg', 'ffprobe', 'projects', 'provider:asr', 'provider:tts', 'provider:vlm', 'workspace'])
       expect(init.checks.workspace.status).to.equal('pass')
 
@@ -88,10 +93,15 @@ describe('cli end-to-end workflow', () => {
 
       const doctor = await runCliJson<{
         checks: Array<{name: string; status: string}>
+        summary: {fail: number; total: number}
         workspaceDir: string
       }>(['doctor', '--workspace', workspaceDir, '--json'])
 
       expect(doctor.workspaceDir).to.equal(workspaceDir)
+      expect(doctor.summary).to.deep.include({
+        fail: 0,
+        total: 9,
+      })
       expect(doctor.checks.find((check) => check.name === 'workspace')?.status).to.equal('pass')
       expect(doctor.checks.find((check) => check.name === 'config')?.status).to.equal('pass')
 
@@ -113,10 +123,12 @@ describe('cli end-to-end workflow', () => {
       const failedReport = JSON.parse(failedDoctor.stdout) as {
         checks: Array<{message: string; name: string; status: string}>
         ok: boolean
+        summary: {fail: number}
       }
 
       expect(failedDoctor.code).to.equal(1)
       expect(failedReport.ok).to.equal(false)
+      expect(failedReport.summary.fail).to.equal(1)
       expect(failedReport.checks.find((check) => check.name === 'provider:asr')).to.include({
         status: 'fail',
       })

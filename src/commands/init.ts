@@ -34,6 +34,7 @@ export default class Init extends Command {
 
     this.log(`Workspace: ${report.workspaceDir}`)
     this.log(`Config: ${output.configPath}`)
+    this.log(`Summary: ${report.summary.pass}/${report.summary.total} passed, ${report.summary.warn} warnings, ${report.summary.fail} failed`)
 
     for (const check of report.checks) {
       this.log(`${check.name}: ${check.status}${check.message === '' ? '' : ` - ${check.message}`}`)
