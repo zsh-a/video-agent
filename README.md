@@ -199,6 +199,8 @@ export VIDEO_AGENT_VLM_COMMAND='["node","./providers/vlm.js"]'
 export VIDEO_AGENT_TTS_COMMAND='["node","./providers/tts.js"]'
 ```
 
+`config` 的非 JSON 输出会显示当前 provider 环境变量摘要；如果必填变量缺失，会提示运行 `provider-env --shell-template` 生成不含 secret 的占位模板。
+
 仓库内置了一个可运行的 command mock adapter，可用于先验证 stdin/stdout contract：
 
 ```sh
@@ -591,7 +593,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - doctor exit codes：当 runtime、provider env 或媒体工具检查失败时，`doctor` / `init` 会先输出报告再以非零状态退出
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`，CLI/API/MCP 都支持显式 env 注入
 - API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness
-- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，且可生成不泄露 secret 的 shell export 模板
+- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，`config` 人工输出会提示缺失的必填 provider env，且可生成不泄露 secret 的 shell export 模板
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、provider understand、ASR/VLM evidence-backed storyboard、sequential clip plan、timeline、clip-plan-aligned narration、provider TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary

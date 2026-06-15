@@ -84,6 +84,12 @@ describe('cli end-to-end workflow', () => {
 
       await runCliJson(['config', '--asr', 'command', '--workspace', workspaceDir, '--json'])
 
+      const commandConfig = await runCli(['config', '--workspace', workspaceDir])
+
+      expect(commandConfig.code).to.equal(0)
+      expect(commandConfig.stdout).to.include('Provider env: 1 required variable(s) missing: VIDEO_AGENT_ASR_COMMAND')
+      expect(commandConfig.stdout).to.include(`Next: bun run dev provider-env --workspace ${workspaceDir} --shell-template`)
+
       const providerTemplate = await runCli(['provider-env', '--workspace', workspaceDir, '--shell-template'])
 
       expect(providerTemplate.code).to.equal(0)
