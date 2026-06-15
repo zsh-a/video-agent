@@ -40,7 +40,7 @@ export interface VisualFrameSample {
 
 export function checkVisualSmoke(input: VisualSmokeInput): VisualSmokeQualityResult {
   const frameSamples = normalizeFrameSamples(input)
-  const issues = [...checkBlackRatio(input), ...checkBlackDurationWithoutRatio(input), ...checkFrameSamples(frameSamples)]
+  const issues = [...checkBlackRatio(input), ...checkBlackDurationWithoutRatio(input), ...checkFrameSamples(frameSamples, input.duration)]
 
   return {
     blackDuration: input.blackDuration,
@@ -82,7 +82,7 @@ export function addVisualFrameSample(result: VisualSmokeQualityResult, frameSamp
 export function addVisualFrameSamples(result: VisualSmokeQualityResult, frameSamples: VisualFrameSample[]): VisualSmokeQualityResult {
   const existingSamples = result.frameSamples ?? (result.frameSample === undefined ? [] : [result.frameSample])
   const nextSamples = [...existingSamples, ...frameSamples]
-  const issues = [...result.issues, ...checkFrameSamples(frameSamples)]
+  const issues = [...result.issues, ...checkFrameSamples(frameSamples, result.duration)]
 
   return {
     ...result,
@@ -132,8 +132,18 @@ function checkBlackDurationWithoutRatio(input: VisualSmokeInput): QualityIssue[]
   ]
 }
 
-function checkFrameSamples(frameSamples: VisualFrameSample[]): QualityIssue[] {
+function checkFrameSamples(frameSamples: VisualFrameSample[], duration: number | undefined): QualityIssue[] {
   const sampleIssues = frameSamples.flatMap((frameSample) => {
+    if (duration !== undefined && (frameSample.timestamp < 0 || frameSample.timestamp > duration + 0.05)) {
+      return [
+        {
+          code: 'visual.frame_sample.out_of_bounds',
+          message: `Rendered video frame sample at ${frameSample.timestamp}s is outside the rendered duration (${duration}s).`,
+          severity: 'warning' as const,
+        },
+      ]
+    }
+
     if (!frameSample.ok) {
       return [
         {

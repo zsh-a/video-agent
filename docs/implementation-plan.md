@@ -69,7 +69,7 @@ Deliverables:
 - `@video-agent/media` with Bun-first process execution and `ffprobe` / `ffmpeg` helpers.
 - `@video-agent/providers` with ASR, VLM, and TTS interfaces plus mock implementations.
 - `@video-agent/quality` with clip plan consistency, timeline, narration timing, and TTS coverage validation.
-- Render visual smoke checks with black-frame ratio, multi-point frame samples, and sample content hashes.
+- Render visual smoke checks with black-frame ratio, multi-point frame samples, sample timestamp bounds, and sample content hashes.
 
 Acceptance criteria:
 
@@ -78,7 +78,7 @@ Acceptance criteria:
 - The run writes `media-info.json`, `storyboard.json`, `clip-plan.json`, `timeline.json`, `narration.json`, `tts-segments.json`, and `quality-report.json`.
 - The pipeline can resume from a later stage when required artifacts already exist.
 
-Status: completed for the first mock-provider slice, including clip plan consistency, timeline bounds, narration timing, TTS coverage, generated SRT subtitle quality checks, rendered media stream/duration diagnostics, ffmpeg audio loudness diagnostics, ffmpeg black-frame smoke checks, rendered first/middle/end thumbnail sampling, thumbnail content-hash static-frame detection, and low visual-variation detection from thumbnail sample sizes.
+Status: completed for the first mock-provider slice, including clip plan consistency, timeline bounds, narration timing, TTS coverage, generated SRT subtitle quality checks, rendered media stream/duration diagnostics, ffmpeg audio loudness diagnostics, ffmpeg black-frame smoke checks, rendered first/middle/end thumbnail sampling, thumbnail timestamp bounds checks, thumbnail content-hash static-frame detection, and low visual-variation detection from thumbnail sample sizes.
 
 ## Phase 2: Usable CLI Surface
 

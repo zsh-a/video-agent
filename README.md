@@ -622,7 +622,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - runtime render API：CLI `render` 和 HTTP `POST /projects/:id/render` 共用同一套 `renderProject`
 - ffmpeg renderer：支持混入提取出的源音频和已存在的 TTS voiceover 音频，输出 AAC 音轨
 - ffmpeg audio controls：支持 source/voiceover volume 和可选 sidechain ducking
-- render output quality：ffmpeg render 会探测最终视频，记录视频流、音频流、时长、音频响度、黑屏烟测、多点缩略图样本和低视觉变化 diagnostics
+- render output quality：ffmpeg render 会探测最终视频，记录视频流、音频流、时长、音频响度、黑屏烟测、多点缩略图样本、样本时间边界和低视觉变化 diagnostics
 - HyperFrames template quality：HyperFrames render 会对本地 HTML/CSS/render-plan 做结构检查，并把 `templateQuality` 写入 `render-output.json` 和项目级质量聚合
 - voiceover plan：render 阶段写出 `voiceover-plan.json`，记录 TTS 段和 narration 时间轴的对齐状态，并支持同一 narration 的多段 TTS chunk 顺序拼接
 - render audio diagnostics：缺失的 TTS voiceover 文件会写入 `render-output.json`，CLI 非 JSON 输出也会打印 audio warning
@@ -649,5 +649,5 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 1. 增加 Clack 交互式配置。
 2. 增加真实 ASR/VLM/TTS provider adapter。
 3. 增加外部 agent 客户端实测记录。
-4. 扩展更深的视觉烟测。
+4. 增加 provider-specific hosted-service adapters。
 5. 增加 Web Studio 的模板验证视图。
