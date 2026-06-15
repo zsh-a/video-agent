@@ -597,6 +597,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、provider understand、ASR/VLM evidence-backed storyboard、sequential clip plan、timeline、clip-plan-aligned narration、provider TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary
+- `quality` 命令：聚合 pipeline quality、render diagnostics 和 artifact integrity；人工输出会按 output/subtitle/audio/template/visual 分类展示 render error/warning 摘要
 - `artifacts` 命令：列出项目 artifacts，或读取单个 JSON/text artifact
 - artifact verify：CLI/API 可按 `artifact-manifest.json` 校验 sha256，并对已知 IR/provider JSON artifact 做 schema 校验，报告 missing/changed/untracked/schemaInvalid
 - `events` 命令：按时间读取 pipeline events 和 provider calls，支持 pipeline stage/type、provider role/status 和 limit 过滤

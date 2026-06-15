@@ -1,5 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {readProjectQuality, readProjectQualityDetails} from '@video-agent/runtime'
+import {readProjectQuality, readProjectQualityDetails, type RenderSummary} from '@video-agent/runtime'
 
 export default class Quality extends Command {
   static args = {
@@ -26,7 +26,22 @@ export default class Quality extends Command {
     this.log(`Errors: ${report.summary.errors}`)
     this.log(`Warnings: ${report.summary.warnings}`)
     this.log(`Pipeline: ${report.pipeline.errors} errors, ${report.pipeline.warnings} warnings`)
-    this.log(`Render: ${report.render.rendered ? 'rendered' : 'not rendered'}, ${report.render.outputErrors + report.render.subtitleErrors} errors, ${report.render.outputWarnings + report.render.subtitleWarnings + report.render.audioWarnings + report.render.missingVoiceovers} warnings`)
+    this.log(`Render: ${formatQualityRenderSummary(report.render)}`)
     this.log(`Artifacts: ${report.artifacts.ok ? 'ok' : 'not ok'} (${report.artifacts.changed.length} changed, ${report.artifacts.missing.length} missing, ${report.artifacts.untracked.length} untracked)`)
   }
+}
+
+export function formatQualityRenderSummary(render: RenderSummary): string {
+  const errors = render.outputErrors + render.subtitleErrors + render.audioQualityErrors + render.templateErrors + render.visualErrors
+  const warnings = render.outputWarnings + render.subtitleWarnings + render.audioWarnings + render.audioQualityWarnings + render.templateWarnings + render.visualWarnings + render.missingVoiceovers
+  const status = render.rendered ? 'rendered' : 'not rendered'
+
+  return [
+    `${status}, ${errors} errors, ${warnings} warnings`,
+    `output ${render.outputErrors}/${render.outputWarnings}`,
+    `subtitle ${render.subtitleErrors}/${render.subtitleWarnings}`,
+    `audio ${render.audioQualityErrors}/${render.audioQualityWarnings + render.audioWarnings + render.missingVoiceovers}`,
+    `template ${render.templateErrors}/${render.templateWarnings}`,
+    `visual ${render.visualErrors}/${render.visualWarnings}`,
+  ].join(', ')
 }
