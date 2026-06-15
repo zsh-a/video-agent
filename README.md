@@ -243,8 +243,11 @@ export VIDEO_AGENT_TTS_URL='http://127.0.0.1:4318'
 
 ```text
 VIDEO_AGENT_ASR_TOKEN / VIDEO_AGENT_VLM_TOKEN / VIDEO_AGENT_TTS_TOKEN
+VIDEO_AGENT_ASR_HEADERS / VIDEO_AGENT_VLM_HEADERS / VIDEO_AGENT_TTS_HEADERS
 VIDEO_AGENT_ASR_TIMEOUT_MS / VIDEO_AGENT_VLM_TIMEOUT_MS / VIDEO_AGENT_TTS_TIMEOUT_MS
 ```
+
+`VIDEO_AGENT_*_HEADERS` 是 JSON object 字符串，值必须都是字符串，适合 `x-api-key`、vendor routing header 等真实 hosted service 常见配置；`VIDEO_AGENT_*_TOKEN` 会自动转成 `authorization: Bearer <token>`。
 
 可以用 `provider-env` 按当前 workspace config 输出 provider 需要的环境变量、必填/可选状态和是否已配置，并给出 `summary` 统计 total/required/optional/configured/missing/missingRequired。它只显示变量名和配置状态，不输出 token 或 endpoint 具体值：
 

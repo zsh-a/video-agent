@@ -67,6 +67,7 @@ describe('provider environment', () => {
       await writeConfig(root, {tts: 'http'})
 
       const report = await readProviderEnvironment(root, {
+        VIDEO_AGENT_TTS_HEADERS: '{"x-api-key":"secret-header"}',
         VIDEO_AGENT_TTS_TOKEN: 'secret',
         VIDEO_AGENT_TTS_URL: 'https://example.test/tts',
       })
@@ -86,6 +87,12 @@ describe('provider environment', () => {
           required: false,
         },
         {
+          configured: true,
+          description: 'TTS HTTP adapter custom headers as a JSON object of string values.',
+          env: 'VIDEO_AGENT_TTS_HEADERS',
+          required: false,
+        },
+        {
           configured: false,
           description: 'TTS HTTP adapter timeout in milliseconds.',
           env: 'VIDEO_AGENT_TTS_TIMEOUT_MS',
@@ -93,12 +100,12 @@ describe('provider environment', () => {
         },
       ])
       expect(report.summary).to.deep.equal({
-        configured: 2,
+        configured: 3,
         missing: 1,
         missingRequired: [],
-        optional: 2,
+        optional: 3,
         required: 1,
-        total: 3,
+        total: 4,
       })
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -116,6 +123,7 @@ describe('provider environment', () => {
 
       const report = await readProviderEnvironment(root, {
         VIDEO_AGENT_ASR_COMMAND: '["node","secret-asr.js"]',
+        VIDEO_AGENT_TTS_HEADERS: '{"x-api-key":"secret-header"}',
         VIDEO_AGENT_TTS_TOKEN: 'secret-token',
         VIDEO_AGENT_TTS_URL: 'https://secret.example/tts',
       })
@@ -124,6 +132,7 @@ describe('provider environment', () => {
       expect(template).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
       expect(template).to.include("export VIDEO_AGENT_TTS_URL='https://provider.example/tts'")
       expect(template).to.include("# export VIDEO_AGENT_TTS_TOKEN='<token>'")
+      expect(template).to.include("# export VIDEO_AGENT_TTS_HEADERS='{\"x-api-key\":\"<token>\"}'")
       expect(template).to.not.include('secret')
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -139,6 +148,7 @@ describe('provider environment', () => {
       const template = createProviderEnvironmentShellTemplate(await readProviderEnvironment(root, {}), {includeOptional: true})
 
       expect(template).to.include("export VIDEO_AGENT_VLM_TOKEN='<token>'")
+      expect(template).to.include("export VIDEO_AGENT_VLM_HEADERS='{\"x-api-key\":\"<token>\"}'")
       expect(template).to.include("export VIDEO_AGENT_VLM_TIMEOUT_MS='60000'")
     } finally {
       await rm(root, {force: true, recursive: true})

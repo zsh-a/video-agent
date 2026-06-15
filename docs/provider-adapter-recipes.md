@@ -141,16 +141,21 @@ HTTP providers receive the same payloads with `POST` and `content-type: applicat
 - `x-video-agent-version`
 - `x-video-agent-request-id`
 
-If the HTTP response omits `metadata.requestId`, the runtime records the generated request id. Optional bearer tokens and timeouts are configured with:
+If the HTTP response omits `metadata.requestId`, the runtime records the generated request id. Optional bearer tokens, custom headers, and timeouts are configured with:
 
 ```sh
 VIDEO_AGENT_ASR_TOKEN
+VIDEO_AGENT_ASR_HEADERS
 VIDEO_AGENT_ASR_TIMEOUT_MS
 VIDEO_AGENT_VLM_TOKEN
+VIDEO_AGENT_VLM_HEADERS
 VIDEO_AGENT_VLM_TIMEOUT_MS
 VIDEO_AGENT_TTS_TOKEN
+VIDEO_AGENT_TTS_HEADERS
 VIDEO_AGENT_TTS_TIMEOUT_MS
 ```
+
+`VIDEO_AGENT_*_TOKEN` is sent as `authorization: Bearer <token>`. `VIDEO_AGENT_*_HEADERS` must be a JSON object whose keys and values are strings, for example `{"x-api-key":"<token>"}`. It is intended for hosted services that require vendor-specific authentication or routing headers.
 
 ## Real Service Adapter Checklist
 
@@ -158,6 +163,7 @@ When replacing the mock recipe with a real hosted service:
 
 - keep the process or HTTP endpoint stateless
 - translate provider-specific request/response shapes at the adapter boundary
+- configure provider-specific HTTP headers through `VIDEO_AGENT_*_HEADERS` instead of hardcoding credentials
 - write TTS audio files before returning their paths
 - return envelope metadata with request id, model, usage, and estimated cost when available
 - do not print tokens or provider responses containing secrets to stderr/stdout logs

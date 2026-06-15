@@ -3,7 +3,7 @@ import {expect} from 'chai'
 import type {ProviderFetch} from '../../../packages/providers/src/index.js'
 
 import {createMockHttpProviderEnvelope} from '../../../examples/provider-adapters/mock-http-provider.js'
-import {HttpASRProvider, HttpTTSProvider, HttpVLMProvider, readProviderMetadata} from '../../../packages/providers/src/index.js'
+import {createAsrProvider, HttpASRProvider, HttpTTSProvider, HttpVLMProvider, readProviderMetadata} from '../../../packages/providers/src/index.js'
 
 describe('http providers', () => {
   it('runs ASR over HTTP JSON payloads and preserves metadata', async () => {
@@ -75,6 +75,47 @@ describe('http providers', () => {
     expect(segments[0].path).to.equal('tts/narration-1.wav')
     expect(readProviderMetadata(scenes)?.requestId).to.match(/^http_/)
     expect(readProviderMetadata(segments)?.requestId).to.match(/^http_/)
+  })
+
+  it('adds configured HTTP provider headers from environment', async () => {
+    const provider = createAsrProvider('http', {
+      env: {
+        VIDEO_AGENT_ASR_HEADERS: '{"x-api-key":"secret-key","x-provider":"vendor"}',
+        VIDEO_AGENT_ASR_TOKEN: 'bearer-secret',
+        VIDEO_AGENT_ASR_URL: 'https://provider.test/asr',
+      },
+      fetch: jsonFetch((_payload, init) => {
+        expect(init.headers).to.include({
+          authorization: 'Bearer bearer-secret',
+          'x-api-key': 'secret-key',
+          'x-provider': 'vendor',
+        })
+
+        return {
+          segments: [
+            {
+              end: 1,
+              start: 0,
+              text: 'header transcript',
+            },
+          ],
+          text: 'header transcript',
+        }
+      }),
+    })
+
+    const transcript = await provider.transcribe({path: '/tmp/audio.wav'})
+
+    expect(transcript.text).to.equal('header transcript')
+  })
+
+  it('rejects invalid HTTP provider header configuration', () => {
+    expect(() => createAsrProvider('http', {
+      env: {
+        VIDEO_AGENT_ASR_HEADERS: '{"x-api-key":123}',
+        VIDEO_AGENT_ASR_URL: 'https://provider.test/asr',
+      },
+    })).to.throw('VIDEO_AGENT_ASR_HEADERS must be a JSON object of string header names to string values')
   })
 
   it('runs the documented HTTP adapter recipe', async () => {

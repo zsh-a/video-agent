@@ -112,6 +112,12 @@ function createProviderRequirements(role: ProviderRole, provider: string, env: R
         required: false,
       }),
       createRequirement({
+        description: `${role.toUpperCase()} HTTP adapter custom headers as a JSON object of string values.`,
+        env,
+        name: `VIDEO_AGENT_${role.toUpperCase()}_HEADERS`,
+        required: false,
+      }),
+      createRequirement({
         description: `${role.toUpperCase()} HTTP adapter timeout in milliseconds.`,
         env,
         name: `VIDEO_AGENT_${role.toUpperCase()}_TIMEOUT_MS`,
@@ -163,6 +169,10 @@ function placeholderForRequirement(requirement: ProviderEnvironmentRequirement):
 
   if (requirement.env.endsWith('_TOKEN')) {
     return '<token>'
+  }
+
+  if (requirement.env.endsWith('_HEADERS')) {
+    return '{"x-api-key":"<token>"}'
   }
 
   if (requirement.env.endsWith('_TIMEOUT_MS')) {

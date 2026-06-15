@@ -93,6 +93,7 @@ function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions
   const env = options.env ?? process.env
   const urlEnv = `VIDEO_AGENT_${role.toUpperCase()}_URL`
   const tokenEnv = `VIDEO_AGENT_${role.toUpperCase()}_TOKEN`
+  const headersEnv = `VIDEO_AGENT_${role.toUpperCase()}_HEADERS`
   const timeoutEnv = `VIDEO_AGENT_${role.toUpperCase()}_TIMEOUT_MS`
   const url = env[urlEnv]
 
@@ -102,10 +103,48 @@ function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions
 
   return {
     ...(options.fetch === undefined ? {} : {fetch: options.fetch}),
-    ...(env[tokenEnv] === undefined || env[tokenEnv]?.trim() === '' ? {} : {headers: {authorization: `Bearer ${env[tokenEnv]}`}}),
+    ...resolveHttpHeaders({headersEnv, headersValue: env[headersEnv], tokenEnv, tokenValue: env[tokenEnv]}),
     ...(env[timeoutEnv] === undefined || env[timeoutEnv]?.trim() === '' ? {} : {timeoutMs: parseTimeout(timeoutEnv, env[timeoutEnv])}),
     url,
   }
+}
+
+function resolveHttpHeaders(options: {headersEnv: string; headersValue: string | undefined; tokenEnv: string; tokenValue: string | undefined}): {headers?: Record<string, string>} {
+  const headers = {
+    ...parseHeaderEnv(options.headersEnv, options.headersValue),
+    ...(options.tokenValue === undefined || options.tokenValue.trim() === '' ? {} : {authorization: `Bearer ${options.tokenValue}`}),
+  }
+
+  return Object.keys(headers).length === 0 ? {} : {headers}
+}
+
+function parseHeaderEnv(envName: string, value: string | undefined): Record<string, string> {
+  if (value === undefined || value.trim() === '') {
+    return {}
+  }
+
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(value)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(`${envName} must be a JSON object of string header names to string values: ${message}`)
+  }
+
+  if (!isHeaderRecord(parsed)) {
+    throw new Error(`${envName} must be a JSON object of string header names to string values.`)
+  }
+
+  return parsed
+}
+
+function isHeaderRecord(value: unknown): value is Record<string, string> {
+  return typeof value === 'object'
+    && value !== null
+    && !Array.isArray(value)
+    && Object.entries(value).every(([key, headerValue]) => key.trim() !== '' && typeof headerValue === 'string')
 }
 
 function parseTimeout(envName: string, value: string | undefined): number {
