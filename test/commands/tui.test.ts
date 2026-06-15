@@ -411,6 +411,7 @@ describe('tui command', () => {
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent export 'demo project' --require-quality --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent export 'demo project' --format hyperframes --clean-output --require-quality --workspace 'workspace dir'")
   })
 
   it('formats and resolves guided command selections', () => {

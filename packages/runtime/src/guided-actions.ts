@@ -186,6 +186,14 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       label: 'Export output',
       priority: 70,
     }),
+    createGuidedAction(commandPrefix, {
+      args: ['export', projectId, '--format', 'hyperframes', '--clean-output', '--require-quality', '--workspace', options.workspaceDir],
+      category: 'export',
+      description: 'Export the HyperFrames render directory after cleaning stale output files and passing project quality.',
+      id: 'export-hyperframes-clean',
+      label: 'Export clean HyperFrames',
+      priority: 71,
+    }),
   )
 
   if (rerunStage !== undefined) {
