@@ -198,7 +198,7 @@ export async function extractFrames(input: string, framesPattern: string, fps = 
 }
 
 export async function extractAudio(input: string, outputPath: string): Promise<void> {
-  await runFfmpeg(['-y', '-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '48000', '-ac', '2', outputPath])
+  await runFfmpeg(['-y', '-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '24000', '-ac', '1', outputPath])
 }
 
 export async function createPreview(input: string, outputPath: string, duration = 10): Promise<void> {

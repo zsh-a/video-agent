@@ -45,13 +45,14 @@ export class MimoASRProvider implements ASRProvider {
 
   async transcribe(input: MediaInput): Promise<Transcript> {
     const audio = await bunFile(input.path).bytes()
+    const mediaType = resolveAudioMimeType(input)
     const result = await this.llm.generateText({
       messages: [
         {
           content: [
             {
-              data: audio,
-              mediaType: resolveAudioMimeType(input),
+              data: createAudioDataUri(audio, mediaType),
+              mediaType,
               type: 'file',
             },
           ],
@@ -201,6 +202,10 @@ function resolveAudioMimeType(input: MediaInput): string {
   }
 
   return 'audio/wav'
+}
+
+function createAudioDataUri(audio: Uint8Array, mediaType: string): string {
+  return `data:${mediaType};base64,${Buffer.from(audio).toString('base64')}`
 }
 
 function inferLanguage(text: string): string | undefined {

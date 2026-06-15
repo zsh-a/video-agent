@@ -45,7 +45,7 @@ describe('LLM media providers', () => {
       const audioPart = Array.isArray(content) ? content[0] : undefined
 
       expect(audioPart).to.deep.equal({
-        data: Buffer.from('fake-audio'),
+        data: 'data:audio/wav;base64,ZmFrZS1hdWRpbw==',
         mediaType: 'audio/wav',
         type: 'file',
       })

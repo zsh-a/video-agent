@@ -101,14 +101,16 @@ function transformMimoContentPart(part: unknown): unknown {
 
   const {data, format} = inputAudio
 
-  if (typeof data !== 'string' || typeof format !== 'string') {
+  if (typeof data !== 'string') {
     return part
   }
+
+  const mediaType = typeof format === 'string' ? audioMimeTypeFromFormat(format) : 'audio/wav'
 
   return {
     ...part,
     'input_audio': {
-      data: data.startsWith('data:') ? data : `data:${audioMimeTypeFromFormat(format)};base64,${data}`,
+      data: data.startsWith('data:') ? data : `data:${mediaType};base64,${data}`,
     },
   }
 }

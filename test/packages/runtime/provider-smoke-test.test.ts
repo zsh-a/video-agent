@@ -104,12 +104,14 @@ describe('provider smoke test', () => {
     const originalFetch = Reflect.get(globalThis, 'fetch')
     const ResponseConstructor = Reflect.get(globalThis, 'Response') as new (body?: string, init?: {headers?: Record<string, string>}) => unknown
     let requestBody: unknown
+    let requestUrl: string | undefined
 
     try {
       await writeConfig(root, {providerProfile: 'mimo'})
       await writeBytes(audioPath, Buffer.from([1, 2, 3]))
 
-      Reflect.set(globalThis, 'fetch', async (_input: unknown, init: undefined | {body?: unknown}) => {
+      Reflect.set(globalThis, 'fetch', async (input: unknown, init: undefined | {body?: unknown}) => {
+        requestUrl = String(input)
         requestBody = JSON.parse(String(init?.body)) as unknown
 
         return new ResponseConstructor(JSON.stringify({
@@ -159,6 +161,7 @@ describe('provider smoke test', () => {
       expect(report.results[0]?.metadata).to.deep.equal({
         model: 'mimo-v2.5-asr',
       })
+      expect(requestUrl).to.equal('https://token-plan-cn.xiaomimimo.com/v1/chat/completions')
       expect(body.model).to.equal('mimo-v2.5-asr')
       expect(body[asrOptionsKey]).to.deep.equal({language: 'auto'})
       expect(audioPart).to.deep.equal({

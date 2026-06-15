@@ -1,6 +1,10 @@
 import {expect} from '#test/expect'
+import {mkdtemp, rm} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
-import {parseAudioVolumeOutput, parseFfmpegProgressOutput, parseVideoBlackDetectOutput} from '../../../packages/media/src/ffmpeg.js'
+import {extractAudio, parseAudioVolumeOutput, parseFfmpegProgressOutput, parseVideoBlackDetectOutput} from '../../../packages/media/src/ffmpeg.js'
+import {runProcess} from '../../../packages/media/src/process.js'
 
 describe('ffmpeg media helpers', () => {
   it('parses ffmpeg progress records', () => {
@@ -75,4 +79,72 @@ describe('ffmpeg media helpers', () => {
       },
     ])
   })
+
+  it('extracts ASR audio as 24 kHz mono PCM wav when media tools are available', async () => {
+    if (!(await hasMediaTools())) {
+      return
+    }
+
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-extract-audio-'))
+    const inputPath = join(root, 'input.wav')
+    const outputPath = join(root, 'source.wav')
+
+    try {
+      await runProcess([
+        'ffmpeg',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=1000:sample_rate=48000',
+        '-t',
+        '1',
+        '-ac',
+        '2',
+        inputPath,
+      ])
+
+      await extractAudio(inputPath, outputPath)
+
+      const stream = await probeFirstAudioStream(outputPath)
+
+      expect(stream).to.deep.include({
+        bits_per_sample: 16,
+        channels: 1,
+        codec_name: 'pcm_s16le',
+        sample_rate: '24000',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
+
+async function hasMediaTools(): Promise<boolean> {
+  const [ffmpeg, ffprobe] = await Promise.all([runProcess(['ffmpeg', '-version']), runProcess(['ffprobe', '-version'])])
+
+  return ffmpeg.code === 0 && ffprobe.code === 0
+}
+
+async function probeFirstAudioStream(path: string): Promise<Record<string, unknown>> {
+  const result = await runProcess([
+    'ffprobe',
+    '-v',
+    'error',
+    '-select_streams',
+    'a:0',
+    '-show_entries',
+    'stream=codec_name,sample_rate,channels,bits_per_sample',
+    '-of',
+    'json',
+    path,
+  ])
+
+  expect(result.code).to.equal(0)
+
+  const parsed = JSON.parse(result.stdout) as {streams?: Record<string, unknown>[]}
+
+  return parsed.streams?.[0] ?? {}
+}
