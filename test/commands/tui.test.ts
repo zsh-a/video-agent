@@ -127,6 +127,64 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats render action results', () => {
+    expect(formatTuiActionResult({
+      result: {
+        artifactPath: '/tmp/project/artifacts/render-output.json',
+        entryHtml: '/tmp/project/renders/hyperframes/index.html',
+        outputDir: '/tmp/project/renders/hyperframes',
+        projectDir: '/tmp/project',
+        projectId: 'demo',
+        renderer: 'hyperframes',
+        templateQuality: {
+          errors: 0,
+          issues: [],
+          ok: true,
+          warnings: 0,
+        },
+      },
+      type: 'render',
+    })).to.equal([
+      'Action: render demo -> hyperframes',
+      'Output: /tmp/project/renders/hyperframes',
+      'Entry: /tmp/project/renders/hyperframes/index.html',
+      'Validated: no',
+      'Rendered: no',
+      'Artifact: /tmp/project/artifacts/render-output.json',
+    ].join('\n'))
+  })
+
+  it('runs render action against a HyperFrames project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-render-'))
+    const outputPath = join(root, 'hyperframes-output')
+
+    try {
+      await createRenderableProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'render',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        renderOutputPath: outputPath,
+        renderRenderer: 'hyperframes',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('render')
+      expect(result.type === 'render' && result.result.renderer).to.equal('hyperframes')
+      expect(result.type === 'render' && result.result.renderer === 'hyperframes' && result.result.outputDir).to.equal(outputPath)
+      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.contain('data-duration="1"')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('runs export action against a rendered project', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-export-'))
 
@@ -148,6 +206,7 @@ describe('tui command', () => {
         fromStage: 'quality',
         projectId: 'demo',
         providerRole: 'all',
+        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -587,4 +646,54 @@ function createProjectQualityReport(): ProjectQualityReport {
       warnings: 48,
     },
   }
+}
+
+async function createRenderableProject(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+  await mkdir(artifactsDir, {recursive: true})
+  await Promise.all([
+    writeFile(
+      join(artifactsDir, 'timeline.json'),
+      `${JSON.stringify({
+        duration: 1,
+        fps: 30,
+        items: [],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'storyboard.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        scenes: [
+          {
+            duration: 1,
+            evidence: [],
+            id: 'scene-1',
+            narration: 'hello',
+            start: 0,
+            visualStyle: 'documentary',
+          },
+        ],
+        targetPlatform: 'generic',
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'narration.json'),
+      `${JSON.stringify({
+        language: 'zh-CN',
+        segments: [
+          {
+            duration: 1,
+            id: 'narration-1',
+            start: 0,
+            text: 'hello',
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+  ])
 }

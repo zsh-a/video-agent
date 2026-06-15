@@ -1,13 +1,13 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, exportProject, ExportQualityError, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, exportProject, ExportQualityError, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 
-export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'rerun' | 'select' | 'worker'
+export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'render' | 'rerun' | 'select' | 'worker'
 
 export interface TuiSnapshot {
   artifactIntegrity?: ArtifactIntegrityResult
@@ -29,7 +29,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'export', 'provider-test', 'rerun', 'select', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'export', 'provider-test', 'render', 'rerun', 'select', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -53,6 +53,21 @@ export default class Tui extends Command {
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
     'provider-role': Flags.string({default: 'all', description: 'Provider role to test when --action provider-test is used', options: ['all', 'asr', 'tts', 'vlm']}),
     'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval when --watch is enabled'}),
+    'render-audio': Flags.boolean({allowNo: true, default: true, description: 'Mix available source audio and TTS voiceover segments when --action render is used'}),
+    'render-audio-ducking': Flags.boolean({description: 'Use voiceover sidechain compression to duck source audio when --action render is used'}),
+    'render-ducking-attack-ms': Flags.integer({description: 'Audio ducking compressor attack in milliseconds when --action render is used'}),
+    'render-ducking-ratio': Flags.integer({description: 'Audio ducking compressor ratio when --action render is used'}),
+    'render-ducking-release-ms': Flags.integer({description: 'Audio ducking compressor release in milliseconds when --action render is used'}),
+    'render-ducking-threshold': Flags.string({description: 'Audio ducking compressor threshold when --action render is used'}),
+    'render-hyperframes-command': Flags.string({description: 'HyperFrames command prefix, either a binary name or JSON string array, when --action render is used'}),
+    'render-hyperframes-output': Flags.string({description: 'Output path for HyperFrames CLI render when --action render is used'}),
+    'render-hyperframes-render': Flags.boolean({description: 'Run HyperFrames CLI render after project generation when --action render is used'}),
+    'render-hyperframes-validate': Flags.boolean({description: 'Run HyperFrames CLI validate after project generation when --action render is used'}),
+    'render-output': Flags.string({description: 'Output video path or HyperFrames project directory when --action render is used'}),
+    'render-renderer': Flags.string({default: 'ffmpeg', description: 'Renderer to use when --action render is used', options: ['ffmpeg', 'hyperframes']}),
+    'render-source-volume': Flags.string({description: 'Source audio volume multiplier when --action render is used'}),
+    'render-subtitles': Flags.boolean({allowNo: true, default: true, description: 'Burn narration subtitles when --action render is used'}),
+    'render-voiceover-volume': Flags.string({description: 'Voiceover audio volume multiplier when --action render is used'}),
     'running-stale-after-ms': Flags.integer({description: 'Skip running jobs updated more recently than this threshold when --action worker is used'}),
     status: Flags.string({default: 'active', description: 'Job status to recover when --action worker is used', options: ['active', 'failed', 'running']}),
     text: Flags.string({description: 'Sample narration text for TTS provider tests'}),
@@ -101,6 +116,21 @@ export default class Tui extends Command {
       orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
       projectId: flags.project,
       providerRole: flags['provider-role'],
+      renderAudio: flags['render-audio'],
+      renderAudioDucking: flags['render-audio-ducking'],
+      renderDuckingAttackMs: flags['render-ducking-attack-ms'],
+      renderDuckingRatio: flags['render-ducking-ratio'],
+      renderDuckingReleaseMs: flags['render-ducking-release-ms'],
+      renderDuckingThreshold: parseOptionalNumber(flags['render-ducking-threshold'], 'render-ducking-threshold'),
+      renderHyperframesCommand: parseCommandPrefix(flags['render-hyperframes-command']),
+      renderHyperframesOutput: flags['render-hyperframes-output'],
+      renderHyperframesRender: flags['render-hyperframes-render'],
+      renderHyperframesValidate: flags['render-hyperframes-validate'],
+      renderOutputPath: flags['render-output'],
+      renderRenderer: flags['render-renderer'] as ProjectRenderer,
+      renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
+      renderSubtitles: flags['render-subtitles'],
+      renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
       runningStaleAfterMs: flags['running-stale-after-ms'],
       status: flags.status,
       text: flags.text,
@@ -178,6 +208,21 @@ export interface RunTuiActionOptions {
   orderBy?: RecoveryOrderBy
   projectId?: string
   providerRole: string
+  renderAudio?: boolean
+  renderAudioDucking?: boolean
+  renderDuckingAttackMs?: number
+  renderDuckingRatio?: number
+  renderDuckingReleaseMs?: number
+  renderDuckingThreshold?: number
+  renderHyperframesCommand?: string[]
+  renderHyperframesOutput?: string
+  renderHyperframesRender?: boolean
+  renderHyperframesValidate?: boolean
+  renderOutputPath?: string
+  renderRenderer: ProjectRenderer
+  renderSourceVolume?: number
+  renderSubtitles?: boolean
+  renderVoiceoverVolume?: number
   runningStaleAfterMs?: number
   status: string
   text?: string
@@ -196,6 +241,7 @@ export type TuiActionResult =
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
   | {result: ExportProjectResult; type: 'export'}
+  | {result: RenderProjectResult; type: 'render'}
   | {type: 'dashboard'}
 
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
@@ -286,6 +332,32 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
     }
   }
 
+  if (options.action === 'render') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      result: await renderProject(projectId, {
+        audio: options.renderAudio,
+        audioDucking: options.renderAudioDucking,
+        duckingAttackMs: options.renderDuckingAttackMs,
+        duckingRatio: options.renderDuckingRatio,
+        duckingReleaseMs: options.renderDuckingReleaseMs,
+        duckingThreshold: options.renderDuckingThreshold,
+        hyperframesCommand: options.renderHyperframesCommand,
+        hyperframesOutput: options.renderHyperframesOutput,
+        hyperframesRender: options.renderHyperframesRender,
+        hyperframesValidate: options.renderHyperframesValidate,
+        output: options.renderOutputPath,
+        renderer: options.renderRenderer,
+        sourceVolume: options.renderSourceVolume,
+        subtitles: options.renderSubtitles,
+        voiceoverVolume: options.renderVoiceoverVolume,
+        workspaceDir: options.workspaceDir,
+      }),
+      type: 'render',
+    }
+  }
+
   if (options.action === 'export') {
     const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
 
@@ -365,6 +437,7 @@ export async function readTuiSnapshot(options: ReadTuiSnapshotOptions): Promise<
   }
 }
 
+// eslint-disable-next-line complexity
 export function formatTuiActionResult(result: TuiActionResult): string {
   if (result.type === 'dashboard') {
     return ''
@@ -405,6 +478,27 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       `Output: ${result.result.outputPath}`,
       `Clean output: ${result.result.cleanOutput ? 'yes' : 'no'}`,
       `Quality gate: ${result.result.requireQuality ? 'required' : 'not required'}`,
+      `Artifact: ${result.result.artifactPath}`,
+    ].join('\n')
+  }
+
+  if (result.type === 'render') {
+    if (result.result.renderer === 'ffmpeg') {
+      return [
+        `Action: render ${result.result.projectId} -> ffmpeg`,
+        `Output: ${result.result.outputPath}`,
+        `Audio inputs: ${result.result.audioInputs}`,
+        `Subtitles: ${result.result.subtitlePath ?? 'none'}`,
+        `Artifact: ${result.result.artifactPath}`,
+      ].join('\n')
+    }
+
+    return [
+      `Action: render ${result.result.projectId} -> hyperframes`,
+      `Output: ${result.result.outputDir}`,
+      `Entry: ${result.result.entryHtml}`,
+      `Validated: ${result.result.validation === undefined ? 'no' : 'yes'}`,
+      `Rendered: ${result.result.rendered === undefined ? 'no' : 'yes'}`,
       `Artifact: ${result.result.artifactPath}`,
     ].join('\n')
   }
@@ -702,4 +796,38 @@ function resolveRecoverableStatuses(status: string): RecoverableJobStatus[] {
   }
 
   return ['failed', 'running']
+}
+
+function parseOptionalNumber(value: string | undefined, flag: string): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const parsed = Number(value)
+
+  if (!Number.isFinite(parsed)) {
+    throw new TypeError(`Flag --${flag} must be a finite number.`)
+  }
+
+  return parsed
+}
+
+function parseCommandPrefix(value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed) as unknown
+
+    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== 'string' || part.length === 0)) {
+      throw new Error('HyperFrames command JSON must be a non-empty string array.')
+    }
+
+    return parsed
+  }
+
+  return [trimmed]
 }
