@@ -14,13 +14,13 @@ Not in scope: implementing video encoding, audio mixing, ASR, or VLM inference i
 
 ## Runtime Strategy
 
-The default runtime is Bun for local CLI, worker, workspace IO, SQLite, and subprocess orchestration. Node compatibility remains a design requirement for packages that may run in CI, server deployments, or future TUI adapters.
+The default runtime is Bun for local CLI, worker, workspace IO, SQLite, and subprocess orchestration. Node compatibility remains a design requirement for packages that may run in CI, server deployments, or adapter contexts.
 
 ```text
 Development: Bun-first
 Local agent: Bun CLI / worker
 Production API: Bun or Node after compatibility testing
-Terminal UI: may use Node fallback if Ink compatibility becomes an issue
+Terminal UI: dependency-light CLI/TUI today; richer UI dependencies require an explicit decision
 Media: ffmpeg / ffprobe / Chromium as external executors
 ```
 
@@ -86,7 +86,7 @@ packages/
     Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The existing root oclif CLI remains the first adapter during the initial scaffold. It includes a lightweight `vagent tui` terminal dashboard over runtime state plus controlled artifact inspection, shared guided actions, rerun, and worker recovery actions; a later migration can move it into `apps/cli` or split a richer Ink workstation into `apps/tui` when the core commands are ready.
+The root oclif CLI remains the primary local adapter. It includes a lightweight `vagent tui` terminal dashboard over runtime state plus controlled artifact inspection, shared guided actions, rerun, and worker recovery actions. A later migration can move it into `apps/cli` or split a richer workstation into `apps/tui` once the package APIs are stable enough to avoid churn.
 
 ## Target Adapter Layout
 
@@ -94,7 +94,7 @@ The existing root oclif CLI remains the first adapter during the initial scaffol
 apps/
   cli/       command-line adapter for scripted runs
   worker/    background job execution
-  api/       Hono/Fastify API
+  api/       HTTP API wrapper around the dependency-light Fetch handler
   tui/       Ink developer workstation
   studio/    Web editor and preview UI
 

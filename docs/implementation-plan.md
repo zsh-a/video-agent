@@ -1,6 +1,15 @@
-# Initial Implementation Plan
+# Historical Implementation Plan
 
-This plan defines the first product-quality slice for `video-agent`: a Bun-first TypeScript runtime that can ingest media, create typed artifacts, render a basic output, and stay ready for future TUI, MCP, API, and Web Studio adapters.
+This document is historical context for the first product-quality slice. It is not the source of truth for the current command surface or adapter details.
+
+Use these documents for current behavior:
+
+- [README](../README.md) for onboarding and current status.
+- [Architecture](architecture.md) for package boundaries.
+- [Provider Configuration Model](provider-configuration-model.md) for runtime provider config.
+- [Agent Client Checks](agent-client-checks.md) for MCP and external agent validation.
+
+The original plan defined a Bun-first TypeScript runtime that can ingest media, create typed artifacts, render a basic output, and stay ready for TUI, MCP, API, Web Studio, and skill adapters.
 
 ## Scope
 
@@ -222,9 +231,9 @@ Acceptance criteria:
 
 Status: in progress. A first stdio MCP adapter is implemented with tools for doctor, provider environment reports, provider smoke tests, shared guided actions, project listing, status, events, artifacts, artifact verification, run, rerun, render, audio inspection, visual sample inspection, worker recovery, and export. MCP render/audio/export tools expose the same ffmpeg volume, ducking, HyperFrames command, quality gate, and clean directory export options used by the CLI/API adapters, the MCP/API quality endpoints can include raw quality/render artifacts for deep diagnostics, guided action parameters are aligned across API/MCP/TUI including artifact preview limits, tool argument schemas include client-facing descriptions for external agent UIs, and runtime checkpoint/schema/export-quality failures include structured JSON-RPC `error.data`. The MCP command can print reusable stdio config JSON with server naming, installed/dev command mode, full/server-entry shape selection, named client presets, preset placement info, preset discovery output, and explicit env injection. The API exposes provider environment reports, provider smoke tests, non-secret runtime config, shared guided actions, visual sample metadata, `POST /worker` recovery, structured `409` checkpoint errors for missing/changed/untracked/schema-invalid artifacts, structured export quality gate errors with project quality reports, clean directory export, and a dependency-free `GET /studio` Web Studio shell over project/status/quality/action/artifact/event endpoints with render, quality-gated export, stage-scoped rerun, worker dry-run actions, provider smoke-test actions, provider/config visibility, ffmpeg/HyperFrames render option controls, export format/output/quality/clean controls, inline JSON/text artifact preview, rendered visual sample preview, guided action copy, structure-aware action error summaries, template-quality diagnostics from `render-output.json`, render-quality diagnostics, and artifact integrity drilldowns. A first lightweight `vagent tui` dashboard is implemented for project selection, stage status, quality/render summaries, artifact integrity summaries, artifact review, recent events, watch refresh, guided command metadata, dependency-free guided action selection, controlled status inspection, artifact inspection, controlled artifact manifest/schema verification, filtered pipeline/provider event inspection, quality details with optional raw quality/render artifacts, audio preflight diagnostics, visual sample inspection, provider smoke tests, controlled project reruns with structured checkpoint failure output, controlled render with ffmpeg/HyperFrames options, controlled quality-gated export with clean directory options, and worker recovery. HyperFrames renders now include local template-quality checks for generated HTML/CSS/render-plan structure before optional external CLI validation. A first Claude Code skill adapter is available under `adapters/claude-code-skill/video-agent`, and agent-client installation checks are documented in `docs/agent-client-checks.md`.
 
-## Immediate Next Tasks
+## Historical Next Tasks
 
-Recommended order:
+These were the recommended tasks when this plan was active. Treat them as backlog context, not as canonical current status:
 
 1. Select the first hosted ASR/VLM/TTS service target and implement one real-provider vertical slice behind the existing contracts. The first slice must include provider-specific request/response mapping, Zod validation, descriptor-based `provider-env` requirements, `provider-test` smoke coverage with injected fetch or command shims, provider call metadata, failure diagnostics, and no secret values in reports.
 2. Create a named MCP client validation matrix for the generic config output. Test each target client hands-on, then document config shape, placement path, env injection behavior, installed/dev command mode, observed limitations, and verification date in one place.
