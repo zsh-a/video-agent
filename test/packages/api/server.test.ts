@@ -242,6 +242,11 @@ describe('api server handler', () => {
     expect(html).to.include('fromStage: byId("rerun-stage").value || undefined')
     expect(html).to.include('api("/worker"')
     expect(html).to.include('api("/provider-test"')
+    expect(html).to.include('formatApiError')
+    expect(html).to.include('checkpoint_invalid')
+    expect(html).to.include('export_quality_failed')
+    expect(html).to.include('missingArtifacts')
+    expect(html).to.include('quality.errors + " errors, " + quality.warnings + " warnings"')
   })
 
   it('rejects non-GET Web Studio requests', async () => {

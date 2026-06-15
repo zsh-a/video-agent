@@ -1024,9 +1024,46 @@ function renderStudioHtml(): string {
   <script type="module">
     const state = {projectId: undefined};
     const byId = (id) => document.getElementById(id);
+    const listText = (items) => Array.isArray(items) && items.length > 0 ? items.join(", ") : "none";
+    const formatApiError = (status, error, fallback) => {
+      if (error?.code === "checkpoint_invalid") {
+        return [
+          "HTTP " + status + " checkpoint_invalid: " + (error.message ?? "Checkpoint artifacts are invalid."),
+          "missing: " + listText(error.missingArtifacts),
+          "changed: " + listText(error.changedArtifacts),
+          "schema invalid: " + listText(error.schemaInvalidArtifacts),
+          "untracked: " + listText(error.untrackedArtifacts),
+        ].join(" | ");
+      }
+      if (error?.code === "export_quality_failed") {
+        const quality = error.quality?.summary;
+        const qualityText = quality === undefined ? "quality report unavailable" : quality.errors + " errors, " + quality.warnings + " warnings";
+        return "HTTP " + status + " export_quality_failed: " + qualityText + " - " + (error.message ?? "Project quality gate failed.");
+      }
+      if (error?.code === "validation_error") {
+        const issues = Array.isArray(error.issues) ? error.issues.map((issue) => (issue.path ?? []).join(".") + ": " + issue.message).join("; ") : "no issue details";
+        return "HTTP " + status + " validation_error: " + issues;
+      }
+      return "HTTP " + status + ": " + (error?.message ?? fallback);
+    };
+    const createApiError = async (response) => {
+      const bodyText = await response.text();
+      let body;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        body = undefined;
+      }
+      const error = body?.error;
+      const result = new Error(formatApiError(response.status, error, bodyText));
+      result.status = response.status;
+      result.body = body;
+      result.apiError = error;
+      return result;
+    };
     const api = async (path, options = {}) => {
       const response = await fetch(path, options);
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw await createApiError(response);
       return response.json();
     };
     const text = (value) => value === undefined || value === null ? "" : String(value);
