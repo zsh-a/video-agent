@@ -211,6 +211,48 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats events action results', () => {
+    expect(formatTuiActionResult({
+      result: {
+        events: [
+          {
+            event: {
+              projectId: 'demo',
+              stage: 'ingest',
+              time: '2026-06-15T00:00:00.000Z',
+              type: 'stage:start',
+            },
+            kind: 'pipeline',
+            time: '2026-06-15T00:00:00.000Z',
+          },
+          {
+            event: {
+              completedAt: '2026-06-15T00:00:01.000Z',
+              durationMs: 120,
+              input: {},
+              operation: 'transcribe',
+              output: {},
+              provider: 'mock',
+              requestId: 'req-1',
+              role: 'asr',
+              startedAt: '2026-06-15T00:00:00.880Z',
+              status: 'succeeded',
+              version: 1,
+            },
+            kind: 'provider',
+            time: '2026-06-15T00:00:01.000Z',
+          },
+        ],
+        projectId: 'demo',
+      },
+      type: 'events',
+    })).to.equal([
+      'Action: events demo -> 2 events',
+      '  2026-06-15T00:00:00.000Z pipeline stage:start ingest',
+      '  2026-06-15T00:00:01.000Z provider asr transcribe succeeded 120ms',
+    ].join('\n'))
+  })
+
   it('formats visual action results', () => {
     expect(formatTuiActionResult({
       report: {
@@ -298,6 +340,43 @@ describe('tui command', () => {
       })
       expect(result.type === 'quality' && result.report.qualityReport).to.be.an('object')
       expect(result.type === 'quality' && result.report.renderOutput).to.be.an('object')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs events action with provider filters', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-events-'))
+
+    try {
+      await createEventsProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'events',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        eventKind: 'provider',
+        eventLimit: 1,
+        eventProviderRole: 'vlm',
+        eventProviderStatus: 'failed',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('events')
+      expect(result.type === 'events' && result.result.events).to.have.length(1)
+      expect(result.type === 'events' && result.result.events[0]?.kind).to.equal('provider')
+      expect(result.type === 'events' && result.result.events[0]?.kind === 'provider' && result.result.events[0].event).to.include({
+        operation: 'analyzeScenes',
+        role: 'vlm',
+        status: 'failed',
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -731,6 +810,7 @@ describe('tui command', () => {
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action quality --quality-details --json --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent artifacts 'demo project' --verify --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action events --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action visual --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
@@ -915,6 +995,59 @@ async function createQualityProject(root: string, projectId: string): Promise<vo
     })}\n`,
   )
   await refreshArtifactManifest(artifactsDir)
+}
+
+async function createEventsProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+
+  await mkdir(artifactsDir, {recursive: true})
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath: '/tmp/input.mp4',
+    projectId,
+    stages: ['ingest', 'understand'],
+  })
+  await writeFile(
+    join(artifactsDir, 'pipeline-events.jsonl'),
+    [
+      JSON.stringify({projectId, stage: 'ingest', time: '2026-06-15T00:00:00.000Z', type: 'stage:start'}),
+      JSON.stringify({projectId, stage: 'ingest', time: '2026-06-15T00:00:01.000Z', type: 'stage:complete'}),
+    ].join('\n') + '\n',
+  )
+  await writeFile(
+    join(artifactsDir, 'provider-calls.jsonl'),
+    [
+      JSON.stringify({
+        completedAt: '2026-06-15T00:00:02.000Z',
+        durationMs: 100,
+        input: {},
+        operation: 'transcribe',
+        output: {},
+        provider: 'mock',
+        requestId: 'req-asr',
+        role: 'asr',
+        startedAt: '2026-06-15T00:00:01.900Z',
+        status: 'succeeded',
+        version: 1,
+      }),
+      JSON.stringify({
+        completedAt: '2026-06-15T00:00:03.000Z',
+        durationMs: 120,
+        error: {
+          message: 'failed',
+          name: 'Error',
+        },
+        input: {},
+        operation: 'analyzeScenes',
+        provider: 'mock',
+        requestId: 'req-vlm',
+        role: 'vlm',
+        startedAt: '2026-06-15T00:00:02.880Z',
+        status: 'failed',
+        version: 1,
+      }),
+    ].join('\n') + '\n',
+  )
 }
 
 async function createVisualSampleProject(root: string, projectId: string): Promise<void> {

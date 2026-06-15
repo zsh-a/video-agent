@@ -155,7 +155,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 37,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['events', projectId, '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'events', '--workspace', options.workspaceDir],
       category: 'inspect',
       description: 'Read recent pipeline and provider events for the focused project.',
       id: 'read-events',

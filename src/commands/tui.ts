@@ -1,4 +1,4 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
 import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
@@ -8,7 +8,7 @@ import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/ch
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 import {formatQualityRenderSummary} from './quality.js'
 
-export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'visual' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'visual' | 'worker'
 
 type TuiQualityReport = ProjectQualityReport & {qualityReport?: unknown; renderOutput?: unknown}
 
@@ -32,12 +32,17 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'visual', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
     'dry-run': Flags.boolean({description: 'Preview worker recovery when --action worker is used'}),
+    'event-kind': Flags.string({description: 'Event kind filter when --action events is used', options: ['pipeline', 'provider']}),
     'event-limit': Flags.integer({default: 6, description: 'Maximum recent events to show for the selected project'}),
+    'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: ['asr', 'tts', 'vlm']}),
+    'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: ['failed', 'succeeded']}),
+    'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
+    'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:retry', 'stage:start']}),
     'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats when --action export is used'}),
     'export-format': Flags.string({default: 'video', description: 'Export format when --action export is used', options: ['video', 'hyperframes', 'bundle']}),
     'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),
@@ -109,6 +114,12 @@ export default class Tui extends Command {
       artifactName: flags.artifact,
       commandPrefix: flags['command-prefix'],
       dryRun: flags['dry-run'],
+      eventKind: flags['event-kind'] as ProjectEventKind | undefined,
+      eventLimit: flags['event-limit'],
+      eventPipelineStage: flags['event-stage'],
+      eventPipelineType: flags['event-type'] as ProjectPipelineEventType | undefined,
+      eventProviderRole: flags['event-provider-role'] as ProviderCallRole | undefined,
+      eventProviderStatus: flags['event-provider-status'] as ProviderCallStatus | undefined,
       exportCleanOutput: flags['export-clean-output'],
       exportFormat: flags['export-format'] as ExportFormat,
       exportOutputPath: flags['export-output'],
@@ -192,7 +203,7 @@ export default class Tui extends Command {
 
 export interface ReadTuiSnapshotOptions {
   artifactLimit: number
-  eventLimit: number
+  eventLimit?: number
   projectId?: string
   workspaceDir: string
 }
@@ -203,6 +214,12 @@ export interface RunTuiActionOptions {
   artifactName?: string
   commandPrefix: string
   dryRun?: boolean
+  eventKind?: ProjectEventKind
+  eventLimit?: number
+  eventPipelineStage?: string
+  eventPipelineType?: ProjectPipelineEventType
+  eventProviderRole?: ProviderCallRole
+  eventProviderStatus?: ProviderCallStatus
   exportCleanOutput?: boolean
   exportFormat: ExportFormat
   exportOutputPath?: string
@@ -253,6 +270,7 @@ export type TuiActionResult =
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
   | {report: TuiQualityReport; type: 'quality'}
   | {result: ExportProjectResult; type: 'export'}
+  | {result: ProjectEventsResult; type: 'events'}
   | {result: RenderProjectResult; type: 'render'}
   | {type: 'dashboard'}
 
@@ -351,6 +369,23 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
     return {
       report: options.qualityDetails === true ? await readProjectQualityDetails(projectId, options.workspaceDir) : await readProjectQuality(projectId, options.workspaceDir),
       type: 'quality',
+    }
+  }
+
+  if (options.action === 'events') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      result: await readProjectEvents(projectId, {
+        kind: options.eventKind,
+        limit: options.eventLimit,
+        pipelineStage: options.eventPipelineStage,
+        pipelineType: options.eventPipelineType,
+        providerRole: options.eventProviderRole,
+        providerStatus: options.eventProviderStatus,
+        workspaceDir: options.workspaceDir,
+      }),
+      type: 'events',
     }
   }
 
@@ -575,6 +610,13 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       `Render: ${formatQualityRenderSummary(result.report.render)}`,
       `Artifacts: ${result.report.artifacts.ok ? 'ok' : 'not ok'} (${result.report.artifacts.summary.changed} changed, ${result.report.artifacts.summary.missing} missing, ${result.report.artifacts.summary.schemaInvalid} schema invalid, ${result.report.artifacts.summary.untracked} untracked)`,
       `Details: ${result.report.qualityReport === undefined && result.report.renderOutput === undefined ? 'not included' : 'included'}`,
+    ].join('\n')
+  }
+
+  if (result.type === 'events') {
+    return [
+      `Action: events ${result.result.projectId} -> ${result.result.events.length} events`,
+      ...(result.result.events.length === 0 ? ['  none'] : result.result.events.map((event) => `  ${formatTuiEventRecord(event)}`)),
     ].join('\n')
   }
 
@@ -821,6 +863,10 @@ function formatEvents(events: ProjectEventRecord[]): string[] {
   }
 
   return events.map((event) => `  ${event.time} ${event.kind.padEnd(8)} ${formatEventDetail(event)}`)
+}
+
+function formatTuiEventRecord(record: ProjectEventRecord): string {
+  return `${record.time} ${record.kind} ${formatEventDetail(record)}`
 }
 
 function formatEventDetail(record: ProjectEventRecord): string {
