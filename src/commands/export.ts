@@ -1,5 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type ExportFormat, exportProject} from '@video-agent/runtime'
+import {type ExportFormat, exportProject, ExportQualityError, type ProjectQualityReport} from '@video-agent/runtime'
+
+import {formatQualityRenderSummary} from './quality.js'
 
 export default class Export extends Command {
   static args = {
@@ -16,13 +18,38 @@ export default class Export extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Export)
-    const output = await exportProject({
-      format: flags.format as ExportFormat,
-      outputPath: flags.output,
-      projectId: args.project,
-      requireQuality: flags['require-quality'],
-      workspaceDir: flags.workspace,
-    })
+    let output
+
+    try {
+      output = await exportProject({
+        format: flags.format as ExportFormat,
+        outputPath: flags.output,
+        projectId: args.project,
+        requireQuality: flags['require-quality'],
+        workspaceDir: flags.workspace,
+      })
+    } catch (error) {
+      if (error instanceof ExportQualityError) {
+        if (flags.json) {
+          this.log(JSON.stringify({
+            error: {
+              code: 'export.quality_failed',
+              message: error.message,
+            },
+            ok: false,
+            projectId: error.projectId,
+            quality: error.quality,
+          }, null, 2))
+        } else {
+          this.log(formatExportQualityFailure(error.projectId, error.quality))
+        }
+
+        process.exitCode = 1
+        return
+      }
+
+      throw error
+    }
 
     if (flags.json) {
       this.log(JSON.stringify(output, null, 2))
@@ -36,4 +63,14 @@ export default class Export extends Command {
     this.log(`Quality gate: ${output.requireQuality ? 'required' : 'not required'}`)
     this.log(`Artifact: ${output.artifactPath}`)
   }
+}
+
+export function formatExportQualityFailure(projectId: string, quality: ProjectQualityReport): string {
+  return [
+    `Export blocked: project ${projectId} did not pass quality checks.`,
+    `Quality: ${quality.summary.errors} errors, ${quality.summary.warnings} warnings`,
+    `Pipeline: ${quality.pipeline.errors} errors, ${quality.pipeline.warnings} warnings`,
+    `Render: ${formatQualityRenderSummary(quality.render)}`,
+    `Artifacts: ${quality.artifacts.ok ? 'ok' : 'not ok'} (${quality.artifacts.changed.length} changed, ${quality.artifacts.missing.length} missing, ${quality.artifacts.schemaInvalid.length} schema invalid, ${quality.artifacts.untracked.length} untracked)`,
+  ].join('\n')
 }
