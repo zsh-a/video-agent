@@ -54,6 +54,7 @@ describe('mcp server', () => {
     const runProperties = toolsByName.get('video_agent_run')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const guidedActionProperties = toolsByName.get('video_agent_guided_actions')?.inputSchema.properties as Record<string, {description?: string}> | undefined
 
+    expect(guidedActionProperties?.artifactLimit.description).to.include('Maximum number of project artifacts')
     expect(renderProperties?.projectId.description).to.equal('Project id inside the video-agent workspace.')
     expect(renderProperties?.hyperframesCommand.description).to.include('External HyperFrames command prefix')
     expect(renderProperties?.audio.description).to.include('render without source or voiceover audio')
@@ -349,6 +350,7 @@ describe('mcp server', () => {
         method: 'tools/call',
         params: {
           arguments: {
+            artifactLimit: 0,
             commandPrefix: 'bun run dev',
             projectId: 'demo',
           },
@@ -359,6 +361,7 @@ describe('mcp server', () => {
       const result = JSON.parse(content[0]?.text ?? '{}') as {actions: Array<{category: string; command: string; id: string}>; projectId: string}
 
       expect(result.projectId).to.equal('demo')
+      expect(result.actions.map((action) => action.id)).to.not.include('open-artifact')
       expect(result.actions.find((action) => action.id === 'inspect-status')).to.include({
         category: 'inspect',
         command: `bun run dev status demo --workspace ${root}`,

@@ -80,6 +80,7 @@ export default class Tui extends Command {
 
     let actionResult = await runTuiAction({
       action,
+      artifactLimit: flags['artifact-limit'],
       artifactName: flags.artifact,
       commandPrefix: flags['command-prefix'],
       dryRun: flags['dry-run'],
@@ -152,6 +153,7 @@ export interface ReadTuiSnapshotOptions {
 
 export interface RunTuiActionOptions {
   action: TuiAction
+  artifactLimit: number
   artifactName?: string
   commandPrefix: string
   dryRun?: boolean
@@ -188,7 +190,7 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
   if (options.action === 'commands') {
     return {
       commands: createTuiCommandSuggestions(await readTuiSnapshot({
-        artifactLimit: 5,
+        artifactLimit: options.artifactLimit,
         eventLimit: 0,
         projectId: options.projectId,
         workspaceDir: options.workspaceDir,
@@ -200,7 +202,7 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
   if (options.action === 'select') {
     return {
       commands: createTuiCommandSuggestions(await readTuiSnapshot({
-        artifactLimit: 5,
+        artifactLimit: options.artifactLimit,
         eventLimit: 0,
         projectId: options.projectId,
         workspaceDir: options.workspaceDir,

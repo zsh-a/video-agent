@@ -86,6 +86,22 @@ describe('api server handler', () => {
     expect(response.status).to.equal(404)
   })
 
+  it('passes guided action artifact limits through the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const result = await readJson<{actions: Array<{id: string}>}>(fetch, '/projects/demo/actions?artifactLimit=0')
+
+      expect(result.actions.map((action) => action.id)).to.include('inspect-status')
+      expect(result.actions.map((action) => action.id)).to.not.include('open-artifact')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('can include raw quality details from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 

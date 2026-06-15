@@ -119,6 +119,7 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
     }
 
     return jsonResponse(await readVideoAgentGuidedActions({
+      artifactLimit: parseOptionalInteger(url.searchParams.get('artifactLimit')),
       commandPrefix: readCommandPrefix(url.searchParams),
       workspaceDir,
     }))
@@ -310,6 +311,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
 
   if (resource === 'actions') {
     return jsonResponse(await readVideoAgentGuidedActions({
+      artifactLimit: parseOptionalInteger(url.searchParams.get('artifactLimit')),
       commandPrefix: readCommandPrefix(url.searchParams),
       projectId,
       workspaceDir,

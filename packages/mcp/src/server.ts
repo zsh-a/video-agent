@@ -90,6 +90,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     text: stringSchema('Sample narration text for TTS smoke tests.'),
   }),
   createTool('video_agent_guided_actions', 'Read reusable guided action metadata for a workspace or focused project.', {
+    artifactLimit: integerSchema('Maximum number of project artifacts to include in generated artifact preview actions. Defaults to 5.'),
     commandPrefix: stringSchema('Command prefix for generated copyable commands, for example "vagent" or "bun run dev". Defaults to vagent.'),
     projectId: stringSchema('Optional project id to focus. Defaults to the most recently updated project when one exists.'),
   }),
@@ -266,6 +267,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_guided_actions': {
       return readVideoAgentGuidedActions({
+        artifactLimit: readOptionalInteger(args, 'artifactLimit'),
         commandPrefix: readOptionalString(args, 'commandPrefix'),
         projectId: readOptionalString(args, 'projectId'),
         workspaceDir,
