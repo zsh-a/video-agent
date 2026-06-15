@@ -189,8 +189,7 @@ Concrete providers can wrap remote APIs or local services. Local model inference
 
 ## Near-Term Roadmap
 
-1. Improve clip selection and source-range planning.
-2. Replace mock ASR/VLM/TTS providers with real provider adapters behind the existing config contract.
-3. Replace the dependency-free TUI guided selector with richer Ink/Clack command interactions.
-4. Expand Web Studio actions over the existing API surface.
-5. Expand MCP/client integration examples and Claude Code skill distribution docs.
+1. Select the first hosted ASR/VLM/TTS service and implement a real-provider vertical slice behind the existing contracts, using the shared provider descriptor documented in `docs/provider-configuration-model.md`.
+2. Validate MCP config output against named external clients and document placement, env injection, config shape, command mode, limitations, and verification dates in a client matrix.
+3. Expand real-provider support to additional hosted ASR/VLM/TTS services after the first slice proves the configuration model.
+4. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions after the dependency policy is accepted.

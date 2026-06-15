@@ -174,7 +174,7 @@ Acceptance criteria:
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests with structured provider response validation diagnostics and shared summary counts, HTTP provider trace headers/custom headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports with shared summary counts, non-secret shell templates, config-time provider env summaries, explicit env injection across CLI/API/MCP provider and doctor checks, shared ASR/VLM/TTS artifact schemas, transcript-aligned VLM scene batches, ASR/VLM evidence-backed storyboard generation with scene-level source ranges, storyboard sourceRange quality checks, sequential fallback `clip-plan.json` source-range planning with gap/overlap diagnostics, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and Clack-styled interactive configuration are implemented; provider-specific hosted-service adapters are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests with structured provider response validation diagnostics and shared summary counts, HTTP provider trace headers/custom headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports with shared summary counts, non-secret shell templates, config-time provider env summaries, explicit env injection across CLI/API/MCP provider and doctor checks, shared ASR/VLM/TTS artifact schemas, transcript-aligned VLM scene batches, ASR/VLM evidence-backed storyboard generation with scene-level source ranges, storyboard sourceRange quality checks, sequential fallback `clip-plan.json` source-range planning with gap/overlap diagnostics, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, Clack-styled interactive configuration, and the shared provider configuration descriptor documented in `docs/provider-configuration-model.md` are implemented; provider-specific hosted-service adapters are still pending.
 
 ## Phase 5: Persistence and Recovery
 
@@ -224,11 +224,10 @@ Status: in progress. A first stdio MCP adapter is implemented with tools for doc
 
 Recommended order:
 
-1. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
-2. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions when dependency policy allows it.
-3. Test the generic MCP config output against named external clients and document any client-specific placement details.
-4. Add named external client placement notes after hands-on checks against each target host.
-5. Add named hosted-service provider adapters once target services are selected.
+1. Select the first hosted ASR/VLM/TTS service target and implement one real-provider vertical slice behind the existing contracts. The first slice must include provider-specific request/response mapping, Zod validation, descriptor-based `provider-env` requirements, `provider-test` smoke coverage with injected fetch or command shims, provider call metadata, failure diagnostics, and no secret values in reports.
+2. Create a named MCP client validation matrix for the generic config output. Test each target client hands-on, then document config shape, placement path, env injection behavior, installed/dev command mode, observed limitations, and verification date in one place.
+3. Expand the first real-provider slice to additional ASR/VLM/TTS services only after the configuration model and validation matrix are stable.
+4. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions after the dependency policy is explicitly accepted. This is an experience upgrade and should not block real-provider or MCP-client validation work.
 
 ## v0 Completion Definition
 

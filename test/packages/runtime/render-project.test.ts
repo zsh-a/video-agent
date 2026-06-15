@@ -48,6 +48,10 @@ describe('render project', () => {
       this.skip()
     }
 
+    if (!(await hasFfmpegSubtitleFilter())) {
+      this.skip()
+    }
+
     const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
     const inputPath = join(root, 'input.mp4')
 
@@ -339,4 +343,10 @@ async function expectFrameSamples(samples: TestVisualFrameSample[] | undefined):
 
 async function hasFfmpeg(): Promise<boolean> {
   return (await runProcess(['ffmpeg', '-version'])).code === 0
+}
+
+async function hasFfmpegSubtitleFilter(): Promise<boolean> {
+  const result = await runProcess(['ffmpeg', '-hide_banner', '-filters'])
+
+  return result.code === 0 && result.stdout.split('\n').some((line) => /\bsubtitles\b/.test(line))
 }

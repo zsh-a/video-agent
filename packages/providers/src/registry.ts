@@ -2,11 +2,20 @@ import type {ASRProvider, TTSProvider, VLMProvider} from './contracts.js'
 import type {ProviderFetch} from './http.js'
 
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
+import {providerEnvName, type ProviderRole} from './descriptors.js'
 import {HttpASRProvider, HttpTTSProvider, HttpVLMProvider} from './http.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
 
-export type ProviderName = 'command' | 'http' | 'mock'
-export type ProviderRole = 'asr' | 'tts' | 'vlm'
+export {
+  BUILTIN_PROVIDER_NAMES,
+  getProviderDescriptor,
+  getProviderEnvironmentDefinitions,
+  isProviderName,
+  PROVIDER_DESCRIPTORS,
+  PROVIDER_ROLES,
+  providerEnvName,
+} from './descriptors.js'
+export type {ProviderDescriptor, ProviderEnvironmentDefinition, ProviderName, ProviderRequirementKind, ProviderRole} from './descriptors.js'
 
 export interface ProviderConfig {
   providers: {
@@ -91,10 +100,10 @@ export function createVlmProvider(name: string, options: ProviderRegistryOptions
 
 function resolveHttpOptions(role: ProviderRole, options: ProviderRegistryOptions): {fetch?: ProviderFetch; headers?: Record<string, string>; timeoutMs?: number; url: string} {
   const env = options.env ?? process.env
-  const urlEnv = `VIDEO_AGENT_${role.toUpperCase()}_URL`
-  const tokenEnv = `VIDEO_AGENT_${role.toUpperCase()}_TOKEN`
-  const headersEnv = `VIDEO_AGENT_${role.toUpperCase()}_HEADERS`
-  const timeoutEnv = `VIDEO_AGENT_${role.toUpperCase()}_TIMEOUT_MS`
+  const urlEnv = providerEnvName(role, 'URL')
+  const tokenEnv = providerEnvName(role, 'TOKEN')
+  const headersEnv = providerEnvName(role, 'HEADERS')
+  const timeoutEnv = providerEnvName(role, 'TIMEOUT_MS')
   const url = env[urlEnv]
 
   if (url === undefined || url.trim() === '') {
@@ -158,7 +167,7 @@ function parseTimeout(envName: string, value: string | undefined): number {
 }
 
 function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = process.env): string[] {
-  const name = `VIDEO_AGENT_${role.toUpperCase()}_COMMAND`
+  const name = providerEnvName(role, 'COMMAND')
   const value = env[name]
 
   if (value === undefined || value.trim() === '') {

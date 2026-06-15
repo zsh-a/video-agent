@@ -1,20 +1,21 @@
 import {cancel, intro, isCancel, outro, select, text} from '@clack/prompts'
 import {Command, Flags} from '@oclif/core'
+import {BUILTIN_PROVIDER_NAMES, type ProviderName} from '@video-agent/providers'
 import {type AgentConfig, type ConfigUpdate, type JobStoreKind, readConfig, readProviderEnvironment, writeConfig} from '@video-agent/runtime'
 
-type ProviderKind = 'command' | 'http' | 'mock'
+const PROVIDER_CONFIG_OPTIONS = [...BUILTIN_PROVIDER_NAMES]
 
 export default class Config extends Command {
   static description = 'Read or update video-agent provider configuration'
   static flags = {
-    asr: Flags.string({description: 'ASR provider', options: ['command', 'http', 'mock']}),
+    asr: Flags.string({description: 'ASR provider', options: PROVIDER_CONFIG_OPTIONS}),
     interactive: Flags.boolean({char: 'i', description: 'Prompt for provider, persistence, and retry settings'}),
     'job-store': Flags.string({description: 'Job state backend', options: ['json', 'sqlite']}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'max-stage-retries': Flags.integer({description: 'Retries per pipeline stage before failing'}),
     'retry-backoff-ms': Flags.integer({description: 'Delay between stage retry attempts'}),
-    tts: Flags.string({description: 'TTS provider', options: ['command', 'http', 'mock']}),
-    vlm: Flags.string({description: 'VLM provider', options: ['command', 'http', 'mock']}),
+    tts: Flags.string({description: 'TTS provider', options: PROVIDER_CONFIG_OPTIONS}),
+    vlm: Flags.string({description: 'VLM provider', options: PROVIDER_CONFIG_OPTIONS}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -87,9 +88,9 @@ async function promptForConfig(current: AgentConfig): Promise<ConfigUpdate> {
   return update
 }
 
-async function promptProviderChoice(label: string, current: string): Promise<ProviderKind> {
+async function promptProviderChoice(label: string, current: string): Promise<ProviderName> {
   return readPromptValue(
-    await select<ProviderKind>({
+    await select<ProviderName>({
       initialValue: normalizeProviderKind(current),
       message: label,
       options: [
@@ -137,7 +138,7 @@ function readPromptValue<T>(value: symbol | T): T {
   return value
 }
 
-function normalizeProviderKind(value: string): ProviderKind {
+function normalizeProviderKind(value: string): ProviderName {
   if (value === 'command' || value === 'http' || value === 'mock') {
     return value
   }

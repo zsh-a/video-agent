@@ -1,3 +1,5 @@
+import {getProviderEnvironmentDefinitions, PROVIDER_ROLES, type ProviderRole} from '@video-agent/providers'
+
 import type {AgentConfig} from './config.js'
 
 import {readConfig} from './config.js'
@@ -34,10 +36,6 @@ export interface ProviderEnvironmentShellTemplateOptions {
   includeOptional?: boolean
 }
 
-type ProviderRole = ProviderEnvironmentRoleReport['role']
-
-const PROVIDER_ROLES: readonly ProviderRole[] = ['asr', 'vlm', 'tts']
-
 export async function readProviderEnvironment(workspaceDir = '.video-agent', env: Record<string, string | undefined> = process.env): Promise<ProviderEnvironmentReport> {
   const config = await readConfig(workspaceDir)
   const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, env))
@@ -64,11 +62,11 @@ export function createProviderEnvironmentShellTemplate(report: ProviderEnvironme
 
     for (const requirement of provider.requirements) {
       if (!requirement.required && options.includeOptional !== true) {
-        lines.push(`# optional: ${requirement.description}`, `# export ${requirement.env}='${placeholderForRequirement(requirement)}'`)
+        lines.push(`# optional: ${requirement.description}`, `# export ${requirement.env}='${placeholderForRequirement(provider, requirement)}'`)
         continue
       }
 
-      lines.push(`export ${requirement.env}='${placeholderForRequirement(requirement)}'`)
+      lines.push(`export ${requirement.env}='${placeholderForRequirement(provider, requirement)}'`)
     }
   }
 
@@ -86,47 +84,12 @@ function createProviderEnvironmentRoleReport(role: ProviderRole, config: AgentCo
 }
 
 function createProviderRequirements(role: ProviderRole, provider: string, env: Record<string, string | undefined>): ProviderEnvironmentRequirement[] {
-  if (provider === 'command') {
-    return [
-      createRequirement({
-        description: `${role.toUpperCase()} command adapter argv as a JSON string array.`,
-        env,
-        name: `VIDEO_AGENT_${role.toUpperCase()}_COMMAND`,
-        required: true,
-      }),
-    ]
-  }
-
-  if (provider === 'http') {
-    return [
-      createRequirement({
-        description: `${role.toUpperCase()} HTTP adapter endpoint.`,
-        env,
-        name: `VIDEO_AGENT_${role.toUpperCase()}_URL`,
-        required: true,
-      }),
-      createRequirement({
-        description: `${role.toUpperCase()} bearer token for HTTP adapter requests.`,
-        env,
-        name: `VIDEO_AGENT_${role.toUpperCase()}_TOKEN`,
-        required: false,
-      }),
-      createRequirement({
-        description: `${role.toUpperCase()} HTTP adapter custom headers as a JSON object of string values.`,
-        env,
-        name: `VIDEO_AGENT_${role.toUpperCase()}_HEADERS`,
-        required: false,
-      }),
-      createRequirement({
-        description: `${role.toUpperCase()} HTTP adapter timeout in milliseconds.`,
-        env,
-        name: `VIDEO_AGENT_${role.toUpperCase()}_TIMEOUT_MS`,
-        required: false,
-      }),
-    ]
-  }
-
-  return []
+  return getProviderEnvironmentDefinitions(role, provider).map((definition) => createRequirement({
+    description: definition.description,
+    env,
+    name: definition.env,
+    required: definition.required,
+  }))
 }
 
 function createRequirement(options: {description: string; env: Record<string, string | undefined>; name: string; required: boolean}): ProviderEnvironmentRequirement {
@@ -158,26 +121,6 @@ function summarizeProviderEnvironment(providers: ProviderEnvironmentRoleReport[]
   }
 }
 
-function placeholderForRequirement(requirement: ProviderEnvironmentRequirement): string {
-  if (requirement.env.endsWith('_COMMAND')) {
-    return '["node","./providers/adapter.js"]'
-  }
-
-  if (requirement.env.endsWith('_URL')) {
-    return `https://provider.example/${requirement.env.toLowerCase().replace(/^video_agent_/, '').replace(/_url$/, '')}`
-  }
-
-  if (requirement.env.endsWith('_TOKEN')) {
-    return '<token>'
-  }
-
-  if (requirement.env.endsWith('_HEADERS')) {
-    return '{"x-api-key":"<token>"}'
-  }
-
-  if (requirement.env.endsWith('_TIMEOUT_MS')) {
-    return '60000'
-  }
-
-  return '<value>'
+function placeholderForRequirement(provider: ProviderEnvironmentRoleReport, requirement: ProviderEnvironmentRequirement): string {
+  return getProviderEnvironmentDefinitions(provider.role, provider.provider).find((definition) => definition.env === requirement.env)?.placeholder ?? '<value>'
 }

@@ -1,4 +1,5 @@
 import {runProcess} from '@video-agent/media'
+import {getProviderDescriptor, PROVIDER_ROLES, providerEnvName, type ProviderRole} from '@video-agent/providers'
 import {mkdir, unlink, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
@@ -72,11 +73,7 @@ async function checkProviderConfig(workspaceDir: string, env: Record<string, str
   try {
     const config = await readConfig(workspaceDir)
 
-    return [
-      checkProviderRole('asr', config, env),
-      checkProviderRole('vlm', config, env),
-      checkProviderRole('tts', config, env),
-    ]
+    return PROVIDER_ROLES.map((role) => checkProviderRole(role, config, env))
   } catch (error) {
     return [
       {
@@ -88,8 +85,18 @@ async function checkProviderConfig(workspaceDir: string, env: Record<string, str
   }
 }
 
-function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig, env: Record<string, string | undefined> | undefined): HealthCheck {
+function checkProviderRole(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> | undefined): HealthCheck {
   const provider = config.providers[role]
+  const descriptor = getProviderDescriptor(provider)
+
+  if (descriptor === undefined) {
+    return {
+      details: {provider},
+      message: `Unsupported ${role} provider: ${provider}`,
+      name: `provider:${role}`,
+      status: 'fail',
+    }
+  }
 
   if (provider === 'mock') {
     return {
@@ -108,16 +115,11 @@ function checkProviderRole(role: 'asr' | 'tts' | 'vlm', config: AgentConfig, env
     return checkHttpProvider(role, env)
   }
 
-  return {
-    details: {provider},
-    message: `Unsupported ${role} provider: ${provider}`,
-    name: `provider:${role}`,
-    status: 'fail',
-  }
+  return checkUnsupportedConfiguredProvider(role, provider)
 }
 
-function checkHttpProvider(role: 'asr' | 'tts' | 'vlm', env: Record<string, string | undefined> = process.env): HealthCheck {
-  const envName = `VIDEO_AGENT_${role.toUpperCase()}_URL`
+function checkHttpProvider(role: ProviderRole, env: Record<string, string | undefined> = process.env): HealthCheck {
+  const envName = providerEnvName(role, 'URL')
   const value = env[envName]
 
   if (value === undefined || value.trim() === '') {
@@ -157,8 +159,8 @@ function checkHttpProvider(role: 'asr' | 'tts' | 'vlm', env: Record<string, stri
   }
 }
 
-function checkCommandProvider(role: 'asr' | 'tts' | 'vlm', env: Record<string, string | undefined> = process.env): HealthCheck {
-  const envName = `VIDEO_AGENT_${role.toUpperCase()}_COMMAND`
+function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = process.env): HealthCheck {
+  const envName = providerEnvName(role, 'COMMAND')
   const value = env[envName]
 
   if (value === undefined || value.trim() === '') {
@@ -195,6 +197,15 @@ function checkCommandProvider(role: 'asr' | 'tts' | 'vlm', env: Record<string, s
       name: `provider:${role}`,
       status: 'fail',
     }
+  }
+}
+
+function checkUnsupportedConfiguredProvider(role: ProviderRole, provider: string): HealthCheck {
+  return {
+    details: {provider},
+    message: `Unsupported ${role} provider: ${provider}`,
+    name: `provider:${role}`,
+    status: 'fail',
   }
 }
 
