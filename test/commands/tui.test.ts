@@ -154,6 +154,72 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats audio action results', () => {
+    expect(formatTuiActionResult({
+      diagnostics: {
+        availableVoiceovers: 1,
+        missingVoiceovers: [
+          {
+            index: 1,
+            narrationId: 'narration-2',
+            path: 'tts/missing.wav',
+            reason: 'missing',
+            resolvedPath: '/tmp/project/tts/missing.wav',
+          },
+        ],
+        plan: {
+          generatedAt: '2026-06-15T00:00:00.000Z',
+          segments: [
+            {
+              alignment: 'narration-id',
+              index: 0,
+              narrationId: 'narration-1',
+              path: 'tts/part-1.wav',
+              resolvedPath: '/tmp/project/tts/part-1.wav',
+              start: 0,
+              status: 'available',
+            },
+          ],
+          version: 1,
+        },
+        warnings: ['No source audio file found.'],
+      },
+      projectId: 'demo',
+      type: 'audio',
+    })).to.equal([
+      'Action: audio demo -> available 1, missing 1',
+      '  warning: No source audio file found.',
+      '  missing: narration-2 (missing)',
+      '  voiceover: narration-1\tavailable\tstart=0',
+    ].join('\n'))
+  })
+
+  it('runs audio action without rendering', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-audio-'))
+
+    try {
+      const result = await runTuiAction({
+        action: 'audio',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        renderAudio: false,
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('audio')
+      expect(result.type === 'audio' && result.diagnostics.warnings).to.deep.equal(['Audio mixing disabled by render options.'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('runs render action against a HyperFrames project', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-render-'))
     const outputPath = join(root, 'hyperframes-output')
@@ -546,6 +612,7 @@ describe('tui command', () => {
     expect(commands.map((item) => item.command)).to.include("vagent quality 'demo project' --details --json --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent artifacts 'demo project' --verify --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent visual 'demo project' --json --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")

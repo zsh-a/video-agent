@@ -171,6 +171,14 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 51,
     }),
     createGuidedAction(commandPrefix, {
+      args: ['tui', '--project', projectId, '--action', 'audio', '--workspace', options.workspaceDir],
+      category: 'inspect',
+      description: 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.',
+      id: 'inspect-audio',
+      label: 'Inspect audio',
+      priority: 52,
+    }),
+    createGuidedAction(commandPrefix, {
       args: ['render', projectId, '--workspace', options.workspaceDir],
       category: 'render',
       description: 'Render the focused project with the default renderer settings.',

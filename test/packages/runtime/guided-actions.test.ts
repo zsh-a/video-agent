@@ -48,6 +48,10 @@ describe('guided actions', () => {
         category: 'inspect',
         description: 'Inspect aggregate quality with raw quality-report and render-output details.',
       })
+      expect(result.actions.find((action) => action.id === 'inspect-audio')).to.include({
+        category: 'inspect',
+        description: 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.',
+      })
       expect(result.actions.find((action) => action.id === 'export-hyperframes-clean')).to.include({
         category: 'export',
         description: 'Export the HyperFrames render directory after cleaning stale output files and passing project quality.',
@@ -57,6 +61,7 @@ describe('guided actions', () => {
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev quality 'demo project' --details --json --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev artifacts 'demo project' --verify --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev visual 'demo project' --json --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action audio --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev export 'demo project' --require-quality --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev export 'demo project' --format hyperframes --clean-output --require-quality --workspace ${root}`)
     } finally {

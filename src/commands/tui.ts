@@ -1,13 +1,13 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, exportProject, ExportQualityError, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 
-export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'render' | 'rerun' | 'select' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'render' | 'rerun' | 'select' | 'worker'
 
 export interface TuiSnapshot {
   artifactIntegrity?: ArtifactIntegrityResult
@@ -29,7 +29,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'export', 'provider-test', 'render', 'rerun', 'select', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'export', 'provider-test', 'render', 'rerun', 'select', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -237,6 +237,7 @@ export type TuiActionResult =
   | {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'}
   | {commands: TuiCommandSuggestion[]; selected?: TuiCommandSuggestion; type: 'select'}
   | {commands: TuiCommandSuggestion[]; type: 'commands'}
+  | {diagnostics: FfmpegAudioDiagnostics; projectId: string; type: 'audio'}
   | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
@@ -329,6 +330,26 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         workspaceDir: options.workspaceDir,
       }),
       type: 'provider-test',
+    }
+  }
+
+  if (options.action === 'audio') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      diagnostics: await inspectFfmpegAudio(projectId, {
+        audio: options.renderAudio,
+        audioDucking: options.renderAudioDucking,
+        duckingAttackMs: options.renderDuckingAttackMs,
+        duckingRatio: options.renderDuckingRatio,
+        duckingReleaseMs: options.renderDuckingReleaseMs,
+        duckingThreshold: options.renderDuckingThreshold,
+        sourceVolume: options.renderSourceVolume,
+        voiceoverVolume: options.renderVoiceoverVolume,
+        workspaceDir: options.workspaceDir,
+      }),
+      projectId,
+      type: 'audio',
     }
   }
 
@@ -500,6 +521,15 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       `Validated: ${result.result.validation === undefined ? 'no' : 'yes'}`,
       `Rendered: ${result.result.rendered === undefined ? 'no' : 'yes'}`,
       `Artifact: ${result.result.artifactPath}`,
+    ].join('\n')
+  }
+
+  if (result.type === 'audio') {
+    return [
+      `Action: audio ${result.projectId} -> available ${result.diagnostics.availableVoiceovers}, missing ${result.diagnostics.missingVoiceovers.length}`,
+      ...result.diagnostics.warnings.map((warning) => `  warning: ${warning}`),
+      ...result.diagnostics.missingVoiceovers.map((voiceover) => `  missing: ${voiceover.narrationId ?? `index ${voiceover.index}`} (${voiceover.reason})`),
+      ...result.diagnostics.plan.segments.map((voiceover) => `  voiceover: ${voiceover.narrationId ?? `index ${voiceover.index}`}\t${voiceover.status}\tstart=${voiceover.start}`),
     ].join('\n')
   }
 
