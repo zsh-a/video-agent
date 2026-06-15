@@ -64,8 +64,9 @@ describe('guided actions', () => {
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action events --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action visual --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action audio --workspace ${root}`)
-      expect(result.actions.map((action) => action.command)).to.include(`bun run dev export 'demo project' --require-quality --workspace ${root}`)
-      expect(result.actions.map((action) => action.command)).to.include(`bun run dev export 'demo project' --format hyperframes --clean-output --require-quality --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action render --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action export --export-require-quality --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action export --export-format hyperframes --export-clean-output --export-require-quality --workspace ${root}`)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

@@ -179,7 +179,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 52,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['render', projectId, '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'render', '--workspace', options.workspaceDir],
       category: 'render',
       description: 'Render the focused project with the default renderer settings.',
       id: 'render-final-video',
@@ -187,7 +187,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 60,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['export', projectId, '--require-quality', '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'export', '--export-require-quality', '--workspace', options.workspaceDir],
       category: 'export',
       description: 'Export the latest rendered output only after project quality passes.',
       id: 'export-output',
@@ -195,7 +195,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 70,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['export', projectId, '--format', 'hyperframes', '--clean-output', '--require-quality', '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'export', '--export-format', 'hyperframes', '--export-clean-output', '--export-require-quality', '--workspace', options.workspaceDir],
       category: 'export',
       description: 'Export the HyperFrames render directory after cleaning stale output files and passing project quality.',
       id: 'export-hyperframes-clean',
