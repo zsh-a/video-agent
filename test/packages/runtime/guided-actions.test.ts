@@ -19,6 +19,7 @@ describe('guided actions', () => {
       'list-projects',
     ])
     expect(actions.map((action) => action.command)).to.include("vagent tui --action worker --dry-run --workspace 'workspace dir'")
+    expect(actions.map((action) => action.command)).to.include("vagent tui --action projects --workspace 'workspace dir'")
   })
 
   it('reads project actions with quoted artifact and project arguments', async () => {

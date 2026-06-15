@@ -88,7 +88,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 40,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['projects', '--workspace', options.workspaceDir],
+      args: ['tui', '--action', 'projects', '--workspace', options.workspaceDir],
       category: 'inspect',
       description: 'List projects in the workspace.',
       id: 'list-projects',

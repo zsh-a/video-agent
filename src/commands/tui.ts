@@ -9,7 +9,7 @@ import {createExportQualityFailurePayload, formatExportQualityFailure} from './e
 import {formatQualityRenderSummary} from './quality.js'
 import {formatProjectStatus} from './status.js'
 
-export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'status' | 'verify' | 'visual' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'projects' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'status' | 'verify' | 'visual' | 'worker'
 
 type TuiQualityReport = ProjectQualityReport & {qualityReport?: unknown; renderOutput?: unknown}
 
@@ -33,7 +33,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'status', 'verify', 'visual', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'projects', 'provider-test', 'quality', 'render', 'rerun', 'select', 'status', 'verify', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -268,6 +268,7 @@ export type TuiActionResult =
   | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
   | {projectId: string; result: ArtifactIntegrityResult; type: 'verify'}
+  | {projects: ProjectSummary[]; type: 'projects'}
   | {report: ProjectVisualSamplesReport; type: 'visual'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
   | {report: TuiQualityReport; type: 'quality'}
@@ -363,6 +364,13 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         workspaceDir: options.workspaceDir,
       }),
       type: 'provider-test',
+    }
+  }
+
+  if (options.action === 'projects') {
+    return {
+      projects: await listProjects(options.workspaceDir),
+      type: 'projects',
     }
   }
 
@@ -632,6 +640,13 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       `Render: ${formatQualityRenderSummary(result.report.render)}`,
       `Artifacts: ${result.report.artifacts.ok ? 'ok' : 'not ok'} (${result.report.artifacts.summary.changed} changed, ${result.report.artifacts.summary.missing} missing, ${result.report.artifacts.summary.schemaInvalid} schema invalid, ${result.report.artifacts.summary.untracked} untracked)`,
       `Details: ${result.report.qualityReport === undefined && result.report.renderOutput === undefined ? 'not included' : 'included'}`,
+    ].join('\n')
+  }
+
+  if (result.type === 'projects') {
+    return [
+      `Action: projects -> ${result.projects.length} projects`,
+      ...(result.projects.length === 0 ? ['  none'] : result.projects.map((project) => `  ${project.projectId}\t${project.status ?? 'unknown'}\t${project.updatedAt ?? '-'}`)),
     ].join('\n')
   }
 

@@ -230,6 +230,28 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats projects action results', () => {
+    expect(formatTuiActionResult({
+      projects: [
+        {
+          projectDir: '/tmp/workspace/projects/demo',
+          projectId: 'demo',
+          status: 'completed',
+          updatedAt: '2026-06-15T00:00:00.000Z',
+        },
+        {
+          projectDir: '/tmp/workspace/projects/legacy',
+          projectId: 'legacy',
+        },
+      ],
+      type: 'projects',
+    })).to.equal([
+      'Action: projects -> 2 projects',
+      '  demo\tcompleted\t2026-06-15T00:00:00.000Z',
+      '  legacy\tunknown\t-',
+    ].join('\n'))
+  })
+
   it('formats events action results', () => {
     expect(formatTuiActionResult({
       result: {
@@ -441,6 +463,32 @@ describe('tui command', () => {
       expect(result.type).to.equal('status')
       expect(result.type === 'status' && result.status.projectId).to.equal('demo')
       expect(result.type === 'status' && result.status.artifacts).to.include.members(['quality-report.json', 'render-output.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs projects action against a workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-projects-'))
+
+    try {
+      await createQualityProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'projects',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        providerRole: 'all',
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('projects')
+      expect(result.type === 'projects' && result.projects.map((project) => project.projectId)).to.deep.equal(['demo'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
