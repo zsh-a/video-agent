@@ -402,7 +402,7 @@ bun run dev artifacts <projectId> --verify
 bun run dev rerun <projectId> --from-stage script
 ```
 
-`run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。media/storyboard/clip-plan/timeline/narration 这类 IR artifact 还会通过 Zod schema 校验后才进入后续 stage。校验失败不会把 job state 写成新的运行。
+`run --from-stage` 和 `rerun --from-stage` 会在启动前校验该 checkpoint 依赖的 artifacts。缺失时会一次性列出缺少的文件；如果存在 `artifact-manifest.json`，还会拒绝使用 hash/size 已变化或未纳入 manifest 的前置 artifact。media/storyboard/clip-plan/timeline/narration 这类 IR artifact 还会通过 Zod schema 校验后才进入后续 stage。校验失败不会把 job state 写成新的运行；CLI 非 JSON 输出会列出 missing/changed/schema invalid/untracked required artifacts，`--json` 会返回 `error.code: "checkpoint_invalid"` 和同样的 artifact 列表。
 
 `worker` 会扫描 workspace 内 failed/running 的本地 job，从第一个 failed/running/pending stage 恢复执行。可以用 `--dry-run` 查看将恢复哪些项目，用 `--status failed|running|active` 过滤状态，用 `--limit` 控制本轮恢复数量，用 `--order-by oldest|recent|attempt` 控制恢复候选排序，用 `--max-attempts` 跳过已经达到 stage attempt 上限的 job。处理 running job 时，可以用 `--running-stale-after-ms <ms>` 跳过最近仍有更新的任务，避免本地 worker 抢占仍在运行的进程。worker 会在恢复前预检 checkpoint artifacts；缺失、变更、未纳入 manifest 或 IR/provider schema 无效的前置 artifact 会被跳过，并返回 artifact 问题列表。跳过结果会带 `skipReason`，例如 `attempt-limit`、`checkpoint-invalid`、`limit`、`running-active` 或 `not-recoverable`。CLI/TUI 的非 JSON 输出会展示 schema invalid artifact 名称，便于直接定位坏文件。
 

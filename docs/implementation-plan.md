@@ -113,7 +113,7 @@ Acceptance criteria:
 - API handler tests cover health, doctor readiness status codes, provider environment reports, project listing, project runs, worker dry-runs, status, events, artifact reads, project reruns, invalid IR validation errors, project renders, and project exports.
 - API handler tests cover audio preflight diagnostics for render inputs.
 
-Status: completed for local CLI workflows.
+Status: completed for local CLI workflows, including structured checkpoint failure output for `run --from-stage` and `rerun --from-stage` in JSON mode plus human-readable artifact issue lists in terminal mode.
 
 ## Phase 3: Renderer v0
 

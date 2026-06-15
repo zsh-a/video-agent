@@ -1,5 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type InitialPipelineStage, rerunProject} from '@video-agent/runtime'
+import {type InitialPipelineStage, PipelineCheckpointError, rerunProject} from '@video-agent/runtime'
+
+import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 
 export default class Rerun extends Command {
   static args = {
@@ -18,10 +20,22 @@ export default class Rerun extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Rerun)
-    const output = await rerunProject(args.project, {
-      fromStage: flags['from-stage'] as InitialPipelineStage,
-      workspaceDir: flags.workspace,
-    })
+    let output: Awaited<ReturnType<typeof rerunProject>>
+
+    try {
+      output = await rerunProject(args.project, {
+        fromStage: flags['from-stage'] as InitialPipelineStage,
+        workspaceDir: flags.workspace,
+      })
+    } catch (error) {
+      if (error instanceof PipelineCheckpointError) {
+        this.log(flags.json ? JSON.stringify(createCheckpointErrorPayload(error), null, 2) : formatCheckpointFailure(error))
+        process.exitCode = 1
+        return
+      }
+
+      throw error
+    }
 
     if (flags.json) {
       this.log(JSON.stringify(output, null, 2))
