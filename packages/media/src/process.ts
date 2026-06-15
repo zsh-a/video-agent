@@ -7,6 +7,7 @@ type BunProcess = {
 }
 
 interface BunRuntime {
+  env: Record<string, string | undefined>
   spawn(command: string[], options?: {
     cwd?: string
     env?: Record<string, string>
@@ -35,7 +36,7 @@ export async function runProcess(command: string[], options: RunProcessOptions =
 
   const proc = bun.spawn(command, {
     cwd: options.cwd,
-    env: createProcessEnv(options.env),
+    env: createProcessEnv(bun.env, options.env),
     stdio: [createBunStdin(options.stdin), 'pipe', 'pipe'],
   })
 
@@ -55,9 +56,9 @@ function createBunStdin(stdin: string | undefined): 'ignore' | Blob {
   return new Blob([stdin])
 }
 
-function createProcessEnv(env: Record<string, string> | undefined): Record<string, string> {
+function createProcessEnv(baseEnv: Record<string, string | undefined>, env: Record<string, string> | undefined): Record<string, string> {
   const entries = Object.entries({
-    ...process.env,
+    ...baseEnv,
     ...env,
   }).filter((entry): entry is [string, string] => entry[1] !== undefined)
 

@@ -40,7 +40,7 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
   if (config.provider === 'anthropic') {
     const provider = createAnthropic({
       ...(config.baseURL === undefined ? {} : {baseURL: normalizeNonEmptyString('llm.baseURL', config.baseURL)}),
-      ...resolveAnthropicAuth(config, options.env ?? process.env),
+      ...resolveAnthropicAuth(config, options.env ?? getBunEnv()),
       ...(config.headers === undefined ? {} : {headers: config.headers}),
       ...(config.name === undefined ? {} : {name: config.name}),
     })
@@ -50,7 +50,7 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
 
   if (config.provider === 'openai-compatible') {
     const provider = createOpenAICompatible({
-      apiKey: resolveEnvValue(config.apiKeyEnv ?? config.authTokenEnv ?? 'VIDEO_AGENT_LLM_TOKEN', options.env ?? process.env),
+      apiKey: resolveEnvValue(config.apiKeyEnv ?? config.authTokenEnv ?? 'VIDEO_AGENT_LLM_TOKEN', options.env ?? getBunEnv()),
       baseURL: normalizeNonEmptyString('llm.baseURL', config.baseURL),
       ...(config.headers === undefined ? {} : {headers: config.headers}),
       includeUsage: true,
@@ -74,6 +74,16 @@ function transformMimoRequestBody(body: Record<string, unknown>): Record<string,
     ...body,
     messages: Array.isArray(body.messages) ? body.messages.map((message) => transformMimoMessage(message)) : body.messages,
   }
+}
+
+function getBunEnv(): Record<string, string | undefined> {
+  const bun = (globalThis as typeof globalThis & {Bun?: {env: Record<string, string | undefined>}}).Bun
+
+  if (bun === undefined) {
+    throw new Error('LLM config requires Bun runtime.')
+  }
+
+  return bun.env
 }
 
 function transformMimoMessage(message: unknown): unknown {

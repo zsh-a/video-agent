@@ -17,7 +17,6 @@
     "@clack/prompts": "^1.5.1",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
-    "@oclif/plugin-plugins": "^5",
     "@video-agent/api": "workspace:*",
     "@video-agent/core": "workspace:*",
     "@video-agent/db": "workspace:*",
@@ -67,8 +66,7 @@
     "dirname": "vagent",
     "commands": "./dist/commands",
     "plugins": [
-      "@oclif/plugin-help",
-      "@oclif/plugin-plugins"
+      "@oclif/plugin-help"
     ],
     "topicSeparator": " "
   },

@@ -121,7 +121,7 @@ function checkProviderRole(role: ProviderRole, config: AgentConfig, env: Record<
   return checkUnsupportedConfiguredProvider(role, provider)
 }
 
-function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> = process.env): HealthCheck {
+function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> = getBunEnv()): HealthCheck {
   if (config.llm === undefined) {
     return {
       details: {provider: 'llm'},
@@ -159,7 +159,7 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
   }
 }
 
-function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = process.env): HealthCheck {
+function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = getBunEnv()): HealthCheck {
   const envName = providerEnvName(role, 'COMMAND')
   const value = env[envName]
 
@@ -222,11 +222,20 @@ function checkBunRuntime(): HealthCheck {
   }
 
   return {
-    details: {node: process.version},
-    message: `Bun runtime is required; current runtime is ${process.version}`,
+    message: 'Bun runtime is required.',
     name: 'bun',
     status: 'fail',
   }
+}
+
+function getBunEnv(): Record<string, string | undefined> {
+  const bun = (globalThis as typeof globalThis & {Bun?: {env: Record<string, string | undefined>}}).Bun
+
+  if (bun === undefined) {
+    throw new Error('Runtime health checks require Bun runtime.')
+  }
+
+  return bun.env
 }
 
 async function checkWorkspaceAccess(workspaceDir: string): Promise<HealthCheck> {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
 
-import {$} from 'bun'
+import {rm} from 'node:fs/promises'
 
-await $`rm -f oclif.manifest.json`
+await rm('oclif.manifest.json', {force: true})

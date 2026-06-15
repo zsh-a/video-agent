@@ -138,7 +138,7 @@ function mergeProviderRegistryOptions(config: ProviderConfig, options: ProviderR
     ...options,
     env: {
       ...config.providerEnv,
-      ...(options.env ?? process.env),
+      ...(options.env ?? getBunEnv()),
     },
     llmConfig: config.llm,
   }
@@ -149,7 +149,7 @@ function createMimoAsrClient(options: ProviderRegistryOptions): LLMClient | unde
     return undefined
   }
 
-  const env = options.env ?? process.env
+  const env = options.env ?? getBunEnv()
   const client = createLLMClientFromConfig({
     ...options.llmConfig,
     baseURL: MIMO_ASR_BASE_URL,
@@ -174,7 +174,7 @@ function resolveLLMClient(role: ProviderRole, options: ProviderRegistryOptions):
   return options.llmClient
 }
 
-function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = process.env): string[] {
+function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = getBunEnv()): string[] {
   const name = providerEnvName(role, 'COMMAND')
   const value = env[name]
 
@@ -197,4 +197,14 @@ function resolveCommand(role: ProviderRole, env: Record<string, string | undefin
   }
 
   return parsed
+}
+
+function getBunEnv(): Record<string, string | undefined> {
+  const bun = (globalThis as typeof globalThis & {Bun?: {env: Record<string, string | undefined>}}).Bun
+
+  if (bun === undefined) {
+    throw new Error('Provider registry requires Bun runtime.')
+  }
+
+  return bun.env
 }

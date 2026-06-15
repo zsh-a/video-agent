@@ -1,5 +1,15 @@
 #!/usr/bin/env bun
 
-import {$} from 'bun'
+import {Glob} from 'bun'
+import {rm} from 'node:fs/promises'
 
-await $`rm -rf dist tsconfig.tsbuildinfo packages/*/dist packages/*/*.tsbuildinfo`
+const paths = new Set(['dist', 'tsconfig.tsbuildinfo'])
+const matches = await Promise.all(
+  ['packages/*/dist', 'packages/*/*.tsbuildinfo'].map((pattern) => Array.fromAsync(new Glob(pattern).scan({cwd: process.cwd(), onlyFiles: false}))),
+)
+
+for (const path of matches.flat()) {
+  paths.add(path)
+}
+
+await Promise.all([...paths].map((path) => rm(path, {force: true, recursive: true})))
