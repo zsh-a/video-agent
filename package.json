@@ -20,6 +20,7 @@
     "@video-agent/core": "workspace:*",
     "@video-agent/db": "workspace:*",
     "@video-agent/ir": "workspace:*",
+    "@video-agent/llm": "workspace:*",
     "@video-agent/mcp": "workspace:*",
     "@video-agent/media": "workspace:*",
     "@video-agent/providers": "workspace:*",
@@ -27,6 +28,7 @@
     "@video-agent/renderer-ffmpeg": "workspace:*",
     "@video-agent/renderer-hyperframes": "workspace:*",
     "@video-agent/runtime": "workspace:*",
+    "ai": "^5.0.0",
     "zod": "^4.1.13"
   },
   "devDependencies": {

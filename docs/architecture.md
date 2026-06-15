@@ -37,7 +37,7 @@ Core
   typed stages, pipeline orchestration, resumable execution contracts
 
 Domain Packages
-  IR, providers, media wrappers, renderers, quality checks, DB schema
+  IR, providers, LLM adapters, media wrappers, renderers, quality checks, DB schema
 
 Executors
   ffmpeg, ffprobe, Chromium, HyperFrames, provider APIs
@@ -63,6 +63,9 @@ packages/
 
   providers/
     ASR / VLM / TTS provider interfaces
+
+  llm/
+    Internal LLMClient interface with an AI SDK-backed default adapter
 
   renderer-ffmpeg/
     First runnable renderer that emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR

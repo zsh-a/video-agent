@@ -2,7 +2,7 @@
 
 `video-agent` 是一个 Bun-first、TypeScript-first 的视频 Agent 框架。目标是用 TypeScript 统一业务编排、IR、Provider、CLI/API/TUI/MCP 入口，同时把媒体内核交给 `ffmpeg`、`ffprobe`、Chromium、HyperFrames 这类外部执行器。
 
-当前仓库已经进入可运行初版阶段：保留 oclif CLI 作为主命令入口，并拆出 core/runtime/IR/media/provider/renderer/quality/db/API/MCP 等 workspace package。CLI 可以初始化 workspace、检查 provider 配置、运行 mock/command/http provider smoke test、处理本地媒体、渲染、质检和导出；API、TUI、MCP 和 Claude Code skill 作为同一套 runtime 之上的适配层继续演进。
+当前仓库已经进入可运行初版阶段：保留 oclif CLI 作为主命令入口，并拆出 core/runtime/IR/media/provider/LLM/renderer/quality/db/API/MCP 等 workspace package。CLI 可以初始化 workspace、检查 provider 配置、运行 mock/command/http provider smoke test、处理本地媒体、渲染、质检和导出；API、TUI、MCP 和 Claude Code skill 作为同一套 runtime 之上的适配层继续演进。
 
 ## 设计边界
 
@@ -26,6 +26,7 @@ Runtime:        Bun-first，保留 Node fallback
 Package:        Bun workspaces
 CLI:            oclif
 Schema / IR:    Zod
+LLM:            AI SDK behind internal LLMClient
 Media:          ffmpeg / ffprobe wrapper
 Renderer:       HyperFrames boundary
 Runtime:        artifact store + event bus + resumable stage contracts
@@ -50,6 +51,7 @@ packages/
   mcp/                    # MCP stdio adapter for agent tools
   media/                  # ffmpeg / ffprobe / process wrapper
   providers/              # ASR / VLM / TTS provider interfaces
+  llm/                    # AI SDK-backed LLMClient abstraction
   renderer-ffmpeg/        # 第一版 ffmpeg renderer，输出 final.mp4
   renderer-hyperframes/   # HyperFrames render plan boundary
   quality/                # timeline/artifact quality checks
