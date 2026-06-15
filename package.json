@@ -35,19 +35,13 @@
   },
   "devDependencies": {
     "@eslint/compat": "^1",
-    "@oclif/prettier-config": "^0.2.1",
-    "@oclif/test": "^4",
     "@types/chai": "^4",
-    "@types/mocha": "^10",
     "@types/node": "^18",
     "chai": "^4",
     "eslint": "^9",
     "eslint-config-oclif": "^6",
     "eslint-config-prettier": "^10",
-    "mocha": "^11",
     "oclif": "^4",
-    "shx": "^0.3.3",
-    "ts-node": "^10",
     "typescript": "^5"
   },
   "engines": {
@@ -79,14 +73,14 @@
   "repository": "zs/video-agent",
   "scripts": {
     "build": "bun run clean && tsc -b",
-    "clean": "shx rm -rf dist tsconfig.tsbuildinfo packages/*/dist packages/*/*.tsbuildinfo",
+    "clean": "bun ./scripts/clean.js",
     "dev": "bun ./bin/dev.js",
     "lint": "eslint",
-    "postpack": "shx rm -f oclif.manifest.json",
+    "postpack": "bun ./scripts/postpack-clean.js",
     "posttest": "bun run lint",
     "prepack": "oclif manifest && oclif readme",
     "start": "bun ./bin/dev.js",
-    "test": "bun run build && mocha --forbid-only \"test/**/*.test.ts\"",
+    "test": "bun run build && bun test --timeout 60000 ./test",
     "version": "oclif readme && git add README.md"
   },
   "types": "dist/index.d.ts"

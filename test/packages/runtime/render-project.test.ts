@@ -43,13 +43,13 @@ describe('render project', () => {
     }
   })
 
-  it('writes subtitle quality diagnostics when subtitles are enabled', async function () {
+  it('writes subtitle quality diagnostics when subtitles are enabled', async () => {
     if (!(await hasFfmpeg())) {
-      this.skip()
+      return
     }
 
     if (!(await hasFfmpegSubtitleFilter())) {
-      this.skip()
+      return
     }
 
     const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))

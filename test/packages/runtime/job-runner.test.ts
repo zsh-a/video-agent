@@ -47,11 +47,9 @@ describe('job runner', () => {
     ])
   })
 
-  it('runs the initial pipeline when ffmpeg and ffprobe are available', async function () {
-    this.timeout(20_000)
-
+  it('runs the initial pipeline when ffmpeg and ffprobe are available', async () => {
     if (!(await hasMediaTools())) {
-      this.skip()
+      return
     }
 
     const root = await mkdtemp(join(tmpdir(), 'video-agent-job-'))
@@ -135,11 +133,9 @@ describe('job runner', () => {
     }
   })
 
-  it('runs plan and script stages through an injected AI SDK LLM client', async function () {
-    this.timeout(20_000)
-
+  it('runs plan and script stages through an injected AI SDK LLM client', async () => {
     if (!(await hasMediaTools())) {
-      this.skip()
+      return
     }
 
     const root = await mkdtemp(join(tmpdir(), 'video-agent-job-llm-'))

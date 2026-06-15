@@ -258,11 +258,9 @@ describe('cli end-to-end workflow', () => {
     }
   })
 
-  it('inspects, runs, renders, and exports a local media file from CLI commands', async function () {
-    this.timeout(60_000)
-
+  it('inspects, runs, renders, and exports a local media file from CLI commands', async () => {
     if (!(await hasMediaTools())) {
-      this.skip()
+      return
     }
 
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-e2e-'))
@@ -373,7 +371,6 @@ function envFlagArgs(env: Record<string, string>): string[] {
 async function runCli(args: string[]): Promise<{code: number; stderr: string; stdout: string}> {
   return runProcess(['bun', './bin/dev.js', ...args], {
     cwd: process.cwd(),
-    preferBun: false,
   })
 }
 
@@ -381,7 +378,6 @@ async function expectCommand(command: string[], env?: Record<string, string>): P
   const result = await runProcess(command, {
     cwd: process.cwd(),
     env,
-    preferBun: false,
   })
 
   if (result.code !== 0) {
@@ -400,7 +396,7 @@ async function fileSize(path: string): Promise<number> {
 
 async function hasMediaTools(): Promise<boolean> {
   try {
-    const [ffmpeg, ffprobe] = await Promise.all([runProcess(['ffmpeg', '-version'], {preferBun: false}), runProcess(['ffprobe', '-version'], {preferBun: false})])
+    const [ffmpeg, ffprobe] = await Promise.all([runProcess(['ffmpeg', '-version']), runProcess(['ffprobe', '-version'])])
 
     return ffmpeg.code === 0 && ffprobe.code === 0
   } catch {

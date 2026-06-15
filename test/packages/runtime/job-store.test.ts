@@ -45,11 +45,7 @@ describe('runtime job store', () => {
     }
   })
 
-  it('uses the Bun SQLite job store when configured', async function () {
-    if (!('bun' in process.versions)) {
-      this.skip()
-    }
-
+  it('uses the Bun SQLite job store when configured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-runtime-job-store-'))
 
     try {

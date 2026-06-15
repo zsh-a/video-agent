@@ -223,9 +223,9 @@ function checkBunRuntime(): HealthCheck {
 
   return {
     details: {node: process.version},
-    message: `Running on Node fallback (${process.version})`,
+    message: `Bun runtime is required; current runtime is ${process.version}`,
     name: 'bun',
-    status: 'warn',
+    status: 'fail',
   }
 }
 

@@ -19,8 +19,5 @@
     {"path": "./packages/renderer-hyperframes"},
     {"path": "./packages/quality"},
     {"path": "./packages/db"}
-  ],
-  "ts-node": {
-    "esm": true
-  }
+  ]
 }

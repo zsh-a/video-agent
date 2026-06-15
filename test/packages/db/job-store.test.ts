@@ -35,11 +35,7 @@ describe('job store', () => {
     }
   })
 
-  it('persists job stage state in SQLite when running on Bun', async function () {
-    if (!('bun' in process.versions)) {
-      this.skip()
-    }
-
+  it('persists job stage state in SQLite when running on Bun', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-sqlite-job-store-'))
 
     try {
