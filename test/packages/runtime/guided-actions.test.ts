@@ -44,7 +44,15 @@ describe('guided actions', () => {
         category: 'rerun',
         description: 'Rerun the focused project from the first unfinished stage, quality.',
       })
+      expect(result.actions.find((action) => action.id === 'inspect-quality-details')).to.include({
+        category: 'inspect',
+        description: 'Inspect aggregate quality with raw quality-report and render-output details.',
+      })
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev quality 'demo project' --details --json --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev artifacts 'demo project' --verify --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev visual 'demo project' --json --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev export 'demo project' --require-quality --workspace ${root}`)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

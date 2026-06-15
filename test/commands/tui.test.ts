@@ -391,10 +391,18 @@ describe('tui command', () => {
       category: 'provider',
       description: 'Run ASR, VLM, and TTS provider smoke tests for the current workspace.',
     })
+    expect(commands.find((item) => item.id === 'verify-artifacts')).to.include({
+      category: 'artifact',
+      description: 'Verify artifact manifest hashes and known IR/provider schemas.',
+    })
     expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent quality 'demo project' --details --json --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent artifacts 'demo project' --verify --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent visual 'demo project' --json --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent export 'demo project' --require-quality --workspace 'workspace dir'")
   })
 
   it('formats and resolves guided command selections', () => {
