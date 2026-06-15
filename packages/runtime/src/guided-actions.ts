@@ -80,7 +80,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 30,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['worker', '--dry-run', '--workspace', options.workspaceDir],
+      args: ['tui', '--action', 'worker', '--dry-run', '--workspace', options.workspaceDir],
       category: 'recover',
       description: 'Preview recoverable failed or stale running jobs without mutating state.',
       id: 'worker-dry-run',

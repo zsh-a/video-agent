@@ -943,6 +943,7 @@ describe('tui command', () => {
     expect(commands.find((item) => item.id === 'inspect-visual-samples')?.command).to.equal("vagent tui --project 'demo project' --action visual --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'inspect-audio')?.command).to.equal("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'provider-test')?.command).to.equal("vagent tui --action provider-test --workspace 'workspace dir'")
+    expect(commands.find((item) => item.id === 'worker-dry-run')?.command).to.equal("vagent tui --action worker --dry-run --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'open-artifact')?.command).to.equal("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'rerun-suggested-stage')?.command).to.equal("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'render-final-video')?.command).to.equal("vagent tui --project 'demo project' --action render --workspace 'workspace dir'")
