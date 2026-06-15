@@ -1,5 +1,5 @@
 import {Command, Flags} from '@oclif/core'
-import {type AgentConfig, type ConfigUpdate, type JobStoreKind, type ProviderEnvironmentReport, readConfig, readProviderEnvironment, writeConfig} from '@video-agent/runtime'
+import {type AgentConfig, type ConfigUpdate, type JobStoreKind, readConfig, readProviderEnvironment, writeConfig} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 export default class Config extends Command {
@@ -53,7 +53,7 @@ export default class Config extends Command {
 
     this.log(`Provider env: ${providerEnvironmentSummary}`)
 
-    if (hasMissingRequiredProviderEnvironment(providerEnvironment)) {
+    if (providerEnvironment.summary.missingRequired.length > 0) {
       this.log(`Next: bun run dev provider-env --workspace ${flags.workspace} --shell-template`)
     }
 
@@ -124,21 +124,14 @@ function question(rl: Interface, prompt: string): Promise<string> {
   })
 }
 
-function hasMissingRequiredProviderEnvironment(report: ProviderEnvironmentReport): boolean {
-  return report.providers.some((provider) => provider.requirements.some((requirement) => requirement.required && !requirement.configured))
-}
-
-function summarizeProviderEnvironment(report: ProviderEnvironmentReport): string {
-  const required = report.providers.flatMap((provider) => provider.requirements.filter((requirement) => requirement.required))
-  const missing = required.filter((requirement) => !requirement.configured)
-
-  if (required.length === 0) {
+function summarizeProviderEnvironment(report: Awaited<ReturnType<typeof readProviderEnvironment>>): string {
+  if (report.summary.required === 0) {
     return 'no external provider environment required'
   }
 
-  if (missing.length === 0) {
+  if (report.summary.missingRequired.length === 0) {
     return 'all required provider environment variables are configured'
   }
 
-  return `${missing.length} required variable(s) missing: ${missing.map((requirement) => requirement.env).join(', ')}`
+  return `${report.summary.missingRequired.length} required variable(s) missing: ${report.summary.missingRequired.join(', ')}`
 }

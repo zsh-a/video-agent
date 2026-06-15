@@ -4,6 +4,7 @@ import {readConfig} from './config.js'
 
 export interface ProviderEnvironmentReport {
   providers: ProviderEnvironmentRoleReport[]
+  summary: ProviderEnvironmentSummary
   workspaceDir: string
 }
 
@@ -20,6 +21,15 @@ export interface ProviderEnvironmentRequirement {
   required: boolean
 }
 
+export interface ProviderEnvironmentSummary {
+  configured: number
+  missing: number
+  missingRequired: string[]
+  optional: number
+  required: number
+  total: number
+}
+
 export interface ProviderEnvironmentShellTemplateOptions {
   includeOptional?: boolean
 }
@@ -30,9 +40,11 @@ const PROVIDER_ROLES: readonly ProviderRole[] = ['asr', 'vlm', 'tts']
 
 export async function readProviderEnvironment(workspaceDir = '.video-agent', env: Record<string, string | undefined> = process.env): Promise<ProviderEnvironmentReport> {
   const config = await readConfig(workspaceDir)
+  const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, env))
 
   return {
-    providers: PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, env)),
+    providers,
+    summary: summarizeProviderEnvironment(providers),
     workspaceDir,
   }
 }
@@ -122,6 +134,22 @@ function createRequirement(options: {description: string; env: Record<string, st
 
 function isConfigured(value: string | undefined): boolean {
   return value !== undefined && value.trim() !== ''
+}
+
+function summarizeProviderEnvironment(providers: ProviderEnvironmentRoleReport[]): ProviderEnvironmentSummary {
+  const requirements = providers.flatMap((provider) => provider.requirements)
+  const required = requirements.filter((requirement) => requirement.required)
+  const configured = requirements.filter((requirement) => requirement.configured)
+  const missing = requirements.filter((requirement) => !requirement.configured)
+
+  return {
+    configured: configured.length,
+    missing: missing.length,
+    missingRequired: required.filter((requirement) => !requirement.configured).map((requirement) => requirement.env),
+    optional: requirements.length - required.length,
+    required: required.length,
+    total: requirements.length,
+  }
 }
 
 function placeholderForRequirement(requirement: ProviderEnvironmentRequirement): string {

@@ -56,10 +56,17 @@ describe('cli end-to-end workflow', () => {
 
       const providerEnv = await runCliJson<{
         providers: Array<{provider: string; requirements: unknown[]; role: string}>
+        summary: {configured: number; missing: number; missingRequired: string[]; total: number}
       }>(['provider-env', '--workspace', workspaceDir, '--json'])
 
       expect(providerEnv.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
       expect(providerEnv.providers.flatMap((provider) => provider.requirements)).to.deep.equal([])
+      expect(providerEnv.summary).to.deep.include({
+        configured: 0,
+        missing: 0,
+        total: 0,
+      })
+      expect(providerEnv.summary.missingRequired).to.deep.equal([])
 
       const providerTest = await runCliJson<{
         ok: boolean
@@ -123,6 +130,7 @@ describe('cli end-to-end workflow', () => {
           requirements: Array<{configured: boolean; env: string; required: boolean}>
           role: string
         }>
+        summary: {configured: number; missingRequired: string[]; required: number; total: number}
       }>(['provider-env', ...commandProviderEnvFlags, '--workspace', workspaceDir, '--json'])
 
       expect(configuredProviderEnv.providers.flatMap((provider) => provider.requirements.map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
@@ -130,6 +138,12 @@ describe('cli end-to-end workflow', () => {
         'vlm:VIDEO_AGENT_VLM_COMMAND:true',
         'tts:VIDEO_AGENT_TTS_COMMAND:true',
       ])
+      expect(configuredProviderEnv.summary).to.deep.include({
+        configured: 3,
+        required: 3,
+        total: 3,
+      })
+      expect(configuredProviderEnv.summary.missingRequired).to.deep.equal([])
 
       const commandProviderTest = await runCliJson<{
         ok: boolean

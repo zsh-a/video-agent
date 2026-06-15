@@ -19,7 +19,7 @@ describe('api server handler', () => {
       const fetch = createApiFetchHandler({workspaceDir: root})
       const health = await readJson<{ok: boolean}>(fetch, '/health')
       const projects = await readJson<{projects: unknown[]}>(fetch, '/projects')
-      const providerEnv = await readJson<{providers: Array<{provider: string; role: string}>}>(fetch, '/provider-env')
+      const providerEnv = await readJson<{providers: Array<{provider: string; role: string}>; summary: {total: number}}>(fetch, '/provider-env')
       const providerEnvTemplate = await readJson<{shellTemplate: string}>(fetch, '/provider-env?shellTemplate=true')
       const providerTest = await readJson<{ok: boolean; results: Array<{provider: string; role: string; status: string}>}>(
         fetch,
@@ -40,6 +40,7 @@ describe('api server handler', () => {
       expect(health.ok).to.equal(true)
       expect(projects.projects).to.have.length(1)
       expect(providerEnv.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+      expect(providerEnv.summary.total).to.equal(0)
       expect(providerEnvTemplate.shellTemplate).to.include('# video-agent provider environment template')
       expect(providerTest.ok).to.equal(true)
       expect(providerTest.results.find((result) => result.role === 'asr')).to.include({
@@ -142,6 +143,7 @@ describe('api server handler', () => {
           requirements: Array<{configured: boolean; env: string}>
           role: string
         }>
+        summary: {configured: number; missingRequired: string[]}
       }>(fetch, `/provider-env?env=VIDEO_AGENT_ASR_COMMAND=${encodeURIComponent(command)}&env=VIDEO_AGENT_TTS_COMMAND=${encodeURIComponent(command)}&env=VIDEO_AGENT_VLM_COMMAND=${encodeURIComponent(command)}`)
       const providerTest = await readJson<{
         ok: boolean
@@ -167,6 +169,8 @@ describe('api server handler', () => {
         'vlm:VIDEO_AGENT_VLM_COMMAND:true',
         'tts:VIDEO_AGENT_TTS_COMMAND:true',
       ])
+      expect(providerEnv.summary.configured).to.equal(3)
+      expect(providerEnv.summary.missingRequired).to.deep.equal([])
       expect(JSON.stringify(providerEnv)).to.not.include(command)
       expect(providerTest.ok).to.equal(true)
       expect(providerTest.results.map((result) => `${result.role}:${result.provider}:${result.status}:${result.metadata?.model}:${result.output?.type}`)).to.deep.equal([
@@ -193,6 +197,8 @@ describe('api server handler', () => {
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/status')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/artifacts')
     expect(html).to.include('id="provider-summary"')
+    expect(html).to.include('report.summary ??')
+    expect(html).to.include('summary.configured + "/" + summary.total')
     expect(html).to.include('id="providers"')
     expect(html).to.include('id="config-summary"')
     expect(html).to.include('id="config"')

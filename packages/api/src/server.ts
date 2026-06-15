@@ -1092,8 +1092,12 @@ function renderStudioHtml(): string {
       return row;
     };
     const renderProviderEnvironment = (report) => {
-      const missingRequired = report.providers.reduce((count, provider) => count + provider.requirements.filter((requirement) => requirement.required && !requirement.configured).length, 0);
-      byId("provider-summary").textContent = missingRequired + " required env missing";
+      const summary = report.summary ?? {
+        configured: report.providers.reduce((count, provider) => count + provider.requirements.filter((requirement) => requirement.configured).length, 0),
+        missingRequired: report.providers.flatMap((provider) => provider.requirements.filter((requirement) => requirement.required && !requirement.configured).map((requirement) => requirement.env)),
+        total: report.providers.reduce((count, provider) => count + provider.requirements.length, 0),
+      };
+      byId("provider-summary").textContent = summary.configured + "/" + summary.total + " env configured, " + summary.missingRequired.length + " required missing";
       setRows("providers", report.providers.map((provider) => tableRow([
         provider.role,
         provider.provider,

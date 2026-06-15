@@ -15,6 +15,14 @@ describe('provider environment', () => {
 
       expect(report.providers.map((provider) => provider.role)).to.deep.equal(['asr', 'vlm', 'tts'])
       expect(report.providers.flatMap((provider) => provider.requirements)).to.deep.equal([])
+      expect(report.summary).to.deep.equal({
+        configured: 0,
+        missing: 0,
+        missingRequired: [],
+        optional: 0,
+        required: 0,
+        total: 0,
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -39,6 +47,14 @@ describe('provider environment', () => {
           required: true,
         },
       ])
+      expect(report.summary).to.deep.include({
+        configured: 1,
+        missing: 0,
+        optional: 0,
+        required: 1,
+        total: 1,
+      })
+      expect(report.summary.missingRequired).to.deep.equal([])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -76,6 +92,14 @@ describe('provider environment', () => {
           required: false,
         },
       ])
+      expect(report.summary).to.deep.equal({
+        configured: 2,
+        missing: 1,
+        missingRequired: [],
+        optional: 2,
+        required: 1,
+        total: 3,
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }

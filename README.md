@@ -234,7 +234,7 @@ VIDEO_AGENT_ASR_TOKEN / VIDEO_AGENT_VLM_TOKEN / VIDEO_AGENT_TTS_TOKEN
 VIDEO_AGENT_ASR_TIMEOUT_MS / VIDEO_AGENT_VLM_TIMEOUT_MS / VIDEO_AGENT_TTS_TIMEOUT_MS
 ```
 
-可以用 `provider-env` 按当前 workspace config 输出 provider 需要的环境变量、必填/可选状态和是否已配置。它只显示变量名和配置状态，不输出 token 或 endpoint 具体值：
+可以用 `provider-env` 按当前 workspace config 输出 provider 需要的环境变量、必填/可选状态和是否已配置，并给出 `summary` 统计 total/required/optional/configured/missing/missingRequired。它只显示变量名和配置状态，不输出 token 或 endpoint 具体值：
 
 ```sh
 bun run dev provider-env
@@ -595,7 +595,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - doctor exit codes：当 runtime、provider env 或媒体工具检查失败时，`doctor` / `init` 会先输出报告再以非零状态退出
 - doctor provider checks：当 provider 设为 `command` 或 `http` 时，检查对应 `VIDEO_AGENT_*_COMMAND` / `VIDEO_AGENT_*_URL`，CLI/API/MCP 都支持显式 env 注入
 - API doctor readiness：`GET /doctor` 在 unhealthy 时返回 `503` 并保留完整 JSON 报告；`GET /health` 仅用于进程 liveness
-- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态和配置状态，`config` 人工输出会提示缺失的必填 provider env，且可生成不泄露 secret 的 shell export 模板
+- `provider-env` 命令：按当前 config 输出 ASR/VLM/TTS provider 所需环境变量、必填/可选状态、配置状态和 summary 统计，`config` 人工输出会提示缺失的必填 provider env，且可生成不泄露 secret 的 shell export 模板
 - `provider-test` 命令：按当前 config 对 ASR/VLM/TTS provider 运行最小 smoke test，验证输出 contract、request id/model metadata 和失败信息
 - `run` 命令：通过 `JobRunner` 生成 ingest、provider understand、ASR/VLM evidence-backed storyboard、sequential clip plan、timeline、clip-plan-aligned narration、provider TTS、quality artifacts、frames 和 preview
 - quality report：检查 clip plan consistency、timeline bounds、narration timing 和 TTS coverage，并输出 warning/error summary

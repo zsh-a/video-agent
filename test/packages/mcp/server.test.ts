@@ -144,9 +144,10 @@ describe('mcp server', () => {
         },
       })
       const {content} = response?.result as {content: Array<{text: string; type: string}>}
-      const result = JSON.parse(content[0]?.text ?? '{}') as {providers: Array<{provider: string; role: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {providers: Array<{provider: string; role: string}>; summary: {total: number}}
 
       expect(result.providers.map((provider) => `${provider.role}:${provider.provider}`)).to.deep.equal(['asr:mock', 'vlm:mock', 'tts:mock'])
+      expect(result.summary.total).to.equal(0)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -214,6 +215,7 @@ describe('mcp server', () => {
           requirements: Array<{configured: boolean; env: string}>
           role: string
         }>
+        summary: {configured: number; missingRequired: string[]}
       }
 
       expect(providerEnv.providers.flatMap((provider) => provider.requirements.map((requirement) => `${provider.role}:${requirement.env}:${requirement.configured}`))).to.deep.equal([
@@ -221,6 +223,8 @@ describe('mcp server', () => {
         'vlm:VIDEO_AGENT_VLM_COMMAND:true',
         'tts:VIDEO_AGENT_TTS_COMMAND:true',
       ])
+      expect(providerEnv.summary.configured).to.equal(3)
+      expect(providerEnv.summary.missingRequired).to.deep.equal([])
       expect(JSON.stringify(providerEnv)).to.not.include(command)
 
       const providerTestResponse = await server.handleMessage({

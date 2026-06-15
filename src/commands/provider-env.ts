@@ -31,6 +31,7 @@ export default class ProviderEnv extends Command {
     }
 
     this.log(`Workspace: ${report.workspaceDir}`)
+    this.log(`Summary: ${report.summary.configured}/${report.summary.total} configured, ${report.summary.missingRequired.length} required missing`)
 
     for (const provider of report.providers) {
       this.log(`${provider.role}: ${provider.provider}`)
