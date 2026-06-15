@@ -1,7 +1,7 @@
-import type {InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
@@ -9,6 +9,7 @@ import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/ch
 export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'select' | 'worker'
 
 export interface TuiSnapshot {
+  artifactIntegrity?: ArtifactIntegrityResult
   artifacts: ProjectArtifact[]
   events: ProjectEventRecord[]
   projects: ProjectSummary[]
@@ -299,13 +300,15 @@ export async function readTuiSnapshot(options: ReadTuiSnapshotOptions): Promise<
     }
   }
 
-  const [selected, events, artifacts] = await Promise.all([
+  const [selected, events, artifacts, artifactIntegrity] = await Promise.all([
     readProjectStatus(selectedProjectId, options.workspaceDir),
     readProjectEvents(selectedProjectId, {limit: options.eventLimit, workspaceDir: options.workspaceDir}),
     listProjectArtifacts(selectedProjectId, options.workspaceDir).then((items) => items.slice(0, options.artifactLimit)),
+    verifyProjectArtifacts(selectedProjectId, options.workspaceDir),
   ])
 
   return {
+    artifactIntegrity,
     artifacts,
     events: events.events,
     projects,
@@ -418,6 +421,7 @@ export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnaps
     `Quality: ${snapshot.selected.summary.quality.issues} issues (${snapshot.selected.summary.quality.errors} errors, ${snapshot.selected.summary.quality.warnings} warnings)`,
     `Providers: ${snapshot.selected.summary.providers.total} calls (${snapshot.selected.summary.providers.failed} failed)`,
     `Render: ${formatRenderSummary(snapshot.selected.summary.render)}`,
+    ...(snapshot.artifactIntegrity === undefined ? [] : [`Artifact Integrity: ${formatArtifactIntegritySummary(snapshot.artifactIntegrity)}`]),
     '',
     `Artifacts (${snapshot.artifacts.length}/${snapshot.selected.artifacts.length}, limit ${options.artifactLimit})`,
     ...formatArtifacts(snapshot.artifacts),
@@ -530,6 +534,19 @@ function formatRenderSummary(render: ProjectStatus['summary']['render']): string
   }
 
   return `${render.renderer ?? 'unknown'} (${render.outputErrors} output errors, ${render.outputWarnings} output warnings, ${render.audioQualityWarnings} audio warnings, ${render.visualErrors} visual errors, ${render.visualWarnings} visual warnings)`
+}
+
+function formatArtifactIntegritySummary(integrity: ArtifactIntegrityResult): string {
+  return [
+    integrity.ok ? 'ok' : 'needs attention',
+    `${integrity.summary.errors} errors`,
+    `${integrity.summary.warnings} warnings`,
+    `${integrity.summary.checked} checked`,
+    `${integrity.summary.missing} missing`,
+    `${integrity.summary.changed} changed`,
+    `${integrity.summary.schemaInvalid} schema invalid`,
+    `${integrity.summary.untracked} untracked`,
+  ].join(', ')
 }
 
 function formatArtifacts(artifacts: ProjectArtifact[]): string[] {

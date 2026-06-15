@@ -185,6 +185,24 @@ describe('tui command', () => {
 
   it('formats a selected project dashboard', () => {
     const output = formatTuiSnapshot({
+      artifactIntegrity: {
+        changed: [],
+        checked: 3,
+        manifestPath: '/tmp/artifact-manifest.json',
+        missing: [{name: 'narration.json', reason: 'missing'}],
+        ok: false,
+        schemaInvalid: [{issues: [{code: 'invalid_type', message: 'Required', path: ['scenes']}], name: 'storyboard.json'}],
+        summary: {
+          changed: 0,
+          checked: 3,
+          errors: 2,
+          missing: 1,
+          schemaInvalid: 1,
+          untracked: 1,
+          warnings: 1,
+        },
+        untracked: ['render-output.json'],
+      },
       artifacts: [
         {
           kind: 'json',
@@ -279,6 +297,7 @@ describe('tui command', () => {
     expect(output).to.include('Quality: 1 issues (0 errors, 1 warnings)')
     expect(output).to.include('Providers: 1 calls (0 failed)')
     expect(output).to.include('Render: none')
+    expect(output).to.include('Artifact Integrity: needs attention, 2 errors, 1 warnings, 3 checked, 1 missing, 0 changed, 1 schema invalid, 1 untracked')
     expect(output).to.include('quality-report.json')
     expect(output).to.include('2026-06-15T00:00:00.000Z pipeline stage:start ingest')
     expect(output).to.include('Commands')
