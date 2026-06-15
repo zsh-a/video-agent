@@ -1,6 +1,11 @@
 import {expect} from 'chai'
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
-import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../../src/commands/tui.js'
+import type {ProjectQualityReport} from '../../packages/runtime/src/project-quality.js'
+
+import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection, runTuiAction} from '../../src/commands/tui.js'
 
 describe('tui command', () => {
   it('formats dashboard actions without a banner', () => {
@@ -78,6 +83,81 @@ describe('tui command', () => {
       '    untracked: render-plan.json',
       '    source: Too small: expected string to have >=1 characters',
     ].join('\n'))
+  })
+
+  it('formats export action results', () => {
+    expect(formatTuiActionResult({
+      result: {
+        artifactPath: '/tmp/project/artifacts/export-output.json',
+        cleanOutput: true,
+        format: 'hyperframes',
+        outputPath: '/tmp/out',
+        projectDir: '/tmp/project',
+        projectId: 'demo',
+        requireQuality: true,
+        sourcePath: '/tmp/project/renders/hyperframes',
+      },
+      type: 'export',
+    })).to.equal([
+      'Action: export demo -> hyperframes',
+      'Source: /tmp/project/renders/hyperframes',
+      'Output: /tmp/out',
+      'Clean output: yes',
+      'Quality gate: required',
+      'Artifact: /tmp/project/artifacts/export-output.json',
+    ].join('\n'))
+    expect(formatTuiActionResult({
+      action: 'export',
+      error: {
+        code: 'export_quality_failed',
+        legacyCode: 'export.quality_failed',
+        message: 'Project demo did not pass quality checks.',
+        name: 'ExportQualityError',
+      },
+      projectId: 'demo',
+      quality: createProjectQualityReport(),
+      type: 'export-quality-error',
+    })).to.equal([
+      'Action: export demo -> export-quality-failed',
+      '  Export blocked: project demo did not pass quality checks.',
+      '  Quality: 36 errors, 48 warnings',
+      '  Pipeline: 2 errors, 3 warnings',
+      '  Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
+      '  Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
+    ].join('\n'))
+  })
+
+  it('runs export action against a rendered project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-export-'))
+
+    try {
+      const renderDir = join(root, 'projects', 'demo', 'renders')
+      const outputPath = join(root, 'out.mp4')
+
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'final.mp4'), 'video')
+
+      const result = await runTuiAction({
+        action: 'export',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportCleanOutput: false,
+        exportFormat: 'video',
+        exportOutputPath: outputPath,
+        exportRequireQuality: false,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('export')
+      expect(result.type === 'export' && result.result.outputPath).to.equal(outputPath)
+      expect(await readFile(outputPath, 'utf8')).to.equal('video')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
   })
 
   it('formats provider test action results', () => {
@@ -450,3 +530,61 @@ describe('tui command', () => {
     expect(resolveTuiCommandSelection(commands, 'missing')).to.equal(undefined)
   })
 })
+
+function createProjectQualityReport(): ProjectQualityReport {
+  return {
+    artifacts: {
+      changed: [{
+        actualSha256: 'actual',
+        actualSize: 12,
+        expectedSha256: 'expected',
+        expectedSize: 10,
+        name: 'timeline.json',
+      }],
+      checked: 3,
+      manifestPath: '/tmp/artifact-manifest.json',
+      missing: [{name: 'narration.json', reason: 'missing'}],
+      ok: false,
+      schemaInvalid: [{issues: [{code: 'invalid_type', message: 'Required', path: ['scenes']}], name: 'storyboard.json'}],
+      summary: {
+        changed: 1,
+        checked: 3,
+        errors: 3,
+        missing: 1,
+        schemaInvalid: 1,
+        untracked: 2,
+        warnings: 2,
+      },
+      untracked: ['render-output.json', 'quality-report.json'],
+    },
+    generatedAt: '2026-06-15T00:00:00.000Z',
+    ok: false,
+    pipeline: {
+      errors: 2,
+      issues: 5,
+      warnings: 3,
+    },
+    projectId: 'demo',
+    render: {
+      audioInputs: 1,
+      audioQualityErrors: 1,
+      audioQualityWarnings: 2,
+      audioWarnings: 3,
+      missingVoiceovers: 4,
+      outputErrors: 5,
+      outputWarnings: 6,
+      rendered: true,
+      renderer: 'hyperframes',
+      subtitleErrors: 7,
+      subtitleWarnings: 8,
+      templateErrors: 9,
+      templateWarnings: 10,
+      visualErrors: 11,
+      visualWarnings: 12,
+    },
+    summary: {
+      errors: 36,
+      warnings: 48,
+    },
+  }
+}

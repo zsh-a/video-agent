@@ -1,12 +1,13 @@
-import type {ArtifactIntegrityResult, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventRecord, ProjectQualityReport, ProjectStatus, ProjectSummary, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {createVideoAgentGuidedActions, exportProject, ExportQualityError, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectStatus, recoverWorkspaceJobs, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
+import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 
-export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'provider-test' | 'rerun' | 'select' | 'worker'
+export type TuiAction = 'artifact' | 'commands' | 'dashboard' | 'export' | 'provider-test' | 'rerun' | 'select' | 'worker'
 
 export interface TuiSnapshot {
   artifactIntegrity?: ArtifactIntegrityResult
@@ -28,12 +29,16 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'provider-test', 'rerun', 'select', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'commands', 'dashboard', 'export', 'provider-test', 'rerun', 'select', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
     'dry-run': Flags.boolean({description: 'Preview worker recovery when --action worker is used'}),
     'event-limit': Flags.integer({default: 6, description: 'Maximum recent events to show for the selected project'}),
+    'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats when --action export is used'}),
+    'export-format': Flags.string({default: 'video', description: 'Export format when --action export is used', options: ['video', 'hyperframes', 'bundle']}),
+    'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),
+    'export-require-quality': Flags.boolean({allowNo: true, default: true, description: 'Refuse export unless project quality is clean when --action export is used'}),
     frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
     'from-stage': Flags.string({
       default: 'plan',
@@ -84,6 +89,10 @@ export default class Tui extends Command {
       artifactName: flags.artifact,
       commandPrefix: flags['command-prefix'],
       dryRun: flags['dry-run'],
+      exportCleanOutput: flags['export-clean-output'],
+      exportFormat: flags['export-format'] as ExportFormat,
+      exportOutputPath: flags['export-output'],
+      exportRequireQuality: flags['export-require-quality'],
       framePath: flags.frame,
       fromStage: flags['from-stage'] as InitialPipelineStage,
       limit: flags.limit,
@@ -113,7 +122,7 @@ export default class Tui extends Command {
 
     if (flags.json) {
       this.log(JSON.stringify({action: actionResult, snapshot}, null, 2))
-      if (actionResult.type === 'checkpoint-error') {
+      if (actionResult.type === 'checkpoint-error' || actionResult.type === 'export-quality-error') {
         process.exitCode = 1
       }
 
@@ -121,7 +130,7 @@ export default class Tui extends Command {
     }
 
     this.log([formatTuiActionResult(actionResult), formatTuiSnapshot(snapshot, options)].filter(Boolean).join('\n\n'))
-    if (actionResult.type === 'checkpoint-error') {
+    if (actionResult.type === 'checkpoint-error' || actionResult.type === 'export-quality-error') {
       process.exitCode = 1
     }
   }
@@ -157,6 +166,10 @@ export interface RunTuiActionOptions {
   artifactName?: string
   commandPrefix: string
   dryRun?: boolean
+  exportCleanOutput?: boolean
+  exportFormat: ExportFormat
+  exportOutputPath?: string
+  exportRequireQuality: boolean
   framePath?: string
   fromStage: InitialPipelineStage
   limit?: number
@@ -172,14 +185,17 @@ export interface RunTuiActionOptions {
 }
 
 export type TuiCheckpointErrorActionResult = {action: 'rerun'; error: ReturnType<typeof createCheckpointErrorPayload>['error']; projectId: string; type: 'checkpoint-error'}
+export type TuiExportQualityErrorActionResult = {action: 'export'; error: ReturnType<typeof createExportQualityFailurePayload>['error']; projectId: string; quality: ProjectQualityReport; type: 'export-quality-error'}
 export type TuiActionResult =
   | TuiCheckpointErrorActionResult
+  | TuiExportQualityErrorActionResult
   | {artifact: ReadProjectArtifactResult['artifact']; content: unknown; projectId: string; type: 'artifact'}
   | {commands: TuiCommandSuggestion[]; selected?: TuiCommandSuggestion; type: 'select'}
   | {commands: TuiCommandSuggestion[]; type: 'commands'}
   | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
   | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
   | {report: ProviderSmokeTestReport; type: 'provider-test'}
+  | {result: ExportProjectResult; type: 'export'}
   | {type: 'dashboard'}
 
 export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
@@ -270,6 +286,36 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
     }
   }
 
+  if (options.action === 'export') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    try {
+      return {
+        result: await exportProject({
+          cleanOutput: options.exportCleanOutput,
+          format: options.exportFormat,
+          outputPath: options.exportOutputPath,
+          projectId,
+          requireQuality: options.exportRequireQuality,
+          workspaceDir: options.workspaceDir,
+        }),
+        type: 'export',
+      }
+    } catch (error) {
+      if (error instanceof ExportQualityError) {
+        return {
+          action: 'export',
+          error: createExportQualityFailurePayload(error.projectId, error.quality, error.message).error,
+          projectId,
+          quality: error.quality,
+          type: 'export-quality-error',
+        }
+      }
+
+      throw error
+    }
+  }
+
   const result = await recoverWorkspaceJobs({
     dryRun: options.dryRun,
     limit: options.limit,
@@ -352,10 +398,28 @@ export function formatTuiActionResult(result: TuiActionResult): string {
     return `Action: rerun ${result.projectId} from ${result.fromStage} -> ${result.status}`
   }
 
+  if (result.type === 'export') {
+    return [
+      `Action: export ${result.result.projectId} -> ${result.result.format}`,
+      `Source: ${result.result.sourcePath}`,
+      `Output: ${result.result.outputPath}`,
+      `Clean output: ${result.result.cleanOutput ? 'yes' : 'no'}`,
+      `Quality gate: ${result.result.requireQuality ? 'required' : 'not required'}`,
+      `Artifact: ${result.result.artifactPath}`,
+    ].join('\n')
+  }
+
   if (result.type === 'checkpoint-error') {
     return [
       `Action: ${result.action} ${result.projectId} from ${result.error.fromStage} -> checkpoint-invalid`,
       indent(formatCheckpointFailure(createCheckpointErrorFromPayload(result.error))),
+    ].join('\n')
+  }
+
+  if (result.type === 'export-quality-error') {
+    return [
+      `Action: export ${result.projectId} -> export-quality-failed`,
+      indent(formatExportQualityFailure(result.projectId, result.quality)),
     ].join('\n')
   }
 
