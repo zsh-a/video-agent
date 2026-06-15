@@ -143,7 +143,7 @@ describe('provider environment', () => {
       })
       const template = createProviderEnvironmentShellTemplate(report)
 
-      expect(template).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
+      expect(template).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"bun\",\"./providers/adapter.ts\"]'")
       expect(template).to.not.include('secret')
     } finally {
       await rm(root, {force: true, recursive: true})

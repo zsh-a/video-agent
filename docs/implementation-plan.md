@@ -43,7 +43,7 @@ Out of scope for v0:
 2. All cross-stage data must be validated through TypeScript types and Zod schemas.
 3. Large media stays in the filesystem or object storage. Job state stores paths, metadata, hashes, and stage status.
 4. External executors are replaceable boundaries: `ffmpeg`, `ffprobe`, Chromium, HyperFrames, AI SDK-backed hosted models, and local command adapters.
-5. Bun is the default runtime, but shared packages should avoid unnecessary Bun-only coupling when a Node fallback is practical.
+5. Bun is the project runtime. Shared packages can use Bun APIs directly when they reduce complexity; alternate JavaScript runtimes are not a design target.
 
 ## Phase 0: Repository Foundation
 

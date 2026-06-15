@@ -211,7 +211,7 @@ describe('mcp server', () => {
       const {content} = response?.result as {content: Array<{text: string; type: string}>}
       const result = JSON.parse(content[0]?.text ?? '{}') as {shellTemplate: string}
 
-      expect(result.shellTemplate).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
+      expect(result.shellTemplate).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"bun\",\"./providers/adapter.ts\"]'")
     } finally {
       await rm(root, {force: true, recursive: true})
     }

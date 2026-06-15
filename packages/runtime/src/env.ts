@@ -1,10 +1,17 @@
-import {readFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<string, string | undefined> = process.env): Promise<Record<string, string | undefined>> {
-  const cwdEnvPath = resolve('.env')
+interface BunFile {
+  text(): Promise<string>
+}
+
+interface BunRuntime {
+  env: Record<string, string | undefined>
+  file(path: string): BunFile
+}
+
+export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<string, string | undefined> = getBunEnv()): Promise<Record<string, string | undefined>> {
   const workspaceEnvPath = resolve(workspaceDir, '.env')
-  const dotenv = await readDotEnvFiles(uniquePaths([cwdEnvPath, workspaceEnvPath]))
+  const dotenv = await readDotEnvFile(workspaceEnvPath)
 
   return {
     ...dotenv,
@@ -12,15 +19,9 @@ export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<
   }
 }
 
-async function readDotEnvFiles(paths: string[]): Promise<Record<string, string>> {
-  const files = await Promise.all(paths.map((path) => readDotEnvFile(path)))
-
-  return Object.assign({}, ...files) as Record<string, string>
-}
-
 async function readDotEnvFile(path: string): Promise<Record<string, string>> {
   try {
-    return parseDotEnv(await readFile(path, 'utf8'), path)
+    return parseDotEnv(await getBunRuntime().file(path).text(), path)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return {}
@@ -105,6 +106,16 @@ function stripInlineComment(value: string): string {
   return commentIndex === -1 ? value : value.slice(0, commentIndex)
 }
 
-function uniquePaths(paths: string[]): string[] {
-  return [...new Set(paths)]
+function getBunEnv(): Record<string, string | undefined> {
+  return getBunRuntime().env
+}
+
+function getBunRuntime(): BunRuntime {
+  const bun = (globalThis as typeof globalThis & {Bun?: BunRuntime}).Bun
+
+  if (bun === undefined) {
+    throw new Error('readRuntimeEnv requires Bun runtime.')
+  }
+
+  return bun
 }

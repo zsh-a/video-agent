@@ -29,7 +29,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderName, ProviderDescriptor> = {
         description: `${role.toUpperCase()} command adapter argv as a JSON string array.`,
         env: providerEnvName(role, 'COMMAND'),
         kind: 'commandArgvJson',
-        placeholder: '["node","./providers/adapter.js"]',
+        placeholder: '["bun","./providers/adapter.ts"]',
         required: true,
         secret: false,
       },

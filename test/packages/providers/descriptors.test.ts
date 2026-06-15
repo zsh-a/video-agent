@@ -17,7 +17,7 @@ describe('provider descriptors', () => {
         description: 'ASR command adapter argv as a JSON string array.',
         env: 'VIDEO_AGENT_ASR_COMMAND',
         kind: 'commandArgvJson',
-        placeholder: '["node","./providers/adapter.js"]',
+        placeholder: '["bun","./providers/adapter.ts"]',
         required: true,
         secret: false,
       },

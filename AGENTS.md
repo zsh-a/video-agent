@@ -19,7 +19,7 @@ Do not turn this repository into a Claude Code-only plugin or a UI-first applica
 - Use Bun for package management and local scripts.
 - Keep `bun.lock` updated when dependencies or workspace packages change.
 - Do not add `pnpm-lock.yaml`, `package-lock.json`, or `yarn.lock`.
-- Prefer Bun-first APIs where they are useful, but preserve Node fallback for packages that may run in CI, publishing, or future TUI contexts.
+- Prefer Bun APIs where they reduce complexity. Alternate JavaScript runtimes are not a design target.
 
 Common commands:
 

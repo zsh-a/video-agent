@@ -121,7 +121,7 @@ describe('cli end-to-end workflow', () => {
       const providerTemplate = await runCli(['provider-env', '--workspace', workspaceDir, '--shell-template'])
 
       expect(providerTemplate.code).to.equal(0)
-      expect(providerTemplate.stdout).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"node\",\"./providers/adapter.js\"]'")
+      expect(providerTemplate.stdout).to.include("export VIDEO_AGENT_ASR_COMMAND='[\"bun\",\"./providers/adapter.ts\"]'")
       expect(providerTemplate.stdout).to.not.include('VIDEO_AGENT_VLM_COMMAND')
 
       const failedDoctor = await runCli(['doctor', '--workspace', workspaceDir, '--json'])

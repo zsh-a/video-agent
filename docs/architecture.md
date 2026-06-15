@@ -14,12 +14,12 @@ Not in scope: implementing video encoding, audio mixing, ASR, or VLM inference i
 
 ## Runtime Strategy
 
-The default runtime is Bun for local CLI, worker, workspace IO, SQLite, and subprocess orchestration. Node compatibility remains a design requirement for packages that may run in CI, server deployments, or adapter contexts.
+The runtime is Bun for local CLI, worker, workspace IO, SQLite, subprocess orchestration, API, and adapter contexts. Packages may still use stable Node-compatible standard library imports where Bun supports them, but project behavior and tests target Bun only.
 
 ```text
-Development: Bun-first
+Development: Bun
 Local agent: Bun CLI / worker
-Production API: Bun or Node after compatibility testing
+Production API: Bun
 Terminal UI: dependency-light CLI/TUI today; richer UI dependencies require an explicit decision
 Media: ffmpeg / ffprobe / Chromium as external executors
 ```
@@ -59,7 +59,7 @@ packages/
     Filesystem artifact store, pipeline event bus, workspace, config store, and JobRunner
 
   media/
-    ffmpeg / ffprobe / process wrappers with Bun-first execution and Node fallback
+    ffmpeg / ffprobe / process wrappers with Bun subprocess execution
 
   providers/
     ASR / VLM / TTS plus storyboard/script business provider interfaces
