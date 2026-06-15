@@ -382,10 +382,13 @@ export function formatTuiActionResult(result: TuiActionResult): string {
 
 function formatTuiWorkerIssue(result: RecoverWorkspaceJobResult): string[] {
   const summary = `  ${result.projectId} ${result.status}${result.fromStage === undefined ? '' : ` from ${result.fromStage}`}${result.skipReason === undefined ? '' : ` (${result.skipReason})`}${result.error === undefined ? '' : ` - ${result.error}`}`
+  const missing = result.missingArtifacts?.map((artifact) => `    missing: ${artifact}`) ?? []
+  const changed = result.changedArtifacts?.map((artifact) => `    changed: ${artifact}`) ?? []
   const schemaInvalid = result.schemaInvalidArtifacts?.map((artifact) => `    schema invalid: ${artifact}`) ?? []
+  const untracked = result.untrackedArtifacts?.map((artifact) => `    untracked: ${artifact}`) ?? []
   const validationIssues = result.validationIssues?.map((issue) => `    ${issue.path.join('.') || '<root>'}: ${issue.message}`) ?? []
 
-  return [summary, ...schemaInvalid, ...validationIssues]
+  return [summary, ...missing, ...changed, ...schemaInvalid, ...untracked, ...validationIssues]
 }
 
 function createCheckpointErrorFromPayload(error: TuiCheckpointErrorActionResult['error']): PipelineCheckpointErrorType {

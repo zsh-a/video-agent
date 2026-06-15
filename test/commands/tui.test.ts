@@ -49,11 +49,15 @@ describe('tui command', () => {
       recovered: 0,
       results: [
         {
+          changedArtifacts: ['timeline.json'],
           error: 'Checkpoint IR validation failed.',
           fromStage: 'quality',
+          missingArtifacts: ['narration.json'],
           projectId: 'demo',
+          schemaInvalidArtifacts: ['clip-plan.json'],
           skipReason: 'checkpoint-invalid',
           status: 'skipped',
+          untrackedArtifacts: ['render-plan.json'],
           validationIssues: [
             {
               code: 'too_small',
@@ -68,6 +72,10 @@ describe('tui command', () => {
     })).to.equal([
       'Action: worker dry-run -> recovered 0, skipped 1',
       '  demo skipped from quality (checkpoint-invalid) - Checkpoint IR validation failed.',
+      '    missing: narration.json',
+      '    changed: timeline.json',
+      '    schema invalid: clip-plan.json',
+      '    untracked: render-plan.json',
       '    source: Too small: expected string to have >=1 characters',
     ].join('\n'))
   })
