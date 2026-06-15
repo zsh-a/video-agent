@@ -209,6 +209,20 @@ describe('cli end-to-end workflow', () => {
       })
       expect(mcpServerEntryInfo.placement).to.include('command/args/env')
 
+      const mcpClientPresets = await runCliJson<Array<{
+        client: string
+        placement: string
+        shape: string
+      }>>(['mcp', '--list-client-presets', '--workspace', workspaceDir])
+
+      expect(mcpClientPresets.map((preset) => `${preset.client}:${preset.shape}`)).to.deep.equal([
+        'generic:full',
+        'claude-desktop:full',
+        'cursor:full',
+        'server-entry:server',
+      ])
+      expect(mcpClientPresets.at(-1)?.placement).to.include('command/args/env')
+
       await runCliJson(['config', '--asr', 'http', '--vlm', 'http', '--tts', 'http', '--workspace', workspaceDir, '--json'])
       const httpProviderEnv = {
         VIDEO_AGENT_ASR_URL: 'https://provider.example/asr',

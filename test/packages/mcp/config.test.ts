@@ -1,6 +1,12 @@
 import {expect} from 'chai'
 
-import {createMcpClientConfig, createMcpClientConfigOutput, getMcpClientConfigPresetInfo} from '../../../packages/mcp/src/config.js'
+import {
+  createMcpClientConfig,
+  createMcpClientConfigOutput,
+  getMcpClientConfigPresetInfo,
+  listMcpClientConfigPresetInfo,
+  supportedMcpClientConfigPresets,
+} from '../../../packages/mcp/src/config.js'
 import {parseEnvFlags} from '../../../src/utils/env-flags.js'
 
 describe('mcp client config', () => {
@@ -111,6 +117,22 @@ describe('mcp client config', () => {
       placement: 'Paste the returned mcpServers object into the client MCP JSON configuration.',
       shape: 'full',
     })
+  })
+
+  it('lists supported client config presets for external tool discovery', () => {
+    expect(supportedMcpClientConfigPresets).to.deep.equal([
+      'generic',
+      'claude-desktop',
+      'cursor',
+      'server-entry',
+    ])
+
+    expect(listMcpClientConfigPresetInfo().map((info) => `${info.client}:${info.shape}`)).to.deep.equal([
+      'generic:full',
+      'claude-desktop:full',
+      'cursor:full',
+      'server-entry:server',
+    ])
   })
 
   it('parses repeated env flags', () => {

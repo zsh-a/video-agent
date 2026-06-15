@@ -2,6 +2,13 @@ export type McpClientConfigMode = 'dev' | 'installed'
 export type McpClientConfigPreset = 'claude-desktop' | 'cursor' | 'generic' | 'server-entry'
 export type McpClientConfigShape = 'full' | 'server'
 
+export const supportedMcpClientConfigPresets = [
+  'generic',
+  'claude-desktop',
+  'cursor',
+  'server-entry',
+] as const satisfies readonly McpClientConfigPreset[]
+
 export interface McpClientConfigOptions {
   client?: McpClientConfigPreset
   env?: Record<string, string>
@@ -45,6 +52,10 @@ export function createMcpClientConfigOutput(
   }
 
   return createMcpClientConfig(options)
+}
+
+export function listMcpClientConfigPresetInfo(): McpClientConfigPresetInfo[] {
+  return supportedMcpClientConfigPresets.map((client) => getMcpClientConfigPresetInfo(client))
 }
 
 export function getMcpClientConfigPresetInfo(client: McpClientConfigPreset = 'generic'): McpClientConfigPresetInfo {

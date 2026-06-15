@@ -506,9 +506,10 @@ bun run dev mcp --print-config --client claude-desktop
 bun run dev mcp --print-config --client cursor
 bun run dev mcp --print-config --client server-entry
 bun run dev mcp --print-config-info --client server-entry
+bun run dev mcp --list-client-presets
 ```
 
-`--client claude-desktop`、`--client cursor` 和默认 `generic` 都输出完整的 `mcpServers` 配置对象；`--client server-entry` 输出单个 server entry，适合已经由宿主界面提供 server name 的客户端表单。如果需要手动覆盖 shape，仍然可以使用 `--config-shape`：
+`--client claude-desktop`、`--client cursor` 和默认 `generic` 都输出完整的 `mcpServers` 配置对象；`--client server-entry` 输出单个 server entry，适合已经由宿主界面提供 server name 的客户端表单。`--list-client-presets` 会输出所有支持的 preset、默认 shape 和粘贴位置说明，方便外部 Agent 或宿主 UI 自动发现配置形态。如果需要手动覆盖 shape，仍然可以使用 `--config-shape`：
 
 ```sh
 bun run dev mcp --print-config --config-shape server
