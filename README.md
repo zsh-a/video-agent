@@ -388,7 +388,7 @@ HyperFrames 渲染还会写入本地 `templateQuality`，检查 `index.html`、`
 bun run dev artifacts <projectId> --verify
 ```
 
-`status` 会读取 `job-state.json`、artifact 列表、`pipeline-events.jsonl`、`provider-calls.jsonl`、`quality-report.json` 和 `render-output.json`，展示 stage 状态、事件数量、provider 调用总数、失败数、quality warning/error summary 和 render output diagnostics。
+`status` 会读取 `job-state.json`、artifact 列表、`pipeline-events.jsonl`、`provider-calls.jsonl`、`quality-report.json` 和 `render-output.json`，展示 stage 状态、事件数量、provider 调用总数、失败数、quality warning/error summary，以及 output/subtitle/audio/template/visual 全分类 render diagnostics。
 
 `quality` 会聚合 pipeline quality、render diagnostics、HyperFrames template quality 和 artifact integrity，给出项目是否可交付的 `ok/errors/warnings` 总结。缺失、变更或 schema 无效的 artifact 会计入 errors；未纳入 manifest 的 artifact 会计入 warnings。`--details` 会一并输出原始 `quality-report.json` 和 `render-output.json` 内容。
 

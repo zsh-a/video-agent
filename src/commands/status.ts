@@ -1,5 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {readProjectStatus} from '@video-agent/runtime'
+import {type ProjectStatus, readProjectStatus} from '@video-agent/runtime'
+
+import {formatQualityRenderSummary} from './quality.js'
 
 export default class Status extends Command {
   static args = {
@@ -20,22 +22,20 @@ export default class Status extends Command {
       return
     }
 
-    this.log(`Project: ${status.projectId}`)
-    this.log(`Status: ${status.job.status}`)
-    this.log(`Artifacts: ${status.artifacts.length}`)
-    this.log(`Events: ${status.summary.events.count}`)
-    this.log(`Provider calls: ${status.summary.providers.total} (${status.summary.providers.failed} failed)`)
-    this.log(`Quality issues: ${status.summary.quality.issues} (${status.summary.quality.errors} errors, ${status.summary.quality.warnings} warnings)`)
-    this.log(
-      `Render: ${status.summary.render.rendered ? status.summary.render.renderer ?? 'yes' : 'none'} (${status.summary.render.outputErrors} output errors, ${status.summary.render.outputWarnings} output warnings, ${status.summary.render.audioQualityWarnings} audio warnings, ${status.summary.render.visualErrors} visual errors, ${status.summary.render.visualWarnings} visual warnings)`,
-    )
-
-    if (status.summary.events.last !== undefined) {
-      this.log(`Last event: ${status.summary.events.last.type ?? 'unknown'}${status.summary.events.last.stage === undefined ? '' : `:${status.summary.events.last.stage}`}`)
-    }
-
-    for (const stage of status.job.stages) {
-      this.log(`${stage.name}: ${stage.status}`)
-    }
+    this.log(formatProjectStatus(status))
   }
+}
+
+export function formatProjectStatus(status: ProjectStatus): string {
+  return [
+    `Project: ${status.projectId}`,
+    `Status: ${status.job.status}`,
+    `Artifacts: ${status.artifacts.length}`,
+    `Events: ${status.summary.events.count}`,
+    `Provider calls: ${status.summary.providers.total} (${status.summary.providers.failed} failed)`,
+    `Quality issues: ${status.summary.quality.issues} (${status.summary.quality.errors} errors, ${status.summary.quality.warnings} warnings)`,
+    `Render: ${formatQualityRenderSummary(status.summary.render)}`,
+    ...(status.summary.events.last === undefined ? [] : [`Last event: ${status.summary.events.last.type ?? 'unknown'}${status.summary.events.last.stage === undefined ? '' : `:${status.summary.events.last.stage}`}`]),
+    ...status.job.stages.map((stage) => `${stage.name}: ${stage.status}`),
+  ].join('\n')
 }
