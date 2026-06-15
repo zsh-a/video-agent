@@ -123,7 +123,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 20,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['status', projectId, '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'status', '--workspace', options.workspaceDir],
       category: 'inspect',
       description: 'Inspect job state, provider summary, quality summary, and artifacts.',
       id: 'inspect-status',

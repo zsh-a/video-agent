@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import type {ProjectQualityReport} from '../../packages/runtime/src/project-quality.js'
+import type {ProjectStatus} from '../../packages/runtime/src/project-status.js'
 
 import {JsonJobStore} from '../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../packages/runtime/src/artifact-store.js'
@@ -211,6 +212,24 @@ describe('tui command', () => {
     ].join('\n'))
   })
 
+  it('formats status action results', () => {
+    expect(formatTuiActionResult({
+      status: createProjectStatus(),
+      type: 'status',
+    })).to.equal([
+      'Action: status demo',
+      'Project: demo',
+      'Status: running',
+      'Artifacts: 2',
+      'Events: 1',
+      'Provider calls: 1 (0 failed)',
+      'Quality issues: 1 (0 errors, 1 warnings)',
+      'Render: not rendered, 0 errors, 0 warnings, output 0/0, subtitle 0/0, audio 0/0, template 0/0, visual 0/0',
+      'Last event: stage:start:ingest',
+      'ingest: running',
+    ].join('\n'))
+  })
+
   it('formats events action results', () => {
     expect(formatTuiActionResult({
       result: {
@@ -394,6 +413,34 @@ describe('tui command', () => {
       })
       expect(result.type === 'quality' && result.report.qualityReport).to.be.an('object')
       expect(result.type === 'quality' && result.report.renderOutput).to.be.an('object')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('runs status action against a project workspace', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-status-'))
+
+    try {
+      await createQualityProject(root, 'demo')
+
+      const result = await runTuiAction({
+        action: 'status',
+        artifactLimit: 5,
+        commandPrefix: 'vagent',
+        exportFormat: 'video',
+        exportRequireQuality: true,
+        fromStage: 'quality',
+        projectId: 'demo',
+        providerRole: 'all',
+        renderRenderer: 'ffmpeg',
+        status: 'active',
+        workspaceDir: root,
+      })
+
+      expect(result.type).to.equal('status')
+      expect(result.type === 'status' && result.status.projectId).to.equal('demo')
+      expect(result.type === 'status' && result.status.artifacts).to.include.members(['quality-report.json', 'render-output.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -797,7 +844,7 @@ describe('tui command', () => {
     expect(output).to.include('Commands')
     expect(output).to.include('Test providers')
     expect(output).to.include('Inspect status')
-    expect(output).to.include('bun run dev status demo --workspace .video-agent')
+    expect(output).to.include('bun run dev tui --project demo --action status --workspace .video-agent')
     expect(output).to.include('Rerun from ingest')
   })
 
@@ -889,7 +936,7 @@ describe('tui command', () => {
       category: 'artifact',
       description: 'Verify artifact manifest hashes and known IR/provider schemas.',
     })
-    expect(commands.map((item) => item.command)).to.include("vagent status 'demo project' --workspace 'workspace dir'")
+    expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action status --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action quality --quality-details --json --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action verify --workspace 'workspace dir'")
     expect(commands.map((item) => item.command)).to.include("vagent tui --project 'demo project' --action events --workspace 'workspace dir'")
@@ -938,6 +985,71 @@ describe('tui command', () => {
     expect(resolveTuiCommandSelection(commands, 'missing')).to.equal(undefined)
   })
 })
+
+function createProjectStatus(): ProjectStatus {
+  return {
+    artifacts: ['quality-report.json', 'timeline.json'],
+    job: {
+      createdAt: '2026-06-15T00:00:00.000Z',
+      inputPath: '/tmp/input.mp4',
+      projectId: 'demo',
+      stages: [
+        {
+          attempt: 1,
+          name: 'ingest',
+          status: 'running',
+        },
+      ],
+      status: 'running',
+      updatedAt: '2026-06-15T00:00:00.000Z',
+      version: 1,
+    },
+    projectDir: '/tmp/project',
+    projectId: 'demo',
+    summary: {
+      events: {
+        count: 1,
+        last: {
+          stage: 'ingest',
+          time: '2026-06-15T00:00:00.000Z',
+          type: 'stage:start',
+        },
+      },
+      providers: {
+        byRole: {
+          asr: {costs: {}, failed: 0, succeeded: 1, total: 1},
+          tts: {costs: {}, failed: 0, succeeded: 0, total: 0},
+          vlm: {costs: {}, failed: 0, succeeded: 0, total: 0},
+        },
+        costs: {},
+        failed: 0,
+        succeeded: 1,
+        total: 1,
+      },
+      quality: {
+        errors: 0,
+        issues: 1,
+        warnings: 1,
+      },
+      render: {
+        audioInputs: 0,
+        audioQualityErrors: 0,
+        audioQualityWarnings: 0,
+        audioWarnings: 0,
+        missingVoiceovers: 0,
+        outputErrors: 0,
+        outputWarnings: 0,
+        rendered: false,
+        subtitleErrors: 0,
+        subtitleWarnings: 0,
+        templateErrors: 0,
+        templateWarnings: 0,
+        visualErrors: 0,
+        visualWarnings: 0,
+      },
+    },
+  }
+}
 
 function createProjectQualityReport(): ProjectQualityReport {
   return {

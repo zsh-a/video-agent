@@ -7,8 +7,9 @@ import {createInterface, type Interface} from 'node:readline'
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 import {formatQualityRenderSummary} from './quality.js'
+import {formatProjectStatus} from './status.js'
 
-export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'verify' | 'visual' | 'worker'
+export type TuiAction = 'artifact' | 'audio' | 'commands' | 'dashboard' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'select' | 'status' | 'verify' | 'visual' | 'worker'
 
 type TuiQualityReport = ProjectQualityReport & {qualityReport?: unknown; renderOutput?: unknown}
 
@@ -32,7 +33,7 @@ export type TuiCommandSuggestion = VideoAgentGuidedAction
 export default class Tui extends Command {
   static description = 'Show a lightweight terminal workspace dashboard'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'verify', 'visual', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'provider-test', 'quality', 'render', 'rerun', 'select', 'status', 'verify', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
@@ -273,6 +274,7 @@ export type TuiActionResult =
   | {result: ExportProjectResult; type: 'export'}
   | {result: ProjectEventsResult; type: 'events'}
   | {result: RenderProjectResult; type: 'render'}
+  | {status: ProjectStatus; type: 'status'}
   | {type: 'dashboard'}
 
 // eslint-disable-next-line complexity
@@ -387,6 +389,15 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         workspaceDir: options.workspaceDir,
       }),
       type: 'events',
+    }
+  }
+
+  if (options.action === 'status') {
+    const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+
+    return {
+      status: await readProjectStatus(projectId, options.workspaceDir),
+      type: 'status',
     }
   }
 
@@ -628,6 +639,13 @@ export function formatTuiActionResult(result: TuiActionResult): string {
     return [
       `Action: events ${result.result.projectId} -> ${result.result.events.length} events`,
       ...(result.result.events.length === 0 ? ['  none'] : result.result.events.map((event) => `  ${formatTuiEventRecord(event)}`)),
+    ].join('\n')
+  }
+
+  if (result.type === 'status') {
+    return [
+      `Action: status ${result.status.projectId}`,
+      formatProjectStatus(result.status),
     ].join('\n')
   }
 

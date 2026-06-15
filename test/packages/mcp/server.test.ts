@@ -366,7 +366,7 @@ describe('mcp server', () => {
       expect(result.actions.map((action) => action.id)).to.not.include('open-artifact')
       expect(result.actions.find((action) => action.id === 'inspect-status')).to.include({
         category: 'inspect',
-        command: `bun run dev status demo --workspace ${root}`,
+        command: `bun run dev tui --project demo --action status --workspace ${root}`,
         id: 'inspect-status',
       })
     } finally {
