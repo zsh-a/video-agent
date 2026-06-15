@@ -965,6 +965,22 @@ function renderStudioHtml(): string {
           <label class="control">HF output
             <input id="render-hf-output" placeholder="./hyperframes.mp4">
           </label>
+          <label class="control">Export format
+            <select id="export-format">
+              <option value="video">video</option>
+              <option value="hyperframes">hyperframes</option>
+              <option value="bundle">bundle</option>
+            </select>
+          </label>
+          <label class="control">Export output
+            <input id="export-output" placeholder="./final.mp4">
+          </label>
+          <label class="control">Require quality
+            <input id="export-require-quality" type="checkbox" checked>
+          </label>
+          <label class="control">Clean directory
+            <input id="export-clean-output" type="checkbox">
+          </label>
         </div>
         <p class="status-line" id="action-status"></p>
       </div>
@@ -1157,6 +1173,15 @@ function renderStudioHtml(): string {
       maybe(options, "voiceoverVolume", optionalNumber("render-voiceover-volume"));
       maybe(options, "hyperframesCommand", optionalStringArray("render-hf-command"));
       maybe(options, "hyperframesOutput", optionalString("render-hf-output"));
+      return options;
+    };
+    const readExportOptions = () => {
+      const options = {
+        cleanOutput: byId("export-clean-output").checked,
+        format: byId("export-format").value,
+        requireQuality: byId("export-require-quality").checked,
+      };
+      maybe(options, "outputPath", optionalString("export-output"));
       return options;
     };
     const artifactRow = (artifact) => {
@@ -1499,7 +1524,7 @@ function renderStudioHtml(): string {
       method: "POST",
     })));
     byId("export-action").addEventListener("click", () => void runAction("Export", () => api("/projects/" + encodeURIComponent(state.projectId) + "/export", {
-      body: JSON.stringify({format: "video", requireQuality: true}),
+      body: JSON.stringify(readExportOptions()),
       headers: {"content-type": "application/json"},
       method: "POST",
     })));
