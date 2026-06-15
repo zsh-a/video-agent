@@ -1,6 +1,8 @@
+import {cancel, intro, isCancel, outro, select, text} from '@clack/prompts'
 import {Command, Flags} from '@oclif/core'
 import {type AgentConfig, type ConfigUpdate, type JobStoreKind, readConfig, readProviderEnvironment, writeConfig} from '@video-agent/runtime'
-import {createInterface, type Interface} from 'node:readline'
+
+type ProviderKind = 'command' | 'http' | 'mock'
 
 export default class Config extends Command {
   static description = 'Read or update video-agent provider configuration'
@@ -18,6 +20,11 @@ export default class Config extends Command {
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Config)
+
+    if (flags.interactive && process.stdin.isTTY !== true) {
+      this.error('Interactive config requires a TTY. Use explicit flags such as --asr, --vlm, --tts, --job-store, --max-stage-retries, and --retry-backoff-ms in scripts or agent clients.', {exit: 1})
+    }
+
     const hasUpdate = flags.interactive || flags.asr !== undefined || flags['job-store'] !== undefined || flags['max-stage-retries'] !== undefined || flags['retry-backoff-ms'] !== undefined || flags.tts !== undefined || flags.vlm !== undefined
     const update = flags.interactive
       ? await promptForConfig(await readConfig(flags.workspace))
@@ -64,64 +71,88 @@ export default class Config extends Command {
 }
 
 async function promptForConfig(current: AgentConfig): Promise<ConfigUpdate> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  })
+  intro('video-agent config')
 
-  try {
-    return {
-      asr: await promptChoice(rl, 'ASR provider', ['mock', 'command', 'http'], current.providers.asr),
-      jobStore: (await promptChoice(rl, 'Job store', ['json', 'sqlite'], current.persistence.jobStore)) as JobStoreKind,
-      maxStageRetries: await promptNonNegativeInteger(rl, 'Max stage retries', current.pipeline.maxStageRetries),
-      retryBackoffMs: await promptNonNegativeInteger(rl, 'Retry backoff ms', current.pipeline.retryBackoffMs),
-      tts: await promptChoice(rl, 'TTS provider', ['mock', 'command', 'http'], current.providers.tts),
-      vlm: await promptChoice(rl, 'VLM provider', ['mock', 'command', 'http'], current.providers.vlm),
-    }
-  } finally {
-    rl.close()
+  const update: ConfigUpdate = {
+    asr: await promptProviderChoice('ASR provider', current.providers.asr),
+    jobStore: await promptJobStoreChoice(current.persistence.jobStore),
+    maxStageRetries: await promptNonNegativeInteger('Max stage retries', current.pipeline.maxStageRetries),
+    retryBackoffMs: await promptNonNegativeInteger('Retry backoff ms', current.pipeline.retryBackoffMs),
+    tts: await promptProviderChoice('TTS provider', current.providers.tts),
+    vlm: await promptProviderChoice('VLM provider', current.providers.vlm),
   }
+
+  outro('Configuration ready')
+
+  return update
 }
 
-async function promptChoice(rl: Interface, label: string, choices: readonly string[], current: string): Promise<string> {
-  /* eslint-disable no-await-in-loop */
-  while (true) {
-    const answer = (await question(rl, `${label} (${choices.join('/')}) [${current}]: `)).trim()
-    const value = answer === '' ? current : answer
-
-    if (choices.includes(value)) {
-      return value
-    }
-
-    process.stdout.write(`Expected one of: ${choices.join(', ')}\n`)
-  }
-  /* eslint-enable no-await-in-loop */
+async function promptProviderChoice(label: string, current: string): Promise<ProviderKind> {
+  return readPromptValue(
+    await select<ProviderKind>({
+      initialValue: normalizeProviderKind(current),
+      message: label,
+      options: [
+        {hint: 'deterministic local development provider', label: 'mock', value: 'mock'},
+        {hint: 'external process adapter over JSON stdin/stdout', label: 'command', value: 'command'},
+        {hint: 'hosted or local HTTP JSON adapter', label: 'http', value: 'http'},
+      ],
+    }),
+  )
 }
 
-async function promptNonNegativeInteger(rl: Interface, label: string, current: number): Promise<number> {
-  /* eslint-disable no-await-in-loop */
-  while (true) {
-    const answer = (await question(rl, `${label} [${current}]: `)).trim()
-
-    if (answer === '') {
-      return current
-    }
-
-    const value = Number(answer)
-
-    if (Number.isInteger(value) && value >= 0) {
-      return value
-    }
-
-    process.stdout.write('Expected a non-negative integer.\n')
-  }
-  /* eslint-enable no-await-in-loop */
+async function promptJobStoreChoice(current: JobStoreKind): Promise<JobStoreKind> {
+  return readPromptValue(
+    await select<JobStoreKind>({
+      initialValue: current,
+      message: 'Job store',
+      options: [
+        {hint: 'portable project-local JSON job files', label: 'json', value: 'json'},
+        {hint: 'workspace SQLite database through Bun SQLite', label: 'sqlite', value: 'sqlite'},
+      ],
+    }),
+  )
 }
 
-function question(rl: Interface, prompt: string): Promise<string> {
-  return new Promise((resolve) => {
-    rl.question(prompt, resolve)
-  })
+async function promptNonNegativeInteger(label: string, current: number): Promise<number> {
+  const value = readPromptValue(
+    await text({
+      initialValue: String(current),
+      message: label,
+      validate(value) {
+        return parseNonNegativeInteger(value) === undefined ? 'Expected a non-negative integer.' : undefined
+      },
+    }),
+  )
+
+  return parseNonNegativeInteger(value) ?? current
+}
+
+function readPromptValue<T>(value: symbol | T): T {
+  if (isCancel(value)) {
+    cancel('Configuration cancelled')
+    throw new Error('Configuration cancelled.')
+  }
+
+  return value
+}
+
+function normalizeProviderKind(value: string): ProviderKind {
+  if (value === 'command' || value === 'http' || value === 'mock') {
+    return value
+  }
+
+  return 'mock'
+}
+
+function parseNonNegativeInteger(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const parsed = Number(value.trim())
+
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 function summarizeProviderEnvironment(report: Awaited<ReturnType<typeof readProviderEnvironment>>): string {

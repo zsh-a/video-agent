@@ -59,6 +59,11 @@ describe('cli end-to-end workflow', () => {
         retryBackoffMs: 5,
       })
 
+      const nonTtyInteractiveConfig = await runCli(['config', '--interactive', '--workspace', workspaceDir])
+
+      expect(nonTtyInteractiveConfig.code).to.equal(1)
+      expect(nonTtyInteractiveConfig.stderr).to.include('Interactive config requires a TTY')
+
       const providerEnv = await runCliJson<{
         providers: Array<{provider: string; requirements: unknown[]; role: string}>
         summary: {configured: number; missing: number; missingRequired: string[]; total: number}

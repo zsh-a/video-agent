@@ -162,7 +162,7 @@ Deliverables:
 - Provider call records with request identifiers, cost, usage, model, and latency metadata.
 - HTTP provider request headers for role/kind/version tracing, fallback request ids, bearer tokens, and custom hosted-service headers.
 - Provider environment requirement reports and shell templates for command and HTTP adapters, including non-secret custom-header placeholders.
-- Interactive prompts for configuration; Clack styling can replace the current readline prompt later.
+- Clack-styled interactive prompts for configuration with a non-TTY guard for scripts and agent clients.
 
 Acceptance criteria:
 
@@ -174,7 +174,7 @@ Acceptance criteria:
 - Project events can be read directly with pipeline stage/type and provider role/status filters for future CLI/API/TUI/MCP adapters.
 - Rendered output includes usable voiceover or a clear missing-audio diagnostic and voiceover alignment plan.
 
-Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests with structured provider response validation diagnostics and shared summary counts, HTTP provider trace headers/custom headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports with shared summary counts, non-secret shell templates, config-time provider env summaries, explicit env injection across CLI/API/MCP provider and doctor checks, shared ASR/VLM/TTS artifact schemas, transcript-aligned VLM scene batches, ASR/VLM evidence-backed storyboard generation with scene-level source ranges, storyboard sourceRange quality checks, sequential fallback `clip-plan.json` source-range planning with gap/overlap diagnostics, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and lightweight interactive configuration are implemented; provider-specific hosted-service adapters and Clack-styled prompts are still pending.
+Status: in progress. The command and HTTP JSON provider boundaries, runnable command-provider and HTTP-provider recipes, provider smoke tests with structured provider response validation diagnostics and shared summary counts, HTTP provider trace headers/custom headers, provider call records, request ids, optional cost/usage/model metadata, provider environment requirement reports with shared summary counts, non-secret shell templates, config-time provider env summaries, explicit env injection across CLI/API/MCP provider and doctor checks, shared ASR/VLM/TTS artifact schemas, transcript-aligned VLM scene batches, ASR/VLM evidence-backed storyboard generation with scene-level source ranges, storyboard sourceRange quality checks, sequential fallback `clip-plan.json` source-range planning with gap/overlap diagnostics, Zod validation for runtime-generated and checkpoint-loaded IR/provider artifacts, voiceover plan artifacts, missing-audio diagnostics, render audio preflight checks, multi-chunk TTS stitching, and Clack-styled interactive configuration are implemented; provider-specific hosted-service adapters are still pending.
 
 ## Phase 5: Persistence and Recovery
 
@@ -224,12 +224,11 @@ Status: in progress. A first stdio MCP adapter is implemented with tools for doc
 
 Recommended order:
 
-1. Replace the readline interactive config with Clack-styled prompts when dependency policy allows it.
-2. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
-3. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions when dependency policy allows it.
-4. Test the generic MCP config output against named external clients and document any client-specific placement details.
-5. Add named external client placement notes after hands-on checks against each target host.
-6. Add named hosted-service provider adapters once target services are selected.
+1. Add real-service ASR/VLM/TTS adapters behind the existing provider contracts.
+2. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions when dependency policy allows it.
+3. Test the generic MCP config output against named external clients and document any client-specific placement details.
+4. Add named external client placement notes after hands-on checks against each target host.
+5. Add named hosted-service provider adapters once target services are selected.
 
 ## v0 Completion Definition
 

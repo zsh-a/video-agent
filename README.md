@@ -202,6 +202,8 @@ bun run dev doctor --env VIDEO_AGENT_ASR_URL=https://provider.example/asr --json
 bun run dev config --interactive
 ```
 
+交互模式使用 Clack prompts，需要真实 TTY；CI、脚本和 agent client 应使用 `--asr`、`--vlm`、`--tts`、`--job-store`、`--max-stage-retries`、`--retry-backoff-ms` 这些显式 flags。
+
 默认 provider 都是 `mock`。也可以配置为 `command`，让 video-agent 调用外部命令作为 ASR/VLM/TTS adapter。外部命令通过 stdin 接收 JSON，通过 stdout 返回 JSON。
 
 ```sh
@@ -657,7 +659,7 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 - `export` 命令：导出 `final.mp4`、HyperFrames render directory 或完整 project bundle，目录型导出可用 `--clean-output` 清理旧目标目录
 - export quality gate：`export --require-quality` / API `requireQuality` 可在质量聚合不通过时拒绝导出
 - `init` 命令：初始化 workspace 并检查 `ffmpeg` / `ffprobe`
-- `config` 命令：读写 provider、job store 和 retry 配置，支持轻量交互模式
+- `config` 命令：读写 provider、job store 和 retry 配置，支持 Clack 交互模式和非 TTY 显式 flags
 - provider registry：支持 `mock`、`command` 和 `http` provider，`command` / `http` 通过环境变量配置外部 JSON adapter
 - provider call recorder：记录 ASR/VLM/TTS 调用的 provider、request id、耗时、输入/输出摘要、model/usage/cost metadata、状态和错误信息到 `provider-calls.jsonl`
 - artifact manifest：`artifact-manifest.json` 记录 artifacts 目录内文件的 kind、size、mtime 和 sha256，用于后续恢复/校验；`artifacts --verify` 还会校验已知 IR/provider JSON artifact 的 schema
@@ -671,8 +673,8 @@ bun run clean           # 清理 dist 和 tsbuildinfo
 
 下一步建议：
 
-1. 增加 Clack 交互式配置。
-2. 增加真实 ASR/VLM/TTS provider adapter。
-3. 增加外部 agent 客户端实测记录。
-4. 增加 provider-specific hosted-service adapters。
-5. 增加 Web Studio 的模板验证视图。
+1. 增加真实 ASR/VLM/TTS provider adapter。
+2. 增加外部 agent 客户端实测记录。
+3. 增加 provider-specific hosted-service adapters。
+4. 增加 Web Studio 的模板验证视图。
+5. 将 TUI guided selector 升级为更完整的 Ink/Clack 工作台。
