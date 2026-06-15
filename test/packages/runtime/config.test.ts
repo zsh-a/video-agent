@@ -1,5 +1,5 @@
 import {expect} from 'chai'
-import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -22,7 +22,8 @@ describe('config', () => {
         maxStageRetries: 0,
         retryBackoffMs: 0,
       })
-      expect(config.providerEnv).to.deep.equal({})
+      expect(config.providerSettings).to.deep.equal({})
+      expect(config.llm).to.equal(undefined)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -42,7 +43,7 @@ describe('config', () => {
     }
   })
 
-  it('normalizes older config files without persistence settings', async () => {
+  it('normalizes minimal config files', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-config-'))
 
     try {
@@ -94,6 +95,31 @@ describe('config', () => {
         retryBackoffMs: 10,
       })
       expect((await readConfig(root)).pipeline.maxStageRetries).to.equal(2)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('writes LLM configuration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-config-'))
+
+    try {
+      const {config} = await writeConfig(root, {
+        llm: {
+          authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
+          baseURL: 'https://llm.example.test/anthropic',
+          model: 'mimo-v2.5-pro',
+        },
+        llmProvider: 'anthropic',
+      })
+
+      expect(config.llm).to.deep.equal({
+        authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
+        baseURL: 'https://llm.example.test/anthropic',
+        model: 'mimo-v2.5-pro',
+        provider: 'anthropic',
+      })
+      expect((await readConfig(root)).llm).to.deep.equal(config.llm)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -152,15 +178,36 @@ describe('config', () => {
         tts: 'http',
         vlm: 'http',
       })
-      expect(config.providerEnv).to.include({
-        VIDEO_AGENT_ASR_MODEL: 'mimo-v2.5-asr',
-        VIDEO_AGENT_ASR_URL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-        VIDEO_AGENT_TTS_MODEL: 'mimo-v2.5-tts',
-        VIDEO_AGENT_TTS_URL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
-        VIDEO_AGENT_VLM_MODEL: 'mimo-v2.5-pro',
-        VIDEO_AGENT_VLM_URL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+      expect(config.providerProfile).to.equal('mimo')
+      expect(config.providerSettings).to.deep.include({
+        asr: {
+          model: 'mimo-v2.5-asr',
+          timeoutMs: 120_000,
+          url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        },
+        tts: {
+          model: 'mimo-v2.5-tts',
+          timeoutMs: 120_000,
+          url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        },
+        vlm: {
+          model: 'mimo-v2.5-pro',
+          timeoutMs: 120_000,
+          url: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        },
       })
-      expect((await readConfig(root)).providerEnv).to.deep.equal(config.providerEnv)
+      expect(config.llm).to.deep.equal({
+        authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
+        baseURL: 'https://token-plan-cn.xiaomimimo.com/anthropic',
+        model: 'mimo-v2.5-pro',
+        name: 'mimo',
+        provider: 'anthropic',
+      })
+      expect(JSON.parse(await readFile(join(root, 'config.json'), 'utf8'))).to.deep.equal({
+        providerProfile: 'mimo',
+        version: 1,
+      })
+      expect((await readConfig(root)).providerSettings).to.deep.equal(config.providerSettings)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

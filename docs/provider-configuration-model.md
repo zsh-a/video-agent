@@ -1,14 +1,11 @@
 # Provider Configuration Model
 
-`video-agent` keeps the runtime provider contract stable while real services are added incrementally. The current configuration model intentionally keeps existing workspaces compatible:
+`video-agent` keeps the runtime provider contract stable while real services are added incrementally. The persisted workspace config stays small and describes intent first:
 
 ```json
 {
-  "providers": {
-    "asr": "mock",
-    "vlm": "mock",
-    "tts": "mock"
-  }
+  "providerProfile": "mimo",
+  "version": 1
 }
 ```
 
@@ -20,7 +17,7 @@ Provider selection remains role-based and string-valued for v0:
 - `command` runs an external JSON stdin/stdout adapter.
 - `http` calls a hosted or local JSON HTTP adapter.
 
-Provider profiles can prefill non-secret configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `http` for ASR, VLM, and TTS, and writes Mimo endpoint/model defaults into `providerEnv`.
+Provider profiles prefill non-secret configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `http` for ASR, VLM, and TTS, provides endpoint/model/timeout defaults through structured `providerSettings`, and enables the AI SDK-backed LLM planner/script path with `mimo-v2.5-pro`.
 
 Named hosted-service providers should be added only after a target service is selected and a single vertical slice proves the request/response mapping. A named provider must still implement the existing `ASRProvider`, `VLMProvider`, or `TTSProvider` contract and must not require pipeline changes.
 
@@ -56,6 +53,22 @@ VIDEO_AGENT_TTS_TIMEOUT_MS
 
 `provider-env`, `doctor`, provider registry setup, shell templates, and future named providers should read from the shared descriptor instead of copying env-name rules.
 
+The simplified LLM path is resolved from the active profile or from explicit runtime config:
+
+```json
+{
+  "llm": {
+    "provider": "anthropic",
+    "baseURL": "https://token-plan-cn.xiaomimimo.com/anthropic",
+    "model": "mimo-v2.5-pro",
+    "authTokenEnv": "VIDEO_AGENT_LLM_TOKEN",
+    "name": "mimo"
+  }
+}
+```
+
+When `llm` is present, the `plan` and `script` stages use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. When it is absent, those stages use deterministic local fallbacks.
+
 ## Mimo Profile
 
 Apply the Mimo defaults with:
@@ -64,25 +77,16 @@ Apply the Mimo defaults with:
 bun run dev config --provider-profile mimo --workspace .video-agent
 ```
 
-The profile writes:
+The profile writes only the selected profile to disk:
 
 ```json
 {
-  "providers": {
-    "asr": "http",
-    "vlm": "http",
-    "tts": "http"
-  },
-  "providerEnv": {
-    "VIDEO_AGENT_ASR_URL": "https://token-plan-cn.xiaomimimo.com/anthropic",
-    "VIDEO_AGENT_ASR_MODEL": "mimo-v2.5-asr",
-    "VIDEO_AGENT_VLM_URL": "https://token-plan-cn.xiaomimimo.com/anthropic",
-    "VIDEO_AGENT_VLM_MODEL": "mimo-v2.5-pro",
-    "VIDEO_AGENT_TTS_URL": "https://token-plan-cn.xiaomimimo.com/anthropic",
-    "VIDEO_AGENT_TTS_MODEL": "mimo-v2.5-tts"
-  }
+  "providerProfile": "mimo",
+  "version": 1
 }
 ```
+
+At runtime that resolves to `http` ASR/VLM/TTS providers, Mimo endpoint/model/timeout settings, and the Mimo LLM config. `GET /config` and `config --json` return the resolved non-secret view.
 
 The full known Mimo model catalog captured by the profile is:
 
@@ -104,6 +108,7 @@ The profile does not write tokens or custom headers. Configure credentials throu
 export VIDEO_AGENT_ASR_TOKEN='<token>'
 export VIDEO_AGENT_VLM_TOKEN='<token>'
 export VIDEO_AGENT_TTS_TOKEN='<token>'
+export VIDEO_AGENT_LLM_TOKEN='<token>'
 ```
 
 ## Adding A Named Provider
@@ -117,4 +122,4 @@ When a hosted provider is selected:
 5. Add injected-fetch or command-shim tests that validate request shape, response parsing, metadata, and failures without network access.
 6. Document any model, endpoint, timeout, or credential behavior without printing secret values.
 
-Existing `mock`, `command`, and `http` configs must continue to load without migration.
+Keep persisted config concise: defaults are omitted, profile defaults stay in code, and only user overrides are written to `config.json`.

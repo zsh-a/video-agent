@@ -54,6 +54,8 @@ export default class Config extends Command {
     this.log(`ASR: ${result.config.providers.asr}`)
     this.log(`VLM: ${result.config.providers.vlm}`)
     this.log(`TTS: ${result.config.providers.tts}`)
+    this.log(`Provider profile: ${result.config.providerProfile ?? 'none'}`)
+    this.log(`LLM: ${summarizeLLMConfig(result.config)}`)
     this.log(`Job store: ${result.config.persistence.jobStore}`)
     this.log(`Max stage retries: ${result.config.pipeline.maxStageRetries}`)
     this.log(`Retry backoff ms: ${result.config.pipeline.retryBackoffMs}`)
@@ -71,6 +73,14 @@ export default class Config extends Command {
       this.log(`Config: ${result.path}`)
     }
   }
+}
+
+function summarizeLLMConfig(config: AgentConfig): string {
+  if (config.llm === undefined) {
+    return 'disabled'
+  }
+
+  return `${config.llm.provider}:${config.llm.model}${config.llm.baseURL === undefined ? '' : ` (${config.llm.baseURL})`}`
 }
 
 async function promptForConfig(current: AgentConfig): Promise<ConfigUpdate> {

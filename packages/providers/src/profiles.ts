@@ -1,4 +1,6 @@
-import {providerEnvName} from './descriptors.js'
+import type {LLMClientConfig} from '@video-agent/llm'
+
+import type {ProviderRole} from './descriptors.js'
 
 export const PROVIDER_PROFILE_NAMES = ['mimo'] as const
 
@@ -6,19 +8,29 @@ export type ProviderProfileName = typeof PROVIDER_PROFILE_NAMES[number]
 
 export interface ProviderProfile {
   description: string
+  llm?: LLMClientConfig
   models: ProviderProfileModel[]
   name: ProviderProfileName
-  providerEnv: Record<string, string>
   providers: {
     asr: string
     tts: string
     vlm: string
   }
+  providerSettings: ProviderSettings
 }
 
 export interface ProviderProfileModel {
   id: string
   roles: Array<'asr' | 'tts' | 'vlm'>
+}
+
+export type ProviderSettings = Partial<Record<ProviderRole, ProviderRoleSettings>>
+
+export interface ProviderRoleSettings {
+  command?: string[]
+  model?: string
+  timeoutMs?: number
+  url?: string
 }
 
 export const MIMO_PROVIDER_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/anthropic'
@@ -64,23 +76,36 @@ export const MIMO_PROVIDER_MODELS: ProviderProfileModel[] = [
 
 export const MIMO_PROVIDER_PROFILE: ProviderProfile = {
   description: 'Mimo hosted provider profile using the Anthropic-compatible endpoint.',
+  llm: {
+    authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
+    baseURL: MIMO_PROVIDER_BASE_URL,
+    model: 'mimo-v2.5-pro',
+    name: 'mimo',
+    provider: 'anthropic',
+  },
   models: MIMO_PROVIDER_MODELS,
   name: 'mimo',
-  providerEnv: {
-    [providerEnvName('asr', 'MODEL')]: 'mimo-v2.5-asr',
-    [providerEnvName('asr', 'TIMEOUT_MS')]: '120000',
-    [providerEnvName('asr', 'URL')]: MIMO_PROVIDER_BASE_URL,
-    [providerEnvName('tts', 'MODEL')]: 'mimo-v2.5-tts',
-    [providerEnvName('tts', 'TIMEOUT_MS')]: '120000',
-    [providerEnvName('tts', 'URL')]: MIMO_PROVIDER_BASE_URL,
-    [providerEnvName('vlm', 'MODEL')]: 'mimo-v2.5-pro',
-    [providerEnvName('vlm', 'TIMEOUT_MS')]: '120000',
-    [providerEnvName('vlm', 'URL')]: MIMO_PROVIDER_BASE_URL,
-  },
   providers: {
     asr: 'http',
     tts: 'http',
     vlm: 'http',
+  },
+  providerSettings: {
+    asr: {
+      model: 'mimo-v2.5-asr',
+      timeoutMs: 120_000,
+      url: MIMO_PROVIDER_BASE_URL,
+    },
+    tts: {
+      model: 'mimo-v2.5-tts',
+      timeoutMs: 120_000,
+      url: MIMO_PROVIDER_BASE_URL,
+    },
+    vlm: {
+      model: 'mimo-v2.5-pro',
+      timeoutMs: 120_000,
+      url: MIMO_PROVIDER_BASE_URL,
+    },
   },
 }
 

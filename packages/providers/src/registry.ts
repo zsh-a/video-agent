@@ -1,10 +1,13 @@
-import type {ASRProvider, TTSProvider, VLMProvider} from './contracts.js'
+import type {LLMClient} from '@video-agent/llm'
+
+import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMProvider} from './contracts.js'
 import type {ProviderFetch} from './http.js'
 
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
 import {providerEnvName, type ProviderRole} from './descriptors.js'
 import {HttpASRProvider, HttpTTSProvider, HttpVLMProvider} from './http.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
+import {DeterministicScriptProvider, DeterministicStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
 
 export {
   BUILTIN_PROVIDER_NAMES,
@@ -25,7 +28,7 @@ export {
   PROVIDER_PROFILE_NAMES,
   PROVIDER_PROFILES,
 } from './profiles.js'
-export type {ProviderProfile, ProviderProfileModel, ProviderProfileName} from './profiles.js'
+export type {ProviderProfile, ProviderProfileModel, ProviderProfileName, ProviderRoleSettings, ProviderSettings} from './profiles.js'
 
 export interface ProviderConfig {
   providerEnv?: Record<string, string | undefined>
@@ -39,10 +42,13 @@ export interface ProviderConfig {
 export interface ProviderRegistryOptions {
   env?: Record<string, string | undefined>
   fetch?: ProviderFetch
+  llmClient?: LLMClient
 }
 
 export interface ProviderSet {
   asr: ASRProvider
+  script: ScriptProvider
+  storyboard: StoryboardProvider
   tts: TTSProvider
   vlm: VLMProvider
 }
@@ -52,6 +58,8 @@ export function createProviders(config: ProviderConfig, options: ProviderRegistr
 
   return {
     asr: createAsrProvider(config.providers.asr, mergedOptions),
+    script: createScriptProvider(mergedOptions),
+    storyboard: createStoryboardProvider(mergedOptions),
     tts: createTtsProvider(config.providers.tts, mergedOptions),
     vlm: createVlmProvider(config.providers.vlm, mergedOptions),
   }
@@ -73,6 +81,14 @@ export function createAsrProvider(name: string, options: ProviderRegistryOptions
   }
 
   throw new Error(`Unsupported ASR provider: ${name}`)
+}
+
+export function createScriptProvider(options: ProviderRegistryOptions = {}): ScriptProvider {
+  return options.llmClient === undefined ? new DeterministicScriptProvider() : new LLMScriptProvider(options.llmClient)
+}
+
+export function createStoryboardProvider(options: ProviderRegistryOptions = {}): StoryboardProvider {
+  return options.llmClient === undefined ? new DeterministicStoryboardProvider() : new LLMStoryboardProvider(options.llmClient)
 }
 
 export function createTtsProvider(name: string, options: ProviderRegistryOptions = {}): TTSProvider {

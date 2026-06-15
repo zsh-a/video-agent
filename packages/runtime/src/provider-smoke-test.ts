@@ -1,6 +1,7 @@
 import {createAsrProvider, createTtsProvider, createVlmProvider, type ProviderFetch, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 
 import {readConfig} from './config.js'
+import {createProviderEnv} from './provider-settings.js'
 
 export type ProviderSmokeTestRole = 'asr' | 'tts' | 'vlm'
 export type ProviderSmokeTestStatus = 'failed' | 'succeeded'
@@ -84,7 +85,7 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
     try {
       const output = await runRoleSmokeTest(role, config.providers[role], {
         ...options,
-        env: mergeProviderEnv(config.providerEnv, options.env ?? process.env),
+        env: createProviderEnv(config, options.env ?? process.env),
       })
       const metadata = readSmokeTestMetadata(output.raw)
 
@@ -207,12 +208,5 @@ function readSmokeTestMetadata(value: object): ProviderSmokeTestResult['metadata
   return {
     ...(metadata.model === undefined ? {} : {model: metadata.model}),
     ...(metadata.requestId === undefined ? {} : {requestId: metadata.requestId}),
-  }
-}
-
-function mergeProviderEnv(configEnv: Record<string, string>, env: Record<string, string | undefined>): Record<string, string | undefined> {
-  return {
-    ...configEnv,
-    ...env,
   }
 }

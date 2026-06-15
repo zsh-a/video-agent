@@ -12,6 +12,7 @@
     {"path": "../core"},
     {"path": "../db"},
     {"path": "../ir"},
+    {"path": "../llm"},
     {"path": "../media"},
     {"path": "../providers"},
     {"path": "../quality"},

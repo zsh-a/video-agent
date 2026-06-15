@@ -26,7 +26,7 @@ Runtime:        Bun-first，保留 Node fallback
 Package:        Bun workspaces
 CLI:            oclif
 Schema / IR:    Zod
-LLM:            AI SDK behind internal LLMClient
+LLM:            latest AI SDK behind internal LLMClient
 Media:          ffmpeg / ffprobe wrapper
 Renderer:       HyperFrames boundary
 Runtime:        artifact store + event bus + resumable stage contracts
@@ -50,8 +50,8 @@ packages/
   api/                    # Fetch API handler for runtime state
   mcp/                    # MCP stdio adapter for agent tools
   media/                  # ffmpeg / ffprobe / process wrapper
-  providers/              # ASR / VLM / TTS provider interfaces
-  llm/                    # AI SDK-backed LLMClient abstraction
+  providers/              # ASR / VLM / TTS plus storyboard/script provider interfaces
+  llm/                    # AI SDK-backed LLMClient abstraction and config factory
   renderer-ffmpeg/        # 第一版 ffmpeg renderer，输出 final.mp4
   renderer-hyperframes/   # HyperFrames render plan boundary
   quality/                # timeline/artifact quality checks
@@ -82,6 +82,7 @@ bun run dev doctor
 bun run dev config --json
 bun run dev config --interactive
 bun run dev config --asr command --vlm command --tts command
+bun run dev config --provider-profile mimo
 bun run dev provider-env
 bun run dev provider-env --json
 bun run dev provider-test
@@ -207,6 +208,21 @@ bun run dev config --interactive
 交互模式使用 Clack prompts，需要真实 TTY；CI、脚本和 agent client 应使用 `--asr`、`--vlm`、`--tts`、`--job-store`、`--max-stage-retries`、`--retry-backoff-ms` 这些显式 flags。
 
 默认 provider 都是 `mock`。也可以配置为 `command`，让 video-agent 调用外部命令作为 ASR/VLM/TTS adapter。外部命令通过 stdin 接收 JSON，通过 stdout 返回 JSON。
+
+如果使用内置托管服务 profile，配置文件只保存 profile 名称，URL、model、timeout 和 LLM 默认值由代码解析：
+
+```sh
+bun run dev config --provider-profile mimo
+```
+
+写入的 `.video-agent/config.json` 形如：
+
+```json
+{
+  "providerProfile": "mimo",
+  "version": 1
+}
+```
 
 ```sh
 bun run dev config --asr command --vlm command --tts command

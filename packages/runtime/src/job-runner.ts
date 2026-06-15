@@ -1,10 +1,12 @@
 import type {PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
 import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {LLMClient} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {createClipPlan, createNarrationFromClipPlan, createSceneBoundariesFromTranscript, createStoryboardFromProviderInsights, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
+import {createClipPlan, createSceneBoundariesFromTranscript, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
@@ -16,11 +18,13 @@ import {verifyProjectArtifacts} from './artifacts.js'
 import {readConfig} from './config.js'
 import {createConfiguredJobStore} from './job-store.js'
 import {createJsonlProviderCallRecorder, instrumentProviders} from './provider-calls.js'
+import {createProviderEnv} from './provider-settings.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
 export interface RunInitialPipelineOptions {
   fromStage?: InitialPipelineStage
   inputPath: string
+  llmClient?: LLMClient
   projectId?: string
   workspaceDir?: string
 }
@@ -86,6 +90,8 @@ interface QualityOutput extends VoiceoverOutput {
 
 interface PipelineProviders {
   asr: ProviderSet['asr']
+  script: ProviderSet['script']
+  storyboard: ProviderSet['storyboard']
   tts: ProviderSet['tts']
   vlm: ProviderSet['vlm']
 }
@@ -161,7 +167,12 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     ttsSegments: workspace.store.resolve('tts-segments.json'),
   }
   const config = await readConfig(workspace.workspaceDir)
-  const providers = instrumentProviders(createProviders(config), config.providers, createJsonlProviderCallRecorder(providerCallsPath))
+  const providerEnv = createProviderEnv(config)
+  const llmClient = options.llmClient ?? createLLMClientFromConfig(config.llm, {
+    env: providerEnv,
+  })
+  const providerSet = createProviders(config, {env: providerEnv, llmClient})
+  const providers = instrumentProviders(providerSet, config.providers, createJsonlProviderCallRecorder(providerCallsPath))
   const ctx = {
     artifactsDir: workspace.artifactsDir,
     emit: async (event: PipelineEvent) => appendEvent(pipelineEventsPath, event),
@@ -342,10 +353,11 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'plan',
     async run(input) {
       const understood = input as UnderstandOutput
-      const storyboard = createStoryboardFromProviderInsights(understood.mediaInfo, {
+      const storyboard = StoryboardSchema.parse(await understood.providers.storyboard.createStoryboard({
+        mediaInfo: understood.mediaInfo,
         sceneAnalysis: understood.sceneAnalysis,
         transcript: understood.transcript,
-      })
+      }))
       const clipPlan = ClipPlanSchema.parse(createClipPlan(storyboard, understood.mediaInfo))
       const timeline = TimelineSchema.parse(createTimelineFromClipPlan(understood.mediaInfo, clipPlan))
 
@@ -368,7 +380,10 @@ function createScriptStage(): Stage<InitialStageInput, InitialStageOutput> {
     name: 'script',
     async run(input) {
       const planned = input as PlanOutput
-      const narration = NarrationSchema.parse(createNarrationFromClipPlan(planned.storyboard, planned.clipPlan))
+      const narration = NarrationSchema.parse(await planned.providers.script.createNarration({
+        clipPlan: planned.clipPlan,
+        storyboard: planned.storyboard,
+      }))
 
       await planned.workspace.store.writeJson('narration.json', narration)
 

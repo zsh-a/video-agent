@@ -1,4 +1,4 @@
-import {attachProviderMetadata} from '@video-agent/providers'
+import {attachProviderMetadata, type ProviderSet} from '@video-agent/providers'
 import {expect} from 'chai'
 import {mkdtemp, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -11,7 +11,7 @@ describe('provider call recorder', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-calls-'))
     const path = join(root, 'provider-calls.jsonl')
     const providers = instrumentProviders(
-      {
+      createProviderSet({
         asr: {
           async transcribe() {
             return attachProviderMetadata(
@@ -44,7 +44,7 @@ describe('provider call recorder', () => {
             return []
           },
         },
-      },
+      }),
       {
         asr: 'test-asr',
         tts: 'test-tts',
@@ -77,7 +77,7 @@ describe('provider call recorder', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-calls-'))
     const path = join(root, 'provider-calls.jsonl')
     const providers = instrumentProviders(
-      {
+      createProviderSet({
         asr: {
           async transcribe() {
             throw new Error('asr failed')
@@ -93,7 +93,7 @@ describe('provider call recorder', () => {
             return []
           },
         },
-      },
+      }),
       {
         asr: 'test-asr',
         tts: 'test-tts',
@@ -122,3 +122,19 @@ describe('provider call recorder', () => {
     }
   })
 })
+
+function createProviderSet(providers: Pick<ProviderSet, 'asr' | 'tts' | 'vlm'>): ProviderSet {
+  return {
+    ...providers,
+    script: {
+      async createNarration() {
+        throw new Error('Script provider is not used by this test.')
+      },
+    },
+    storyboard: {
+      async createStoryboard() {
+        throw new Error('Storyboard provider is not used by this test.')
+      },
+    },
+  }
+}

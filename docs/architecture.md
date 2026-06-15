@@ -62,10 +62,10 @@ packages/
     ffmpeg / ffprobe / process wrappers with Bun-first execution and Node fallback
 
   providers/
-    ASR / VLM / TTS provider interfaces
+    ASR / VLM / TTS plus storyboard/script business provider interfaces
 
   llm/
-    Internal LLMClient interface with an AI SDK-backed default adapter
+    Internal LLMClient interface, AI SDK config factory, and AI SDK-backed default adapter used by LLM-backed providers
 
   renderer-ffmpeg/
     First runnable renderer that emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
@@ -184,11 +184,12 @@ Providers are interfaces first:
 ASRProvider
 VLMProvider
 TTSProvider
+StoryboardProvider
+ScriptProvider
 AssetProvider
-LLMProvider
 ```
 
-Concrete providers can wrap remote APIs or local services. Local model inference should still be isolated behind the same provider contracts.
+Concrete providers can wrap remote APIs, local services, deterministic fallback logic, or `@video-agent/llm`. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into the storyboard/script providers; otherwise those providers use deterministic fallbacks. Local model inference should still be isolated behind the same provider contracts.
 
 ## Near-Term Roadmap
 

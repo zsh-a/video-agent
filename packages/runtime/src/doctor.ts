@@ -5,6 +5,7 @@ import {resolve} from 'node:path'
 
 import {type AgentConfig, readConfig, resolveConfigPath} from './config.js'
 import {listProjects} from './projects.js'
+import {createProviderEnv} from './provider-settings.js'
 
 export type HealthCheckStatus = 'fail' | 'pass' | 'warn'
 
@@ -72,7 +73,7 @@ function summarizeHealthChecks(checks: HealthCheck[]): RuntimeHealthSummary {
 async function checkProviderConfig(workspaceDir: string, env: Record<string, string | undefined> | undefined): Promise<HealthCheck[]> {
   try {
     const config = await readConfig(workspaceDir)
-    const providerEnv = mergeProviderEnv(config.providerEnv, env ?? process.env)
+    const providerEnv = createProviderEnv(config, env ?? process.env)
 
     return PROVIDER_ROLES.map((role) => checkProviderRole(role, config, providerEnv))
   } catch (error) {
@@ -207,13 +208,6 @@ function checkUnsupportedConfiguredProvider(role: ProviderRole, provider: string
     message: `Unsupported ${role} provider: ${provider}`,
     name: `provider:${role}`,
     status: 'fail',
-  }
-}
-
-function mergeProviderEnv(configEnv: Record<string, string>, env: Record<string, string | undefined>): Record<string, string | undefined> {
-  return {
-    ...configEnv,
-    ...env,
   }
 }
 

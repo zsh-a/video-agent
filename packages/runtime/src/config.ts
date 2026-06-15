@@ -1,8 +1,14 @@
-import {getProviderProfile, type ProviderProfileName} from '@video-agent/providers'
+import type {LLMClientConfig, LLMProviderName} from '@video-agent/llm'
+
+import {getProviderProfile, type ProviderProfileName, type ProviderSettings} from '@video-agent/providers'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {dirname, resolve} from 'node:path'
 
+export type {LLMClientConfig, LLMProviderName} from '@video-agent/llm'
+export type {ProviderSettings} from '@video-agent/providers'
+
 export interface AgentConfig {
+  llm?: LLMClientConfig
   persistence: {
     jobStore: JobStoreKind
   }
@@ -10,12 +16,13 @@ export interface AgentConfig {
     maxStageRetries: number
     retryBackoffMs: number
   }
-  providerEnv: Record<string, string>
+  providerProfile?: ProviderProfileName
   providers: {
     asr: string
     tts: string
     vlm: string
   }
+  providerSettings: ProviderSettings
   version: 1
 }
 
@@ -24,12 +31,33 @@ export type JobStoreKind = 'json' | 'sqlite'
 export interface ConfigUpdate {
   asr?: string
   jobStore?: JobStoreKind
+  llm?: null | Partial<LLMClientConfig>
+  llmProvider?: LLMProviderName
   maxStageRetries?: number
-  providerEnv?: Record<string, string | undefined>
   providerProfile?: ProviderProfileName
+  providerSettings?: ProviderSettings
   retryBackoffMs?: number
   tts?: string
   vlm?: string
+}
+
+interface StoredAgentConfig {
+  llm?: LLMClientConfig
+  persistence?: {
+    jobStore?: JobStoreKind
+  }
+  pipeline?: {
+    maxStageRetries?: number
+    retryBackoffMs?: number
+  }
+  providerProfile?: ProviderProfileName
+  providers?: {
+    asr?: string
+    tts?: string
+    vlm?: string
+  }
+  providerSettings?: ProviderSettings
+  version?: 1
 }
 
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
@@ -40,12 +68,12 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
     maxStageRetries: 0,
     retryBackoffMs: 0,
   },
-  providerEnv: {},
   providers: {
     asr: 'mock',
     tts: 'mock',
     vlm: 'mock',
   },
+  providerSettings: {},
   version: 1,
 }
 
@@ -55,7 +83,7 @@ export function resolveConfigPath(workspaceDir = '.video-agent'): string {
 
 export async function readConfig(workspaceDir = '.video-agent'): Promise<AgentConfig> {
   try {
-    return normalizeConfig(JSON.parse(await readFile(resolveConfigPath(workspaceDir), 'utf8')) as Partial<AgentConfig>)
+    return normalizeConfig(JSON.parse(await readFile(resolveConfigPath(workspaceDir), 'utf8')) as StoredAgentConfig)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return DEFAULT_AGENT_CONFIG
@@ -67,75 +95,216 @@ export async function readConfig(workspaceDir = '.video-agent'): Promise<AgentCo
 
 export async function writeConfig(workspaceDir: string, update: ConfigUpdate): Promise<{config: AgentConfig; path: string}> {
   const path = resolveConfigPath(workspaceDir)
-  const current = await readConfig(workspaceDir)
-  const profile = update.providerProfile === undefined ? undefined : getProviderProfile(update.providerProfile)
-  const providerEnv = mergeProviderEnv(current.providerEnv, profile?.providerEnv, update.providerEnv)
-  const config: AgentConfig = {
-    ...current,
+  const current = await readStoredConfig(workspaceDir)
+  const profileReset = update.providerProfile !== undefined
+  const base: StoredAgentConfig = profileReset
+    ? {
+        providerProfile: update.providerProfile,
+        version: 1,
+      }
+    : {
+        ...current,
+        version: 1,
+      }
+
+  const stored = compactStoredConfig({
+    ...base,
+    llm: update.llm === null
+      ? undefined
+      : mergeLLMConfig(base.llm, update.llm, update.llmProvider),
     persistence: {
-      jobStore: update.jobStore ?? current.persistence.jobStore,
+      jobStore: update.jobStore ?? base.persistence?.jobStore,
     },
     pipeline: {
-      maxStageRetries: update.maxStageRetries === undefined ? current.pipeline.maxStageRetries : normalizeNonNegativeInteger(update.maxStageRetries, current.pipeline.maxStageRetries),
-      retryBackoffMs: update.retryBackoffMs === undefined ? current.pipeline.retryBackoffMs : normalizeNonNegativeInteger(update.retryBackoffMs, current.pipeline.retryBackoffMs),
+      maxStageRetries: update.maxStageRetries ?? base.pipeline?.maxStageRetries,
+      retryBackoffMs: update.retryBackoffMs ?? base.pipeline?.retryBackoffMs,
     },
-    providerEnv,
+    providerProfile: update.providerProfile ?? base.providerProfile,
     providers: {
-      asr: update.asr ?? profile?.providers.asr ?? current.providers.asr,
-      tts: update.tts ?? profile?.providers.tts ?? current.providers.tts,
-      vlm: update.vlm ?? profile?.providers.vlm ?? current.providers.vlm,
+      asr: update.asr ?? base.providers?.asr,
+      tts: update.tts ?? base.providers?.tts,
+      vlm: update.vlm ?? base.providers?.vlm,
     },
+    providerSettings: mergeProviderSettings(base.providerSettings, update.providerSettings),
     version: 1,
-  }
+  })
+  const config = normalizeConfig(stored)
 
   await mkdir(dirname(path), {recursive: true})
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`)
+  await writeFile(path, `${JSON.stringify(stored, null, 2)}\n`)
 
   return {config, path}
 }
 
-function normalizeConfig(config: Partial<AgentConfig>): AgentConfig {
+async function readStoredConfig(workspaceDir: string): Promise<StoredAgentConfig> {
+  try {
+    return JSON.parse(await readFile(resolveConfigPath(workspaceDir), 'utf8')) as StoredAgentConfig
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return {version: 1}
+    }
+
+    throw error
+  }
+}
+
+function normalizeConfig(config: StoredAgentConfig): AgentConfig {
+  const profile = config.providerProfile === undefined ? undefined : getProviderProfile(config.providerProfile)
+  const llm = mergeLLMConfig(profile?.llm, config.llm)
+
   return {
-    persistence: {
-      jobStore: config.persistence?.jobStore ?? DEFAULT_AGENT_CONFIG.persistence.jobStore,
-    },
-    pipeline: {
-      maxStageRetries: normalizeNonNegativeInteger(config.pipeline?.maxStageRetries, DEFAULT_AGENT_CONFIG.pipeline.maxStageRetries),
-      retryBackoffMs: normalizeNonNegativeInteger(config.pipeline?.retryBackoffMs, DEFAULT_AGENT_CONFIG.pipeline.retryBackoffMs),
-    },
-    providerEnv: normalizeProviderEnv(config.providerEnv),
-    providers: {
-      asr: config.providers?.asr ?? DEFAULT_AGENT_CONFIG.providers.asr,
-      tts: config.providers?.tts ?? DEFAULT_AGENT_CONFIG.providers.tts,
-      vlm: config.providers?.vlm ?? DEFAULT_AGENT_CONFIG.providers.vlm,
-    },
+    ...(llm === undefined ? {} : {llm}),
+    persistence: normalizePersistence(config),
+    pipeline: normalizePipeline(config),
+    ...(config.providerProfile === undefined ? {} : {providerProfile: config.providerProfile}),
+    providers: normalizeProviders(config, profile),
+    providerSettings: normalizeProviderSettings(mergeProviderSettings(profile?.providerSettings, config.providerSettings)),
     version: 1,
   }
 }
 
-function mergeProviderEnv(...values: Array<Record<string, string | undefined> | undefined>): Record<string, string> {
-  const merged: Record<string, string> = {}
+function normalizePersistence(config: StoredAgentConfig): AgentConfig['persistence'] {
+  return {
+    jobStore: config.persistence?.jobStore ?? DEFAULT_AGENT_CONFIG.persistence.jobStore,
+  }
+}
+
+function normalizePipeline(config: StoredAgentConfig): AgentConfig['pipeline'] {
+  return {
+    maxStageRetries: normalizeNonNegativeInteger(config.pipeline?.maxStageRetries, DEFAULT_AGENT_CONFIG.pipeline.maxStageRetries),
+    retryBackoffMs: normalizeNonNegativeInteger(config.pipeline?.retryBackoffMs, DEFAULT_AGENT_CONFIG.pipeline.retryBackoffMs),
+  }
+}
+
+function normalizeProviders(config: StoredAgentConfig, profile: ReturnType<typeof getProviderProfile>): AgentConfig['providers'] {
+  return {
+    asr: config.providers?.asr ?? profile?.providers.asr ?? DEFAULT_AGENT_CONFIG.providers.asr,
+    tts: config.providers?.tts ?? profile?.providers.tts ?? DEFAULT_AGENT_CONFIG.providers.tts,
+    vlm: config.providers?.vlm ?? profile?.providers.vlm ?? DEFAULT_AGENT_CONFIG.providers.vlm,
+  }
+}
+
+function mergeLLMConfig(
+  current: LLMClientConfig | undefined,
+  update?: Partial<LLMClientConfig>,
+  provider?: LLMProviderName,
+): LLMClientConfig | undefined {
+  if (current === undefined && update === undefined && provider === undefined) {
+    return undefined
+  }
+
+  return normalizeLLMConfig({
+    ...current,
+    ...update,
+    ...(provider === undefined ? {} : {provider}),
+  })
+}
+
+function normalizeLLMConfig(value: Partial<LLMClientConfig> | undefined): LLMClientConfig | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (value.provider !== 'anthropic' && value.provider !== 'openai-compatible') {
+    throw new TypeError(`Unsupported LLM provider: ${String(value.provider)}`)
+  }
+
+  if (typeof value.model !== 'string' || value.model.trim() === '') {
+    throw new TypeError('LLM model must be configured.')
+  }
+
+  if (value.provider === 'openai-compatible' && (typeof value.baseURL !== 'string' || value.baseURL.trim() === '')) {
+    throw new TypeError('LLM baseURL must be configured for openai-compatible.')
+  }
+
+  return {
+    ...(normalizeOptionalString(value.apiKeyEnv) === undefined ? {} : {apiKeyEnv: normalizeOptionalString(value.apiKeyEnv)}),
+    ...(normalizeOptionalString(value.authTokenEnv) === undefined ? {} : {authTokenEnv: normalizeOptionalString(value.authTokenEnv)}),
+    ...(normalizeOptionalString(value.baseURL) === undefined ? {} : {baseURL: normalizeOptionalString(value.baseURL)}),
+    ...(value.headers === undefined ? {} : {headers: normalizeHeaders(value.headers)}),
+    model: value.model.trim(),
+    ...(normalizeOptionalString(value.name) === undefined ? {} : {name: normalizeOptionalString(value.name)}),
+    provider: value.provider,
+    ...(value.supportsStructuredOutputs === undefined ? {} : {supportsStructuredOutputs: value.supportsStructuredOutputs}),
+  }
+}
+
+function normalizeOptionalString(value: string | undefined): string | undefined {
+  return value === undefined || value.trim() === '' ? undefined : value.trim()
+}
+
+function normalizeHeaders(value: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[0].trim() !== '' && typeof entry[1] === 'string' && entry[1].trim() !== ''))
+}
+
+function compactStoredConfig(config: StoredAgentConfig): StoredAgentConfig {
+  const normalized = normalizeConfig(config)
+  const profile = normalized.providerProfile === undefined ? undefined : getProviderProfile(normalized.providerProfile)
+  const baseProviders = {
+    asr: profile?.providers.asr ?? DEFAULT_AGENT_CONFIG.providers.asr,
+    tts: profile?.providers.tts ?? DEFAULT_AGENT_CONFIG.providers.tts,
+    vlm: profile?.providers.vlm ?? DEFAULT_AGENT_CONFIG.providers.vlm,
+  }
+  const providerOverrides = Object.fromEntries(
+    Object.entries(normalized.providers).filter(([role, provider]) => provider !== baseProviders[role as keyof typeof baseProviders]),
+  ) as StoredAgentConfig['providers']
+  const providerSettings = diffProviderSettings(normalized.providerSettings, profile?.providerSettings ?? {})
+
+  return {
+    ...(normalized.llm === undefined || deepEqual(normalized.llm, profile?.llm) ? {} : {llm: normalized.llm}),
+    ...(normalized.persistence.jobStore === DEFAULT_AGENT_CONFIG.persistence.jobStore ? {} : {persistence: normalized.persistence}),
+    ...(normalized.pipeline.maxStageRetries === DEFAULT_AGENT_CONFIG.pipeline.maxStageRetries && normalized.pipeline.retryBackoffMs === DEFAULT_AGENT_CONFIG.pipeline.retryBackoffMs ? {} : {pipeline: normalized.pipeline}),
+    ...(normalized.providerProfile === undefined ? {} : {providerProfile: normalized.providerProfile}),
+    ...(Object.keys(providerSettings).length === 0 ? {} : {providerSettings}),
+    ...(providerOverrides === undefined || Object.keys(providerOverrides).length === 0 ? {} : {providers: providerOverrides}),
+    version: 1,
+  }
+}
+
+function mergeProviderSettings(...values: Array<ProviderSettings | undefined>): ProviderSettings {
+  const merged: ProviderSettings = {}
 
   for (const value of values) {
-    for (const [key, envValue] of Object.entries(value ?? {})) {
-      if (envValue === undefined || envValue.trim() === '') {
-        delete merged[key]
-        continue
+    for (const [role, settings] of Object.entries(value ?? {})) {
+      merged[role as keyof ProviderSettings] = {
+        ...merged[role as keyof ProviderSettings],
+        ...settings,
       }
-
-      merged[key] = envValue
     }
   }
 
   return merged
 }
 
-function normalizeProviderEnv(value: Record<string, unknown> | undefined): Record<string, string> {
-  if (value === undefined) {
-    return {}
+function normalizeProviderSettings(value: ProviderSettings): ProviderSettings {
+  const normalized: ProviderSettings = {}
+
+  for (const [role, settings] of Object.entries(value)) {
+    const normalizedSettings = {
+      ...(Array.isArray(settings?.command) && settings.command.length > 0 ? {command: settings.command.filter((part) => typeof part === 'string' && part.trim() !== '')} : {}),
+      ...(normalizeOptionalString(settings?.model) === undefined ? {} : {model: normalizeOptionalString(settings?.model)}),
+      ...(settings?.timeoutMs === undefined ? {} : {timeoutMs: normalizePositiveInteger(settings.timeoutMs)}),
+      ...(normalizeOptionalString(settings?.url) === undefined ? {} : {url: normalizeOptionalString(settings?.url)}),
+    }
+
+    if (Object.keys(normalizedSettings).length > 0) {
+      normalized[role as keyof ProviderSettings] = normalizedSettings
+    }
   }
 
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[0].trim() !== '' && typeof entry[1] === 'string' && entry[1].trim() !== ''))
+  return normalized
+}
+
+function diffProviderSettings(value: ProviderSettings, base: ProviderSettings): ProviderSettings {
+  const diff: ProviderSettings = {}
+
+  for (const [role, settings] of Object.entries(value)) {
+    if (!deepEqual(settings, base[role as keyof ProviderSettings])) {
+      diff[role as keyof ProviderSettings] = settings
+    }
+  }
+
+  return diff
 }
 
 function normalizeNonNegativeInteger(value: number | undefined, fallback: number): number {
@@ -148,4 +317,16 @@ function normalizeNonNegativeInteger(value: number | undefined, fallback: number
   }
 
   return value
+}
+
+function normalizePositiveInteger(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new TypeError(`Expected positive integer config value, received: ${value}`)
+  }
+
+  return value
+}
+
+function deepEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }

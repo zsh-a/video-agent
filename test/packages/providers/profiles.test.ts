@@ -12,13 +12,22 @@ describe('provider profiles', () => {
       tts: 'http',
       vlm: 'http',
     })
-    expect(MIMO_PROVIDER_PROFILE.providerEnv).to.include({
-      VIDEO_AGENT_ASR_MODEL: 'mimo-v2.5-asr',
-      VIDEO_AGENT_ASR_URL: MIMO_PROVIDER_BASE_URL,
-      VIDEO_AGENT_TTS_MODEL: 'mimo-v2.5-tts',
-      VIDEO_AGENT_TTS_URL: MIMO_PROVIDER_BASE_URL,
-      VIDEO_AGENT_VLM_MODEL: 'mimo-v2.5-pro',
-      VIDEO_AGENT_VLM_URL: MIMO_PROVIDER_BASE_URL,
+    expect(MIMO_PROVIDER_PROFILE.providerSettings).to.deep.equal({
+      asr: {
+        model: 'mimo-v2.5-asr',
+        timeoutMs: 120_000,
+        url: MIMO_PROVIDER_BASE_URL,
+      },
+      tts: {
+        model: 'mimo-v2.5-tts',
+        timeoutMs: 120_000,
+        url: MIMO_PROVIDER_BASE_URL,
+      },
+      vlm: {
+        model: 'mimo-v2.5-pro',
+        timeoutMs: 120_000,
+        url: MIMO_PROVIDER_BASE_URL,
+      },
     })
   })
 

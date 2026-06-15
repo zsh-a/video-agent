@@ -64,6 +64,8 @@ export function instrumentProviders(providers: ProviderSet, selection: ProviderS
         })
       },
     },
+    script: providers.script,
+    storyboard: providers.storyboard,
     tts: {
       async synthesize(segments) {
         return recordProviderCall({

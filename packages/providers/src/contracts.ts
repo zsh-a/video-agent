@@ -1,4 +1,4 @@
-import type {NarrationSegment} from '@video-agent/ir'
+import type {ClipPlan, MediaInfo, Narration, NarrationSegment, Storyboard} from '@video-agent/ir'
 
 export interface MediaInput {
   mimeType?: string
@@ -38,6 +38,25 @@ export interface TTSSegment {
 
 export interface ASRProvider {
   transcribe(input: MediaInput): Promise<Transcript>
+}
+
+export interface ScriptProvider {
+  createNarration(input: ScriptProviderInput): Promise<Narration>
+}
+
+export interface ScriptProviderInput {
+  clipPlan: ClipPlan
+  storyboard: Storyboard
+}
+
+export interface StoryboardProvider {
+  createStoryboard(input: StoryboardProviderInput): Promise<Storyboard>
+}
+
+export interface StoryboardProviderInput {
+  mediaInfo: MediaInfo
+  sceneAnalysis: VLMScene[]
+  transcript: Transcript
 }
 
 export interface TTSProvider {

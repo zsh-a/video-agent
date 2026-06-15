@@ -11,7 +11,9 @@
     }
   },
   "dependencies": {
+    "@video-agent/core": "workspace:*",
     "@video-agent/ir": "workspace:*",
+    "@video-agent/llm": "workspace:*",
     "@video-agent/media": "workspace:*",
     "zod": "^4.1.13"
   }

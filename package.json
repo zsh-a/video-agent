@@ -12,6 +12,8 @@
   },
   "bugs": "https://github.com/zs/video-agent/issues",
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.84",
+    "@ai-sdk/openai-compatible": "^2.0.50",
     "@clack/prompts": "^1.5.1",
     "@oclif/core": "^4",
     "@oclif/plugin-help": "^6",
@@ -28,8 +30,8 @@
     "@video-agent/renderer-ffmpeg": "workspace:*",
     "@video-agent/renderer-hyperframes": "workspace:*",
     "@video-agent/runtime": "workspace:*",
-    "ai": "^5.0.0",
-    "zod": "^4.1.13"
+    "ai": "^6.0.205",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/compat": "^1",

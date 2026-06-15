@@ -1,8 +1,11 @@
+import type {LanguageModel} from 'ai'
+
 import {expect} from 'chai'
 import {mkdtemp, readFile, rm, stat} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
+import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {createSceneFrameBatchesFromTranscript, runInitialPipeline} from '../../../packages/runtime/src/job-runner.js'
 
@@ -121,6 +124,90 @@ describe('job runner', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('runs plan and script stages through an injected AI SDK LLM client', async function () {
+    this.timeout(20_000)
+
+    if (!(await hasMediaTools())) {
+      this.skip()
+    }
+
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-job-llm-'))
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await runProcess([
+        'ffmpeg',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc=size=160x90:rate=10',
+        '-t',
+        '1',
+        '-pix_fmt',
+        'yuv420p',
+        inputPath,
+      ])
+
+      const llmClient = new AISDKLLMClient({
+        model: createSequentialObjectModel([
+          {
+            language: 'zh-CN',
+            scenes: [
+              {
+                duration: 1,
+                evidence: [
+                  {
+                    ref: 'scene-analysis.json',
+                    text: 'LLM selected visual evidence.',
+                    type: 'vlm',
+                  },
+                ],
+                id: 'scene-1',
+                narration: 'LLM storyboard narration.',
+                sourceRange: [0, 1],
+                start: 0,
+                visualStyle: 'documentary',
+              },
+            ],
+            targetPlatform: 'generic',
+            version: 1,
+          },
+          {
+            language: 'zh-CN',
+            segments: [
+              {
+                duration: 1,
+                id: 'narration-1',
+                sceneId: 'scene-1',
+                start: 0,
+                text: 'LLM final narration.',
+              },
+            ],
+            version: 1,
+          },
+        ]),
+      })
+
+      const result = await runInitialPipeline({
+        inputPath,
+        llmClient,
+        projectId: 'demo',
+        workspaceDir: root,
+      })
+      const storyboard = JSON.parse(await readFile(result.artifacts.storyboard, 'utf8')) as {scenes: Array<{narration?: string}>}
+      const narration = JSON.parse(await readFile(result.artifacts.narration, 'utf8')) as {segments: Array<{text: string}>}
+
+      expect(result.status).to.equal('completed')
+      expect(storyboard.scenes[0]?.narration).to.equal('LLM storyboard narration.')
+      expect(narration.segments[0]?.text).to.equal('LLM final narration.')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function fileSize(path: string): Promise<number> {
@@ -139,4 +226,41 @@ async function hasMediaTools(): Promise<boolean> {
   const [ffmpeg, ffprobe] = await Promise.all([runProcess(['ffmpeg', '-version']), runProcess(['ffprobe', '-version'])])
 
   return ffmpeg.code === 0 && ffprobe.code === 0
+}
+
+function createSequentialObjectModel(objects: object[]): LanguageModel {
+  const queue = [...objects]
+
+  return {
+    async doGenerate() {
+      const object = queue.shift()
+
+      if (object === undefined) {
+        throw new Error('No queued LLM object result.')
+      }
+
+      return {
+        content: [
+          {
+            text: JSON.stringify(object),
+            type: 'text',
+          },
+        ],
+        finishReason: 'stop',
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+        },
+        warnings: [],
+      }
+    },
+    async doStream() {
+      throw new Error('Streaming is not used by this test.')
+    },
+    modelId: 'mock-llm',
+    provider: 'mock',
+    specificationVersion: 'v2',
+    supportedUrls: {},
+  } as LanguageModel
 }
