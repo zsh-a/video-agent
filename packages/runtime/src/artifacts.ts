@@ -1,4 +1,4 @@
-import type {ZodType} from 'zod'
+import {z, type ZodType} from 'zod'
 
 import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
@@ -71,6 +71,14 @@ export interface ArtifactIntegritySummary {
   warnings: number
 }
 
+const IngestReportSchema = z.object({
+  artifacts: z.record(z.string(), z.string().min(1)),
+  completedAt: z.string().min(1),
+  inputPath: z.string().min(1),
+  stage: z.literal('ingest'),
+  version: z.literal(1),
+}).strict()
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
@@ -78,6 +86,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'clip-plan.json': ClipPlanSchema,
   'frames.json': LongVideoAnalysisFramesSchema,
   'global-outline.json': LongVideoGlobalOutlineSchema,
+  'ingest-report.json': IngestReportSchema,
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
   'scene-analysis.json': VlmScenesSchema,
@@ -265,7 +274,7 @@ async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise
 
 async function findMissingIngestSideArtifactReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
   try {
-    const report = await bunFile(resolve(artifactsDir, 'ingest-report.json')).json() as {artifacts?: {preview?: string; sourceAudio?: string}}
+    const report = IngestReportSchema.parse(await bunFile(resolve(artifactsDir, 'ingest-report.json')).json())
     const projectDir = resolve(artifactsDir, '..')
     const paths = [
       report.artifacts?.preview,

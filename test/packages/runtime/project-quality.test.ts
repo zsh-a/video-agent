@@ -75,6 +75,35 @@ describe('project quality', () => {
     }
   })
 
+  it('counts schema-invalid ingest reports as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest'],
+      })
+      await writeText(join(artifactsDir, 'ingest-report.json'), '{"version":1,"stage":"plan","inputPath":""}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['ingest-report.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts missing analysis frame references as project quality errors', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 

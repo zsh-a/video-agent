@@ -393,6 +393,43 @@ describe('rerun project', () => {
     }
   })
 
+  it('fails when the checkpoint ingest report does not match its schema', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['understand'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath)
+      await writeText(join(artifactsDir, 'ingest-report.json'), '{"version":1,"stage":"plan","inputPath":""}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'understand',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
+      expect((error as PipelineCheckpointError).schemaInvalidArtifacts).to.deep.equal(['ingest-report.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('fails when checkpoint provider artifacts do not match their schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
     const projectDir = join(root, 'projects', 'demo')
