@@ -215,6 +215,8 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     }
   }))
 
+  missing.push(...await findMissingAnalysisFrameReferences(artifactsDir))
+
   const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const untracked = entries
     .filter((entry) => entry.name !== ARTIFACT_MANIFEST_NAME && !manifestNames.has(entry.name))
@@ -240,6 +242,22 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
       untracked,
     }),
     untracked,
+  }
+}
+
+async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const manifest = LongVideoAnalysisFramesSchema.parse(await bunFile(resolve(artifactsDir, 'frames.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+    const missing = await Promise.all(manifest.frames.map(async (frame) => {
+      const exists = await bunFile(frame.path).exists()
+
+      return exists ? null : {name: relative(projectDir, frame.path).split(sep).join('/'), reason: 'missing' as const}
+    }))
+
+    return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
+  } catch {
+    return []
   }
 }
 

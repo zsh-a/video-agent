@@ -158,6 +158,47 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports missing analysis frame files referenced by frames.json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'frames.json'), `${JSON.stringify({
+        frameCount: 1,
+        framePattern: join(projectDir, 'frames', 'frame_%05d.jpg'),
+        frames: [
+          {
+            path: join(projectDir, 'frames', 'frame_00001.jpg'),
+            timestamp: 0,
+          },
+        ],
+        sampleFps: 1,
+        source: '/tmp/long.mp4',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.missing).to.deep.equal([
+        {
+          name: 'frames/frame_00001.jpg',
+          reason: 'missing',
+        },
+      ])
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        missing: 1,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports provider JSON artifacts that fail their schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 

@@ -74,6 +74,52 @@ describe('project quality', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('counts missing analysis frame references as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest'],
+      })
+      await writeText(join(artifactsDir, 'frames.json'), `${JSON.stringify({
+        frameCount: 1,
+        framePattern: join(projectDir, 'frames', 'frame_%05d.jpg'),
+        frames: [
+          {
+            path: join(projectDir, 'frames', 'frame_00001.jpg'),
+            timestamp: 0,
+          },
+        ],
+        sampleFps: 1,
+        source: '/tmp/input.mp4',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.missing).to.deep.equal([
+        {
+          name: 'frames/frame_00001.jpg',
+          reason: 'missing',
+        },
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function createProject(root: string, projectId: string): Promise<void> {
