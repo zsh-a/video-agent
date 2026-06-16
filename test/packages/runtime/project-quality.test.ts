@@ -162,6 +162,35 @@ describe('project quality', () => {
     }
   })
 
+  it('counts schema-invalid export outputs as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeText(join(artifactsDir, 'export-output.json'), '{"version":1,"format":"archive","outputPath":"","sourcePath":"/tmp/final.mp4","cleanOutput":false,"requireQuality":false,"completedAt":"2026-01-01T00:00:00.000Z"}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['export-output.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts missing analysis frame references as project quality errors', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 

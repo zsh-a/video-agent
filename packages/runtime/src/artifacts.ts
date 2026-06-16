@@ -113,11 +113,22 @@ const RenderOutputSchema = z.object({
   visualQuality: IssueCountSchema.optional(),
 }).passthrough()
 
+const ExportOutputSchema = z.object({
+  cleanOutput: z.boolean(),
+  completedAt: z.string().min(1),
+  format: z.enum(['bundle', 'hyperframes', 'video']),
+  outputPath: z.string().min(1),
+  requireQuality: z.boolean(),
+  sourcePath: z.string().min(1),
+  version: z.literal(1),
+}).passthrough()
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
   'chunk-summaries.json': LongVideoChunkSummariesSchema,
   'clip-plan.json': ClipPlanSchema,
+  'export-output.json': ExportOutputSchema,
   'frames.json': LongVideoAnalysisFramesSchema,
   'global-outline.json': LongVideoGlobalOutlineSchema,
   'ingest-report.json': IngestReportSchema,

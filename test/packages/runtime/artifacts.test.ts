@@ -208,6 +208,30 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports export outputs that fail their schema', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'export-output.json'), '{"version":1,"format":"archive","outputPath":"","sourcePath":"/tmp/final.mp4","cleanOutput":false,"requireQuality":false,"completedAt":"2026-01-01T00:00:00.000Z"}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+      })
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['export-output.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['format', 'outputPath'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports long-video planning artifacts that fail their schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
