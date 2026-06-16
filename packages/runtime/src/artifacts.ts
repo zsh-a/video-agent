@@ -1,10 +1,10 @@
 import type {ZodType} from 'zod'
 
-import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
-import {extname, resolve} from 'node:path'
+import {extname, join, relative, resolve, sep} from 'node:path'
 
 import type {ArtifactManifest} from './artifact-store.js'
 
@@ -72,23 +72,33 @@ export interface ArtifactIntegritySummary {
 }
 
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
+  'chapters.json': LongVideoChapterSummariesSchema,
+  'chunk-plan.json': LongVideoChunkPlanSchema,
+  'chunk-summaries.json': LongVideoChunkSummariesSchema,
   'clip-plan.json': ClipPlanSchema,
+  'global-outline.json': LongVideoGlobalOutlineSchema,
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
   'scene-analysis.json': VlmScenesSchema,
+  'selected-moments.json': LongVideoSelectedMomentsSchema,
   'storyboard.json': StoryboardSchema,
   'timeline.json': TimelineSchema,
   'transcript.json': TranscriptSchema,
   'tts-segments.json': TtsSegmentsSchema,
 }
 
+const NESTED_ARTIFACT_SCHEMAS: Array<{pattern: RegExp; schema: ZodType}> = [
+  {pattern: /^chunks\/[^/]+\/summary\.json$/, schema: LongVideoChunkSummarySchema},
+  {pattern: /^chunks\/[^/]+\/transcript\.json$/, schema: TranscriptSchema},
+  {pattern: /^chunks\/[^/]+\/vlm\.json$/, schema: VlmScenesSchema},
+]
+
 export async function listProjectArtifacts(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectArtifact[]> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
   const manifest = await readArtifactManifest(artifactsDir)
-  const entries = await readdir(artifactsDir, {withFileTypes: true})
+  const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const artifacts = await Promise.all(
     entries
-      .filter((entry) => entry.isFile())
       .map(async (entry) => {
         const path = resolve(artifactsDir, entry.name)
         const metadata = await stat(path)
@@ -202,9 +212,9 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     }
   }))
 
-  const entries = await readdir(artifactsDir, {withFileTypes: true})
+  const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const untracked = entries
-    .filter((entry) => entry.isFile() && entry.name !== ARTIFACT_MANIFEST_NAME && !manifestNames.has(entry.name))
+    .filter((entry) => entry.name !== ARTIFACT_MANIFEST_NAME && !manifestNames.has(entry.name))
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b))
 
@@ -268,7 +278,7 @@ function inferArtifactKind(name: string): ProjectArtifact['kind'] {
 }
 
 function validateKnownArtifactSchema(name: string, content: Uint8Array): ArtifactSchemaInvalidIssue | undefined {
-  const schema = ARTIFACT_SCHEMAS[name]
+  const schema = findArtifactSchema(name)
 
   if (schema === undefined) {
     return undefined
@@ -303,4 +313,34 @@ function validateKnownArtifactSchema(name: string, content: Uint8Array): Artifac
     })),
     name,
   }
+}
+
+async function collectArtifactFiles(rootDir: string, currentDir: string): Promise<Array<{name: string; path: string}>> {
+  const entries = await readdir(currentDir, {withFileTypes: true})
+  const nested = await Promise.all(entries.map(async (entry): Promise<Array<{name: string; path: string}>> => {
+    const path = join(currentDir, entry.name)
+
+    if (entry.isDirectory()) {
+      return collectArtifactFiles(rootDir, path)
+    }
+
+    if (!entry.isFile()) {
+      return []
+    }
+
+    return [{
+      name: toArtifactName(rootDir, path),
+      path,
+    }]
+  }))
+
+  return nested.flat()
+}
+
+function findArtifactSchema(name: string): ZodType | undefined {
+  return ARTIFACT_SCHEMAS[name] ?? NESTED_ARTIFACT_SCHEMAS.find((item) => item.pattern.test(name))?.schema
+}
+
+function toArtifactName(rootDir: string, path: string): string {
+  return relative(rootDir, path).split(sep).join('/')
 }

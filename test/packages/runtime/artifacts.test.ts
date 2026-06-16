@@ -31,6 +31,37 @@ describe('artifacts', () => {
     }
   })
 
+  it('tracks and validates nested chunk artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+      const chunkDir = join(artifactsDir, 'chunks', '000')
+
+      await mkdir(chunkDir, {recursive: true})
+      await writeText(join(chunkDir, 'summary.json'), `${JSON.stringify({
+        chunkId: 'chunk-000',
+        contentRange: [0, 5],
+        summary: 'Opening section.',
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const artifacts = await listProjectArtifacts('demo', root)
+      const summary = await readProjectArtifact('demo', 'chunks/000/summary.json', root)
+      const integrity = await verifyProjectArtifacts('demo', root)
+
+      expect(artifacts.map((artifact) => artifact.name)).to.deep.equal(['artifact-manifest.json', 'chunks/000/summary.json'])
+      expect(summary.content).to.deep.equal({
+        chunkId: 'chunk-000',
+        contentRange: [0, 5],
+        summary: 'Opening section.',
+      })
+      expect(integrity.ok).to.equal(true)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('verifies artifacts against the manifest', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
@@ -100,6 +131,26 @@ describe('artifacts', () => {
       })
       expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['media-info.json'])
       expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('inputPath')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports long-video planning artifacts that fail their schemas', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'chunk-plan.json'), '{"version":1,"source":"/tmp/long.mp4","sourceDuration":10,"defaults":{"chunkDuration":0},"chunks":[]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['chunk-plan.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('defaults.chunkDuration')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto'
 import {mkdir, readdir, stat} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {dirname, join, relative, sep} from 'node:path'
 
 import {bunFile, bunWrite} from './bun-runtime.js'
 
@@ -49,23 +49,7 @@ export class FilesystemArtifactStore implements ArtifactStore {
 export async function refreshArtifactManifest(artifactsDir: string): Promise<ArtifactManifest> {
   await mkdir(artifactsDir, {recursive: true})
 
-  const entries = await readdir(artifactsDir, {withFileTypes: true})
-  const artifacts = await Promise.all(
-    entries
-      .filter((entry) => entry.isFile() && entry.name !== ARTIFACT_MANIFEST_NAME)
-      .map(async (entry) => {
-        const path = join(artifactsDir, entry.name)
-        const [content, metadata] = await Promise.all([bunFile(path).bytes(), stat(path)])
-
-        return {
-          kind: inferArtifactKind(entry.name),
-          name: entry.name,
-          sha256: createHash('sha256').update(content).digest('hex'),
-          size: metadata.size,
-          updatedAt: metadata.mtime.toISOString(),
-        }
-      }),
-  )
+  const artifacts = await collectManifestEntries(artifactsDir, artifactsDir)
   const manifest: ArtifactManifest = {
     artifacts: artifacts.sort((a, b) => a.name.localeCompare(b.name)),
     generatedAt: new Date().toISOString(),
@@ -75,6 +59,39 @@ export async function refreshArtifactManifest(artifactsDir: string): Promise<Art
   await bunWrite(join(artifactsDir, ARTIFACT_MANIFEST_NAME), `${JSON.stringify(manifest, null, 2)}\n`)
 
   return manifest
+}
+
+async function collectManifestEntries(rootDir: string, currentDir: string): Promise<ArtifactManifestEntry[]> {
+  const entries = await readdir(currentDir, {withFileTypes: true})
+  const nested = await Promise.all(entries.map(async (entry): Promise<ArtifactManifestEntry[]> => {
+    const path = join(currentDir, entry.name)
+
+    if (entry.isDirectory()) {
+      return collectManifestEntries(rootDir, path)
+    }
+
+    if (!entry.isFile()) {
+      return []
+    }
+
+    const name = toArtifactName(rootDir, path)
+
+    if (name === ARTIFACT_MANIFEST_NAME) {
+      return []
+    }
+
+    const [content, metadata] = await Promise.all([bunFile(path).bytes(), stat(path)])
+
+    return [{
+      kind: inferArtifactKind(name),
+      name,
+      sha256: createHash('sha256').update(content).digest('hex'),
+      size: metadata.size,
+      updatedAt: metadata.mtime.toISOString(),
+    }]
+  }))
+
+  return nested.flat()
 }
 
 function inferArtifactKind(name: string): ArtifactManifestEntry['kind'] {
@@ -87,4 +104,8 @@ function inferArtifactKind(name: string): ArtifactManifestEntry['kind'] {
   }
 
   return 'other'
+}
+
+function toArtifactName(rootDir: string, path: string): string {
+  return relative(rootDir, path).split(sep).join('/')
 }

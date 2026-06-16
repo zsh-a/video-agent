@@ -137,6 +137,40 @@ export
 
 Each stage accepts typed input, writes artifacts, emits events, and returns typed output. Stage outputs should be serializable so runs can resume from checkpoint artifacts. The current `JobRunner` runs the initial chain: ingest -> understand -> plan -> script -> voiceover -> quality. CLI runs can resume from a later stage with `run --from-stage` when required artifacts already exist, or with `rerun <projectId> --from-stage` to reuse the input path stored in `job-state.json`. Before resuming, the runtime validates the upstream artifact set for the requested checkpoint and fails without mutating job state when artifacts are missing, changed, untracked by the artifact manifest, or invalid against the relevant IR schema. Runtime adapters can use the project quality aggregate to combine pipeline checks, render diagnostics, and artifact integrity into a single deliverability report.
 
+## Long-Video Strategy
+
+Long source videos should use a chunk-first plan instead of sending the whole file through one ASR/VLM/script context. The current runtime already has retries, checkpoint validation, artifact manifests, and stage reruns; long-video work should build on those contracts by making chunk outputs first-class artifacts.
+
+The default long-video planning parameters are:
+
+```text
+chunkDuration: 300 seconds
+chunkOverlap: 10 seconds
+frameSampleFps: 1
+vlmFrameSampleFps: 0.2
+sceneDetection: true
+asrChunking: true
+vlmBatchSize: 16
+```
+
+The intended hierarchy is:
+
+```text
+raw video
+  -> chunk-plan.json
+  -> chunk-summaries.json
+  -> chapters.json
+  -> global-outline.json
+  -> selected-moments.json
+  -> clip-plan.json
+  -> narration.json
+  -> timeline.json
+```
+
+`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges. ASR, frame sampling, VLM, silence/action scoring, and chunk summaries should write per-chunk evidence under stable artifact prefixes such as `chunks/000`. Later planning stages should work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. This keeps token use bounded, makes per-chunk retry/cache possible, and lets `rerun` target failed understanding work without invalidating unrelated chunks.
+
+HyperFrames remains the visual storytelling renderer for page-based explainers and article/podcast-to-video flows. FFmpeg remains the media boundary for probe, extraction, streamcopy clipping, concat, muxing, progress reporting, loudness, subtitles, and final delivery. Remotion can be added later as a second renderer for React composition and chunk/cloud rendering; it should consume storyboard/timeline IR instead of owning understanding logic.
+
 ## IR Contracts
 
 IR is the main integration point between agents, renderers, quality checks, and future editors.
@@ -153,6 +187,12 @@ NarrationIR
 
 ArtifactRef
   typed path + optional content hash
+
+LongVideoChunkPlan
+  source duration, chunk defaults, non-overlapping content ranges, overlapping analysis ranges
+
+LongVideoChunkSummary / LongVideoChapterSummary / LongVideoGlobalOutline / LongVideoSelectedMoments
+  hierarchical summaries and evidence-backed selections for long-video planning
 ```
 
 All LLM/provider output should be validated before it enters the pipeline state.
@@ -168,11 +208,23 @@ workspace/
     frames/
     audio/
     artifacts/
+      chunk-plan.json
+      chunk-summaries.json
+      chapters.json
+      global-outline.json
+      selected-moments.json
       storyboard.json
       clip-plan.json
       timeline.json
       narration.json
       quality-report.json
+      chunks/
+        000/
+          transcript.json
+          frames.json
+          vlm.json
+          silence.json
+          summary.json
     renders/
 ```
 

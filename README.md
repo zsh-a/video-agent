@@ -76,6 +76,8 @@ bun run dev render <projectId>
 bun run dev export <projectId> --output ./final.mp4
 ```
 
+Long-video work is designed to become chunk-first and resumable rather than whole-file-first. The shared IR and core contracts now include a long-video chunk plan with defaults of 5 minute chunks, 10 second overlap, 1 fps preview sampling, 0.2 fps VLM sampling, scene detection enabled, ASR chunking enabled, and VLM batches of 16 frames. Runtime stages should use that plan to write `chunk-plan.json`, `chunk-summaries.json`, `chapters.json`, `global-outline.json`, and `selected-moments.json` before producing the final `clip-plan.json`, `narration.json`, and `timeline.json`.
+
 Inspect artifacts and quality:
 
 ```sh
@@ -165,6 +167,7 @@ The current runnable slice supports:
 
 - Bun workspace build/test/lint.
 - Headless runtime with durable workspace artifacts, job state, events, provider call logs, and checkpoint validation.
+- Long-video IR and core chunk planning contracts for chunk-first, evidence-backed, resumable processing.
 - Mock, command, LLM, and Mimo-profile provider configuration.
 - LLM-backed ASR/VLM/TTS/storyboard/script provider path through the internal AI SDK-backed `LLMClient`.
 - ffmpeg and HyperFrames render boundaries, render diagnostics, quality aggregation, export, and quality-gated export.

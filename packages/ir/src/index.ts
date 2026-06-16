@@ -1,5 +1,6 @@
 export * from './clip-plan.js'
 export * from './job.js'
+export * from './long-video.js'
 export * from './media.js'
 export * from './narration.js'
 export * from './storyboard.js'
