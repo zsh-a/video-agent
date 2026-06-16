@@ -215,6 +215,7 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     }
   }))
 
+  missing.push(...await findMissingIngestSideArtifactReferences(artifactsDir))
   missing.push(...await findMissingAnalysisFrameReferences(artifactsDir))
   missing.push(...await findMissingTtsSegmentReferences(artifactsDir))
 
@@ -254,6 +255,27 @@ async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise
       const exists = await bunFile(frame.path).exists()
 
       return exists ? null : {name: relative(projectDir, frame.path).split(sep).join('/'), reason: 'missing' as const}
+    }))
+
+    return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
+  } catch {
+    return []
+  }
+}
+
+async function findMissingIngestSideArtifactReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const report = await bunFile(resolve(artifactsDir, 'ingest-report.json')).json() as {artifacts?: {preview?: string; sourceAudio?: string}}
+    const projectDir = resolve(artifactsDir, '..')
+    const paths = [
+      report.artifacts?.preview,
+      report.artifacts?.sourceAudio,
+    ].filter((path): path is string => typeof path === 'string' && path.length > 0)
+    const missing = await Promise.all(paths.map(async (path) => {
+      const resolvedPath = resolveProjectPath(projectDir, path)
+      const exists = await bunFile(resolvedPath).exists()
+
+      return exists ? null : {name: relative(projectDir, resolvedPath).split(sep).join('/'), reason: 'missing' as const}
     }))
 
     return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)

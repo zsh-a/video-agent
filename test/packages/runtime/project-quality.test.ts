@@ -121,6 +121,53 @@ describe('project quality', () => {
     }
   })
 
+  it('counts missing ingest side artifact references as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest'],
+      })
+      await writeText(join(artifactsDir, 'ingest-report.json'), `${JSON.stringify({
+        artifacts: {
+          preview: join(projectDir, 'renders', 'preview.mp4'),
+          sourceAudio: 'audio/source.wav',
+        },
+        completedAt: '2026-01-01T00:00:00.000Z',
+        inputPath: '/tmp/input.mp4',
+        stage: 'ingest',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 2,
+        warnings: 0,
+      })
+      expect(report.artifacts.missing).to.deep.equal([
+        {
+          name: 'audio/source.wav',
+          reason: 'missing',
+        },
+        {
+          name: 'renders/preview.mp4',
+          reason: 'missing',
+        },
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts missing TTS segment references as project quality errors', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 

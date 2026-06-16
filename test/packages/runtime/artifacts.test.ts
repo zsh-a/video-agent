@@ -199,6 +199,48 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports missing ingest side artifacts referenced by ingest-report.json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'ingest-report.json'), `${JSON.stringify({
+        artifacts: {
+          preview: join(projectDir, 'renders', 'preview.mp4'),
+          sourceAudio: 'audio/source.wav',
+        },
+        completedAt: '2026-01-01T00:00:00.000Z',
+        inputPath: '/tmp/input.mp4',
+        stage: 'ingest',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.missing).to.deep.equal([
+        {
+          name: 'audio/source.wav',
+          reason: 'missing',
+        },
+        {
+          name: 'renders/preview.mp4',
+          reason: 'missing',
+        },
+      ])
+      expect(result.summary).to.deep.include({
+        errors: 2,
+        missing: 2,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports missing TTS segment files referenced by tts-segments.json', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
