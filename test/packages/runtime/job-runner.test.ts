@@ -7,7 +7,8 @@ import {join} from 'node:path'
 
 import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
-import {createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
+import {createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, transcribeSourceAudio, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
+import {createProjectWorkspace} from '../../../packages/runtime/src/workspace.js'
 
 describe('job runner', () => {
   it('creates VLM scene batches from transcript segment timing', () => {
@@ -286,6 +287,166 @@ describe('job runner', () => {
         text: 'Second content.',
       },
     ])
+  })
+
+  it('reuses valid per-chunk transcript artifacts during chunked ASR reruns', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-asr-cache-'))
+    const workspace = await createProjectWorkspace({
+      projectId: 'demo',
+      workspaceDir: root,
+    })
+    let asrCalls = 0
+
+    try {
+      await workspace.store.writeJson('chunks/000/transcript.json', {
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 2,
+            start: 0,
+            text: 'Cached first chunk.',
+          },
+        ],
+        text: 'Cached first chunk.',
+        timestampConfidence: 'chunked',
+      })
+      await workspace.store.writeJson('chunks/001/transcript.json', {
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 7,
+            start: 5,
+            text: 'Cached second chunk.',
+          },
+        ],
+        text: 'Cached second chunk.',
+        timestampConfidence: 'chunked',
+      })
+
+      const transcript = await transcribeSourceAudio({
+        artifacts: {
+          chapters: workspace.store.resolve('chapters.json'),
+          chunkPlan: workspace.store.resolve('chunk-plan.json'),
+          chunkSummaries: workspace.store.resolve('chunk-summaries.json'),
+          clipPlan: workspace.store.resolve('clip-plan.json'),
+          globalOutline: workspace.store.resolve('global-outline.json'),
+          ingestReport: workspace.store.resolve('ingest-report.json'),
+          mediaInfo: workspace.store.resolve('media-info.json'),
+          narration: workspace.store.resolve('narration.json'),
+          pipelineEvents: workspace.store.resolve('pipeline-events.jsonl'),
+          preview: join(workspace.rendersDir, 'preview.mp4'),
+          providerCalls: workspace.store.resolve('provider-calls.jsonl'),
+          qualityReport: workspace.store.resolve('quality-report.json'),
+          sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+          selectedMoments: workspace.store.resolve('selected-moments.json'),
+          sourceAudio: join(workspace.audioDir, 'missing-source.wav'),
+          storyboard: workspace.store.resolve('storyboard.json'),
+          timeline: workspace.store.resolve('timeline.json'),
+          transcript: workspace.store.resolve('transcript.json'),
+          ttsSegments: workspace.store.resolve('tts-segments.json'),
+        },
+        chunkPlan: {
+          chunks: [
+            {
+              analysisRange: [0, 6],
+              artifactPrefix: 'chunks/000',
+              contentRange: [0, 5],
+              duration: 5,
+              id: 'chunk-000',
+              index: 0,
+            },
+            {
+              analysisRange: [4, 10],
+              artifactPrefix: 'chunks/001',
+              contentRange: [5, 10],
+              duration: 5,
+              id: 'chunk-001',
+              index: 1,
+            },
+          ],
+          defaults: {
+            asrChunking: true,
+            chunkDuration: 5,
+            chunkOverlap: 1,
+            frameSampleFps: 1,
+            sceneDetection: true,
+            vlmBatchSize: 16,
+            vlmFrameSampleFps: 0.2,
+          },
+          source: '/tmp/input.mp4',
+          sourceDuration: 10,
+          version: 1,
+        },
+        inputPath: '/tmp/input.mp4',
+        mediaInfo: {
+          duration: 10,
+          inputPath: '/tmp/input.mp4',
+          probedAt: '2026-06-16T00:00:00.000Z',
+          streams: [
+            {
+              index: 0,
+              type: 'audio',
+            },
+          ],
+          version: 1,
+        },
+        providers: {
+          asr: {
+            async transcribe() {
+              asrCalls += 1
+              throw new Error('ASR should not run for cached chunks.')
+            },
+          },
+          script: {
+            async createNarration() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          storyboard: {
+            async createStoryboard() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          tts: {
+            async synthesize() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          vlm: {
+            async analyzeScenes() {
+              throw new Error('Not used by this test.')
+            },
+          },
+        },
+        workspace,
+      }, {
+        artifactsDir: workspace.artifactsDir,
+        async emit() {},
+        projectId: workspace.projectId,
+        workspaceDir: workspace.workspaceDir,
+      })
+
+      expect(asrCalls).to.equal(0)
+      expect(transcript).to.deep.equal({
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 2,
+            start: 0,
+            text: 'Cached first chunk.',
+          },
+          {
+            end: 7,
+            start: 5,
+            text: 'Cached second chunk.',
+          },
+        ],
+        text: 'Cached first chunk.\nCached second chunk.',
+        timestampConfidence: 'chunked',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
   })
 
   it('derives silence ranges from transcript gaps inside a chunk', () => {

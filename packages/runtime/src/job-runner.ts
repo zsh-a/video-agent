@@ -1,6 +1,6 @@
 import type {PipelineContext, PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
-import type {ArtifactRef, ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSilence, LongVideoChunkSummaries, LongVideoChunkSummary, LongVideoGlobalOutline, LongVideoMoment, LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {ArtifactRef, ClipPlan, LongVideoChapterSummaries, LongVideoChunk, LongVideoChunkPlan, LongVideoChunkSilence, LongVideoChunkSummaries, LongVideoChunkSummary, LongVideoGlobalOutline, LongVideoMoment, LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
@@ -448,7 +448,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
   }
 }
 
-async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineContext): Promise<Transcript> {
+export async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineContext): Promise<Transcript> {
   const asrInputPath = ingest.artifacts.sourceAudio ?? ingest.inputPath
 
   if (!shouldChunkAsr(ingest)) {
@@ -472,6 +472,23 @@ async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineContext)
 
   /* eslint-disable no-await-in-loop */
   for (const chunk of ingest.chunkPlan.chunks) {
+    const cachedTranscript = await readCachedChunkTranscript(ingest, chunk)
+
+    if (cachedTranscript !== undefined) {
+      await emitStep(ctx, {
+        data: {
+          chunkId: chunk.id,
+          transcriptSegments: cachedTranscript.segments.length,
+        },
+        level: 'debug',
+        message: 'Reusing cached chunk transcript.',
+        stage: 'understand',
+        step: 'asr-chunks',
+      })
+      transcripts.push(cachedTranscript)
+      continue
+    }
+
     const chunkAudioPath = join(ingest.workspace.audioDir, 'asr', `${String(chunk.index).padStart(3, '0')}.wav`)
     const analysisDuration = chunk.analysisRange[1] - chunk.analysisRange[0]
 
@@ -482,11 +499,29 @@ async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineContext)
       path: chunkAudioPath,
     })), chunk.analysisRange)
 
-    transcripts.push(createChunkTranscript(analysisTranscript, chunk.contentRange))
+    const chunkTranscript = createChunkTranscript(analysisTranscript, chunk.contentRange)
+
+    await ingest.workspace.store.writeJson(`${chunk.artifactPrefix}/transcript.json`, chunkTranscript)
+    await emitArtifact(ctx, 'understand', ingest.workspace.store.resolve(`${chunk.artifactPrefix}/transcript.json`), 'json')
+    transcripts.push(chunkTranscript)
   }
   /* eslint-enable no-await-in-loop */
 
   return mergeChunkTranscripts(transcripts)
+}
+
+async function readCachedChunkTranscript(ingest: IngestOutput, chunk: LongVideoChunk): Promise<Transcript | undefined> {
+  const artifactName = `${chunk.artifactPrefix}/transcript.json`
+
+  if (!await bunFile(ingest.workspace.store.resolve(artifactName)).exists()) {
+    return undefined
+  }
+
+  try {
+    return createChunkTranscript(TranscriptSchema.parse(await ingest.workspace.store.readJson(artifactName)), chunk.contentRange)
+  } catch {
+    return undefined
+  }
 }
 
 function shouldChunkAsr(ingest: IngestOutput): boolean {
