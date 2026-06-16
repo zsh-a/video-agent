@@ -4,9 +4,8 @@ import type {QualityIssue} from '@video-agent/quality'
 
 import {JsonJobStore} from '@video-agent/db'
 import {ASRResultSchema, CharacterIndexSchema, ClipPlanSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, NarrationSchema, NarrativeBeatsSchema, OutputNarrationSchema, OutputTimelineMapSchema, SilencePeriodsSchema, SourceManifestSchema, StoryIndexSchema, TimelineFusionSchema, VLMAnalysisSchema} from '@video-agent/ir'
-import {createLLMClientFromConfig} from '@video-agent/llm'
 import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg} from '@video-agent/media'
-import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
+import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkAudioLoudness, checkRenderedMedia, checkSrtSubtitles, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {narrationToSrt} from '@video-agent/renderer-ffmpeg'
 import {createHash} from 'node:crypto'
@@ -17,10 +16,9 @@ import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
-import {readRuntimeEnv} from './env.js'
 import {assertFileExists} from './file-io.js'
 import {createJsonlProviderCallRecorder, instrumentProviders} from './provider-calls.js'
-import {createProviderEnv} from './provider-settings.js'
+import {createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace} from './workspace.js'
 
 export interface CreateFilmIngestProjectOptions {
@@ -319,12 +317,8 @@ export async function createFilmUnderstandingProject(options: CreateFilmUndersta
 
   try {
     const config = await readConfig(workspace.workspaceDir)
-    const providerEnv = createProviderEnv(config, await readRuntimeEnv(workspace.workspaceDir))
     const providers = instrumentProviders(
-      createProviders(config, {
-        env: providerEnv,
-        llmClient: createLLMClientFromConfig(config.llm, {env: providerEnv}),
-      }),
+      await createRuntimeProviders(config, workspace.workspaceDir),
       config.providers,
       createJsonlProviderCallRecorder(workspace.store.resolve('provider-calls.jsonl')),
     )
@@ -539,7 +533,7 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
 
   try {
     const config = await readConfig(workspaceDir)
-    const providers = createProviders(config)
+    const providers = await createRuntimeProviders(config, workspaceDir)
     const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
     const ttsSegments = TtsSegmentsSchema.parse(await providers.tts.synthesize(narration.segments, {
       outputDir: join(workspace.audioDir, 'tts'),

@@ -6,7 +6,7 @@ import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 import {JsonJobStore} from '@video-agent/db'
 import {ClaimsSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
-import {createProviders, TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
+import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
 import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkStoryboardConsistency, checkTimelineBounds, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {writeDeckHtmlProject} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
@@ -17,6 +17,7 @@ import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
+import {createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace} from './workspace.js'
 
 export interface CreateDeckExplainerProjectOptions {
@@ -311,7 +312,7 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     const sourceMediaInfo = await probeMedia(inputPath)
     const sourceDuration = sourceMediaInfo.duration ?? DEFAULT_SLIDE_SECONDS
     const config = await readConfig(workspaceDir)
-    const providers = createProviders(config)
+    const providers = await createRuntimeProviders(config, workspaceDir)
 
     await jobStore.updateStage('ingest', 'completed', undefined, 1)
     await jobStore.updateStage('transcribe', 'running', undefined, 1)
@@ -441,7 +442,7 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     const mediaInfo = await probeMedia(outputPath)
     const duration = mediaInfo.duration ?? DEFAULT_SLIDE_SECONDS
     const config = await readConfig(workspaceDir)
-    const providers = createProviders(config)
+    const providers = await createRuntimeProviders(config, workspaceDir)
 
     await jobStore.updateStage('ingest', 'completed', undefined, 1)
     await jobStore.updateStage('transcribe', 'running', undefined, 1)
@@ -573,7 +574,7 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
 
   try {
     const config = await readConfig(workspaceDir)
-    const providers = createProviders(config)
+    const providers = await createRuntimeProviders(config, workspaceDir)
     const [deck, speakerScript, currentTimedDeck, currentStoryboard, currentSelectedMoments, currentMediaInfo] = await Promise.all([
       DeckSchema.parseAsync(await workspace.store.readJson('deck.json')),
       SpeakerScriptSchema.parseAsync(await workspace.store.readJson('speaker-script.json')),

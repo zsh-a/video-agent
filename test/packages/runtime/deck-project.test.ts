@@ -6,6 +6,7 @@ import {join} from 'node:path'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {exportProject} from '../../../packages/runtime/src/export.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
+import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
 import {renderProject} from '../../../packages/runtime/src/render-project.js'
 import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/runtime/src/deck-project.js'
@@ -250,6 +251,43 @@ describe('deck explainer project', () => {
 
       expect(verification.ok).to.equal(true)
       expect(verification.checked).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('creates Deck voiceover when an unused VLM provider is backed by configured LLM', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-voice-llm-'))
+    const inputPath = join(root, 'notes.md')
+
+    try {
+      await writeConfig(root, {
+        asr: 'mock',
+        llm: {
+          apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
+          baseURL: 'https://llm.example.test/v1',
+          model: 'test-model',
+          provider: 'openai-compatible',
+        },
+        tts: 'mock',
+        vlm: 'llm',
+      })
+      await writeFile(inputPath, 'Deck voiceover only needs TTS, but the provider set still includes VLM.')
+      await createDeckExplainerProject({
+        inputPath,
+        maxSlideCharacters: 40,
+        projectId: 'deck-voice-llm-demo',
+        workspaceDir: root,
+      })
+
+      const result = await createDeckVoiceoverProject({
+        projectId: 'deck-voice-llm-demo',
+        workspaceDir: root,
+      })
+
+      expect(result.status).to.equal('voiced')
+      expect(result.slides).to.be.greaterThan(0)
+      expect((await stat(result.outputPath)).size).to.be.greaterThan(44)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

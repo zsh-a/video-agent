@@ -6,9 +6,8 @@ import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} fro
 
 import {createClipPlan, createLongVideoChunkPlan, createSceneBoundariesFromTranscript, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
-import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMedia} from '@video-agent/media'
-import {createProviders, SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
+import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkExplainerStructure, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {appendFile, mkdir, readdir} from 'node:fs/promises'
 import {basename, dirname, isAbsolute, join, resolve} from 'node:path'
@@ -17,11 +16,10 @@ import {ARTIFACT_MANIFEST_NAME, refreshArtifactManifest} from './artifact-store.
 import {verifyProjectArtifacts} from './artifacts.js'
 import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
-import {readRuntimeEnv} from './env.js'
 import {assertFileExists} from './file-io.js'
 import {createConfiguredJobStore} from './job-store.js'
 import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecord, type ProviderCallRecorder, type ProviderCallStartRecord} from './provider-calls.js'
-import {createProviderEnv} from './provider-settings.js'
+import {createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
 export interface RunInitialPipelineOptions {
@@ -193,11 +191,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     ttsSegments: workspace.store.resolve('tts-segments.json'),
   }
   const config = await readConfig(workspace.workspaceDir)
-  const providerEnv = createProviderEnv(config, await readRuntimeEnv(workspace.workspaceDir))
-  const llmClient = options.llmClient ?? createLLMClientFromConfig(config.llm, {
-    env: providerEnv,
-  })
-  const providerSet = createProviders(config, {env: providerEnv, llmClient})
+  const providerSet = await createRuntimeProviders(config, workspace.workspaceDir, {llmClient: options.llmClient})
   const providers = instrumentProviders(providerSet, config.providers, createRuntimeProviderCallRecorder(providerCallsPath, options.onProviderCall, options.onProviderCallStart))
   const ctx = {
     artifactsDir: workspace.artifactsDir,

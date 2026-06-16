@@ -93,11 +93,15 @@ export function createAsrProvider(name: string, options: ProviderRegistryOptions
 }
 
 export function createScriptProvider(options: ProviderRegistryOptions = {}): ScriptProvider {
-  return options.llmClient === undefined ? new DeterministicScriptProvider() : new LLMScriptProvider(options.llmClient)
+  const llmClient = resolveOptionalLLMClient(options)
+
+  return llmClient === undefined ? new DeterministicScriptProvider() : new LLMScriptProvider(llmClient)
 }
 
 export function createStoryboardProvider(options: ProviderRegistryOptions = {}): StoryboardProvider {
-  return options.llmClient === undefined ? new DeterministicStoryboardProvider() : new LLMStoryboardProvider(options.llmClient)
+  const llmClient = resolveOptionalLLMClient(options)
+
+  return llmClient === undefined ? new DeterministicStoryboardProvider() : new LLMStoryboardProvider(llmClient)
 }
 
 export function createTtsProvider(name: string, options: ProviderRegistryOptions = {}): TTSProvider {
@@ -143,13 +147,20 @@ export function createVlmProvider(name: string, options: ProviderRegistryOptions
 }
 
 function mergeProviderRegistryOptions(config: ProviderConfig, options: ProviderRegistryOptions): ProviderRegistryOptions {
-  return {
+  const env = {
+    ...config.providerEnv,
+    ...(options.env ?? bunEnv()),
+  }
+  const llmConfig = options.llmConfig ?? config.llm
+  const mergedOptions = {
     ...options,
-    env: {
-      ...config.providerEnv,
-      ...(options.env ?? bunEnv()),
-    },
-    llmConfig: config.llm,
+    env,
+    llmConfig,
+  }
+
+  return {
+    ...mergedOptions,
+    llmClient: resolveOptionalLLMClient(mergedOptions),
   }
 }
 
@@ -223,11 +234,19 @@ function resolveOptionalEnv(env: Record<string, string | undefined>, name: strin
 }
 
 function resolveLLMClient(role: ProviderRole, options: ProviderRegistryOptions): LLMClient {
-  if (options.llmClient === undefined) {
+  const llmClient = resolveOptionalLLMClient(options)
+
+  if (llmClient === undefined) {
     throw new Error(`Provider ${role} is set to llm, but LLM is not configured.`)
   }
 
-  return options.llmClient
+  return llmClient
+}
+
+function resolveOptionalLLMClient(options: ProviderRegistryOptions): LLMClient | undefined {
+  return options.llmClient ?? createLLMClientFromConfig(options.llmConfig, {
+    env: options.env ?? bunEnv(),
+  })
 }
 
 function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = bunEnv()): string[] {

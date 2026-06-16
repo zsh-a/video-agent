@@ -1,6 +1,5 @@
 import type {LLMClient, LLMClientConfig} from '@video-agent/llm'
 
-import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createAsrProvider, createTtsProvider, createVlmProvider, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 import {resolve} from 'node:path'
 
@@ -82,7 +81,6 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
   const workspaceDir = options.workspaceDir ?? '.video-agent'
   const config = await readConfig(workspaceDir)
   const runtimeEnv = options.env ?? await readRuntimeEnv(workspaceDir)
-  const llmClient = options.llmClient ?? createLLMClientFromConfig(config.llm, {env: runtimeEnv})
   const roles = options.roles ?? DEFAULT_ROLES
   const results: ProviderSmokeTestResult[] = []
 
@@ -94,8 +92,8 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
       const output = await runRoleSmokeTest(role, config.providers[role], {
         ...options,
         env: createProviderEnv(config, runtimeEnv),
-        llmClient,
-        llmConfig: config.llm,
+        llmClient: options.llmClient,
+        llmConfig: options.llmConfig ?? config.llm,
       })
       const metadata = readSmokeTestMetadata(output.raw)
 
