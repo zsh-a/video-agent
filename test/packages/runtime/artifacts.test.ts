@@ -199,6 +199,40 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports missing TTS segment files referenced by tts-segments.json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'tts-segments.json'), `${JSON.stringify([
+        {
+          duration: 1,
+          narrationId: 'narration-1',
+          path: 'tts/narration-1.wav',
+        },
+      ])}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.missing).to.deep.equal([
+        {
+          name: 'tts/narration-1.wav',
+          reason: 'missing',
+        },
+      ])
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        missing: 1,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports provider JSON artifacts that fail their schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 

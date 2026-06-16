@@ -243,6 +243,43 @@ describe('rerun project', () => {
     }
   })
 
+  it('fails with a checkpoint error when TTS segment files are missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath)
+      await refreshArtifactManifest(artifactsDir)
+      await rm(join(projectDir, 'tts', 'narration-1.wav'), {force: true})
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'quality',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['tts/narration-1.wav'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('fails with a checkpoint error when per-chunk artifacts are missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
     const projectDir = join(root, 'projects', 'demo')
@@ -399,6 +436,8 @@ interface WriteRequiredArtifactsOptions {
 }
 
 async function writeRequiredArtifacts(artifactsDir: string, inputPath: string, options: WriteRequiredArtifactsOptions = {}): Promise<void> {
+  await mkdir(join(dirname(artifactsDir), 'tts'), {recursive: true})
+
   await Promise.all([
     writeText(
       join(artifactsDir, 'ingest-report.json'),
@@ -527,6 +566,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string, o
         },
       ])}\n`,
     ),
+    writeText(join(dirname(artifactsDir), 'tts', 'narration-1.wav'), 'placeholder wav'),
   ])
 }
 

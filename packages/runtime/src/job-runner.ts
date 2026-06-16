@@ -11,7 +11,7 @@ import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMe
 import {createProviders, SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {appendFile, mkdir, readdir} from 'node:fs/promises'
-import {basename, dirname, join, resolve} from 'node:path'
+import {basename, dirname, isAbsolute, join, resolve} from 'node:path'
 
 import {ARTIFACT_MANIFEST_NAME, refreshArtifactManifest} from './artifact-store.js'
 import {verifyProjectArtifacts} from './artifacts.js'
@@ -1671,6 +1671,7 @@ async function findMissingCheckpointSideArtifacts(workspace: ProjectWorkspace, c
   }
 
   missing.push(...await findMissingAnalysisFrameFiles(workspace, checkpointArtifacts))
+  missing.push(...await findMissingTtsSegmentFiles(workspace, checkpointArtifacts))
 
   return missing
 }
@@ -1692,6 +1693,29 @@ async function findMissingAnalysisFrameFiles(workspace: ProjectWorkspace, checkp
 
 async function hasExtractedAnalysisFrames(framePattern: string): Promise<boolean> {
   return (await listExtractedAnalysisFrames(framePattern, ANALYSIS_FRAME_FPS)).length > 0
+}
+
+async function findMissingTtsSegmentFiles(workspace: ProjectWorkspace, checkpointArtifacts: readonly string[]): Promise<string[]> {
+  if (!checkpointArtifacts.includes('tts-segments.json') || !await bunFile(workspace.store.resolve('tts-segments.json')).exists()) {
+    return []
+  }
+
+  try {
+    const segments = TtsSegmentsSchema.parse(await workspace.store.readJson('tts-segments.json'))
+    const missing = await Promise.all(segments.map(async (segment) => {
+      const resolvedPath = resolveProjectPath(workspace.projectDir, segment.path)
+
+      return await bunFile(resolvedPath).exists() ? null : formatCheckpointPath(workspace, resolvedPath)
+    }))
+
+    return missing.filter((path): path is string => path !== null)
+  } catch {
+    return []
+  }
+}
+
+function resolveProjectPath(projectDir: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(projectDir, path)
 }
 
 function formatCheckpointPath(workspace: ProjectWorkspace, path: string): string {

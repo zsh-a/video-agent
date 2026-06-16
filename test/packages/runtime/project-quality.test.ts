@@ -120,6 +120,46 @@ describe('project quality', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('counts missing TTS segment references as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest'],
+      })
+      await writeText(join(artifactsDir, 'tts-segments.json'), `${JSON.stringify([
+        {
+          duration: 1,
+          narrationId: 'narration-1',
+          path: 'tts/narration-1.wav',
+        },
+      ])}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.missing).to.deep.equal([
+        {
+          name: 'tts/narration-1.wav',
+          reason: 'missing',
+        },
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function createProject(root: string, projectId: string): Promise<void> {

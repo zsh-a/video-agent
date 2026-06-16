@@ -4,7 +4,7 @@ import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummaries
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
-import {extname, join, relative, resolve, sep} from 'node:path'
+import {extname, isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import type {ArtifactManifest} from './artifact-store.js'
 
@@ -216,6 +216,7 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
   }))
 
   missing.push(...await findMissingAnalysisFrameReferences(artifactsDir))
+  missing.push(...await findMissingTtsSegmentReferences(artifactsDir))
 
   const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const untracked = entries
@@ -259,6 +260,27 @@ async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise
   } catch {
     return []
   }
+}
+
+async function findMissingTtsSegmentReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const segments = TtsSegmentsSchema.parse(await bunFile(resolve(artifactsDir, 'tts-segments.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+    const missing = await Promise.all(segments.map(async (segment) => {
+      const resolvedPath = resolveProjectPath(projectDir, segment.path)
+      const exists = await bunFile(resolvedPath).exists()
+
+      return exists ? null : {name: relative(projectDir, resolvedPath).split(sep).join('/'), reason: 'missing' as const}
+    }))
+
+    return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
+  } catch {
+    return []
+  }
+}
+
+function resolveProjectPath(projectDir: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(projectDir, path)
 }
 
 function summarizeArtifactIntegrity(result: {

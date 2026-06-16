@@ -810,9 +810,11 @@ async function createRerunProject(root: string, projectId: string): Promise<stri
 }
 
 async function writeRerunArtifacts(root: string, projectId: string): Promise<void> {
-  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
   const inputPath = join(root, `${projectId}.mp4`)
 
+  await mkdir(join(projectDir, 'tts'), {recursive: true})
   await Promise.all([
     writeFile(
       join(artifactsDir, 'ingest-report.json'),
@@ -940,6 +942,7 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
         },
       ])}\n`,
     ),
+    writeFile(join(projectDir, 'tts', 'narration-1.wav'), 'placeholder wav'),
   ])
 }
 
