@@ -1,4 +1,4 @@
-import type {ClipPlan, MediaInfo, Narration, NarrationSegment, Storyboard} from '@video-agent/ir'
+import type {ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSummaries, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, NarrationSegment, Storyboard} from '@video-agent/ir'
 
 export interface MediaInput {
   duration?: number
@@ -50,6 +50,7 @@ export interface ScriptProvider {
 
 export interface ScriptProviderInput {
   clipPlan: ClipPlan
+  longVideo?: LongVideoPlanningContext
   storyboard: Storyboard
 }
 
@@ -58,9 +59,18 @@ export interface StoryboardProvider {
 }
 
 export interface StoryboardProviderInput {
+  longVideo?: LongVideoPlanningContext
   mediaInfo: MediaInfo
   sceneAnalysis: VLMScene[]
   transcript: Transcript
+}
+
+export interface LongVideoPlanningContext {
+  chapters?: LongVideoChapterSummaries
+  chunkPlan?: LongVideoChunkPlan
+  chunkSummaries?: LongVideoChunkSummaries
+  globalOutline?: LongVideoGlobalOutline
+  selectedMoments?: LongVideoSelectedMoments
 }
 
 export interface TTSProviderSynthesizeOptions {

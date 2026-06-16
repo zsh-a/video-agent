@@ -2,7 +2,7 @@ import {expect} from '#test/expect'
 import {writeText} from '#test/fs'
 import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
@@ -25,6 +25,7 @@ describe('rerun project', () => {
         stages: ['quality'],
       })
       await writeRequiredArtifacts(artifactsDir, inputPath)
+      await refreshArtifactManifest(artifactsDir)
 
       const result = await rerunProject('demo', {
         fromStage: 'quality',
@@ -70,6 +71,158 @@ describe('rerun project', () => {
       expect((error as PipelineCheckpointError).missingArtifacts).to.include.members(['ingest-report.json', 'tts-segments.json'])
       expect((error as PipelineCheckpointError).changedArtifacts).to.deep.equal([])
       expect((error as PipelineCheckpointError).untrackedArtifacts).to.deep.equal([])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails with a checkpoint error when the artifact manifest is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath)
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'quality',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['artifact-manifest.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails with a checkpoint error when ingest side artifacts are missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['understand'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath, {
+        artifacts: {
+          sourceAudio: join(projectDir, 'audio', 'source.wav'),
+        },
+      })
+      await refreshArtifactManifest(artifactsDir)
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'understand',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['audio/source.wav'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails with a checkpoint error when the ingest preview is missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['understand'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath, {
+        artifacts: {
+          preview: join(projectDir, 'renders', 'preview.mp4'),
+        },
+      })
+      await refreshArtifactManifest(artifactsDir)
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'understand',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['renders/preview.mp4'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails with a checkpoint error when per-chunk artifacts are missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['plan'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath)
+      await refreshArtifactManifest(artifactsDir)
+      await rm(join(artifactsDir, 'chunks', '000', 'vlm.json'), {force: true})
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'plan',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('plan')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['chunks/000/vlm.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -189,12 +342,16 @@ describe('rerun project', () => {
   })
 })
 
-async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): Promise<void> {
+interface WriteRequiredArtifactsOptions {
+  artifacts?: Record<string, string>
+}
+
+async function writeRequiredArtifacts(artifactsDir: string, inputPath: string, options: WriteRequiredArtifactsOptions = {}): Promise<void> {
   await Promise.all([
     writeText(
       join(artifactsDir, 'ingest-report.json'),
       `${JSON.stringify({
-        artifacts: {},
+        artifacts: options.artifacts ?? {},
         completedAt: '2026-01-01T00:00:00.000Z',
         inputPath,
         stage: 'ingest',
@@ -211,6 +368,7 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
         version: 1,
       })}\n`,
     ),
+    ...writeLongVideoArtifacts(artifactsDir, inputPath),
     writeText(
       join(artifactsDir, 'scene-analysis.json'),
       `${JSON.stringify([
@@ -308,4 +466,132 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string): 
       ])}\n`,
     ),
   ])
+}
+
+function writeLongVideoArtifacts(artifactsDir: string, inputPath: string): Array<Promise<void>> {
+  const chunkSummary = {
+    chunkId: 'chunk-000',
+    contentRange: [0, 1],
+    keyMoments: [
+      {
+        chunkId: 'chunk-000',
+        evidence: [],
+        id: 'chunk-000-moment-001',
+        score: 0.5,
+        sourceRange: [0, 1],
+        summary: 'Test chunk moment.',
+        title: 'Moment chunk-000',
+      },
+    ],
+    silenceRanges: [],
+    summary: 'Test chunk summary.',
+  }
+  const chapter = {
+    chunkIds: ['chunk-000'],
+    evidence: [],
+    id: 'chapter-001',
+    index: 0,
+    keyMoments: chunkSummary.keyMoments,
+    sourceRange: [0, 1],
+    summary: chunkSummary.summary,
+    title: 'Chapter 1',
+  }
+
+  return [
+    writeText(
+      join(artifactsDir, 'chunk-plan.json'),
+      `${JSON.stringify({
+        chunks: [
+          {
+            analysisRange: [0, 1],
+            artifactPrefix: 'chunks/000',
+            contentRange: [0, 1],
+            duration: 1,
+            id: 'chunk-000',
+            index: 0,
+          },
+        ],
+        defaults: {
+          asrChunking: true,
+          chunkDuration: 300,
+          chunkOverlap: 10,
+          frameSampleFps: 1,
+          sceneDetection: true,
+          vlmBatchSize: 16,
+          vlmFrameSampleFps: 0.2,
+        },
+        source: inputPath,
+        sourceDuration: 1,
+        version: 1,
+      })}\n`,
+    ),
+    writeText(
+      join(artifactsDir, 'chunk-summaries.json'),
+      `${JSON.stringify({
+        chunks: [chunkSummary],
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeText(
+      join(artifactsDir, 'chapters.json'),
+      `${JSON.stringify({
+        chapters: [chapter],
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeText(
+      join(artifactsDir, 'global-outline.json'),
+      `${JSON.stringify({
+        chapters: [chapter],
+        language: 'zh-CN',
+        source: inputPath,
+        sourceDuration: 1,
+        storyBeats: [
+          {
+            chapterIds: ['chapter-001'],
+            evidence: [],
+            id: 'beat-001',
+            sourceRange: [0, 1],
+            summary: chapter.summary,
+            title: chapter.title,
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+    writeText(
+      join(artifactsDir, 'selected-moments.json'),
+      `${JSON.stringify({
+        moments: [
+          {
+            ...chunkSummary.keyMoments[0],
+            reason: 'Test selection.',
+          },
+        ],
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeJsonArtifact(artifactsDir, 'chunks/000/summary.json', chunkSummary),
+    writeJsonArtifact(artifactsDir, 'chunks/000/silence.json', {
+      chunkId: 'chunk-000',
+      contentRange: [0, 1],
+      silenceRanges: [],
+      version: 1,
+    }),
+    writeJsonArtifact(artifactsDir, 'chunks/000/transcript.json', {
+      segments: [],
+      text: '',
+    }),
+    writeJsonArtifact(artifactsDir, 'chunks/000/vlm.json', []),
+  ]
+}
+
+async function writeJsonArtifact(artifactsDir: string, name: string, value: unknown): Promise<void> {
+  const path = join(artifactsDir, name)
+
+  await mkdir(dirname(path), {recursive: true})
+  await writeText(path, `${JSON.stringify(value)}\n`)
 }

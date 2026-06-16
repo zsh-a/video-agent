@@ -101,6 +101,37 @@ describe('long video chunk planning', () => {
     expect(plan.chunks).to.deep.equal([])
   })
 
+  it('uses stream duration when container duration is unavailable', () => {
+    const plan = createLongVideoChunkPlan({
+      inputPath: '/tmp/stream-duration.mp4',
+      probedAt: '2026-06-16T00:00:00.000Z',
+      streams: [
+        {
+          duration: 12,
+          fps: 30,
+          index: 0,
+          type: 'video',
+        },
+        {
+          duration: 10,
+          index: 1,
+          type: 'audio',
+        },
+      ],
+      version: 1,
+    }, {
+      chunkDuration: 5,
+      chunkOverlap: 1,
+    })
+
+    expect(plan.sourceDuration).to.equal(12)
+    expect(plan.chunks.map((chunk) => chunk.contentRange)).to.deep.equal([
+      [0, 5],
+      [5, 10],
+      [10, 12],
+    ])
+  })
+
   it('rejects invalid chunk defaults', () => {
     let error: unknown
 

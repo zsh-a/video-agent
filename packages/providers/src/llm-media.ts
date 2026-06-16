@@ -209,16 +209,48 @@ async function createVlmMessages(input: SceneFrameBatch[], context?: string): Pr
 }
 
 function sampleVlmFramePaths(input: SceneFrameBatch[]): string[] {
-  const framePaths = Array.from(new Set(input.flatMap((batch) => batch.frames)))
+  const allFramePaths = Array.from(new Set(input.flatMap((batch) => batch.frames)))
 
-  if (framePaths.length <= MAX_VLM_IMAGE_PARTS) {
-    return framePaths
+  if (allFramePaths.length <= MAX_VLM_IMAGE_PARTS) {
+    return allFramePaths
   }
 
-  const lastIndex = framePaths.length - 1
+  const representativePaths = sampleEvenly(
+    input
+      .map((batch) => batch.frames[0])
+      .filter((path): path is string => path !== undefined),
+    MAX_VLM_IMAGE_PARTS,
+  )
+  const selected = new Set(representativePaths)
 
-  return Array.from({length: MAX_VLM_IMAGE_PARTS}, (_, index) => framePaths[Math.round((index * lastIndex) / (MAX_VLM_IMAGE_PARTS - 1))])
-    .filter((path): path is string => path !== undefined)
+  if (selected.size < MAX_VLM_IMAGE_PARTS) {
+    for (const path of sampleEvenly(allFramePaths, MAX_VLM_IMAGE_PARTS)) {
+      selected.add(path)
+
+      if (selected.size >= MAX_VLM_IMAGE_PARTS) {
+        break
+      }
+    }
+  }
+
+  return [...selected]
+}
+
+function sampleEvenly<T>(values: T[], limit: number): T[] {
+  if (values.length <= limit) {
+    return values
+  }
+
+  if (limit === 1) {
+    const first = values[0]
+
+    return first === undefined ? [] : [first]
+  }
+
+  const lastIndex = values.length - 1
+
+  return Array.from({length: limit}, (_, index) => values[Math.round((index * lastIndex) / (limit - 1))])
+    .filter((value): value is T => value !== undefined)
 }
 
 async function createVlmImagePart(path: string): Promise<{data: string; filename: string; mediaType: string; type: 'file'} | undefined> {

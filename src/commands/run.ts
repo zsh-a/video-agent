@@ -10,7 +10,7 @@ export default class Run extends Command {
   static args = {
     input: Args.string({description: 'Input media file to process', required: true}),
   }
-  static description = 'Run the initial ingest and placeholder planning pipeline'
+  static description = 'Run the initial artifact-producing video pipeline'
   static flags = {
     'from-stage': Flags.string({
       default: 'ingest',

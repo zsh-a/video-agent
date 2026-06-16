@@ -81,6 +81,55 @@ describe('LLM media providers', () => {
     }
   })
 
+  it('keeps VLM image attachments distributed across long scene batches', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-vlm-long-'))
+    const framePaths = Array.from({length: 20}, (_, index) => join(root, `frame_${String(index + 1).padStart(5, '0')}.jpg`))
+    let request: GenerateObjectRequest<unknown> | undefined
+
+    try {
+      await Promise.all(framePaths.map((framePath, index) => writeFile(framePath, Buffer.from(`fake-jpeg-${index + 1}`))))
+
+      await new LLMVLMProvider({
+        async generateObject(input) {
+          request = input as GenerateObjectRequest<unknown>
+
+          return {
+            object: framePaths.map((framePath, index) => ({
+              description: `Scene ${index + 1}.`,
+              evidence: [framePath],
+              sceneId: `scene-${index + 1}`,
+            })),
+          }
+        },
+        async generateText() {
+          throw new Error('Not used by this test.')
+        },
+        streamText() {
+          throw new Error('Not used by this test.')
+        },
+      } satisfies LLMClient).analyzeScenes(framePaths.map((framePath, index) => ({
+        frames: [framePath],
+        sceneId: `scene-${index + 1}`,
+        timeRange: [index, index + 1],
+      })))
+
+      const message = request?.messages?.[0] as LLMMessage | undefined
+      const content = Array.isArray(message?.content) ? message.content : []
+      const textPart = content.find((part) => part.type === 'text')
+      const imageParts = content.filter((part) => part.type === 'file')
+      const sampledFrames = textPart?.type === 'text' ? JSON.parse(textPart.text).sampledFrames : []
+
+      expect(sampledFrames).to.have.length(16)
+      expect(sampledFrames).to.include(framePaths[0])
+      expect(sampledFrames).to.include(framePaths.at(-1))
+      expect(sampledFrames.some((framePath: string) => framePath.endsWith('frame_00015.jpg') || framePath.endsWith('frame_00016.jpg'))).to.equal(true)
+      expect(imageParts).to.have.length(16)
+      expect(imageParts.map((part) => part.type === 'file' ? part.filename : '')).to.include('frame_00020.jpg')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('synthesizes whole-window timestamps when MiMo ASR returns plain text', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-asr-'))
     const audioPath = join(root, 'source.wav')

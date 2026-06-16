@@ -1,7 +1,7 @@
 import {expect} from '#test/expect'
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import {createApiFetchHandler} from '../../../packages/api/src/server.js'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
@@ -825,6 +825,7 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
         version: 1,
       })}\n`,
     ),
+    ...writeLongVideoArtifacts(artifactsDir, inputPath),
     writeFile(
       join(artifactsDir, 'scene-analysis.json'),
       `${JSON.stringify([
@@ -922,4 +923,133 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       ])}\n`,
     ),
   ])
+  await refreshArtifactManifest(artifactsDir)
+}
+
+function writeLongVideoArtifacts(artifactsDir: string, inputPath: string): Array<Promise<void>> {
+  const chunkSummary = {
+    chunkId: 'chunk-000',
+    contentRange: [0, 1],
+    keyMoments: [
+      {
+        chunkId: 'chunk-000',
+        evidence: [],
+        id: 'chunk-000-moment-001',
+        score: 0.5,
+        sourceRange: [0, 1],
+        summary: 'Test chunk moment.',
+        title: 'Moment chunk-000',
+      },
+    ],
+    silenceRanges: [],
+    summary: 'Test chunk summary.',
+  }
+  const chapter = {
+    chunkIds: ['chunk-000'],
+    evidence: [],
+    id: 'chapter-001',
+    index: 0,
+    keyMoments: chunkSummary.keyMoments,
+    sourceRange: [0, 1],
+    summary: chunkSummary.summary,
+    title: 'Chapter 1',
+  }
+
+  return [
+    writeFile(
+      join(artifactsDir, 'chunk-plan.json'),
+      `${JSON.stringify({
+        chunks: [
+          {
+            analysisRange: [0, 1],
+            artifactPrefix: 'chunks/000',
+            contentRange: [0, 1],
+            duration: 1,
+            id: 'chunk-000',
+            index: 0,
+          },
+        ],
+        defaults: {
+          asrChunking: true,
+          chunkDuration: 300,
+          chunkOverlap: 10,
+          frameSampleFps: 1,
+          sceneDetection: true,
+          vlmBatchSize: 16,
+          vlmFrameSampleFps: 0.2,
+        },
+        source: inputPath,
+        sourceDuration: 1,
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'chunk-summaries.json'),
+      `${JSON.stringify({
+        chunks: [chunkSummary],
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'chapters.json'),
+      `${JSON.stringify({
+        chapters: [chapter],
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'global-outline.json'),
+      `${JSON.stringify({
+        chapters: [chapter],
+        language: 'zh-CN',
+        source: inputPath,
+        sourceDuration: 1,
+        storyBeats: [
+          {
+            chapterIds: ['chapter-001'],
+            evidence: [],
+            id: 'beat-001',
+            sourceRange: [0, 1],
+            summary: chapter.summary,
+            title: chapter.title,
+          },
+        ],
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
+      join(artifactsDir, 'selected-moments.json'),
+      `${JSON.stringify({
+        moments: [
+          {
+            ...chunkSummary.keyMoments[0],
+            reason: 'Test selection.',
+          },
+        ],
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeJsonArtifact(artifactsDir, 'chunks/000/summary.json', chunkSummary),
+    writeJsonArtifact(artifactsDir, 'chunks/000/silence.json', {
+      chunkId: 'chunk-000',
+      contentRange: [0, 1],
+      silenceRanges: [],
+      version: 1,
+    }),
+    writeJsonArtifact(artifactsDir, 'chunks/000/transcript.json', {
+      segments: [],
+      text: '',
+    }),
+    writeJsonArtifact(artifactsDir, 'chunks/000/vlm.json', []),
+  ]
+}
+
+async function writeJsonArtifact(artifactsDir: string, name: string, value: unknown): Promise<void> {
+  const path = join(artifactsDir, name)
+
+  await mkdir(dirname(path), {recursive: true})
+  await writeFile(path, `${JSON.stringify(value)}\n`)
 }

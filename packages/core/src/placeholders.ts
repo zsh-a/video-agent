@@ -26,7 +26,7 @@ export interface SceneBoundaryInsight {
 }
 
 export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
-  const duration = mediaInfo.duration ?? 0
+  const duration = inferMediaDuration(mediaInfo)
 
   return {
     language: 'zh-CN',
@@ -86,7 +86,7 @@ export function createStoryboardFromProviderInsights(
     transcript?: TranscriptInsight
   },
 ): Storyboard {
-  const boundaries = createSceneBoundariesFromTranscript(options.transcript, mediaInfo.duration ?? 0)
+  const boundaries = createSceneBoundariesFromTranscript(options.transcript, inferMediaDuration(mediaInfo))
   const scenes = boundaries.map((boundary, index) => {
     const analysis = findSceneAnalysis(options.sceneAnalysis ?? [], boundary.id, index)
     const transcriptText = normalizeText(boundary.text) ?? normalizeText(options.transcript?.text)
@@ -131,7 +131,7 @@ export function createStoryboardFromProviderInsights(
 }
 
 export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
-  const sourceDuration = mediaInfo.duration ?? 0
+  const sourceDuration = inferMediaDuration(mediaInfo)
   let duration = 0
   let sourceCursor = 0
   const clips: ClipPlan['clips'] = storyboard.scenes.map((scene, index) => {
@@ -237,6 +237,18 @@ function inferTranscriptDuration(transcript: TranscriptInsight | undefined): num
   const segmentEnd = Math.max(0, ...(transcript?.segments ?? []).map((segment) => segment.end))
 
   return segmentEnd > 0 ? segmentEnd : 1
+}
+
+function inferMediaDuration(mediaInfo: MediaInfo): number {
+  if (mediaInfo.duration !== undefined) {
+    return mediaInfo.duration
+  }
+
+  const streamDurations = mediaInfo.streams
+    .map((stream) => stream.duration)
+    .filter((duration): duration is number => duration !== undefined)
+
+  return streamDurations.length === 0 ? 0 : Math.max(...streamDurations)
 }
 
 function normalizeText(value: string | undefined): string | undefined {

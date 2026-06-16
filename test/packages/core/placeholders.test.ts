@@ -47,6 +47,48 @@ describe('placeholder IR', () => {
     })
   })
 
+  it('uses stream duration when container duration is unavailable', () => {
+    const streamDurationMediaInfo = {
+      inputPath: '/tmp/stream-duration.mp4',
+      probedAt: '2026-06-14T00:00:00.000Z',
+      streams: [
+        {
+          duration: 12,
+          fps: 24,
+          index: 0,
+          type: 'video' as const,
+        },
+      ],
+      version: 1 as const,
+    }
+    const storyboard = createStoryboardFromProviderInsights(streamDurationMediaInfo, {
+      transcript: {
+        segments: [
+          {
+            end: 12,
+            start: 0,
+            text: 'Stream duration backed segment.',
+          },
+        ],
+        text: 'Stream duration backed segment.',
+      },
+    })
+    const clipPlan = createClipPlan(storyboard, streamDurationMediaInfo)
+    const timeline = createTimelineFromClipPlan(streamDurationMediaInfo, clipPlan)
+
+    expect(storyboard.scenes[0].sourceRange).to.deep.equal([0, 12])
+    expect(clipPlan).to.include({
+      duration: 12,
+      sourceDuration: 12,
+    })
+    expect(clipPlan.clips[0]).to.include({
+      duration: 12,
+    })
+    expect(timeline).to.include({
+      duration: 12,
+    })
+  })
+
   it('creates storyboard scenes from transcript segments and visual analysis', () => {
     const storyboard = createStoryboardFromProviderInsights(mediaInfo, {
       sceneAnalysis: [

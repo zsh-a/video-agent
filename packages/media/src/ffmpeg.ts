@@ -201,6 +201,10 @@ export async function extractAudio(input: string, outputPath: string): Promise<v
   await runFfmpeg(['-y', '-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '24000', '-ac', '1', outputPath])
 }
 
+export async function extractAudioSegment(input: string, outputPath: string, start: number, duration: number): Promise<void> {
+  await runFfmpeg(['-y', '-ss', String(start), '-t', String(duration), '-i', input, '-vn', '-acodec', 'pcm_s16le', '-ar', '24000', '-ac', '1', outputPath])
+}
+
 export async function createPreview(input: string, outputPath: string, duration = 10): Promise<void> {
   await runFfmpeg(['-y', '-i', input, '-t', String(duration), '-c', 'copy', outputPath])
 }

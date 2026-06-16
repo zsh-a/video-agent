@@ -7,7 +7,7 @@ import {join} from 'node:path'
 
 import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
-import {createSceneFrameBatchesFromTranscript, runInitialPipeline} from '../../../packages/runtime/src/job-runner.js'
+import {createChunkTranscript, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
 
 describe('job runner', () => {
   it('creates VLM scene batches from transcript segment timing', () => {
@@ -89,6 +89,222 @@ describe('job runner', () => {
     ])
   })
 
+  it('samples VLM scene frames with chunk-plan frame defaults', () => {
+    const batches = createSceneFrameBatchesFromTranscript({
+      segments: [
+        {
+          end: 10,
+          start: 0,
+          text: 'Long scene.',
+        },
+      ],
+      text: 'Long scene.',
+    }, {
+      duration: 10,
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-15T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    }, Array.from({length: 10}, (_, index) => ({
+      path: `frames/frame_${String(index + 1).padStart(5, '0')}.jpg`,
+      timestamp: index,
+    })), {
+      maxFramesPerBatch: 2,
+      sampleFps: 0.5,
+    })
+
+    expect(batches).to.deep.equal([
+      {
+        frames: ['frames/frame_00001.jpg', 'frames/frame_00009.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 10],
+      },
+    ])
+  })
+
+  it('uses explicit chunk-plan duration for VLM scene boundaries', () => {
+    const batches = createSceneFrameBatchesFromTranscript({
+      segments: [
+        {
+          end: 20,
+          start: 0,
+          text: 'Scene with stream duration.',
+        },
+      ],
+      text: 'Scene with stream duration.',
+    }, {
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-15T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    }, undefined, {
+      mediaDuration: 12,
+    })
+
+    expect(batches).to.deep.equal([
+      {
+        frames: [],
+        sceneId: 'scene-1',
+        timeRange: [0, 12],
+      },
+    ])
+  })
+
+  it('offsets and merges chunk ASR transcripts onto the source timeline', () => {
+    const first = offsetChunkTranscript({
+      language: 'zh-CN',
+      segments: [
+        {
+          end: 2,
+          start: 0.5,
+          text: 'First chunk.',
+        },
+      ],
+      text: 'First chunk.',
+    }, [10, 20])
+    const second = offsetChunkTranscript({
+      segments: [
+        {
+          end: 0,
+          start: 0,
+          text: 'Untimed chunk.',
+        },
+      ],
+      text: 'Untimed chunk.',
+    }, [20, 30])
+
+    expect(first.segments).to.deep.equal([
+      {
+        end: 12,
+        start: 10.5,
+        text: 'First chunk.',
+      },
+    ])
+    expect(second.segments).to.deep.equal([
+      {
+        end: 30,
+        start: 20,
+        text: 'Untimed chunk.',
+      },
+    ])
+    expect(mergeChunkTranscripts([second, first])).to.deep.equal({
+      language: 'zh-CN',
+      segments: [
+        {
+          end: 12,
+          start: 10.5,
+          text: 'First chunk.',
+        },
+        {
+          end: 30,
+          start: 20,
+          text: 'Untimed chunk.',
+        },
+      ],
+      text: 'First chunk.\nUntimed chunk.',
+      timestampConfidence: 'chunked',
+    })
+  })
+
+  it('derives silence ranges from transcript gaps inside a chunk', () => {
+    expect(createSilenceRanges({
+      segments: [
+        {
+          end: 3,
+          start: 1,
+          text: 'Opening.',
+        },
+        {
+          end: 8,
+          start: 5,
+          text: 'Ending.',
+        },
+      ],
+      text: 'Opening. Ending.',
+    }, [0, 10])).to.deep.equal([
+      [0, 1],
+      [3, 5],
+      [8, 10],
+    ])
+  })
+
+  it('clamps chunk transcript segments to the chunk content range', () => {
+    expect(createChunkTranscript({
+      language: 'zh-CN',
+      segments: [
+        {
+          end: 6,
+          start: 2,
+          text: 'Crosses left boundary.',
+        },
+        {
+          end: 11,
+          start: 8,
+          text: 'Crosses right boundary.',
+        },
+        {
+          end: 13,
+          start: 12,
+          text: 'Outside chunk.',
+        },
+      ],
+      text: 'Crosses left boundary. Crosses right boundary. Outside chunk.',
+      timestampConfidence: 'exact',
+    }, [5, 10])).to.deep.equal({
+      language: 'zh-CN',
+      segments: [
+        {
+          end: 6,
+          start: 5,
+          text: 'Crosses left boundary.',
+        },
+        {
+          end: 10,
+          start: 8,
+          text: 'Crosses right boundary.',
+        },
+      ],
+      text: 'Crosses left boundary.\nCrosses right boundary.',
+      timestampConfidence: 'exact',
+    })
+  })
+
+  it('rejects VLM scene analysis that does not match input batches', () => {
+    const batches = [
+      {
+        frames: ['frames/frame_00001.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 1] as [number, number],
+      },
+      {
+        frames: ['frames/frame_00002.jpg'],
+        sceneId: 'scene-2',
+        timeRange: [1, 2] as [number, number],
+      },
+    ]
+
+    expect(() => validateVlmSceneAnalysis(batches, [
+      {
+        description: 'Opening.',
+        evidence: [],
+        sceneId: 'scene-1',
+      },
+    ])).to.throw('VLM provider returned 1 scene(s), expected 2.')
+
+    expect(() => validateVlmSceneAnalysis(batches, [
+      {
+        description: 'Opening.',
+        evidence: [],
+        sceneId: 'scene-1',
+      },
+      {
+        description: 'Wrong scene.',
+        evidence: [],
+        sceneId: 'scene-x',
+      },
+    ])).to.throw('VLM provider returned sceneId "scene-x" at index 1, expected "scene-2".')
+  })
+
   it('runs the initial pipeline when ffmpeg and ffprobe are available', async () => {
     if (!(await hasMediaTools())) {
       return
@@ -130,6 +346,11 @@ describe('job runner', () => {
 
       expect(result.status).to.equal('completed')
       expect(await fileSize(result.artifacts.mediaInfo)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.chunkPlan)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.chunkSummaries)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.chapters)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.globalOutline)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.selectedMoments)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.sceneAnalysis)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.storyboard)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.clipPlan)).to.be.greaterThan(0)
@@ -144,25 +365,44 @@ describe('job runner', () => {
       expect(await fileSize(join(root, 'projects', 'demo', 'job-state.json'))).to.be.greaterThan(0)
 
       const qualityReport = JSON.parse(await readFile(result.artifacts.qualityReport, 'utf8')) as {summary: {errors: number; warnings: number}}
+      const chunkPlan = JSON.parse(await readFile(result.artifacts.chunkPlan, 'utf8')) as {chunks: Array<{artifactPrefix: string; id: string}>}
+      const chunkSummaries = JSON.parse(await readFile(result.artifacts.chunkSummaries, 'utf8')) as {chunks: Array<{chunkId: string; silenceRanges: Array<[number, number]>; summary: string}>}
+      const storyboard = JSON.parse(await readFile(result.artifacts.storyboard, 'utf8')) as {scenes: Array<{evidence: Array<{ref: string}>; sourceRange?: [number, number]}>}
 
       expect(qualityReport.summary).to.deep.equal({errors: 0, warnings: 0})
+      expect(chunkPlan.chunks[0]?.artifactPrefix).to.equal('chunks/000')
+      expect(chunkSummaries.chunks[0]?.chunkId).to.equal('chunk-000')
+      expect(chunkSummaries.chunks[0]?.silenceRanges).to.deep.equal([[0, 1]])
+      expect(storyboard.scenes[0]?.evidence.map((item) => item.ref)).to.include('chunks/000/vlm.json')
+      expect(storyboard.scenes[0]?.sourceRange).to.deep.equal([0, 1])
+      expect(await fileSize(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'summary.json'))).to.be.greaterThan(0)
+      expect(await fileSize(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'silence.json'))).to.be.greaterThan(0)
+      expect(await fileSize(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'transcript.json'))).to.be.greaterThan(0)
+      expect(await fileSize(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'vlm.json'))).to.be.greaterThan(0)
 
       const providerCalls = await readJsonLines(result.artifacts.providerCalls)
       const pipelineEvents = await readJsonLines(result.artifacts.pipelineEvents)
       const progressEvents = pipelineEvents.filter((event) => event.type === 'stage:progress')
+      const artifactEvents = pipelineEvents.filter((event) => event.type === 'artifact')
 
       expect(providerCalls.map((call) => call.role)).to.include.members(['asr', 'tts', 'vlm'])
       expect(providerCalls.every((call) => call.provider === 'mock')).to.equal(true)
       expect(providerCalls.every((call) => call.status === 'succeeded')).to.equal(true)
       expect(events).to.include.members(['stage:start:ingest', 'stage:complete:ingest', 'stage:start:understand', 'stage:complete:quality'])
       expect(progressEvents.map((event) => `${event.stage}:${event.step}`)).to.include.members(['understand:asr', 'understand:vlm', 'voiceover:tts', 'quality:checks'])
+      expect(artifactEvents.map((event) => event.artifact?.path).filter((path): path is string => typeof path === 'string')).to.include.members([
+        join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'summary.json'),
+        join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'silence.json'),
+        join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'transcript.json'),
+        join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'vlm.json'),
+      ])
       expect(progressEvents.some((event) => event.unit === 'segments')).to.equal(true)
       expect(progressEvents.every((event) => event.percent === undefined || (typeof event.percent === 'number' && event.percent >= 0 && event.percent <= 100))).to.equal(true)
       expect(providerCallSummaries).to.include.members(['asr:mock:transcribe:succeeded', 'vlm:mock:analyzeScenes:succeeded', 'tts:mock:synthesize:succeeded'])
 
       const manifest = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}
 
-      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
+      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['chunk-plan.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'chunks/000/summary.json', 'chunks/000/silence.json', 'chunks/000/transcript.json', 'chunks/000/vlm.json', 'clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
       expect(manifest.artifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256))).to.equal(true)
 
       const resumed = await runInitialPipeline({
@@ -175,6 +415,48 @@ describe('job runner', () => {
       expect(resumed.status).to.equal('completed')
       expect(await fileSize(resumed.artifacts.narration)).to.be.greaterThan(0)
       expect(await fileSize(resumed.artifacts.ttsSegments)).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails clearly when source media has no video stream', async () => {
+    if (!(await hasMediaTools())) {
+      return
+    }
+
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-job-audio-only-'))
+    const inputPath = join(root, 'input.wav')
+
+    try {
+      await runProcess([
+        'ffmpeg',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=1000:sample_rate=24000',
+        '-t',
+        '1',
+        inputPath,
+      ])
+
+      let error: unknown
+
+      try {
+        await runInitialPipeline({
+          inputPath,
+          projectId: 'audio-only',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(Error)
+      expect(error instanceof Error ? error.message : '').to.equal('Source media must include a video stream for the initial video pipeline.')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

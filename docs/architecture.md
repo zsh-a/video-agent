@@ -167,7 +167,7 @@ raw video
   -> timeline.json
 ```
 
-`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges. ASR, frame sampling, VLM, silence/action scoring, and chunk summaries should write per-chunk evidence under stable artifact prefixes such as `chunks/000`. Later planning stages should work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. This keeps token use bounded, makes per-chunk retry/cache possible, and lets `rerun` target failed understanding work without invalidating unrelated chunks.
+`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges. Runtime understanding writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. The current stage boundary is still `understand`; finer per-chunk retry/cache can be added without changing the artifact hierarchy.
 
 HyperFrames remains the visual storytelling renderer for page-based explainers and article/podcast-to-video flows. FFmpeg remains the media boundary for probe, extraction, streamcopy clipping, concat, muxing, progress reporting, loudness, subtitles, and final delivery. Remotion can be added later as a second renderer for React composition and chunk/cloud rendering; it should consume storyboard/timeline IR instead of owning understanding logic.
 
@@ -191,8 +191,8 @@ ArtifactRef
 LongVideoChunkPlan
   source duration, chunk defaults, non-overlapping content ranges, overlapping analysis ranges
 
-LongVideoChunkSummary / LongVideoChapterSummary / LongVideoGlobalOutline / LongVideoSelectedMoments
-  hierarchical summaries and evidence-backed selections for long-video planning
+LongVideoChunkSummary / LongVideoChunkSilence / LongVideoChapterSummary / LongVideoGlobalOutline / LongVideoSelectedMoments
+  per-chunk summaries, silence ranges, hierarchical summaries, and evidence-backed selections for long-video planning
 ```
 
 All LLM/provider output should be validated before it enters the pipeline state.
@@ -221,7 +221,6 @@ workspace/
       chunks/
         000/
           transcript.json
-          frames.json
           vlm.json
           silence.json
           summary.json

@@ -98,6 +98,13 @@ export const LongVideoChunkSummarySchema = z.object({
   visualSummary: z.string().optional(),
 })
 
+export const LongVideoChunkSilenceSchema = z.object({
+  chunkId: z.string().min(1),
+  contentRange: LongVideoTimeRangeSchema,
+  silenceRanges: z.array(LongVideoTimeRangeSchema),
+  version: z.literal(1),
+})
+
 export const LongVideoChunkSummariesSchema = z.object({
   chunks: z.array(LongVideoChunkSummarySchema),
   source: z.string().min(1),
@@ -157,6 +164,7 @@ export type LongVideoChapterSummary = z.infer<typeof LongVideoChapterSummarySche
 export type LongVideoChunk = z.infer<typeof LongVideoChunkSchema>
 export type LongVideoChunkPlan = z.infer<typeof LongVideoChunkPlanSchema>
 export type LongVideoChunkPlanDefaults = z.infer<typeof LongVideoChunkPlanDefaultsSchema>
+export type LongVideoChunkSilence = z.infer<typeof LongVideoChunkSilenceSchema>
 export type LongVideoChunkSummaries = z.infer<typeof LongVideoChunkSummariesSchema>
 export type LongVideoChunkSummary = z.infer<typeof LongVideoChunkSummarySchema>
 export type LongVideoGlobalOutline = z.infer<typeof LongVideoGlobalOutlineSchema>

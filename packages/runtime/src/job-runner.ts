@@ -1,19 +1,19 @@
 import type {PipelineContext, PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
-import type {ArtifactRef, ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {ArtifactRef, ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSilence, LongVideoChunkSummaries, LongVideoChunkSummary, LongVideoGlobalOutline, LongVideoMoment, LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {createClipPlan, createSceneBoundariesFromTranscript, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
-import {ClipPlanSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {createClipPlan, createLongVideoChunkPlan, createSceneBoundariesFromTranscript, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
+import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createLLMClientFromConfig} from '@video-agent/llm'
-import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
+import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {appendFile, mkdir, readdir} from 'node:fs/promises'
 import {basename, dirname, join, resolve} from 'node:path'
 
-import {refreshArtifactManifest} from './artifact-store.js'
+import {ARTIFACT_MANIFEST_NAME, refreshArtifactManifest} from './artifact-store.js'
 import {verifyProjectArtifacts} from './artifacts.js'
 import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
@@ -40,7 +40,11 @@ export type InitialPipelineStage = 'ingest' | 'plan' | 'quality' | 'script' | 'u
 export interface RunInitialPipelineResult {
   artifacts: {
     clipPlan: string
+    chapters: string
+    chunkPlan: string
+    chunkSummaries: string
     frames?: string
+    globalOutline: string
     ingestReport: string
     mediaInfo: string
     narration: string
@@ -49,6 +53,7 @@ export interface RunInitialPipelineResult {
     providerCalls: string
     qualityReport: string
     sceneAnalysis: string
+    selectedMoments: string
     sourceAudio?: string
     storyboard: string
     timeline: string
@@ -68,11 +73,16 @@ interface InitialPipelineInput {
 
 interface IngestOutput extends InitialPipelineInput {
   artifacts: RunInitialPipelineResult['artifacts']
+  chunkPlan: LongVideoChunkPlan
   mediaInfo: MediaInfo
 }
 
 interface UnderstandOutput extends IngestOutput {
+  chapters: LongVideoChapterSummaries
+  chunkSummaries: LongVideoChunkSummaries
+  globalOutline: LongVideoGlobalOutline
   sceneAnalysis: VLMScene[]
+  selectedMoments: LongVideoSelectedMoments
   transcript: Transcript
 }
 
@@ -110,11 +120,11 @@ const ANALYSIS_FRAME_FPS = 1
 
 const CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
   ingest: [],
-  plan: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json'],
-  quality: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
-  script: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
-  understand: ['ingest-report.json', 'media-info.json'],
-  voiceover: ['ingest-report.json', 'media-info.json', 'scene-analysis.json', 'transcript.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
+  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
+  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
+  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
+  understand: ['ingest-report.json', 'media-info.json', 'chunk-plan.json'],
+  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
 }
 
 export class PipelineCheckpointError extends Error {
@@ -159,7 +169,11 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
   const pipelineEventsPath = workspace.store.resolve('pipeline-events.jsonl')
   const providerCallsPath = workspace.store.resolve('provider-calls.jsonl')
   const artifacts: RunInitialPipelineResult['artifacts'] = {
+    chapters: workspace.store.resolve('chapters.json'),
+    chunkPlan: workspace.store.resolve('chunk-plan.json'),
+    chunkSummaries: workspace.store.resolve('chunk-summaries.json'),
     clipPlan: workspace.store.resolve('clip-plan.json'),
+    globalOutline: workspace.store.resolve('global-outline.json'),
     ingestReport: workspace.store.resolve('ingest-report.json'),
     mediaInfo: workspace.store.resolve('media-info.json'),
     narration: workspace.store.resolve('narration.json'),
@@ -168,6 +182,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     providerCalls: providerCallsPath,
     qualityReport: workspace.store.resolve('quality-report.json'),
     sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+    selectedMoments: workspace.store.resolve('selected-moments.json'),
     storyboard: workspace.store.resolve('storyboard.json'),
     timeline: workspace.store.resolve('timeline.json'),
     transcript: workspace.store.resolve('transcript.json'),
@@ -302,13 +317,20 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
       const initial = input as InitialPipelineInput
       await emitStep(ctx, {data: {inputPath: initial.inputPath}, message: 'Probing source media.', stage: 'ingest', step: 'probe-media'})
       const mediaInfo = await probeMedia(initial.inputPath)
+      const hasVideo = mediaInfo.streams.some((stream) => stream.type === 'video')
       const previewDuration = Math.min(mediaInfo.duration ?? 10, 10)
       const framePattern = join(initial.workspace.framesDir, 'frame_%05d.jpg')
 
       await emitStep(ctx, {data: summarizeMediaInfo(mediaInfo), message: 'Media probe completed.', stage: 'ingest', step: 'probe-media'})
+
+      if (!hasVideo) {
+        throw new Error('Source media must include a video stream for the initial video pipeline.')
+      }
+
+      const chunkPlan = LongVideoChunkPlanSchema.parse(createLongVideoChunkPlan(mediaInfo))
       await emitStep(ctx, {data: {framePattern}, message: 'Extracting analysis frames.', stage: 'ingest', step: 'extract-frames'})
       await mkdir(initial.workspace.framesDir, {recursive: true})
-      await extractFrames(initial.inputPath, framePattern, ANALYSIS_FRAME_FPS)
+      await extractFrames(initial.inputPath, framePattern, chunkPlan.defaults.frameSampleFps)
       await emitStep(ctx, {data: {duration: previewDuration, outputPath: artifacts.preview}, message: 'Creating preview render.', stage: 'ingest', step: 'create-preview'})
       await createPreview(initial.inputPath, artifacts.preview, previewDuration)
       await emitArtifact(ctx, 'ingest', artifacts.preview, 'video')
@@ -337,12 +359,15 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
 
       await initial.workspace.store.writeJson('media-info.json', MediaInfoSchema.parse(mediaInfo))
       await emitArtifact(ctx, 'ingest', artifacts.mediaInfo, 'json')
+      await initial.workspace.store.writeJson('chunk-plan.json', chunkPlan)
+      await emitArtifact(ctx, 'ingest', artifacts.chunkPlan, 'json')
       await initial.workspace.store.writeJson('ingest-report.json', ingestReport)
       await emitArtifact(ctx, 'ingest', artifacts.ingestReport, 'json')
 
       return {
         ...initial,
         artifacts: nextArtifacts,
+        chunkPlan,
         mediaInfo,
       }
     },
@@ -356,10 +381,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       const ingest = input as IngestOutput
       const asrInputPath = ingest.artifacts.sourceAudio ?? ingest.inputPath
       await emitStep(ctx, {data: {inputPath: asrInputPath, providerInput: ingest.artifacts.sourceAudio === undefined ? 'media' : 'audio'}, message: 'Transcribing source audio.', stage: 'understand', step: 'asr'})
-      const transcript = TranscriptSchema.parse(await ingest.providers.asr.transcribe({
-        ...(ingest.mediaInfo.duration === undefined ? {} : {duration: ingest.mediaInfo.duration}),
-        path: asrInputPath,
-      }))
+      const transcript = await transcribeSourceAudio(ingest, ctx)
       await emitProgress(ctx, {
         current: transcript.segments.length,
         message: 'ASR transcript segments completed.',
@@ -368,10 +390,14 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         unit: 'segments',
       })
       await emitStep(ctx, {data: summarizeTranscriptForLog(transcript), message: 'Transcript completed.', stage: 'understand', step: 'asr'})
-      const analysisFrames = await listExtractedAnalysisFrames(ingest.artifacts.frames, ANALYSIS_FRAME_FPS)
-      const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, analysisFrames.length > 0 ? analysisFrames : ingest.artifacts.frames)
+      const analysisFrames = await listExtractedAnalysisFrames(ingest.artifacts.frames, ingest.chunkPlan.defaults.frameSampleFps)
+      const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, analysisFrames.length > 0 ? analysisFrames : ingest.artifacts.frames, {
+        maxFramesPerBatch: ingest.chunkPlan.defaults.vlmBatchSize,
+        mediaDuration: ingest.chunkPlan.sourceDuration,
+        sampleFps: ingest.chunkPlan.defaults.vlmFrameSampleFps,
+      })
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
-      const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches))
+      const sceneAnalysis = validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches)))
       await emitProgress(ctx, {
         current: sceneAnalysis.length,
         message: 'VLM scene batches completed.',
@@ -382,18 +408,136 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       })
       await emitStep(ctx, {data: summarizeVlmScenesForLog(sceneAnalysis), message: 'Visual scene analysis completed.', stage: 'understand', step: 'vlm'})
 
+      const longVideoArtifacts = createLongVideoUnderstandingArtifacts(ingest.chunkPlan, transcript, sceneAnalysis)
+
       await ingest.workspace.store.writeJson('transcript.json', transcript)
       await emitArtifact(ctx, 'understand', ingest.artifacts.transcript, 'json')
       await ingest.workspace.store.writeJson('scene-analysis.json', sceneAnalysis)
       await emitArtifact(ctx, 'understand', ingest.artifacts.sceneAnalysis, 'json')
+      await ingest.workspace.store.writeJson('chunk-summaries.json', longVideoArtifacts.chunkSummaries)
+      await emitArtifact(ctx, 'understand', ingest.artifacts.chunkSummaries, 'json')
+      await Promise.all(longVideoArtifacts.chunkArtifacts.flatMap((chunkArtifact) => [
+        ingest.workspace.store.writeJson(`${chunkArtifact.prefix}/summary.json`, chunkArtifact.summary),
+        ingest.workspace.store.writeJson(`${chunkArtifact.prefix}/silence.json`, chunkArtifact.silence),
+        ingest.workspace.store.writeJson(`${chunkArtifact.prefix}/transcript.json`, chunkArtifact.transcript),
+        ingest.workspace.store.writeJson(`${chunkArtifact.prefix}/vlm.json`, chunkArtifact.vlm),
+      ]))
+      await Promise.all(longVideoArtifacts.chunkArtifacts.flatMap((chunkArtifact) => [
+        emitArtifact(ctx, 'understand', ingest.workspace.store.resolve(`${chunkArtifact.prefix}/summary.json`), 'json'),
+        emitArtifact(ctx, 'understand', ingest.workspace.store.resolve(`${chunkArtifact.prefix}/silence.json`), 'json'),
+        emitArtifact(ctx, 'understand', ingest.workspace.store.resolve(`${chunkArtifact.prefix}/transcript.json`), 'json'),
+        emitArtifact(ctx, 'understand', ingest.workspace.store.resolve(`${chunkArtifact.prefix}/vlm.json`), 'json'),
+      ]))
+      await ingest.workspace.store.writeJson('chapters.json', longVideoArtifacts.chapters)
+      await emitArtifact(ctx, 'understand', ingest.artifacts.chapters, 'json')
+      await ingest.workspace.store.writeJson('global-outline.json', longVideoArtifacts.globalOutline)
+      await emitArtifact(ctx, 'understand', ingest.artifacts.globalOutline, 'json')
+      await ingest.workspace.store.writeJson('selected-moments.json', longVideoArtifacts.selectedMoments)
+      await emitArtifact(ctx, 'understand', ingest.artifacts.selectedMoments, 'json')
 
       return {
         ...ingest,
+        chapters: longVideoArtifacts.chapters,
+        chunkSummaries: longVideoArtifacts.chunkSummaries,
+        globalOutline: longVideoArtifacts.globalOutline,
         sceneAnalysis,
+        selectedMoments: longVideoArtifacts.selectedMoments,
         transcript,
       }
     },
   }
+}
+
+async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineContext): Promise<Transcript> {
+  const asrInputPath = ingest.artifacts.sourceAudio ?? ingest.inputPath
+
+  if (!shouldChunkAsr(ingest)) {
+    return TranscriptSchema.parse(await ingest.providers.asr.transcribe({
+      ...(ingest.mediaInfo.duration === undefined ? {} : {duration: ingest.mediaInfo.duration}),
+      path: asrInputPath,
+    }))
+  }
+
+  const transcripts: Transcript[] = []
+
+  await emitStep(ctx, {
+    data: {
+      chunks: ingest.chunkPlan.chunks.length,
+      sourceAudio: ingest.artifacts.sourceAudio,
+    },
+    message: 'Transcribing source audio chunks.',
+    stage: 'understand',
+    step: 'asr-chunks',
+  })
+
+  /* eslint-disable no-await-in-loop */
+  for (const chunk of ingest.chunkPlan.chunks) {
+    const chunkAudioPath = join(ingest.workspace.audioDir, 'asr', `${String(chunk.index).padStart(3, '0')}.wav`)
+
+    await mkdir(dirname(chunkAudioPath), {recursive: true})
+    await extractAudioSegment(ingest.artifacts.sourceAudio as string, chunkAudioPath, chunk.contentRange[0], chunk.duration)
+    transcripts.push(offsetChunkTranscript(TranscriptSchema.parse(await ingest.providers.asr.transcribe({
+      duration: chunk.duration,
+      path: chunkAudioPath,
+    })), chunk.contentRange))
+  }
+  /* eslint-enable no-await-in-loop */
+
+  return mergeChunkTranscripts(transcripts)
+}
+
+function shouldChunkAsr(ingest: IngestOutput): boolean {
+  return ingest.chunkPlan.defaults.asrChunking && ingest.artifacts.sourceAudio !== undefined && ingest.chunkPlan.chunks.length > 1
+}
+
+export function mergeChunkTranscripts(transcripts: Transcript[]): Transcript {
+  const language = transcripts.find((transcript) => transcript.language !== undefined)?.language
+  const segments = transcripts.flatMap((transcript) => transcript.segments).sort((left, right) => left.start - right.start || left.end - right.end)
+  const text = [...transcripts]
+    .sort((left, right) => transcriptStart(left) - transcriptStart(right))
+    .map((transcript) => transcript.text.trim())
+    .filter(Boolean)
+    .join('\n')
+
+  return TranscriptSchema.parse({
+    ...(language === undefined ? {} : {language}),
+    segments,
+    text,
+    timestampConfidence: 'chunked',
+  })
+}
+
+function transcriptStart(transcript: Transcript): number {
+  return transcript.segments.reduce((start, segment) => Math.min(start, segment.start), Number.POSITIVE_INFINITY)
+}
+
+export function offsetChunkTranscript(transcript: Transcript, range: [number, number]): Transcript {
+  const [chunkStart, chunkEnd] = range
+  const segments = transcript.segments
+    .map((segment) => ({
+      ...segment,
+      end: clampTime(chunkStart + segment.end, chunkStart, chunkEnd),
+      start: clampTime(chunkStart + segment.start, chunkStart, chunkEnd),
+    }))
+    .filter((segment) => segment.end >= segment.start)
+  const hasTimedSegment = segments.some((segment) => segment.end > segment.start)
+
+  return TranscriptSchema.parse({
+    ...(transcript.language === undefined ? {} : {language: transcript.language}),
+    segments: hasTimedSegment || transcript.text.trim() === ''
+      ? segments
+      : [{
+          end: chunkEnd,
+          start: chunkStart,
+          text: transcript.text,
+        }],
+    text: transcript.text,
+    timestampConfidence: 'chunked',
+  })
+}
+
+function clampTime(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 
 export interface ExtractedAnalysisFrame {
@@ -401,12 +545,34 @@ export interface ExtractedAnalysisFrame {
   timestamp: number
 }
 
-export function createSceneFrameBatchesFromTranscript(transcript: Transcript, mediaInfo: MediaInfo, frameSource?: ExtractedAnalysisFrame[] | string): SceneFrameBatch[] {
-  return createSceneBoundariesFromTranscript(transcript, mediaInfo.duration ?? 0).map((boundary): SceneFrameBatch => ({
-    frames: selectSceneFramePaths(frameSource, boundary.start, boundary.end),
+export interface SceneFrameBatchOptions {
+  maxFramesPerBatch?: number
+  mediaDuration?: number
+  sampleFps?: number
+}
+
+export function createSceneFrameBatchesFromTranscript(transcript: Transcript, mediaInfo: MediaInfo, frameSource?: ExtractedAnalysisFrame[] | string, options: SceneFrameBatchOptions = {}): SceneFrameBatch[] {
+  return createSceneBoundariesFromTranscript(transcript, options.mediaDuration ?? mediaInfo.duration ?? 0).map((boundary): SceneFrameBatch => ({
+    frames: selectSceneFramePaths(frameSource, boundary.start, boundary.end, options),
     sceneId: boundary.id,
     timeRange: [boundary.start, boundary.end],
   }))
+}
+
+export function validateVlmSceneAnalysis(sceneBatches: SceneFrameBatch[], sceneAnalysis: VLMScene[]): VLMScene[] {
+  if (sceneAnalysis.length !== sceneBatches.length) {
+    throw new Error(`VLM provider returned ${sceneAnalysis.length} scene(s), expected ${sceneBatches.length}.`)
+  }
+
+  for (const [index, batch] of sceneBatches.entries()) {
+    const scene = sceneAnalysis[index]
+
+    if (scene?.sceneId !== batch.sceneId) {
+      throw new Error(`VLM provider returned sceneId ${JSON.stringify(scene?.sceneId)} at index ${index}, expected ${JSON.stringify(batch.sceneId)}.`)
+    }
+  }
+
+  return sceneAnalysis
 }
 
 async function listExtractedAnalysisFrames(framePattern: string | undefined, fps: number): Promise<ExtractedAnalysisFrame[]> {
@@ -445,7 +611,7 @@ async function listExtractedAnalysisFrames(framePattern: string | undefined, fps
   }))
 }
 
-function selectSceneFramePaths(frameSource: ExtractedAnalysisFrame[] | string | undefined, start: number, end: number): string[] {
+function selectSceneFramePaths(frameSource: ExtractedAnalysisFrame[] | string | undefined, start: number, end: number, options: SceneFrameBatchOptions): string[] {
   if (frameSource === undefined) {
     return []
   }
@@ -456,15 +622,67 @@ function selectSceneFramePaths(frameSource: ExtractedAnalysisFrame[] | string | 
 
   const selected = frameSource
     .filter((frame) => frame.timestamp >= start && frame.timestamp < end)
-    .map((frame) => frame.path)
+  const sampled = sampleAnalysisFramesForVlm(selected, start, options).map((frame) => frame.path)
 
-  if (selected.length > 0) {
-    return selected
+  if (sampled.length > 0) {
+    return sampled
   }
 
   const fallback = frameSource.find((frame) => frame.timestamp >= start) ?? frameSource.at(-1)
 
   return fallback === undefined ? [] : [fallback.path]
+}
+
+function sampleAnalysisFramesForVlm(frames: ExtractedAnalysisFrame[], start: number, options: SceneFrameBatchOptions): ExtractedAnalysisFrame[] {
+  const maxFrames = normalizePositiveInteger(options.maxFramesPerBatch)
+  const sampleFps = normalizePositiveNumber(options.sampleFps)
+
+  let sampled = frames
+
+  if (sampleFps !== undefined) {
+    const minSpacingSeconds = 1 / sampleFps
+    let lastTimestamp = Number.NEGATIVE_INFINITY
+
+    sampled = frames.filter((frame) => {
+      if (frame.timestamp - Math.max(start, lastTimestamp) + 1e-9 < minSpacingSeconds && lastTimestamp !== Number.NEGATIVE_INFINITY) {
+        return false
+      }
+
+      lastTimestamp = frame.timestamp
+      return true
+    })
+  }
+
+  if (maxFrames !== undefined && sampled.length > maxFrames) {
+    sampled = sampleEvenly(sampled, maxFrames)
+  }
+
+  return sampled
+}
+
+function sampleEvenly<T>(values: T[], limit: number): T[] {
+  if (values.length <= limit) {
+    return values
+  }
+
+  if (limit === 1) {
+    const first = values[0]
+
+    return first === undefined ? [] : [first]
+  }
+
+  const lastIndex = values.length - 1
+
+  return Array.from({length: limit}, (_, index) => values[Math.round((index * lastIndex) / (limit - 1))])
+    .filter((value): value is T => value !== undefined)
+}
+
+function normalizePositiveInteger(value: number | undefined): number | undefined {
+  return value === undefined || !Number.isInteger(value) || value <= 0 ? undefined : value
+}
+
+function normalizePositiveNumber(value: number | undefined): number | undefined {
+  return value === undefined || !Number.isFinite(value) || value <= 0 ? undefined : value
 }
 
 interface ParsedFramePattern {
@@ -505,6 +723,223 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+interface LongVideoUnderstandingArtifacts {
+  chapters: LongVideoChapterSummaries
+  chunkArtifacts: LongVideoChunkArtifact[]
+  chunkSummaries: LongVideoChunkSummaries
+  globalOutline: LongVideoGlobalOutline
+  selectedMoments: LongVideoSelectedMoments
+}
+
+interface LongVideoChunkArtifact {
+  prefix: string
+  silence: LongVideoChunkSilence
+  summary: LongVideoChunkSummary
+  transcript: Transcript
+  vlm: VLMScene[]
+}
+
+function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, transcript: Transcript, sceneAnalysis: VLMScene[]): LongVideoUnderstandingArtifacts {
+  const sceneRanges = createSceneBoundariesFromTranscript(transcript, chunkPlan.sourceDuration)
+  const chunkArtifacts = chunkPlan.chunks.map((chunk): LongVideoChunkArtifact => {
+    const chunkTranscript = createChunkTranscript(transcript, chunk.contentRange)
+    const chunkVlm = createChunkVlmScenes(sceneAnalysis, sceneRanges, chunk.contentRange)
+    const transcriptSummary = summarizeTranscript(chunkTranscript)
+    const visualSummary = summarizeVisualScenes(chunkVlm)
+    const keyMoment = createChunkMoment(chunk.id, chunk.contentRange, chunk.artifactPrefix, transcriptSummary, visualSummary)
+    const silenceRanges = createSilenceRanges(chunkTranscript, chunk.contentRange)
+    const silence = LongVideoChunkSilenceSchema.parse({
+      chunkId: chunk.id,
+      contentRange: chunk.contentRange,
+      silenceRanges,
+      version: 1,
+    })
+    const summary = LongVideoChunkSummarySchema.parse({
+      chunkId: chunk.id,
+      contentRange: chunk.contentRange,
+      keyMoments: [keyMoment],
+      silenceRanges,
+      summary: summarizeChunk(chunk.id, chunk.contentRange, transcriptSummary, visualSummary),
+      ...(transcriptSummary === undefined ? {} : {transcriptSummary}),
+      ...(visualSummary === undefined ? {} : {visualSummary}),
+    })
+
+    return {
+      prefix: chunk.artifactPrefix,
+      silence,
+      summary,
+      transcript: chunkTranscript,
+      vlm: chunkVlm,
+    }
+  })
+  const chunkSummaries = LongVideoChunkSummariesSchema.parse({
+    chunks: chunkArtifacts.map((artifact) => artifact.summary),
+    source: chunkPlan.source,
+    version: 1,
+  })
+  const chapters = LongVideoChapterSummariesSchema.parse({
+    chapters: chunkSummaries.chunks.map((chunkSummary, index) => ({
+      chunkIds: [chunkSummary.chunkId],
+      evidence: chunkSummary.keyMoments.flatMap((moment) => moment.evidence),
+      id: `chapter-${String(index + 1).padStart(3, '0')}`,
+      index,
+      keyMoments: chunkSummary.keyMoments,
+      sourceRange: chunkSummary.contentRange,
+      summary: chunkSummary.summary,
+      title: `Chapter ${index + 1}`,
+    })),
+    source: chunkPlan.source,
+    version: 1,
+  })
+  const globalOutline = LongVideoGlobalOutlineSchema.parse({
+    chapters: chapters.chapters,
+    language: transcript.language ?? 'zh-CN',
+    source: chunkPlan.source,
+    sourceDuration: chunkPlan.sourceDuration,
+    storyBeats: chapters.chapters.map((chapter, index) => ({
+      chapterIds: [chapter.id],
+      evidence: chapter.evidence,
+      id: `beat-${String(index + 1).padStart(3, '0')}`,
+      sourceRange: chapter.sourceRange,
+      summary: chapter.summary,
+      title: chapter.title,
+    })),
+    version: 1,
+  })
+  const selectedMoments = LongVideoSelectedMomentsSchema.parse({
+    moments: chunkSummaries.chunks.flatMap((chunkSummary) => chunkSummary.keyMoments.map((moment) => ({
+      ...moment,
+      chunkId: chunkSummary.chunkId,
+      reason: 'Deterministic initial selection from chunk summary.',
+    }))),
+    source: chunkPlan.source,
+    version: 1,
+  })
+
+  return {
+    chapters,
+    chunkArtifacts,
+    chunkSummaries,
+    globalOutline,
+    selectedMoments,
+  }
+}
+
+export function createChunkTranscript(transcript: Transcript, range: [number, number]): Transcript {
+  const [start, end] = range
+  const segments = transcript.segments
+    .filter((segment) => rangesOverlap([segment.start, segment.end], range))
+    .map((segment) => ({
+      ...segment,
+      end: clampTime(segment.end, start, end),
+      start: clampTime(segment.start, start, end),
+    }))
+    .filter((segment) => segment.end > segment.start)
+
+  return TranscriptSchema.parse({
+    ...(transcript.language === undefined ? {} : {language: transcript.language}),
+    segments,
+    text: segments.map((segment) => segment.text).join('\n'),
+    ...(transcript.timestampConfidence === undefined ? {} : {timestampConfidence: transcript.timestampConfidence}),
+  })
+}
+
+export function createSilenceRanges(transcript: Transcript, range: [number, number]): Array<[number, number]> {
+  const [start, end] = range
+  const segments = transcript.segments
+    .map((segment) => ({
+      end: clampTime(segment.end, start, end),
+      start: clampTime(segment.start, start, end),
+    }))
+    .filter((segment) => segment.end > segment.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+  const silenceRanges: Array<[number, number]> = []
+  let cursor = start
+
+  for (const segment of segments) {
+    if (segment.start > cursor) {
+      silenceRanges.push([cursor, segment.start])
+    }
+
+    cursor = Math.max(cursor, segment.end)
+  }
+
+  if (cursor < end) {
+    silenceRanges.push([cursor, end])
+  }
+
+  return silenceRanges
+}
+
+function createChunkVlmScenes(sceneAnalysis: VLMScene[], sceneRanges: Array<{end: number; start: number}>, range: [number, number]): VLMScene[] {
+  const scenes = sceneAnalysis.filter((_, index) => {
+    const sceneRange = sceneRanges[index]
+
+    return sceneRange === undefined ? sceneAnalysis.length === 1 : rangesOverlap([sceneRange.start, sceneRange.end], range)
+  })
+
+  return VlmScenesSchema.parse(scenes)
+}
+
+function summarizeTranscript(transcript: Transcript): string | undefined {
+  return normalizeText(transcript.text)
+}
+
+function summarizeVisualScenes(sceneAnalysis: VLMScene[]): string | undefined {
+  const descriptions = sceneAnalysis.map((scene) => scene.description.trim()).filter(Boolean)
+
+  return descriptions.length === 0 ? undefined : descriptions.slice(0, 3).join(' ')
+}
+
+function createChunkMoment(chunkId: string, range: [number, number], artifactPrefix: string, transcriptSummary: string | undefined, visualSummary: string | undefined): LongVideoMoment {
+  return {
+    chunkId,
+    evidence: [
+      ...(transcriptSummary === undefined ? [] : [{ref: `${artifactPrefix}/transcript.json`, text: transcriptSummary, type: 'asr' as const}]),
+      ...(visualSummary === undefined ? [] : [{ref: `${artifactPrefix}/vlm.json`, text: visualSummary, type: 'vlm' as const}]),
+    ],
+    id: `${chunkId}-moment-001`,
+    score: 0.5,
+    sourceRange: range,
+    summary: transcriptSummary ?? visualSummary ?? `Content from ${formatRange(range)}.`,
+    title: `Moment ${chunkId}`,
+  }
+}
+
+function summarizeChunk(chunkId: string, range: [number, number], transcriptSummary: string | undefined, visualSummary: string | undefined): string {
+  const details = [transcriptSummary, visualSummary].filter((value): value is string => value !== undefined)
+
+  return details.length === 0 ? `${chunkId} covers ${formatRange(range)}.` : `${chunkId} covers ${formatRange(range)}. ${details.join(' ')}`
+}
+
+function rangesOverlap(left: [number, number], right: [number, number]): boolean {
+  return left[0] < right[1] && right[0] < left[1]
+}
+
+function normalizeText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim()
+
+  return trimmed === undefined || trimmed === '' ? undefined : trimmed
+}
+
+function formatRange(range: [number, number]): string {
+  return `${formatSecond(range[0])}-${formatSecond(range[1])}s`
+}
+
+function formatSecond(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function createLongVideoPlanningContext(understood: UnderstandOutput) {
+  return {
+    chapters: understood.chapters,
+    chunkPlan: understood.chunkPlan,
+    chunkSummaries: understood.chunkSummaries,
+    globalOutline: understood.globalOutline,
+    selectedMoments: understood.selectedMoments,
+  }
+}
+
 function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
   return {
     name: 'plan',
@@ -520,6 +955,7 @@ function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {
         step: 'storyboard',
       })
       const storyboard = StoryboardSchema.parse(await understood.providers.storyboard.createStoryboard({
+        longVideo: createLongVideoPlanningContext(understood),
         mediaInfo: understood.mediaInfo,
         sceneAnalysis: understood.sceneAnalysis,
         transcript: understood.transcript,
@@ -570,6 +1006,7 @@ function createScriptStage(): Stage<InitialStageInput, InitialStageOutput> {
       })
       const narration = NarrationSchema.parse(await planned.providers.script.createNarration({
         clipPlan: planned.clipPlan,
+        longVideo: createLongVideoPlanningContext(planned),
         storyboard: planned.storyboard,
       }))
       await emitStep(ctx, {data: summarizeNarrationForLog(narration), message: 'Narration completed.', stage: 'script', step: 'narration'})
@@ -878,6 +1315,7 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
       ...artifacts,
       ...ingestReport.artifacts,
     },
+    chunkPlan: LongVideoChunkPlanSchema.parse(await workspace.store.readJson('chunk-plan.json')),
     inputPath,
     mediaInfo: MediaInfoSchema.parse(await workspace.store.readJson('media-info.json')),
     providers,
@@ -890,7 +1328,11 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 
   const understood: UnderstandOutput = {
     ...ingest,
+    chapters: LongVideoChapterSummariesSchema.parse(await workspace.store.readJson('chapters.json')),
+    chunkSummaries: LongVideoChunkSummariesSchema.parse(await workspace.store.readJson('chunk-summaries.json')),
+    globalOutline: LongVideoGlobalOutlineSchema.parse(await workspace.store.readJson('global-outline.json')),
     sceneAnalysis: VlmScenesSchema.parse(await workspace.store.readJson('scene-analysis.json')),
+    selectedMoments: LongVideoSelectedMomentsSchema.parse(await workspace.store.readJson('selected-moments.json')),
     transcript: TranscriptSchema.parse(await workspace.store.readJson('transcript.json')),
   }
 
@@ -929,12 +1371,17 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
     projectId,
     workspaceDir,
   })
-  const requiredArtifacts = CHECKPOINT_ARTIFACTS_BY_STAGE[fromStage]
+  const checkpointArtifacts = CHECKPOINT_ARTIFACTS_BY_STAGE[fromStage]
 
-  if (requiredArtifacts.length === 0) {
+  if (checkpointArtifacts.length === 0) {
     return
   }
 
+  const requiredArtifacts = [
+    ...checkpointArtifacts,
+    ...await readDynamicCheckpointArtifacts(workspace, checkpointArtifacts),
+    ARTIFACT_MANIFEST_NAME,
+  ]
   const missing = (
     await Promise.all(
       requiredArtifacts.map(async (artifact) => {
@@ -951,7 +1398,8 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
   const missingManifestArtifacts = integrity.missing.map((issue) => issue.name).filter((artifact) => required.has(artifact))
   const schemaInvalidArtifacts = integrity.schemaInvalid.map((issue) => issue.name).filter((artifact) => required.has(artifact))
   const untrackedArtifacts = integrity.untracked.filter((artifact) => required.has(artifact))
-  const missingArtifacts = [...new Set([...missing, ...missingManifestArtifacts])]
+  const missingSideArtifacts = await findMissingCheckpointSideArtifacts(workspace, checkpointArtifacts)
+  const missingArtifacts = [...new Set([...missing, ...missingManifestArtifacts, ...missingSideArtifacts])]
 
   if (missingArtifacts.length > 0 || changedArtifacts.length > 0 || schemaInvalidArtifacts.length > 0 || untrackedArtifacts.length > 0) {
     throw new PipelineCheckpointError(fromStage, {
@@ -961,6 +1409,67 @@ export async function assertCheckpointArtifacts(projectId: string, workspaceDir:
       untrackedArtifacts,
     })
   }
+}
+
+async function readDynamicCheckpointArtifacts(workspace: ProjectWorkspace, checkpointArtifacts: readonly string[]): Promise<string[]> {
+  if (!checkpointArtifacts.includes('chunk-summaries.json')) {
+    return []
+  }
+
+  let chunkPlan: LongVideoChunkPlan
+
+  try {
+    chunkPlan = LongVideoChunkPlanSchema.parse(await workspace.store.readJson('chunk-plan.json'))
+  } catch {
+    return []
+  }
+
+  return chunkPlan.chunks.flatMap((chunk) => [
+    `${chunk.artifactPrefix}/summary.json`,
+    `${chunk.artifactPrefix}/silence.json`,
+    `${chunk.artifactPrefix}/transcript.json`,
+    `${chunk.artifactPrefix}/vlm.json`,
+  ])
+}
+
+async function findMissingCheckpointSideArtifacts(workspace: ProjectWorkspace, checkpointArtifacts: readonly string[]): Promise<string[]> {
+  if (!checkpointArtifacts.includes('ingest-report.json')) {
+    return []
+  }
+
+  let ingestReport: {artifacts?: Partial<RunInitialPipelineResult['artifacts']>}
+
+  try {
+    ingestReport = await workspace.store.readJson('ingest-report.json')
+  } catch {
+    return []
+  }
+
+  const missing: string[] = []
+
+  if (ingestReport.artifacts?.sourceAudio !== undefined && !await bunFile(ingestReport.artifacts.sourceAudio).exists()) {
+    missing.push(formatCheckpointPath(workspace, ingestReport.artifacts.sourceAudio))
+  }
+
+  if (ingestReport.artifacts?.preview !== undefined && !await bunFile(ingestReport.artifacts.preview).exists()) {
+    missing.push(formatCheckpointPath(workspace, ingestReport.artifacts.preview))
+  }
+
+  if (ingestReport.artifacts?.frames !== undefined && !await hasExtractedAnalysisFrames(ingestReport.artifacts.frames)) {
+    missing.push(formatCheckpointPath(workspace, ingestReport.artifacts.frames))
+  }
+
+  return missing
+}
+
+async function hasExtractedAnalysisFrames(framePattern: string): Promise<boolean> {
+  return (await listExtractedAnalysisFrames(framePattern, ANALYSIS_FRAME_FPS)).length > 0
+}
+
+function formatCheckpointPath(workspace: ProjectWorkspace, path: string): string {
+  const normalizedProjectDir = `${workspace.projectDir}/`
+
+  return path.startsWith(normalizedProjectDir) ? path.slice(normalizedProjectDir.length) : path
 }
 
 async function appendEvent(path: string, event: PipelineEvent): Promise<void> {

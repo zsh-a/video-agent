@@ -19,7 +19,7 @@ export function createLongVideoChunkPlan(mediaInfo: MediaInfo, options: LongVide
     ...DEFAULT_LONG_VIDEO_CHUNK_OPTIONS,
     ...options,
   })
-  const sourceDuration = mediaInfo.duration ?? 0
+  const sourceDuration = inferSourceDuration(mediaInfo)
 
   if (!Number.isFinite(sourceDuration) || sourceDuration < 0) {
     throw new Error(`Invalid media duration for long video chunking: ${sourceDuration}`)
@@ -59,4 +59,16 @@ export function createLongVideoChunkPlan(mediaInfo: MediaInfo, options: LongVide
 
 function roundSeconds(value: number): number {
   return Number(value.toFixed(6))
+}
+
+function inferSourceDuration(mediaInfo: MediaInfo): number {
+  if (mediaInfo.duration !== undefined) {
+    return mediaInfo.duration
+  }
+
+  const streamDurations = mediaInfo.streams
+    .map((stream) => stream.duration)
+    .filter((duration): duration is number => duration !== undefined)
+
+  return streamDurations.length === 0 ? 0 : Math.max(...streamDurations)
 }

@@ -1,6 +1,6 @@
 import type {ZodType} from 'zod'
 
-import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
@@ -89,6 +89,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
 
 const NESTED_ARTIFACT_SCHEMAS: Array<{pattern: RegExp; schema: ZodType}> = [
   {pattern: /^chunks\/[^/]+\/summary\.json$/, schema: LongVideoChunkSummarySchema},
+  {pattern: /^chunks\/[^/]+\/silence\.json$/, schema: LongVideoChunkSilenceSchema},
   {pattern: /^chunks\/[^/]+\/transcript\.json$/, schema: TranscriptSchema},
   {pattern: /^chunks\/[^/]+\/vlm\.json$/, schema: VlmScenesSchema},
 ]

@@ -13,6 +13,8 @@ describe('project status', () => {
 
     try {
       await createProject(root, 'demo')
+      await mkdir(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000'), {recursive: true})
+      await writeText(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'vlm.json'), '[]\n')
       await writeText(
         join(root, 'projects', 'demo', 'artifacts', 'pipeline-events.jsonl'),
         [
@@ -91,6 +93,7 @@ describe('project status', () => {
 
       const status = await readProjectStatus('demo', root)
 
+      expect(status.artifacts).to.include.members(['chunks/000/vlm.json', 'pipeline-events.jsonl', 'provider-calls.jsonl'])
       expect(status.summary.events).to.deep.equal({
         count: 2,
         last: {

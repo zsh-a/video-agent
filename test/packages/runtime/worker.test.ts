@@ -1,7 +1,7 @@
 import {expect} from '#test/expect'
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
@@ -264,6 +264,7 @@ async function createRecoverableProject(root: string, projectId: string, options
       streams: [],
       version: 1,
     }),
+    ...writeLongVideoArtifacts(artifactsDir, inputPath),
     writeJson(artifactsDir, 'scene-analysis.json', []),
     writeJson(artifactsDir, 'transcript.json', {
       segments: [],
@@ -298,6 +299,112 @@ async function createRecoverableProject(root: string, projectId: string, options
   await refreshArtifactManifest(artifactsDir)
 }
 
+function writeLongVideoArtifacts(artifactsDir: string, inputPath: string): Array<Promise<void>> {
+  const chunkSummary = {
+    chunkId: 'chunk-000',
+    contentRange: [0, 1],
+    keyMoments: [
+      {
+        chunkId: 'chunk-000',
+        evidence: [],
+        id: 'chunk-000-moment-001',
+        score: 0.5,
+        sourceRange: [0, 1],
+        summary: 'Test chunk moment.',
+        title: 'Moment chunk-000',
+      },
+    ],
+    silenceRanges: [],
+    summary: 'Test chunk summary.',
+  }
+  const chapter = {
+    chunkIds: ['chunk-000'],
+    evidence: [],
+    id: 'chapter-001',
+    index: 0,
+    keyMoments: chunkSummary.keyMoments,
+    sourceRange: [0, 1],
+    summary: chunkSummary.summary,
+    title: 'Chapter 1',
+  }
+
+  return [
+    writeJson(artifactsDir, 'chunk-plan.json', {
+      chunks: [
+        {
+          analysisRange: [0, 1],
+          artifactPrefix: 'chunks/000',
+          contentRange: [0, 1],
+          duration: 1,
+          id: 'chunk-000',
+          index: 0,
+        },
+      ],
+      defaults: {
+        asrChunking: true,
+        chunkDuration: 300,
+        chunkOverlap: 10,
+        frameSampleFps: 1,
+        sceneDetection: true,
+        vlmBatchSize: 16,
+        vlmFrameSampleFps: 0.2,
+      },
+      source: inputPath,
+      sourceDuration: 1,
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'chunk-summaries.json', {
+      chunks: [chunkSummary],
+      source: inputPath,
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'chapters.json', {
+      chapters: [chapter],
+      source: inputPath,
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'global-outline.json', {
+      chapters: [chapter],
+      language: 'zh-CN',
+      source: inputPath,
+      sourceDuration: 1,
+      storyBeats: [
+        {
+          chapterIds: ['chapter-001'],
+          evidence: [],
+          id: 'beat-001',
+          sourceRange: [0, 1],
+          summary: chapter.summary,
+          title: chapter.title,
+        },
+      ],
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'selected-moments.json', {
+      moments: [
+        {
+          ...chunkSummary.keyMoments[0],
+          reason: 'Test selection.',
+        },
+      ],
+      source: inputPath,
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'chunks/000/summary.json', chunkSummary),
+    writeJson(artifactsDir, 'chunks/000/silence.json', {
+      chunkId: 'chunk-000',
+      contentRange: [0, 1],
+      silenceRanges: [],
+      version: 1,
+    }),
+    writeJson(artifactsDir, 'chunks/000/transcript.json', {
+      segments: [],
+      text: '',
+    }),
+    writeJson(artifactsDir, 'chunks/000/vlm.json', []),
+  ]
+}
+
 async function patchJobUpdatedAt(path: string, updatedAt: string): Promise<void> {
   const state = JSON.parse(await readFile(path, 'utf8')) as {updatedAt: string}
 
@@ -305,5 +412,8 @@ async function patchJobUpdatedAt(path: string, updatedAt: string): Promise<void>
 }
 
 async function writeJson(dir: string, name: string, value: unknown): Promise<void> {
-  await writeFile(join(dir, name), `${JSON.stringify(value)}\n`)
+  const path = join(dir, name)
+
+  await mkdir(dirname(path), {recursive: true})
+  await writeFile(path, `${JSON.stringify(value)}\n`)
 }
