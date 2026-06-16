@@ -138,6 +138,26 @@ const VoiceoverPlanSchema = z.object({
   version: z.literal(1),
 }).strict()
 
+const RenderOutputReferenceSchema = z.object({
+  entryHtml: z.string().min(1).optional(),
+  outputDir: z.string().min(1).optional(),
+  outputPath: z.string().min(1).optional(),
+  planPath: z.string().min(1).optional(),
+  rendered: z.object({
+    command: z.array(z.string()),
+  }).passthrough().optional(),
+  subtitlePath: z.string().min(1).optional(),
+  visualQuality: z.object({
+    frameSample: z.object({
+      path: z.string().min(1).optional(),
+    }).passthrough().optional(),
+    frameSamples: z.array(z.object({
+      path: z.string().min(1).optional(),
+    }).passthrough()).optional(),
+  }).passthrough().optional(),
+  voiceoverPlanPath: z.string().min(1).optional(),
+}).passthrough()
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
@@ -290,6 +310,8 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
   missing.push(...await findMissingIngestSideArtifactReferences(artifactsDir))
   missing.push(...await findMissingAnalysisFrameReferences(artifactsDir))
   missing.push(...await findMissingTtsSegmentReferences(artifactsDir))
+  missing.push(...await findMissingRenderOutputReferences(artifactsDir))
+  missing.push(...await findMissingExportOutputReferences(artifactsDir))
 
   const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const untracked = entries
@@ -373,8 +395,76 @@ async function findMissingTtsSegmentReferences(artifactsDir: string): Promise<Ar
   }
 }
 
+async function findMissingRenderOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const value = await bunFile(resolve(artifactsDir, 'render-output.json')).json()
+
+    RenderOutputSchema.parse(value)
+
+    const renderOutput = RenderOutputReferenceSchema.parse(value)
+    const projectDir = resolve(artifactsDir, '..')
+    const paths = uniquePaths([
+      renderOutput.outputPath,
+      renderOutput.subtitlePath,
+      renderOutput.voiceoverPlanPath,
+      renderOutput.outputDir,
+      renderOutput.entryHtml,
+      renderOutput.planPath,
+      extractHyperframesRenderOutputPath(renderOutput.rendered?.command),
+      renderOutput.visualQuality?.frameSample?.path,
+      ...(renderOutput.visualQuality?.frameSamples ?? []).map((sample) => sample.path),
+    ])
+
+    return findMissingProjectPathReferences(projectDir, paths)
+  } catch {
+    return []
+  }
+}
+
+async function findMissingExportOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const exportOutput = ExportOutputSchema.parse(await bunFile(resolve(artifactsDir, 'export-output.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths([exportOutput.outputPath, exportOutput.sourcePath]))
+  } catch {
+    return []
+  }
+}
+
+async function findMissingProjectPathReferences(projectDir: string, paths: string[]): Promise<ArtifactIntegrityMissingIssue[]> {
+  const missing = await Promise.all(paths.map(async (path) => {
+    const resolvedPath = resolveProjectPath(projectDir, path)
+    const exists = await bunFile(resolvedPath).exists()
+
+    return exists ? null : {name: toProjectReferenceName(projectDir, resolvedPath), reason: 'missing' as const}
+  }))
+
+  return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
+}
+
+function uniquePaths(paths: Array<string | undefined>): string[] {
+  return [...new Set(paths.filter((path): path is string => typeof path === 'string' && path.length > 0))]
+}
+
+function extractHyperframesRenderOutputPath(command: string[] | undefined): string | undefined {
+  const outputFlagIndex = command?.lastIndexOf('--output') ?? -1
+
+  return outputFlagIndex < 0 ? undefined : command?.[outputFlagIndex + 1]
+}
+
 function resolveProjectPath(projectDir: string, path: string): string {
   return isAbsolute(path) ? path : resolve(projectDir, path)
+}
+
+function toProjectReferenceName(projectDir: string, path: string): string {
+  const name = relative(projectDir, path)
+
+  if (name !== '' && name !== '..' && !name.startsWith(`..${sep}`) && !isAbsolute(name)) {
+    return name.split(sep).join('/')
+  }
+
+  return path
 }
 
 function summarizeArtifactIntegrity(result: {

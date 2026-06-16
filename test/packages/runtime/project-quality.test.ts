@@ -352,6 +352,95 @@ describe('project quality', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('counts missing render output side artifacts as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeText(join(artifactsDir, 'render-output.json'), `${JSON.stringify({
+        audioInputs: 0,
+        outputPath: join(projectDir, 'renders', 'final.mp4'),
+        outputQuality: {
+          errors: 0,
+          warnings: 0,
+        },
+        renderer: 'ffmpeg',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.missing).to.deep.equal([
+        {
+          name: 'renders/final.mp4',
+          reason: 'missing',
+        },
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('counts missing export output files as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeText(join(artifactsDir, 'export-output.json'), `${JSON.stringify({
+        cleanOutput: false,
+        completedAt: '2026-01-01T00:00:00.000Z',
+        format: 'video',
+        outputPath: join(projectDir, 'exports', 'demo.mp4'),
+        requireQuality: true,
+        sourcePath: join(projectDir, 'renders', 'final.mp4'),
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 2,
+        warnings: 0,
+      })
+      expect(report.artifacts.missing).to.deep.equal([
+        {
+          name: 'exports/demo.mp4',
+          reason: 'missing',
+        },
+        {
+          name: 'renders/final.mp4',
+          reason: 'missing',
+        },
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function createProject(root: string, projectId: string): Promise<void> {

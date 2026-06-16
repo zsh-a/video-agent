@@ -395,6 +395,97 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports missing render output side artifacts referenced by render-output.json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'voiceover-plan.json'), `${JSON.stringify({
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        segments: [],
+        version: 1,
+      })}\n`)
+      await writeText(join(artifactsDir, 'render-output.json'), `${JSON.stringify({
+        audioInputs: 0,
+        outputPath: join(projectDir, 'renders', 'final.mp4'),
+        outputQuality: {
+          errors: 0,
+          warnings: 0,
+        },
+        renderer: 'ffmpeg',
+        subtitlePath: join(projectDir, 'renders', 'subtitles.srt'),
+        version: 1,
+        visualQuality: {
+          errors: 0,
+          frameSamples: [
+            {
+              ok: true,
+              path: join(projectDir, 'renders', 'final-frame-first.jpg'),
+              timestamp: 0,
+            },
+          ],
+          warnings: 0,
+        },
+        voiceoverPlanPath: join(artifactsDir, 'voiceover-plan.json'),
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.missing.map((issue) => issue.name)).to.include.members([
+        'renders/final-frame-first.jpg',
+        'renders/final.mp4',
+        'renders/subtitles.srt',
+      ])
+      expect(result.summary).to.deep.include({
+        errors: 3,
+        missing: 3,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports missing export files referenced by export-output.json', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+      const exportPath = join(root, 'exports', 'demo.mp4')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'export-output.json'), `${JSON.stringify({
+        cleanOutput: false,
+        completedAt: '2026-01-01T00:00:00.000Z',
+        format: 'video',
+        outputPath: exportPath,
+        requireQuality: true,
+        sourcePath: join(projectDir, 'renders', 'final.mp4'),
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.missing.map((issue) => issue.name)).to.include.members([
+        exportPath,
+        'renders/final.mp4',
+      ])
+      expect(result.summary).to.deep.include({
+        errors: 2,
+        missing: 2,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports provider JSON artifacts that fail their schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
