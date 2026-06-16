@@ -14,6 +14,7 @@ describe('doctor', () => {
     try {
       const report = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },
@@ -22,8 +23,8 @@ describe('doctor', () => {
 
       expect(report.ok).to.equal(true)
       expect(report.summary.fail).to.equal(0)
-      expect(report.summary.total).to.equal(9)
-      expect(report.summary.pass + report.summary.warn).to.equal(9)
+      expect(report.summary.total).to.equal(10)
+      expect(report.summary.pass + report.summary.warn).to.equal(10)
       expect(report.workspaceDir).to.equal(root)
       expect(report.checks.map((check) => check.name)).to.deep.equal([
         'bun',
@@ -35,6 +36,7 @@ describe('doctor', () => {
         'projects',
         'ffmpeg',
         'ffprobe',
+        'chromium',
       ])
       expect(report.checks.find((check) => check.name === 'workspace')?.status).to.equal('pass')
       expect(report.checks.find((check) => check.name === 'ffmpeg')?.status).to.equal('pass')
@@ -50,6 +52,7 @@ describe('doctor', () => {
     try {
       const report = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'video-agent-missing-ffmpeg',
           ffprobe: 'true',
         },
@@ -72,6 +75,7 @@ describe('doctor', () => {
 
       const report = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },
@@ -94,6 +98,7 @@ describe('doctor', () => {
 
       const report = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },
@@ -118,6 +123,7 @@ describe('doctor', () => {
 
       const report = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },
@@ -139,6 +145,7 @@ describe('doctor', () => {
 
       const missing = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },
@@ -152,6 +159,7 @@ describe('doctor', () => {
 
       const configured = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },
@@ -179,6 +187,7 @@ describe('doctor', () => {
 
       const report = await checkRuntimeHealth({
         binaries: {
+          chromium: 'true',
           ffmpeg: 'true',
           ffprobe: 'true',
         },

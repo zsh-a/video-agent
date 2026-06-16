@@ -20,6 +20,7 @@ export interface HealthCheck {
 
 export interface RuntimeHealthOptions {
   binaries?: {
+    chromium?: string
     ffmpeg?: string
     ffprobe?: string
   }
@@ -52,6 +53,7 @@ export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Pr
     await checkProjectListing(workspaceDir),
     await checkBinary('ffmpeg', options.binaries?.ffmpeg ?? 'ffmpeg'),
     await checkBinary('ffprobe', options.binaries?.ffprobe ?? 'ffprobe'),
+    await checkBinary('chromium', options.binaries?.chromium ?? 'chromium'),
   ]
 
   return {

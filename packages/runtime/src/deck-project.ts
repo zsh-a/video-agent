@@ -9,9 +9,9 @@ import {ClaimsSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, 
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
 import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkStoryboardConsistency, checkTimelineBounds, createRenderedMediaProbeFailure} from '@video-agent/quality'
-import {writeDeckHtmlProject} from '@video-agent/renderer-html'
+import {captureDeckHtmlFrames, type DeckHtmlFrame, writeDeckHtmlProject} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
-import {mkdir} from 'node:fs/promises'
+import {mkdir, rm} from 'node:fs/promises'
 import {extname, join, resolve} from 'node:path'
 import {z} from 'zod'
 
@@ -102,6 +102,7 @@ export interface CreateDeckVoiceoverProjectResult {
 }
 
 export interface CreateDeckFinalRenderProjectOptions {
+  chromiumCommand?: string[]
   htmlOutput?: string
   htmlRender?: boolean
   htmlRenderCommand?: string[]
@@ -114,6 +115,7 @@ export interface CreateDeckFinalRenderProjectResult {
   artifactPath: string
   audioPath: string
   deckQualityReportPath: string
+  frameRenderer: 'chromium'
   frameCount: number
   htmlEntryPath: string
   htmlOutputDir: string
@@ -124,7 +126,7 @@ export interface CreateDeckFinalRenderProjectResult {
   renderer: 'html'
   status: 'rendered'
   validation?: HyperframesCliResult
-  videoRenderer: 'ffmpeg'
+  videoRenderer: 'chromium+ffmpeg'
 }
 
 export interface CreateDeckAudioAnchoredProjectOptions {
@@ -706,13 +708,19 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
     const audioRef = timedDeck.audioRef ?? 'audio/deck_voiceover.wav'
     const audioPath = resolve(workspace.projectDir, audioRef)
     const framesDir = resolve(workspace.rendersDir, 'deck-frames')
+    const clipsDir = resolve(workspace.rendersDir, 'deck-clips')
     const htmlOutputDir = resolve(workspace.rendersDir, 'html')
     const htmlRenderedOutputPath = resolve(options.htmlOutput ?? resolve(workspace.rendersDir, 'deck_html_capture.mp4'))
-    const concatPath = resolve(framesDir, 'frames.txt')
+    const concatPath = resolve(clipsDir, 'clips.txt')
     const silentVideoPath = resolve(workspace.rendersDir, 'deck_silent.mp4')
     const outputPath = resolve(workspace.rendersDir, 'final.mp4')
 
     await assertFileExists(audioPath)
+    await Promise.all([
+      rm(framesDir, {force: true, recursive: true}),
+      rm(clipsDir, {force: true, recursive: true}),
+      rm(htmlOutputDir, {force: true, recursive: true}),
+    ])
     await mkdir(framesDir, {recursive: true})
 
     const htmlProject = await writeDeckHtmlProject({
@@ -732,10 +740,16 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
           projectDir: htmlProject.outputDir,
         })
       : undefined
-    const frames = await writeDeckFrameImages(timedDeck, framesDir)
+    const frameCapture = await captureDeckHtmlFrames({
+      chromiumCommand: options.chromiumCommand,
+      outputDir: framesDir,
+      projectDir: htmlProject.outputDir,
+      timedDeck,
+    })
+    const clips = await renderDeckFrameClips(frameCapture.frames, clipsDir)
 
-    await writeDeckFrameConcatList(frames, concatPath)
-    await renderDeckSilentVideo(concatPath, silentVideoPath)
+    await writeDeckClipConcatList(clips, concatPath)
+    await concatDeckFrameClips(concatPath, silentVideoPath)
     await muxDeckFinalVideo(silentVideoPath, audioPath, outputPath)
 
     const outputQuality = await inspectDeckRenderedOutput(outputPath, {
@@ -748,7 +762,11 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
       audioPath: toProjectPath(workspace.projectDir, audioPath),
       completedAt: new Date().toISOString(),
       entryHtml: toProjectPath(workspace.projectDir, htmlProject.entryHtml),
-      frameCount: frames.length,
+      clipCount: clips.length,
+      clipsDir: toProjectPath(workspace.projectDir, clipsDir),
+      frameCount: frameCapture.frames.length,
+      frameRenderer: 'chromium' as const,
+      framesDir: toProjectPath(workspace.projectDir, frameCapture.outputDir),
       outputDir: toProjectPath(workspace.projectDir, htmlProject.outputDir),
       outputPath: toProjectPath(workspace.projectDir, outputPath),
       outputQuality,
@@ -761,7 +779,7 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
       stylesPath: toProjectPath(workspace.projectDir, htmlProject.stylesPath),
       validation,
       version: 1 as const,
-      videoRenderer: 'ffmpeg' as const,
+      videoRenderer: 'chromium+ffmpeg' as const,
     })
 
     await jobStore.updateStage('render-final', 'completed', undefined, 1)
@@ -771,7 +789,8 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
       artifactPath,
       audioPath,
       deckQualityReportPath,
-      frameCount: frames.length,
+      frameCount: frameCapture.frames.length,
+      frameRenderer: 'chromium',
       htmlEntryPath: htmlProject.entryHtml,
       htmlOutputDir: htmlProject.outputDir,
       outputPath,
@@ -781,7 +800,7 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
       renderer: 'html',
       status: 'rendered',
       ...(validation === undefined ? {} : {validation}),
-      videoRenderer: 'ffmpeg',
+      videoRenderer: 'chromium+ffmpeg',
     }
   } catch (error) {
     await jobStore.updateStage('render-final', 'failed', error instanceof Error ? error.message : String(error), 1)
@@ -1856,47 +1875,54 @@ async function renderDeckVoiceover(projectDir: string, ttsSegments: TTSSegment[]
 interface DeckFrame {
   duration: number
   path: string
+  slideId: string
 }
 
-async function writeDeckFrameImages(timedDeck: TimedDeck, framesDir: string): Promise<DeckFrame[]> {
-  const size = deckRenderSize(timedDeck.deck.format)
-  const timingsBySlide = new Map(timedDeck.timings.map((timing) => [timing.slideId, timing]))
-  const frames = timedDeck.deck.slides.map((slide, index) => {
-    const timing = timingsBySlide.get(slide.slideId)
-    const duration = Math.max(0.1, timing === undefined ? slide.duration ?? 1 : timing.end - timing.start)
-    const path = resolve(framesDir, `slide-${String(index + 1).padStart(3, '0')}.ppm`)
+async function renderDeckFrameClips(frames: DeckHtmlFrame[], clipsDir: string): Promise<DeckFrame[]> {
+  await mkdir(clipsDir, {recursive: true})
 
-    return {
-      duration,
-      image: renderDeckSlideFrame({
-        bullets: slide.bullets,
-        index,
-        size,
-        subtitle: slide.subtitle,
-        theme: timedDeck.deck.theme,
-        title: slide.title,
-        total: timedDeck.deck.slides.length,
-      }),
-      path,
-    }
-  })
-
-  await Promise.all(frames.map((frame) => bunWrite(frame.path, frame.image)))
-
-  return frames.map(({duration, path}) => ({duration, path}))
+  return Promise.all(frames.map((frame, index) => renderDeckFrameClip(frame, resolve(clipsDir, `slide-${String(index + 1).padStart(3, '0')}.mp4`))))
 }
 
-async function writeDeckFrameConcatList(frames: DeckFrame[], outputPath: string): Promise<void> {
-  const lines = frames.flatMap((frame, index) => [
-    `file '${frame.path.replaceAll("'", "'\\''")}'`,
-    `duration ${frame.duration}`,
-    ...(index === frames.length - 1 ? [`file '${frame.path.replaceAll("'", "'\\''")}'`] : []),
+async function renderDeckFrameClip(frame: DeckHtmlFrame, outputPath: string): Promise<DeckFrame> {
+  await runFfmpeg([
+    '-y',
+    '-loop',
+    '1',
+    '-t',
+    String(frame.duration),
+    '-i',
+    frame.path,
+    '-an',
+    '-vf',
+    'format=yuv420p',
+    '-r',
+    '30',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'veryfast',
+    '-tune',
+    'stillimage',
+    '-movflags',
+    '+faststart',
+    outputPath,
   ])
+
+  return {
+    duration: frame.duration,
+    path: outputPath,
+    slideId: frame.slideId,
+  }
+}
+
+async function writeDeckClipConcatList(clips: DeckFrame[], outputPath: string): Promise<void> {
+  const lines = clips.map((clip) => `file '${escapeFfmpegConcatPath(clip.path)}'`)
 
   await bunWrite(outputPath, `${lines.join('\n')}\n`)
 }
 
-async function renderDeckSilentVideo(concatPath: string, outputPath: string): Promise<void> {
+async function concatDeckFrameClips(concatPath: string, outputPath: string): Promise<void> {
   await runFfmpeg([
     '-y',
     '-f',
@@ -1905,12 +1931,10 @@ async function renderDeckSilentVideo(concatPath: string, outputPath: string): Pr
     '0',
     '-i',
     concatPath,
-    '-vsync',
-    'vfr',
-    '-c:v',
-    'libx264',
-    '-pix_fmt',
-    'yuv420p',
+    '-c',
+    'copy',
+    '-movflags',
+    '+faststart',
     outputPath,
   ])
 }
@@ -1931,8 +1955,14 @@ async function muxDeckFinalVideo(silentVideoPath: string, audioPath: string, out
     '-c:a',
     'aac',
     '-shortest',
+    '-movflags',
+    '+faststart',
     outputPath,
   ])
+}
+
+function escapeFfmpegConcatPath(path: string): string {
+  return path.replaceAll("'", "'\\''")
 }
 
 async function inspectDeckRenderedOutput(outputPath: string, options: {expectedDuration: number}) {
@@ -1944,175 +1974,6 @@ async function inspectDeckRenderedOutput(outputPath: string, options: {expectedD
   } catch (error) {
     return createRenderedMediaProbeFailure(error instanceof Error ? error.message : String(error))
   }
-}
-
-function deckRenderSize(format: DeckFormat): {height: number; width: number} {
-  if (format === 'landscape_1920x1080') {
-    return {height: 1080, width: 1920}
-  }
-
-  if (format === 'square_1080x1080') {
-    return {height: 1080, width: 1080}
-  }
-
-  return {height: 1920, width: 1080}
-}
-
-function renderDeckSlideFrame(input: {
-  bullets: string[]
-  index: number
-  size: {height: number; width: number}
-  subtitle?: string
-  theme: string
-  title: string
-  total: number
-}): Uint8Array {
-  const image = createRgbImage(input.size.width, input.size.height, [245, 247, 250])
-  const accent = themeAccent(input.theme)
-  const margin = Math.round(input.size.width * 0.07)
-  const top = Math.round(input.size.height * 0.08)
-  const cardWidth = input.size.width - margin * 2
-  const cardHeight = input.size.height - top * 2
-
-  fillRect(image, 0, 0, input.size.width, input.size.height, [239, 244, 248])
-  fillRect(image, margin, top, cardWidth, cardHeight, [255, 255, 255])
-  fillRect(image, margin, top, 16, cardHeight, accent)
-  fillRect(image, margin, top, cardWidth, 4, [210, 218, 229])
-  drawText(image, `SLIDE ${input.index + 1}/${input.total}`, margin + 48, top + 58, 5, accent)
-  drawWrappedText(image, asciiText(input.title, `Slide ${input.index + 1}`), margin + 48, top + 150, cardWidth - 96, 9, [15, 23, 42], 3)
-
-  const bullets = input.bullets.length === 0 ? [input.subtitle ?? input.title] : input.bullets
-  const bulletTop = Math.round(top + cardHeight * 0.48)
-
-  bullets.slice(0, 4).forEach((bullet, index) => {
-    const y = bulletTop + index * Math.round(input.size.height * 0.095)
-
-    fillRect(image, margin + 58, y - 24, 14, 14, accent)
-    drawWrappedText(image, asciiText(bullet, `Content point ${index + 1}`), margin + 96, y - 36, cardWidth - 150, 5, [31, 41, 55], 2)
-  })
-
-  const footer = asciiText(input.theme, 'default')
-
-  drawText(image, footer.toUpperCase(), margin + 48, top + cardHeight - 86, 4, [100, 116, 139])
-
-  return encodePpm(image)
-}
-
-interface RgbImage {
-  data: Uint8Array
-  height: number
-  width: number
-}
-
-function createRgbImage(width: number, height: number, color: [number, number, number]): RgbImage {
-  const image = {
-    data: new Uint8Array(width * height * 3),
-    height,
-    width,
-  }
-
-  fillRect(image, 0, 0, width, height, color)
-
-  return image
-}
-
-function fillRect(image: RgbImage, x: number, y: number, width: number, height: number, color: [number, number, number]): void {
-  const startX = Math.max(0, Math.floor(x))
-  const startY = Math.max(0, Math.floor(y))
-  const endX = Math.min(image.width, Math.ceil(x + width))
-  const endY = Math.min(image.height, Math.ceil(y + height))
-
-  for (let row = startY; row < endY; row += 1) {
-    for (let column = startX; column < endX; column += 1) {
-      setPixel(image, column, row, color)
-    }
-  }
-}
-
-function setPixel(image: RgbImage, x: number, y: number, color: [number, number, number]): void {
-  if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
-    return
-  }
-
-  const offset = (y * image.width + x) * 3
-
-  image.data[offset] = color[0]
-  image.data[offset + 1] = color[1]
-  image.data[offset + 2] = color[2]
-}
-
-function drawWrappedText(image: RgbImage, text: string, x: number, y: number, maxWidth: number, scale: number, color: [number, number, number], maxLines: number): void {
-  const words = text.split(/\s+/).filter(Boolean)
-  const lineCapacity = Math.max(1, Math.floor(maxWidth / (6 * scale)))
-  const lines: string[] = []
-  let current = ''
-
-  for (const word of words) {
-    const candidate = current === '' ? word : `${current} ${word}`
-
-    if (candidate.length > lineCapacity && current !== '') {
-      lines.push(current)
-      current = word
-    } else {
-      current = candidate
-    }
-
-    if (lines.length >= maxLines) {
-      break
-    }
-  }
-
-  if (current !== '' && lines.length < maxLines) {
-    lines.push(current)
-  }
-
-  lines.forEach((line, index) => drawText(image, line, x, y + index * scale * 9, scale, color))
-}
-
-function drawText(image: RgbImage, text: string, x: number, y: number, scale: number, color: [number, number, number]): void {
-  const chars = text.toUpperCase().split('')
-
-  chars.forEach((char, index) => drawChar(image, char, x + index * scale * 6, y, scale, color))
-}
-
-function drawChar(image: RgbImage, char: string, x: number, y: number, scale: number, color: [number, number, number]): void {
-  const bitmap = FONT_5X7[char] ?? FONT_5X7['?']
-
-  bitmap.forEach((row, rowIndex) => {
-    for (let column = 0; column < row.length; column += 1) {
-      if (row[column] === '1') {
-        fillRect(image, x + column * scale, y + rowIndex * scale, scale, scale, color)
-      }
-    }
-  })
-}
-
-function encodePpm(image: RgbImage): Uint8Array {
-  const header = new TextEncoder().encode(`P6\n${image.width} ${image.height}\n255\n`)
-  const output = new Uint8Array(header.length + image.data.length)
-
-  output.set(header, 0)
-  output.set(image.data, header.length)
-
-  return output
-}
-
-function asciiText(value: string | undefined, fallback: string): string {
-  const ascii = (value ?? '').replaceAll(/[^\x20-\x7E]+/g, ' ').replaceAll(/\s+/g, ' ').trim()
-
-  return ascii === '' ? fallback : ascii
-}
-
-function themeAccent(theme: string): [number, number, number] {
-  if (theme.toLowerCase().includes('tech')) {
-    return [37, 99, 235]
-  }
-
-  if (theme.toLowerCase().includes('dark')) {
-    return [20, 184, 166]
-  }
-
-  return [249, 115, 22]
 }
 
 function toProjectPath(projectDir: string, path: string): string {
@@ -2363,51 +2224,4 @@ function normalizeText(value: string): string {
 
 function roundSeconds(value: number): number {
   return Math.round(value * 1000) / 1000
-}
-
-const FONT_5X7: Record<string, string[]> = {
-  ' ': ['00000', '00000', '00000', '00000', '00000', '00000', '00000'],
-  '!': ['00100', '00100', '00100', '00100', '00100', '00000', '00100'],
-  '?': ['01110', '10001', '00001', '00010', '00100', '00000', '00100'],
-  '.': ['00000', '00000', '00000', '00000', '00000', '01100', '01100'],
-  ',': ['00000', '00000', '00000', '00000', '01100', '01100', '01000'],
-  ':': ['00000', '01100', '01100', '00000', '01100', '01100', '00000'],
-  '-': ['00000', '00000', '00000', '11111', '00000', '00000', '00000'],
-  '/': ['00001', '00010', '00010', '00100', '01000', '01000', '10000'],
-  '0': ['01110', '10001', '10011', '10101', '11001', '10001', '01110'],
-  '1': ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-  '2': ['01110', '10001', '00001', '00010', '00100', '01000', '11111'],
-  '3': ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
-  '4': ['00010', '00110', '01010', '10010', '11111', '00010', '00010'],
-  '5': ['11111', '10000', '10000', '11110', '00001', '00001', '11110'],
-  '6': ['01110', '10000', '10000', '11110', '10001', '10001', '01110'],
-  '7': ['11111', '00001', '00010', '00100', '01000', '01000', '01000'],
-  '8': ['01110', '10001', '10001', '01110', '10001', '10001', '01110'],
-  '9': ['01110', '10001', '10001', '01111', '00001', '00001', '01110'],
-  A: ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
-  B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
-  C: ['01110', '10001', '10000', '10000', '10000', '10001', '01110'],
-  D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
-  E: ['11111', '10000', '10000', '11110', '10000', '10000', '11111'],
-  F: ['11111', '10000', '10000', '11110', '10000', '10000', '10000'],
-  G: ['01110', '10001', '10000', '10111', '10001', '10001', '01110'],
-  H: ['10001', '10001', '10001', '11111', '10001', '10001', '10001'],
-  I: ['01110', '00100', '00100', '00100', '00100', '00100', '01110'],
-  J: ['00001', '00001', '00001', '00001', '10001', '10001', '01110'],
-  K: ['10001', '10010', '10100', '11000', '10100', '10010', '10001'],
-  L: ['10000', '10000', '10000', '10000', '10000', '10000', '11111'],
-  M: ['10001', '11011', '10101', '10101', '10001', '10001', '10001'],
-  N: ['10001', '11001', '10101', '10011', '10001', '10001', '10001'],
-  O: ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
-  P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
-  Q: ['01110', '10001', '10001', '10001', '10101', '10010', '01101'],
-  R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
-  S: ['01111', '10000', '10000', '01110', '00001', '00001', '11110'],
-  T: ['11111', '00100', '00100', '00100', '00100', '00100', '00100'],
-  U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'],
-  V: ['10001', '10001', '10001', '10001', '10001', '01010', '00100'],
-  W: ['10001', '10001', '10001', '10101', '10101', '10101', '01010'],
-  X: ['10001', '10001', '01010', '00100', '01010', '10001', '10001'],
-  Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
-  Z: ['11111', '00001', '00010', '00100', '01000', '10000', '11111'],
 }

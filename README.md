@@ -64,7 +64,7 @@ The shared runtime owns jobs, events, checkpoints, artifacts, providers, media w
 Requirements:
 
 - Bun
-- `ffmpeg` and `ffprobe` on `PATH`
+- `ffmpeg`, `ffprobe`, and Chromium on `PATH`
 
 ```sh
 bun install

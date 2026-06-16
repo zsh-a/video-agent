@@ -15,6 +15,7 @@ export default class Deck extends Command {
   static description = 'Run the Deck Explainer pipeline from content to final slide video'
 
   static flags = {
+    'chromium-command': Flags.string({description: 'Chromium command prefix for HTML frame capture, either a binary name or JSON string array'}),
     duration: Flags.string({description: 'Target deck duration, such as 180s, 3m, or 00:03:00'}),
     format: Flags.string({
       default: 'portrait',
@@ -53,6 +54,7 @@ export default class Deck extends Command {
     }
     const output = await runDeckExplainerPipeline({
       ...commonOptions,
+      chromiumCommand: parseCommandPrefix(flags['chromium-command']),
       durationTargetSeconds: flags.duration === undefined ? undefined : parseDurationSeconds(flags.duration),
       mode,
     })
@@ -69,6 +71,30 @@ export default class Deck extends Command {
     this.log(`HTML: ${output.finalRender.htmlEntryPath}`)
     this.log(`Final: ${output.finalRender.outputPath}`)
   }
+}
+
+function parseCommandPrefix(value: string | undefined): string[] | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  const trimmed = value.trim()
+
+  if (trimmed === '') {
+    throw new Error('--chromium-command must not be empty.')
+  }
+
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed) as unknown
+
+    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string' || item.length === 0)) {
+      throw new Error('--chromium-command JSON value must be an array of non-empty strings.')
+    }
+
+    return parsed
+  }
+
+  return [trimmed]
 }
 
 function mapDeckFormat(format: DeckFormatFlag): DeckFormat {

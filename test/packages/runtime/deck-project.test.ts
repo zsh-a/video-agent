@@ -214,6 +214,7 @@ describe('deck explainer project', () => {
         projectId: 'deck-voice-demo',
         workspaceDir: root,
       })
+      const chromiumCommand = await createFakeChromiumCommand(root)
       const timedDeck = JSON.parse(await readFile(result.artifacts.timedDeck, 'utf8')) as {
         audioRef?: string
         timings: Array<{end: number; slideId: string; start: number}>
@@ -238,6 +239,7 @@ describe('deck explainer project', () => {
       expect((await stat(result.outputPath)).size).to.be.greaterThan(44)
 
       const render = await createDeckFinalRenderProject({
+        chromiumCommand,
         projectId: 'deck-voice-demo',
         workspaceDir: root,
       })
@@ -245,6 +247,7 @@ describe('deck explainer project', () => {
         audioInputs: number
         audioPath: string
         entryHtml: string
+        frameRenderer: string
         frameCount: number
         outputDir: string
         outputPath: string
@@ -265,7 +268,8 @@ describe('deck explainer project', () => {
 
       expect(render.status).to.equal('rendered')
       expect(render.renderer).to.equal('html')
-      expect(render.videoRenderer).to.equal('ffmpeg')
+      expect(render.frameRenderer).to.equal('chromium')
+      expect(render.videoRenderer).to.equal('chromium+ffmpeg')
       expect(render.frameCount).to.equal(result.slides)
       expect(render.htmlOutputDir.endsWith('renders/html')).to.equal(true)
       expect(render.htmlEntryPath.endsWith('renders/html/index.html')).to.equal(true)
@@ -276,6 +280,7 @@ describe('deck explainer project', () => {
         audioPath: 'audio/deck_voiceover.wav',
         entryHtml: 'renders/html/index.html',
         frameCount: result.slides,
+        frameRenderer: 'chromium',
         outputDir: 'renders/html',
         outputPath: 'renders/final.mp4',
         planPath: 'renders/html/deck-render-plan.json',
@@ -283,7 +288,7 @@ describe('deck explainer project', () => {
         runtimePath: 'renders/html/runtime.js',
         silentVideoPath: 'renders/deck_silent.mp4',
         stylesPath: 'renders/html/styles.css',
-        videoRenderer: 'ffmpeg',
+        videoRenderer: 'chromium+ffmpeg',
       })
       expect(renderOutput.outputQuality.videoStreams).to.equal(1)
       expect(renderOutput.outputQuality.audioStreams).to.equal(1)
@@ -320,6 +325,7 @@ describe('deck explainer project', () => {
       )
 
       const capturedRender = await createDeckFinalRenderProject({
+        chromiumCommand,
         htmlOutput: htmlCapturePath,
         htmlRender: true,
         htmlRenderCommand: ['bun', htmlRendererScript],
@@ -432,6 +438,7 @@ describe('deck explainer project', () => {
       expect((await stat(result.outputPath)).size).to.be.greaterThan(44)
 
       const render = await createDeckFinalRenderProject({
+        chromiumCommand: await createFakeChromiumCommand(root),
         projectId: 'deck-audio-demo',
         workspaceDir: root,
       })
@@ -501,6 +508,7 @@ describe('deck explainer project', () => {
       expect((await stat(voice.outputPath)).size).to.be.greaterThan(44)
 
       const render = await createDeckFinalRenderProject({
+        chromiumCommand: await createFakeChromiumCommand(root),
         projectId: 'deck-summary-demo',
         workspaceDir: root,
       })
@@ -538,4 +546,28 @@ async function createSampleAudio(inputPath: string): Promise<void> {
   if (result.code !== 0) {
     throw new Error(result.stderr)
   }
+}
+
+async function createFakeChromiumCommand(root: string): Promise<string[]> {
+  const scriptPath = join(root, 'fake-chromium.ts')
+
+  await writeFile(
+    scriptPath,
+    [
+      'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
+      'if (screenshotArg === undefined) {',
+      '  console.error("missing screenshot output")',
+      '  process.exit(2)',
+      '}',
+      'const outputPath = screenshotArg.slice("--screenshot=".length)',
+      'const ppm = new Uint8Array([',
+      '  80, 54, 10, 50, 32, 50, 10, 50, 53, 53, 10,',
+      '  255, 255, 255, 37, 99, 235, 15, 23, 42, 249, 115, 22,',
+      '])',
+      'await Bun.write(outputPath, ppm)',
+      '',
+    ].join('\n'),
+  )
+
+  return ['bun', scriptPath]
 }

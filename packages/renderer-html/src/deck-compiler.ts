@@ -1,9 +1,16 @@
 import type {Deck, Slide, SlideTiming, TimedDeck} from '@video-agent/ir'
 
-import {mkdir} from 'node:fs/promises'
-import {resolve} from 'node:path'
+import {copyFile, mkdir} from 'node:fs/promises'
+import {createRequire} from 'node:module'
+import {dirname, resolve} from 'node:path'
 
 import {bunWrite} from './bun-runtime.js'
+
+const require = createRequire(import.meta.url)
+const DECK_FONT_FILES = [
+  'noto-sans-sc-chinese-simplified-400-normal.woff2',
+  'noto-sans-sc-chinese-simplified-700-normal.woff2',
+]
 
 export interface DeckHtmlRenderPlan {
   audioRef?: string
@@ -30,6 +37,13 @@ export interface WriteDeckHtmlProjectResult {
   stylesPath: string
 }
 
+export interface WriteDeckHtmlCapturePageInput {
+  outputPath: string
+  slideId: string
+  stylesheetHref: string
+  timedDeck: TimedDeck
+}
+
 export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Promise<WriteDeckHtmlProjectResult> {
   const outputDir = resolve(input.outputDir)
   const entryHtml = resolve(outputDir, 'index.html')
@@ -46,6 +60,7 @@ export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Pr
   })
 
   await mkdir(outputDir, {recursive: true})
+  await writeDeckFontAssets(outputDir)
   await bunWrite(planPath, `${JSON.stringify(plan, null, 2)}\n`)
   await bunWrite(stylesPath, createDeckStyles(input.timedDeck.deck))
   await bunWrite(runtimePath, createRuntimeScript())
@@ -58,6 +73,29 @@ export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Pr
     runtimePath,
     stylesPath,
   }
+}
+
+export async function writeDeckHtmlCapturePage(input: WriteDeckHtmlCapturePageInput): Promise<string> {
+  const outputPath = resolve(input.outputPath)
+  const outputDir = dirname(outputPath)
+  const plan = createDeckHtmlRenderPlan({
+    entryHtml: outputPath,
+    outputDir,
+    planPath: resolve(outputDir, 'deck-render-plan.json'),
+    runtimePath: resolve(outputDir, 'runtime.js'),
+    stylesPath: resolve(outputDir, input.stylesheetHref),
+    timedDeck: input.timedDeck,
+  })
+
+  await mkdir(outputDir, {recursive: true})
+  await bunWrite(outputPath, createDeckHtml(plan, {
+    captureSlideId: input.slideId,
+    includeRenderPlan: false,
+    includeRuntime: false,
+    stylesheetHref: input.stylesheetHref,
+  }))
+
+  return outputPath
 }
 
 function createDeckHtmlRenderPlan(input: {
@@ -81,9 +119,19 @@ function createDeckHtmlRenderPlan(input: {
   }
 }
 
-function createDeckHtml(plan: DeckHtmlRenderPlan): string {
+interface CreateDeckHtmlOptions {
+  captureSlideId?: string
+  includeRenderPlan?: boolean
+  includeRuntime?: boolean
+  stylesheetHref?: string
+}
+
+function createDeckHtml(plan: DeckHtmlRenderPlan, options: CreateDeckHtmlOptions = {}): string {
   const timingBySlide = new Map(plan.timings.map((timing) => [timing.slideId, timing]))
-  const slides = plan.deck.slides.map((slide, index) => createSlideSection(slide, timingBySlide.get(slide.slideId), index)).join('\n')
+  const sourceSlides = options.captureSlideId === undefined ? plan.deck.slides : plan.deck.slides.filter((slide) => slide.slideId === options.captureSlideId)
+  const slides = sourceSlides.map((slide) => createSlideSection(slide, timingBySlide.get(slide.slideId), plan.deck.slides.findIndex((item) => item.slideId === slide.slideId))).join('\n')
+  const includeRenderPlan = options.includeRenderPlan ?? true
+  const includeRuntime = options.includeRuntime ?? true
 
   return `<!doctype html>
 <html lang="${escapeHtml(plan.deck.language)}">
@@ -91,14 +139,14 @@ function createDeckHtml(plan: DeckHtmlRenderPlan): string {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(plan.deck.title)}</title>
-  <link rel="stylesheet" href="./styles.css" />
-  <script type="application/json" id="deck-render-plan">${escapeHtml(JSON.stringify(plan))}</script>
+  <link rel="stylesheet" href="${escapeHtml(options.stylesheetHref ?? './styles.css')}" />
+${includeRenderPlan ? `  <script type="application/json" id="deck-render-plan">${escapeHtml(JSON.stringify(plan))}</script>` : ''}
 </head>
-<body data-format="${escapeHtml(plan.deck.format)}" data-theme="${escapeHtml(plan.deck.theme)}">
+<body data-format="${escapeHtml(plan.deck.format)}" data-theme="${escapeHtml(plan.deck.theme)}"${options.captureSlideId === undefined ? '' : ' data-capture="slide"'}>
   <main class="deck" data-duration="${plan.duration}">
 ${slides}
   </main>
-  <script type="module" src="./runtime.js"></script>
+${includeRuntime ? '  <script type="module" src="./runtime.js"></script>' : ''}
 </body>
 </html>
 `
@@ -108,7 +156,6 @@ function createSlideSection(slide: Slide, timing: SlideTiming | undefined, index
   const start = timing?.start ?? 0
   const duration = timing === undefined ? slide.duration ?? 0 : timing.end - timing.start
   const bullets = slide.bullets.length === 0 ? [] : slide.bullets
-  const evidence = slide.evidence.map((item) => item.text ?? item.ref).filter(Boolean)
 
   return `    <section class="slide slide--${escapeHtml(slide.type)}" data-slide="${escapeHtml(slide.slideId)}" data-start="${start}" data-duration="${round(duration)}">
       <div class="slide__chrome">
@@ -125,25 +172,41 @@ ${bullets.map((bullet) => `          <li>${escapeHtml(bullet)}</li>`).join('\n')
         </ul>`}
 ${slide.speakerNote === undefined ? '' : `        <p class="slide__note">${escapeHtml(slide.speakerNote)}</p>`}
       </div>
-${evidence.length === 0 ? '' : `      <aside class="slide__evidence">
-        <span>Evidence</span>
-        <p>${escapeHtml(evidence.slice(0, 2).join(' '))}</p>
-      </aside>`}
     </section>`
 }
 
 function createDeckStyles(deck: Deck): string {
   const aspectRatio = deck.format === 'landscape_1920x1080' ? '16 / 9' : deck.format === 'square_1080x1080' ? '1 / 1' : '9 / 16'
 
-  return `:root {
+  return `@font-face {
+  font-display: swap;
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 400;
+  src: url("./fonts/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-display: swap;
+  font-family: "Noto Sans SC";
+  font-style: normal;
+  font-weight: 700;
+  src: url("./fonts/noto-sans-sc-chinese-simplified-700-normal.woff2") format("woff2");
+}
+
+:root {
   color-scheme: light;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Noto Sans SC", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 body {
   background: #e7edf3;
   color: #101827;
   margin: 0;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .deck {
@@ -208,8 +271,7 @@ body {
 }
 
 .slide__subtitle,
-.slide__note,
-.slide__evidence p {
+.slide__note {
   color: #334155;
   font-size: 20px;
   line-height: 1.42;
@@ -240,20 +302,6 @@ body {
   padding-top: 16px;
 }
 
-.slide__evidence {
-  color: #475569;
-  display: grid;
-  gap: 8px;
-}
-
-.slide__evidence span {
-  color: #f97316;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
 @media print {
   body {
     background: #ffffff;
@@ -272,6 +320,30 @@ body {
   }
 }
 
+body[data-capture="slide"] {
+  background: #e7edf3;
+  height: 100vh;
+  overflow: hidden;
+  width: 100vw;
+}
+
+body[data-capture="slide"] .deck {
+  align-items: stretch;
+  display: grid;
+  gap: 0;
+  justify-items: stretch;
+  min-height: 100vh;
+  padding: 0;
+}
+
+body[data-capture="slide"] .slide {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  height: 100vh;
+  width: 100vw;
+}
+
 @media (max-width: 700px) {
   .deck {
     padding: 16px;
@@ -286,8 +358,7 @@ body {
   }
 
   .slide__subtitle,
-  .slide__note,
-  .slide__evidence p {
+  .slide__note {
     font-size: 16px;
   }
 
@@ -301,11 +372,24 @@ body {
 function createRuntimeScript(): string {
   return `const planElement = document.getElementById('deck-render-plan')
 const plan = planElement === null ? undefined : JSON.parse(planElement.textContent || '{}')
+const url = new URL(window.location.href)
+const captureMode = url.searchParams.get('capture')
+const requestedSlide = url.searchParams.get('slide')
+const slides = Array.from(document.querySelectorAll('.slide'))
+
+if (captureMode === 'slide') {
+  document.body.dataset.capture = 'slide'
+}
+
+if (requestedSlide !== null) {
+  for (const slide of slides) {
+    slide.hidden = slide.getAttribute('data-slide') !== requestedSlide
+  }
+}
 
 window.videoAgentDeck = {
   plan,
   seek(timeSeconds) {
-    const slides = Array.from(document.querySelectorAll('.slide'))
     for (const slide of slides) {
       const start = Number(slide.getAttribute('data-start') || 0)
       const duration = Number(slide.getAttribute('data-duration') || 0)
@@ -331,4 +415,15 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+async function writeDeckFontAssets(outputDir: string): Promise<void> {
+  const fontsDir = resolve(outputDir, 'fonts')
+
+  await mkdir(fontsDir, {recursive: true})
+  await Promise.all(DECK_FONT_FILES.map((file) => copyFile(resolveDeckFontSource(file), resolve(fontsDir, file))))
+}
+
+function resolveDeckFontSource(file: string): string {
+  return require.resolve(`@fontsource/noto-sans-sc/files/${file}`)
 }

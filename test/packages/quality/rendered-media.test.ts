@@ -53,6 +53,38 @@ describe('rendered media quality', () => {
     expect(result.issues.map((issue) => issue.code)).to.deep.equal(['render.output.missing_video', 'render.output.missing_audio', 'render.output.duration_mismatch'])
   })
 
+  it('reports broken video stream timing even when container duration matches', () => {
+    const result = checkRenderedMedia(
+      {
+        duration: 165.6,
+        inputPath: '/tmp/output.mp4',
+        probedAt: '2026-01-01T00:00:00.000Z',
+        streams: [
+          {
+            duration: 74.88,
+            fps: 0.053,
+            index: 0,
+            type: 'video',
+          },
+          {
+            duration: 165.6,
+            index: 1,
+            type: 'audio',
+          },
+        ],
+        version: 1,
+      },
+      {
+        expectAudio: true,
+        expectedDuration: 165.6,
+      },
+    )
+
+    expect(result.errors).to.equal(0)
+    expect(result.warnings).to.equal(2)
+    expect(result.issues.map((issue) => issue.code)).to.deep.equal(['render.output.video_duration_mismatch', 'render.output.low_video_fps'])
+  })
+
   it('creates a probe failure warning', () => {
     expect(createRenderedMediaProbeFailure('ffprobe failed')).to.deep.equal({
       audioStreams: 0,

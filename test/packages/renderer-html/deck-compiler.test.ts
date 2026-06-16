@@ -4,6 +4,7 @@ import {mkdtemp, rm, stat} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
+import {buildChromiumScreenshotArgs} from '../../../packages/renderer-html/src/chromium.js'
 import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck-compiler.js'
 
 describe('html deck compiler', () => {
@@ -56,6 +57,8 @@ describe('html deck compiler', () => {
       expect(await fileSize(result.planPath)).to.be.greaterThan(0)
       expect(await fileSize(result.runtimePath)).to.be.greaterThan(0)
       expect(await fileSize(result.stylesPath)).to.be.greaterThan(0)
+      expect(await fileSize(join(root, 'fonts', 'noto-sans-sc-chinese-simplified-400-normal.woff2'))).to.be.greaterThan(0)
+      expect(await fileSize(join(root, 'fonts', 'noto-sans-sc-chinese-simplified-700-normal.woff2'))).to.be.greaterThan(0)
 
       const html = await readText(result.entryHtml)
       const styles = await readText(result.stylesPath)
@@ -69,8 +72,13 @@ describe('html deck compiler', () => {
       expect(html).to.contain('视频 Agent 的正确架构')
       expect(html).to.contain('Film 是 media-first')
       expect(html).to.contain('DeckIR evidence')
+      expect(html).not.include('class="slide__evidence"')
       expect(styles).to.contain('aspect-ratio: 9 / 16')
+      expect(styles).to.contain('@font-face')
+      expect(styles).to.contain('Noto Sans SC')
+      expect(styles).to.contain('body[data-capture="slide"]')
       expect(styles).to.contain('@media (max-width: 700px)')
+      expect(runtime).to.contain("captureMode === 'slide'")
       expect(runtime).to.contain('window.videoAgentDeck')
       expect(plan.audioRef).to.equal('audio/deck_voiceover.wav')
       expect(plan.deck.title).to.equal('视频 Agent 的正确架构')
@@ -79,6 +87,24 @@ describe('html deck compiler', () => {
     } finally {
       await rm(root, {force: true, recursive: true})
     }
+  })
+
+  it('builds Chromium screenshot commands for a single slide capture', () => {
+    const args = buildChromiumScreenshotArgs({
+      command: ['chromium'],
+      entryHtml: '/tmp/deck/index.html',
+      outputPath: '/tmp/deck/slide-001.png',
+      slideId: 'slide-001',
+      viewport: {height: 1920, width: 1080},
+    })
+    const url = args.at(-1)
+
+    expect(args).to.include('--headless=new')
+    expect(args).to.include('--window-size=1080,1920')
+    expect(args).to.include('--screenshot=/tmp/deck/slide-001.png')
+    expect(url).to.contain('index.html')
+    expect(url).to.contain('capture=slide')
+    expect(url).to.contain('slide=slide-001')
   })
 })
 

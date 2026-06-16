@@ -20,9 +20,9 @@ describe('cli end-to-end workflow', () => {
       expect(init.workspaceDir).to.equal(workspaceDir)
       expect(init.summary).to.deep.include({
         fail: 0,
-        total: 9,
+        total: 10,
       })
-      expect(init.checks).to.have.keys(['bun', 'config', 'ffmpeg', 'ffprobe', 'projects', 'provider:asr', 'provider:tts', 'provider:vlm', 'workspace'])
+      expect(init.checks).to.have.keys(['bun', 'chromium', 'config', 'ffmpeg', 'ffprobe', 'projects', 'provider:asr', 'provider:tts', 'provider:vlm', 'workspace'])
       expect(init.checks.workspace.status).to.equal('pass')
 
       const config = await runCliJson<{
@@ -105,7 +105,7 @@ describe('cli end-to-end workflow', () => {
       expect(doctor.workspaceDir).to.equal(workspaceDir)
       expect(doctor.summary).to.deep.include({
         fail: 0,
-        total: 9,
+        total: 10,
       })
       expect(doctor.checks.find((check) => check.name === 'workspace')?.status).to.equal('pass')
       expect(doctor.checks.find((check) => check.name === 'config')?.status).to.equal('pass')
@@ -521,6 +521,7 @@ describe('cli end-to-end workflow', () => {
           '两条 pipeline 共用 runtime、provider、media、renderer 和 quality 层。',
         ].join('\n'),
       )
+      const chromiumCommand = await createFakeChromiumCommand(root)
 
       const deckProject = await runCliJson<{
         deck: {
@@ -547,6 +548,8 @@ describe('cli end-to-end workflow', () => {
         'tech',
         '--max-slide-characters',
         '45',
+        '--chromium-command',
+        JSON.stringify(chromiumCommand),
         '--json',
       ])
 
@@ -624,6 +627,7 @@ describe('cli end-to-end workflow', () => {
       )
       const deckRender = await runCliJson<{
         artifactPath: string
+        frameRenderer: string
         frameCount: number
         htmlEntryPath: string
         outputPath: string
@@ -639,6 +643,8 @@ describe('cli end-to-end workflow', () => {
         projectId,
         '--workspace',
         workspaceDir,
+        '--chromium-command',
+        JSON.stringify(chromiumCommand),
         '--html-render-command',
         JSON.stringify(['bun', htmlRendererScript]),
         '--html-output',
@@ -651,7 +657,8 @@ describe('cli end-to-end workflow', () => {
       expect(deckRender.projectId).to.equal(projectId)
       expect(deckRender.status).to.equal('rendered')
       expect(deckRender.renderer).to.equal('html')
-      expect(deckRender.videoRenderer).to.equal('ffmpeg')
+      expect(deckRender.frameRenderer).to.equal('chromium')
+      expect(deckRender.videoRenderer).to.equal('chromium+ffmpeg')
       expect(deckRender.rendered?.stdout).to.contain('rendered')
       expect(deckRender.validation?.stdout).to.contain('validated')
       expect(deckRender.frameCount).to.equal(deck.slides.length)
@@ -688,6 +695,7 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleAudio(inputPath)
+      const chromiumCommand = await createFakeChromiumCommand(root)
 
       const deckProject = await runCliJson<{
         deck: {
@@ -713,6 +721,8 @@ describe('cli end-to-end workflow', () => {
         'square',
         '--style',
         'tech',
+        '--chromium-command',
+        JSON.stringify(chromiumCommand),
         '--json',
       ])
 
@@ -748,12 +758,12 @@ describe('cli end-to-end workflow', () => {
         renderer: string
         status: string
         videoRenderer: string
-      }>(['deck', 'render', projectId, '--workspace', workspaceDir, '--json'])
+      }>(['deck', 'render', projectId, '--workspace', workspaceDir, '--chromium-command', JSON.stringify(await createFakeChromiumCommand(root)), '--json'])
 
       expect(deckRender.projectId).to.equal(projectId)
       expect(deckRender.status).to.equal('rendered')
       expect(deckRender.renderer).to.equal('html')
-      expect(deckRender.videoRenderer).to.equal('ffmpeg')
+      expect(deckRender.videoRenderer).to.equal('chromium+ffmpeg')
       expect(await fileSize(deckRender.artifactPath)).to.be.greaterThan(0)
       expect(await fileSize(deckRender.htmlEntryPath)).to.be.greaterThan(0)
       expect(await fileSize(deckRender.outputPath)).to.be.greaterThan(0)
@@ -786,6 +796,7 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleAudio(inputPath)
+      const chromiumCommand = await createFakeChromiumCommand(root)
 
       const deckProject = await runCliJson<{
         deck: {
@@ -809,6 +820,8 @@ describe('cli end-to-end workflow', () => {
         projectId,
         '--workspace',
         workspaceDir,
+        '--chromium-command',
+        JSON.stringify(chromiumCommand),
         '--json',
       ])
 
@@ -844,11 +857,11 @@ describe('cli end-to-end workflow', () => {
         renderer: string
         status: string
         videoRenderer: string
-      }>(['deck', 'render', projectId, '--workspace', workspaceDir, '--json'])
+      }>(['deck', 'render', projectId, '--workspace', workspaceDir, '--chromium-command', JSON.stringify(await createFakeChromiumCommand(root)), '--json'])
 
       expect(render.status).to.equal('rendered')
       expect(render.renderer).to.equal('html')
-      expect(render.videoRenderer).to.equal('ffmpeg')
+      expect(render.videoRenderer).to.equal('chromium+ffmpeg')
       expect(await fileSize(render.htmlEntryPath)).to.be.greaterThan(0)
       expect(await fileSize(render.outputPath)).to.be.greaterThan(0)
 
@@ -901,6 +914,34 @@ async function createSampleAudio(inputPath: string): Promise<void> {
     '2',
     inputPath,
   ])
+}
+
+async function createFakeChromiumCommand(root: string): Promise<string[]> {
+  const scriptPath = join(root, `fake-chromium-${cryptoRandomLabel()}.ts`)
+
+  await writeFile(
+    scriptPath,
+    [
+      'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
+      'if (screenshotArg === undefined) {',
+      '  console.error("missing screenshot output")',
+      '  process.exit(2)',
+      '}',
+      'const outputPath = screenshotArg.slice("--screenshot=".length)',
+      'const ppm = new Uint8Array([',
+      '  80, 54, 10, 50, 32, 50, 10, 50, 53, 53, 10,',
+      '  255, 255, 255, 37, 99, 235, 15, 23, 42, 249, 115, 22,',
+      '])',
+      'await Bun.write(outputPath, ppm)',
+      '',
+    ].join('\n'),
+  )
+
+  return ['bun', scriptPath]
+}
+
+function cryptoRandomLabel(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 async function runCliJson<T>(args: string[], env?: Record<string, string>): Promise<T> {

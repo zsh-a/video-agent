@@ -130,7 +130,9 @@
       "name": "@video-agent/renderer-html",
       "version": "0.0.0",
       "dependencies": {
+        "@fontsource/noto-sans-sc": "^5.2.8",
         "@video-agent/ir": "workspace:*",
+        "@video-agent/media": "workspace:*",
       },
     },
     "packages/renderer-hyperframes": {
@@ -191,6 +193,8 @@
     "@eslint/object-schema": ["@eslint/object-schema@2.1.7", "https://registry.npmmirror.com/@eslint/object-schema/-/object-schema-2.1.7.tgz", {}, "sha512-VtAOaymWVfZcmZbp6E2mympDIHvyjXs/12LqWYjVw6qjrfF+VK+fyG33kChz3nnK+SU5/NeHOqrTEHS8sXO3OA=="],
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.4.1", "https://registry.npmmirror.com/@eslint/plugin-kit/-/plugin-kit-0.4.1.tgz", { "dependencies": { "@eslint/core": "^0.17.0", "levn": "^0.4.1" } }, "sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA=="],
+
+    "@fontsource/noto-sans-sc": ["@fontsource/noto-sans-sc@5.2.9", "https://registry.npmmirror.com/@fontsource/noto-sans-sc/-/noto-sans-sc-5.2.9.tgz", {}, "sha512-bTUIWGBgJDpwi5qAr+x0/lcgv80IHTB9vl6s2f6EymZEa7qYV99yNRBZuKFT+SYDKVunZrjCEhWtpxqmbXWl5Q=="],
 
     "@humanfs/core": ["@humanfs/core@0.19.2", "https://registry.npmmirror.com/@humanfs/core/-/core-0.19.2.tgz", { "dependencies": { "@humanfs/types": "^0.15.0" } }, "sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA=="],
 

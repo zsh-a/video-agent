@@ -40,6 +40,7 @@ export type {
 export type DeckExplainerPipelineMode = 'audio-anchored' | 'script-generated' | 'summarize'
 
 export interface RunDeckExplainerPipelineOptions extends Omit<CreateDeckExplainerProjectOptions, 'mode'> {
+  chromiumCommand?: CreateDeckFinalRenderProjectOptions['chromiumCommand']
   htmlOutput?: CreateDeckFinalRenderProjectOptions['htmlOutput']
   htmlRender?: CreateDeckFinalRenderProjectOptions['htmlRender']
   htmlRenderCommand?: CreateDeckFinalRenderProjectOptions['htmlRenderCommand']
@@ -75,6 +76,7 @@ export async function runDeckExplainerPipeline(options: RunDeckExplainerPipeline
     : await createDeckVoiceoverProject(common)
   const finalRender = await createDeckFinalRenderProject({
     ...common,
+    chromiumCommand: options.chromiumCommand,
     htmlOutput: options.htmlOutput,
     htmlRender: options.htmlRender,
     htmlRenderCommand: options.htmlRenderCommand,

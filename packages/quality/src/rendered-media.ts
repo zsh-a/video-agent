@@ -41,6 +41,8 @@ export function checkRenderedMedia(mediaInfo: MediaInfo, options: RenderedMediaQ
           },
         ]),
     ...checkDuration(mediaInfo, options),
+    ...checkStreamDurations(mediaInfo, options),
+    ...checkVideoFrameRate(mediaInfo),
   ]
 
   return {
@@ -99,4 +101,53 @@ function checkDuration(mediaInfo: MediaInfo, options: RenderedMediaQualityOption
       severity: 'warning',
     },
   ]
+}
+
+function checkStreamDurations(mediaInfo: MediaInfo, options: RenderedMediaQualityOptions): QualityIssue[] {
+  if (options.expectedDuration === undefined) {
+    return []
+  }
+
+  const tolerance = options.timingTolerance ?? 0.2
+  const videoDuration = mediaInfo.streams.find((stream) => stream.type === 'video')?.duration
+  const audioDuration = mediaInfo.streams.find((stream) => stream.type === 'audio')?.duration
+  const issues: QualityIssue[] = []
+
+  if (videoDuration !== undefined && Math.abs(videoDuration - options.expectedDuration) > tolerance) {
+    issues.push({
+      code: 'render.output.video_duration_mismatch',
+      message: `Rendered video stream duration ${videoDuration} differs from expected ${options.expectedDuration}.`,
+      severity: 'warning',
+    })
+  }
+
+  if (options.expectAudio === true && audioDuration !== undefined && Math.abs(audioDuration - options.expectedDuration) > tolerance) {
+    issues.push({
+      code: 'render.output.audio_duration_mismatch',
+      message: `Rendered audio stream duration ${audioDuration} differs from expected ${options.expectedDuration}.`,
+      severity: 'warning',
+    })
+  }
+
+  return issues
+}
+
+function checkVideoFrameRate(mediaInfo: MediaInfo): QualityIssue[] {
+  const lowFpsStream = mediaInfo.streams.find((stream) => stream.type === 'video' && stream.fps !== undefined && stream.fps < 1)
+
+  if (lowFpsStream === undefined || lowFpsStream.fps === undefined) {
+    return []
+  }
+
+  return [
+    {
+      code: 'render.output.low_video_fps',
+      message: `Rendered video stream frame rate is too low (${round(lowFpsStream.fps)} fps).`,
+      severity: 'warning',
+    },
+  ]
+}
+
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000
 }
