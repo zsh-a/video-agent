@@ -133,7 +133,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     hyperframesValidate: booleanSchema('When true, invoke the external HyperFrames validator after generating the HTML project.'),
     output: stringSchema('Output video path for ffmpeg or output directory for HyperFrames.'),
     projectId: projectIdSchema(),
-    renderer: enumSchema(['ffmpeg', 'hyperframes'], 'Renderer implementation. Defaults to ffmpeg.'),
+    renderer: enumSchema(['ffmpeg', 'hyperframes'], 'Renderer implementation. Omit to auto-select from project artifacts; slide_explainer storyboards use HyperFrames.'),
     sourceVolume: numberSchema('Source audio volume multiplier.'),
     subtitles: booleanSchema('When false, skip generated subtitle burn-in. Defaults to true for ffmpeg.'),
     voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),

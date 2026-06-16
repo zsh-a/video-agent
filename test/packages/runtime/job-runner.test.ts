@@ -1,13 +1,15 @@
 import type {LanguageModel} from 'ai'
 
 import {expect} from '#test/expect'
-import {mkdtemp, readFile, rm, stat} from 'node:fs/promises'
+import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
+import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {analyzeSceneBatches, createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, transcribeSourceAudio, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
+import {renderProject} from '../../../packages/runtime/src/render-project.js'
 import {createProjectWorkspace} from '../../../packages/runtime/src/workspace.js'
 
 describe('job runner', () => {
@@ -1203,6 +1205,82 @@ describe('job runner', () => {
       expect(resumed.status).to.equal('completed')
       expect(await fileSize(resumed.artifacts.narration)).to.be.greaterThan(0)
       expect(await fileSize(resumed.artifacts.ttsSegments)).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('creates a multi-slide explainer plan from a single long-video chunk', async () => {
+    if (!(await hasMediaTools())) {
+      return
+    }
+
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-job-explainer-'))
+    const inputPath = join(root, 'input.mp4')
+    const command = JSON.stringify(['bun', 'test/fixtures/explainer-command-provider.ts'])
+
+    try {
+      await writeConfig(root, {
+        asr: 'command',
+        tts: 'command',
+        vlm: 'command',
+      })
+      await writeFile(
+        join(root, '.env'),
+        [
+          `VIDEO_AGENT_ASR_COMMAND='${command}'`,
+          `VIDEO_AGENT_TTS_COMMAND='${command}'`,
+          `VIDEO_AGENT_VLM_COMMAND='${command}'`,
+          '',
+        ].join('\n'),
+      )
+      await runProcess([
+        'ffmpeg',
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc=size=160x90:rate=2',
+        '-t',
+        '70',
+        '-pix_fmt',
+        'yuv420p',
+        inputPath,
+      ])
+
+      const result = await runInitialPipeline({
+        inputPath,
+        projectId: 'explainer',
+        workspaceDir: root,
+      })
+      const selectedMoments = JSON.parse(await readFile(result.artifacts.selectedMoments, 'utf8')) as {moments: Array<{sourceRange: [number, number]; summary: string}>}
+      const storyboard = JSON.parse(await readFile(result.artifacts.storyboard, 'utf8')) as {scenes: Array<{narration?: string; visualStyle: string}>}
+      const narration = JSON.parse(await readFile(result.artifacts.narration, 'utf8')) as {segments: Array<{text: string}>}
+      const quality = JSON.parse(await readFile(result.artifacts.qualityReport, 'utf8')) as {issues: Array<{code: string}>; summary: {errors: number; warnings: number}}
+
+      expect(selectedMoments.moments.length).to.be.greaterThan(1)
+      expect(selectedMoments.moments[0]?.sourceRange).to.deep.equal([0, 18])
+      expect(selectedMoments.moments.every((moment) => moment.summary.startsWith('第 '))).to.equal(true)
+      expect(storyboard.scenes).to.have.length(selectedMoments.moments.length)
+      expect(storyboard.scenes.every((scene) => scene.visualStyle === 'slide_explainer')).to.equal(true)
+      expect(narration.segments).to.have.length(storyboard.scenes.length)
+      expect(narration.segments.every((segment) => segment.text.startsWith('第 '))).to.equal(true)
+      expect(quality.summary).to.deep.equal({errors: 0, warnings: 0})
+      expect(quality.issues.map((issue) => issue.code).filter((code) => code.startsWith('explainer.'))).to.deep.equal([])
+
+      const render = await renderProject('explainer', {workspaceDir: root})
+
+      expect(render.renderer).to.equal('hyperframes')
+
+      if (render.renderer === 'hyperframes') {
+        const html = await readFile(render.entryHtml, 'utf8')
+
+        expect(html).to.contain('scene__bullets')
+        expect(html).to.contain('Slide 1')
+        expect(html).to.contain('Slide 2')
+      }
     } finally {
       await rm(root, {force: true, recursive: true})
     }

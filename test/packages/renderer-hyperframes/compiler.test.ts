@@ -16,8 +16,9 @@ describe('hyperframes compiler', () => {
         {
           duration: 1,
           id: 'narration-1',
+          sceneId: 'scene-1',
           start: 0,
-          text: 'hello',
+          text: '第 1 页：介绍开源下载器。强调复制链接、选择画质、下载记录这三个要点。',
         },
       ],
       version: 1 as const,
@@ -27,11 +28,17 @@ describe('hyperframes compiler', () => {
       scenes: [
         {
           duration: 1,
-          evidence: [],
+          evidence: [
+            {
+              ref: 'chunks/000/transcript.json',
+              text: 'Open source app walkthrough evidence.',
+              type: 'asr' as const,
+            },
+          ],
           id: 'scene-1',
-          narration: 'hello',
+          narration: '第 1 页：介绍开源下载器。',
           start: 0,
-          visualStyle: 'documentary',
+          visualStyle: 'slide_explainer',
         },
       ],
       targetPlatform: 'generic' as const,
@@ -54,7 +61,15 @@ describe('hyperframes compiler', () => {
 
       expect(await fileSize(result.entryHtml)).to.be.greaterThan(0)
       expect(await fileSize(result.planPath)).to.be.greaterThan(0)
-      expect(await readText(result.entryHtml)).to.contain('data-duration="1"')
+      const html = await readText(result.entryHtml)
+      const styles = await readText(result.stylesPath)
+
+      expect(html).to.contain('data-duration="1"')
+      expect(html).to.contain('Slide 1')
+      expect(html).to.contain('scene__bullets')
+      expect(html).to.contain('slide explainer')
+      expect(html).to.contain('介绍开源下载器')
+      expect(styles).to.contain('@keyframes show-scene')
       expect(await checkHyperframesTemplateProject({
         entryHtml: result.entryHtml,
         narration,

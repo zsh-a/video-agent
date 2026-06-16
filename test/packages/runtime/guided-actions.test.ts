@@ -48,7 +48,12 @@ describe('guided actions', () => {
       })
       expect(result.actions.find((action) => action.id === 'inspect-quality-details')).to.include({
         category: 'inspect',
-        description: 'Inspect aggregate quality with raw quality-report and render-output details.',
+        description: 'Inspect aggregate quality with content issues plus raw quality-report and render-output details.',
+      })
+      expect(result.actions.find((action) => action.id === 'render-final-video')).to.include({
+        category: 'render',
+        description: 'Render the focused project with auto renderer selection; slide explainers use HyperFrames.',
+        label: 'Render output',
       })
       expect(result.actions.find((action) => action.id === 'inspect-audio')).to.include({
         category: 'inspect',

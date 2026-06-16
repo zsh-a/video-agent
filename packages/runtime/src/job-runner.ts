@@ -9,7 +9,7 @@ import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummaries
 import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
-import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
+import {checkClipPlanConsistency, checkExplainerStructure, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {appendFile, mkdir, readdir} from 'node:fs/promises'
 import {basename, dirname, isAbsolute, join, resolve} from 'node:path'
 
@@ -957,7 +957,7 @@ function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, tr
     const chunkVlm = createChunkVlmScenes(sceneAnalysis, sceneRanges, chunk.analysisRange)
     const transcriptSummary = summarizeTranscript(chunkTranscript)
     const visualSummary = summarizeVisualScenes(chunkVlm)
-    const keyMoment = createChunkMoment(chunk.id, chunk.contentRange, chunk.artifactPrefix, transcriptSummary, visualSummary)
+    const keyMoments = createChunkMoments(chunk.id, chunk.contentRange, chunk.artifactPrefix, chunkTranscript, sceneAnalysis, sceneRanges, transcriptSummary, visualSummary)
     const silenceRanges = createSilenceRanges(chunkTranscript, chunk.contentRange)
     const silence = LongVideoChunkSilenceSchema.parse({
       chunkId: chunk.id,
@@ -968,7 +968,7 @@ function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, tr
     const summary = LongVideoChunkSummarySchema.parse({
       chunkId: chunk.id,
       contentRange: chunk.contentRange,
-      keyMoments: [keyMoment],
+      keyMoments,
       silenceRanges,
       summary: summarizeChunk(chunk.id, chunk.contentRange, transcriptSummary, visualSummary),
       ...(transcriptSummary === undefined ? {} : {transcriptSummary}),
@@ -1102,19 +1102,148 @@ function summarizeVisualScenes(sceneAnalysis: VLMScene[]): string | undefined {
   return descriptions.length === 0 ? undefined : descriptions.slice(0, 3).join(' ')
 }
 
-function createChunkMoment(chunkId: string, range: [number, number], artifactPrefix: string, transcriptSummary: string | undefined, visualSummary: string | undefined): LongVideoMoment {
+const LONG_VIDEO_MOMENT_TARGET_SECONDS = 30
+const LONG_VIDEO_MOMENT_MIN_SECONDS = 12
+const LONG_VIDEO_MOMENT_MAX_SECONDS = 45
+const LONG_VIDEO_MOMENT_SUMMARY_LIMIT = 180
+
+function createChunkMoments(
+  chunkId: string,
+  range: [number, number],
+  artifactPrefix: string,
+  transcript: Transcript,
+  sceneAnalysis: VLMScene[],
+  sceneRanges: Array<{end: number; start: number}>,
+  transcriptSummary: string | undefined,
+  visualSummary: string | undefined,
+): LongVideoMoment[] {
+  const momentRanges = createMomentRanges(transcript, sceneRanges, range)
+
+  return momentRanges.map((momentRange, index) => {
+    const momentTranscript = summarizeTranscriptForRange(transcript, momentRange)
+    const momentVisual = summarizeVisualScenesForRange(sceneAnalysis, sceneRanges, momentRange)
+
+    return createChunkMoment(
+      chunkId,
+      momentRange,
+      artifactPrefix,
+      momentTranscript ?? transcriptSummary,
+      momentVisual ?? visualSummary,
+      index,
+    )
+  })
+}
+
+function createMomentRanges(transcript: Transcript, sceneRanges: Array<{end: number; start: number}>, chunkRange: [number, number]): Array<[number, number]> {
+  const transcriptRanges = createTranscriptMomentRanges(transcript, chunkRange)
+
+  if (transcriptRanges.length > 0) {
+    return transcriptRanges
+  }
+
+  const visualRanges = sceneRanges
+    .filter((range) => rangesOverlap([range.start, range.end], chunkRange))
+    .map((range): [number, number] => [
+      clampTime(range.start, chunkRange[0], chunkRange[1]),
+      clampTime(range.end, chunkRange[0], chunkRange[1]),
+    ])
+    .filter((range) => range[1] > range[0])
+
+  return visualRanges.length > 0 ? visualRanges : [chunkRange]
+}
+
+function createTranscriptMomentRanges(transcript: Transcript, chunkRange: [number, number]): Array<[number, number]> {
+  const segments = transcript.segments
+    .map((segment) => ({
+      end: clampTime(segment.end, chunkRange[0], chunkRange[1]),
+      start: clampTime(segment.start, chunkRange[0], chunkRange[1]),
+    }))
+    .filter((segment) => segment.end > segment.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+
+  if (segments.length === 0) {
+    return []
+  }
+
+  const chunkDuration = chunkRange[1] - chunkRange[0]
+  const desiredMoments = Math.max(1, Math.ceil(chunkDuration / LONG_VIDEO_MOMENT_TARGET_SECONDS))
+  const targetDuration = clampTime(chunkDuration / desiredMoments, LONG_VIDEO_MOMENT_MIN_SECONDS, LONG_VIDEO_MOMENT_MAX_SECONDS)
+  const ranges: Array<[number, number]> = []
+  let currentStart = chunkRange[0]
+  let currentEnd = currentStart
+
+  for (const segment of segments) {
+    const wouldExceedTarget = currentEnd > currentStart && segment.end - currentStart > targetDuration
+
+    if (wouldExceedTarget) {
+      ranges.push([currentStart, currentEnd])
+      currentStart = currentEnd
+    }
+
+    currentEnd = Math.max(currentEnd, segment.end)
+  }
+
+  if (currentEnd > currentStart) {
+    ranges.push([currentStart, currentEnd])
+  }
+
+  return ranges
+}
+
+function createChunkMoment(chunkId: string, range: [number, number], artifactPrefix: string, transcriptSummary: string | undefined, visualSummary: string | undefined, index: number): LongVideoMoment {
+  const summary = createExplainerMomentSummary(index, transcriptSummary, visualSummary, range)
+
   return {
     chunkId,
     evidence: [
       ...(transcriptSummary === undefined ? [] : [{ref: `${artifactPrefix}/transcript.json`, text: transcriptSummary, type: 'asr' as const}]),
       ...(visualSummary === undefined ? [] : [{ref: `${artifactPrefix}/vlm.json`, text: visualSummary, type: 'vlm' as const}]),
     ],
-    id: `${chunkId}-moment-001`,
-    score: 0.5,
+    id: `${chunkId}-moment-${String(index + 1).padStart(3, '0')}`,
+    score: 0.65,
     sourceRange: range,
-    summary: transcriptSummary ?? visualSummary ?? `Content from ${formatRange(range)}.`,
-    title: `Moment ${chunkId}`,
+    summary,
+    title: `讲解 ${index + 1}`,
   }
+}
+
+function summarizeTranscriptForRange(transcript: Transcript, range: [number, number]): string | undefined {
+  const text = transcript.segments
+    .filter((segment) => rangesOverlap([segment.start, segment.end], range))
+    .map((segment) => segment.text.trim())
+    .filter(Boolean)
+    .join(' ')
+
+  return normalizeText(text)
+}
+
+function summarizeVisualScenesForRange(sceneAnalysis: VLMScene[], sceneRanges: Array<{end: number; start: number}>, range: [number, number]): string | undefined {
+  const descriptions = sceneAnalysis
+    .filter((_, index) => {
+      const sceneRange = sceneRanges[index]
+
+      return sceneRange === undefined ? sceneAnalysis.length === 1 : rangesOverlap([sceneRange.start, sceneRange.end], range)
+    })
+    .map((scene) => scene.description.trim())
+    .filter(Boolean)
+
+  return descriptions.length === 0 ? undefined : descriptions.slice(0, 2).join(' ')
+}
+
+function createExplainerMomentSummary(index: number, transcriptSummary: string | undefined, visualSummary: string | undefined, range: [number, number]): string {
+  const body = truncateText(transcriptSummary ?? visualSummary ?? `这一页覆盖 ${formatRange(range)} 的内容。`, LONG_VIDEO_MOMENT_SUMMARY_LIMIT)
+
+  return `第 ${index + 1} 页：${body}`
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const normalized = value.replaceAll(/\s+/g, ' ').trim()
+
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, maxLength).replaceAll(/[，。；、,.!?！？：:\s]+$/g, '')}。`
 }
 
 function summarizeChunk(chunkId: string, range: [number, number], transcriptSummary: string | undefined, visualSummary: string | undefined): string {
@@ -1285,13 +1414,19 @@ function createQualityStage(): Stage<InitialStageInput, InitialStageOutput> {
         ...checkTimelineBounds(voiced.timeline),
         ...checkNarrationTiming(voiced.narration, voiced.timeline),
         ...checkTtsCoverage(voiced.narration, voiced.ttsSegments),
+        ...checkExplainerStructure({
+          mediaInfo: voiced.mediaInfo,
+          narration: voiced.narration,
+          selectedMoments: voiced.selectedMoments,
+          storyboard: voiced.storyboard,
+        }),
       ]
       await emitProgress(ctx, {
-        current: 5,
+        current: 6,
         message: 'Quality check groups completed.',
         stage: 'quality',
         step: 'checks',
-        total: 5,
+        total: 6,
       })
       const qualityReport = {
         checkedAt: new Date().toISOString(),

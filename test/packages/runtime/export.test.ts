@@ -59,6 +59,80 @@ describe('export project', () => {
     }
   })
 
+  it('exports a hyperframes directory by default when the latest render is a HyperFrames project', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+      const renderDir = join(projectDir, 'renders', 'hyperframes')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+      await writeFile(
+        join(artifactsDir, 'render-output.json'),
+        `${JSON.stringify({
+          outputDir: renderDir,
+          renderer: 'hyperframes',
+          version: 1,
+        })}\n`,
+      )
+
+      const result = await exportProject({
+        projectId: 'demo',
+        workspaceDir: root,
+      })
+
+      expect(result.format).to.equal('hyperframes')
+      expect(result.outputPath).to.equal(join(process.cwd(), 'demo-hyperframes'))
+      expect(await readFile(join(result.outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+      await rm(join(process.cwd(), 'demo-hyperframes'), {force: true, recursive: true})
+    }
+  })
+
+  it('exports a HyperFrames-rendered video when video export is requested', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+      const renderDir = join(projectDir, 'renders', 'hyperframes')
+      const renderedPath = join(renderDir, 'output.mp4')
+      const outputPath = join(root, 'out.mp4')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await mkdir(renderDir, {recursive: true})
+      await writeFile(renderedPath, 'hyperframes video')
+      await writeFile(
+        join(artifactsDir, 'render-output.json'),
+        `${JSON.stringify({
+          outputDir: renderDir,
+          rendered: {
+            command: ['hyperframes', 'render', renderDir, '--output', renderedPath],
+          },
+          renderer: 'hyperframes',
+          version: 1,
+        })}\n`,
+      )
+
+      const result = await exportProject({
+        format: 'video',
+        outputPath,
+        projectId: 'demo',
+        workspaceDir: root,
+      })
+
+      expect(result.format).to.equal('video')
+      expect(result.sourcePath).to.equal(renderedPath)
+      expect(await readFile(outputPath, 'utf8')).to.equal('hyperframes video')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('can clean stale directory output before exporting', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
 

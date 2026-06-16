@@ -4,6 +4,7 @@ import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path'
 import type {ProjectQualityReport} from './project-quality.js'
 
 import {bunCopyFile} from './bun-runtime.js'
+import {readOptionalJson} from './file-io.js'
 import {readProjectQuality} from './project-quality.js'
 import {createProjectWorkspace} from './workspace.js'
 
@@ -40,8 +41,16 @@ export class ExportQualityError extends Error {
   }
 }
 
+interface RenderOutputExportReference {
+  outputDir?: string
+  outputPath?: string
+  rendered?: {
+    command?: string[]
+  }
+  renderer?: string
+}
+
 export async function exportProject(options: ExportProjectOptions): Promise<ExportProjectResult> {
-  const format = options.format ?? 'video'
   const quality = options.requireQuality === true ? await readProjectQuality(options.projectId, options.workspaceDir) : undefined
 
   if (quality !== undefined && !quality.ok) {
@@ -52,7 +61,9 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
     projectId: options.projectId,
     workspaceDir: options.workspaceDir,
   })
-  const sourcePath = resolveExportSource(workspace.projectDir, format)
+  const renderOutput = await readOptionalJson<RenderOutputExportReference>(resolve(workspace.artifactsDir, 'render-output.json'))
+  const format = options.format ?? inferExportFormat(renderOutput)
+  const sourcePath = resolveExportSource(workspace.projectDir, format, renderOutput)
   const outputPath = resolve(options.outputPath ?? defaultOutputPath(options.projectId, format))
   const cleanOutput = options.cleanOutput === true
 
@@ -102,16 +113,34 @@ function defaultOutputPath(projectId: string, format: ExportFormat): string {
   return `${projectId}-${format}`
 }
 
-function resolveExportSource(projectDir: string, format: ExportFormat): string {
+function inferExportFormat(renderOutput: RenderOutputExportReference | undefined): ExportFormat {
+  if (renderOutput?.renderer !== 'hyperframes') {
+    return 'video'
+  }
+
+  return extractHyperframesRenderOutputPath(renderOutput.rendered?.command) === undefined ? 'hyperframes' : 'video'
+}
+
+function resolveExportSource(projectDir: string, format: ExportFormat, renderOutput: RenderOutputExportReference | undefined): string {
   if (format === 'video') {
-    return resolve(projectDir, 'renders', 'final.mp4')
+    return resolveProjectPath(projectDir, extractHyperframesRenderOutputPath(renderOutput?.rendered?.command) ?? renderOutput?.outputPath ?? 'renders/final.mp4')
   }
 
   if (format === 'hyperframes') {
-    return resolve(projectDir, 'renders', 'hyperframes')
+    return resolveProjectPath(projectDir, renderOutput?.outputDir ?? 'renders/hyperframes')
   }
 
   return projectDir
+}
+
+function extractHyperframesRenderOutputPath(command: string[] | undefined): string | undefined {
+  const outputFlagIndex = command?.lastIndexOf('--output') ?? -1
+
+  return outputFlagIndex < 0 ? undefined : command?.[outputFlagIndex + 1]
+}
+
+function resolveProjectPath(projectDir: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(projectDir, path)
 }
 
 async function assertExists(path: string): Promise<void> {

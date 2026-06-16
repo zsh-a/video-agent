@@ -39,7 +39,7 @@ describe('planning providers', () => {
     expect(providers.script).to.be.instanceOf(LLMScriptProvider)
   })
 
-  it('creates deterministic storyboard scenes from selected long-video moments', async () => {
+  it('creates deterministic slide-explainer storyboard scenes from selected long-video moments', async () => {
     const storyboard = await new DeterministicStoryboardProvider().createStoryboard({
       longVideo: {
         selectedMoments: {
@@ -57,6 +57,20 @@ describe('planning providers', () => {
               reason: 'Best visual moment.',
               sourceRange: [5, 8],
               summary: 'Use the selected long-video moment.',
+            },
+            {
+              chunkId: 'chunk-000',
+              evidence: [
+                {
+                  ref: 'chunks/000/transcript.json',
+                  text: 'Second teaching point.',
+                  type: 'asr',
+                },
+              ],
+              id: 'chunk-000-moment-002',
+              reason: 'Next explanation point.',
+              sourceRange: [8, 12],
+              summary: 'Explain the next long-video point.',
             },
           ],
           source: '/tmp/input.mp4',
@@ -101,9 +115,63 @@ describe('planning providers', () => {
         narration: 'Use the selected long-video moment.',
         sourceRange: [5, 8],
         start: 0,
-        visualStyle: 'documentary',
+        visualStyle: 'slide_explainer',
+      },
+      {
+        duration: 4,
+        evidence: [
+          {
+            ref: 'chunks/000/transcript.json',
+            text: 'Second teaching point.',
+            type: 'asr',
+          },
+        ],
+        id: 'scene-2',
+        narration: 'Explain the next long-video point.',
+        sourceRange: [8, 12],
+        start: 3,
+        visualStyle: 'slide_explainer',
       },
     ])
+  })
+
+  it('creates deterministic PPT-style narration text', async () => {
+    const narration = await new DeterministicScriptProvider().createNarration({
+      clipPlan: {
+        clips: [
+          {
+            duration: 3,
+            id: 'clip-1',
+            sceneId: 'scene-1',
+            source: '/tmp/input.mp4',
+            sourceRange: [5, 8],
+            start: 0,
+          },
+        ],
+        duration: 3,
+        source: '/tmp/input.mp4',
+        sourceDuration: 20,
+        version: 1,
+      },
+      storyboard: {
+        language: 'zh-CN',
+        scenes: [
+          {
+            duration: 3,
+            evidence: [],
+            id: 'scene-1',
+            narration: '这里讲解第一个关键功能。',
+            sourceRange: [5, 8],
+            start: 0,
+            visualStyle: 'slide_explainer',
+          },
+        ],
+        targetPlatform: 'generic',
+        version: 1,
+      },
+    })
+
+    expect(narration.segments[0]?.text).to.equal('第 1 页：这里讲解第一个关键功能。')
   })
 })
 

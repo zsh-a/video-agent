@@ -7,7 +7,7 @@ import {extname, join, posix} from 'node:path'
 import type {NarrationSegment} from '@video-agent/ir'
 import type {ASRProvider, MediaInput, SceneFrameBatch, Transcript, TTSProvider, TTSProviderSynthesizeOptions, TTSSegment, VLMProvider, VLMScene} from './contracts.js'
 
-import {runFfmpeg} from '@video-agent/media'
+import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {bunFile} from './bun-runtime.js'
 import {attachProviderMetadata} from './metadata.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from './profiles.js'
@@ -405,6 +405,7 @@ export class MimoTTSProvider implements TTSProvider {
     const audioData = readMimoTtsAudioData(responseJson)
 
     await writeFile(outputPath, Buffer.from(audioData, 'base64'))
+    const duration = await readGeneratedAudioDuration(outputPath, segment.duration ?? 0)
 
     return {
       metadata: {
@@ -413,11 +414,21 @@ export class MimoTTSProvider implements TTSProvider {
         usage: readMimoTtsUsage(responseJson),
       },
       segment: {
-        duration: segment.duration ?? 0,
+        duration,
         narrationId: segment.id,
         path: relativePath,
       },
     }
+  }
+}
+
+async function readGeneratedAudioDuration(path: string, fallback: number): Promise<number> {
+  try {
+    const mediaInfo = await probeMedia(path)
+
+    return mediaInfo.duration ?? fallback
+  } catch {
+    return fallback
   }
 }
 

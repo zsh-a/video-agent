@@ -43,6 +43,26 @@ describe('render project', () => {
     }
   })
 
+  it('uses HyperFrames by default for slide explainer projects', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
+
+    try {
+      await createRenderableProject(root, 'demo', {visualStyle: 'slide_explainer'})
+
+      const result = await renderProject('demo', {
+        workspaceDir: root,
+      })
+
+      expect(result.renderer).to.equal('hyperframes')
+
+      if (result.renderer === 'hyperframes') {
+        expect(await readFile(result.entryHtml, 'utf8')).to.contain('scene__bullets')
+      }
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('writes subtitle quality diagnostics when subtitles are enabled', async () => {
     if (!(await hasFfmpeg())) {
       return
@@ -268,7 +288,7 @@ describe('render project', () => {
   })
 })
 
-async function createRenderableProject(root: string, projectId: string): Promise<void> {
+async function createRenderableProject(root: string, projectId: string, options: {visualStyle?: string} = {}): Promise<void> {
   const artifactsDir = join(root, 'projects', projectId, 'artifacts')
 
   await mkdir(artifactsDir, {recursive: true})
@@ -293,7 +313,7 @@ async function createRenderableProject(root: string, projectId: string): Promise
             id: 'scene-1',
             narration: 'hello',
             start: 0,
-            visualStyle: 'documentary',
+            visualStyle: options.visualStyle ?? 'documentary',
           },
         ],
         targetPlatform: 'generic',

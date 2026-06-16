@@ -10,7 +10,7 @@ export default class Export extends Command {
   static description = 'Export a rendered project'
   static flags = {
     'clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats'}),
-    format: Flags.string({default: 'video', description: 'Export format', options: ['video', 'hyperframes', 'bundle']}),
+    format: Flags.string({description: 'Export format. Omit to infer from the latest render output.', options: ['video', 'hyperframes', 'bundle']}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     output: Flags.string({description: 'Output file or directory path'}),
     'require-quality': Flags.boolean({description: 'Refuse export when project quality, render diagnostics, or artifact integrity are not clean'}),
@@ -24,7 +24,7 @@ export default class Export extends Command {
     try {
       output = await exportProject({
         cleanOutput: flags['clean-output'],
-        format: flags.format as ExportFormat,
+        format: flags.format as ExportFormat | undefined,
         outputPath: flags.output,
         projectId: args.project,
         requireQuality: flags['require-quality'],
@@ -89,6 +89,7 @@ export function formatExportQualityFailure(projectId: string, quality: ProjectQu
     `Export blocked: project ${projectId} did not pass quality checks.`,
     `Quality: ${quality.summary.errors} errors, ${quality.summary.warnings} warnings`,
     `Pipeline: ${quality.pipeline.errors} errors, ${quality.pipeline.warnings} warnings`,
+    `Content: ${quality.content.errors} errors, ${quality.content.warnings} warnings`,
     `Render: ${formatQualityRenderSummary(quality.render)}`,
     `Artifacts: ${quality.artifacts.ok ? 'ok' : 'not ok'} (${quality.artifacts.summary.changed} changed, ${quality.artifacts.summary.missing} missing, ${quality.artifacts.summary.schemaInvalid} schema invalid, ${quality.artifacts.summary.untracked} untracked)`,
   ].join('\n')

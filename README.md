@@ -73,10 +73,32 @@ bun run dev run ./input.mp4
 bun run dev projects
 bun run dev status <projectId>
 bun run dev render <projectId>
-bun run dev export <projectId> --output ./final.mp4
+bun run dev export <projectId> --output ./output
 ```
 
+Create a PPT-style explainer directly from text or Markdown:
+
+```sh
+bun run dev text ./notes.md --project-id notes-demo
+bun run dev render notes-demo
+bun run dev export notes-demo --output ./notes-slides
+```
+
+The text command does not call ASR, VLM, or TTS providers. It splits the input into multiple `slide_explainer` pages, writes standard project artifacts, and leaves render/export to the shared HyperFrames path.
+
 Long-video work is chunk-first at the artifact boundary. The shared IR and core contracts include a long-video chunk plan with defaults of 5 minute chunks, 10 second overlap, 1 fps preview sampling, 0.2 fps VLM sampling, scene detection enabled, ASR chunking enabled, and VLM batches of 16 frames. Runtime ingest writes `chunk-plan.json` and `frames.json`; understanding uses chunk analysis ranges for ASR/VLM context and writes top-level `scene-batches.json`, `chunk-summaries.json`, `chapters.json`, `global-outline.json`, and `selected-moments.json` plus per-chunk `summary.json`, `silence.json`, `transcript.json`, and `vlm.json` under `chunks/NNN`. When scene detection is disabled, VLM uses one full-duration scene batch; otherwise transcript-aligned scene batches are used. VLM reruns reuse unchanged scene analysis entries by matching each scene id, time range, and frame list. Planning and scripting consume the selected moments and chunk context before producing `clip-plan.json`, `narration.json`, and `timeline.json`.
+
+For PPT-style explainer output, selected long-video moments are expanded into multiple `slide_explainer` storyboard scenes instead of one full-video narration block. `render` auto-selects HyperFrames when every storyboard scene is `slide_explainer`, producing a timed HTML slide project under `renders/hyperframes/`; pass `--hyperframes-render` only when an external HyperFrames CLI is installed and you want it to render that project to a media file. The quality aggregate includes content-structure checks so collapsed outputs, such as one 4 minute scene or one oversized narration segment, fail quality even if the older `quality-report.json` artifact is clean.
+
+Export infers the latest render type when `--format` is omitted: ffmpeg renders export `final.mp4`, HyperFrames HTML renders export the slide project directory, and HyperFrames CLI renders export the generated media file when `--format video` is requested.
+
+Rebuild a stale project from the understanding stage after planner or renderer changes:
+
+```sh
+bun run dev rerun <projectId> --from-stage understand
+bun run dev quality <projectId> --details
+bun run dev render <projectId>
+```
 
 Inspect artifacts and quality:
 
@@ -86,6 +108,7 @@ bun run dev artifacts <projectId> media-info.json
 bun run dev artifacts <projectId> --verify
 bun run dev events <projectId>
 bun run dev quality <projectId>
+bun run dev quality <projectId> --details
 bun run dev visual <projectId>
 ```
 
@@ -168,6 +191,7 @@ The current runnable slice supports:
 - Bun workspace build/test/lint.
 - Headless runtime with durable workspace artifacts, job state, events, provider call logs, and checkpoint validation.
 - Long-video IR and core chunk planning contracts for chunk-first, evidence-backed, resumable processing.
+- Text/Markdown to PPT-style HyperFrames explainer projects without provider calls.
 - Mock, command, LLM, and Mimo-profile provider configuration.
 - LLM-backed ASR/VLM/TTS/storyboard/script provider path through the internal AI SDK-backed `LLMClient`.
 - ffmpeg and HyperFrames render boundaries, render diagnostics, quality aggregation, export, and quality-gated export.

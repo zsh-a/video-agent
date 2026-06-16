@@ -46,6 +46,41 @@ describe('project quality', () => {
     }
   })
 
+  it('counts long-video explainer structure issues from current artifacts even when quality-report is stale', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      await createCollapsedExplainerProject(root, 'demo')
+
+      const report = await readProjectQualityDetails('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.pipeline).to.deep.equal({
+        errors: 0,
+        issues: 0,
+        warnings: 0,
+      })
+      expect(report.content).to.deep.equal({
+        errors: 0,
+        issues: 5,
+        warnings: 5,
+      })
+      expect(report.summary).to.deep.equal({
+        errors: 0,
+        warnings: 5,
+      })
+      expect(report.contentIssues.map((issue) => issue.code)).to.include.members([
+        'explainer.selected_moments.too_few',
+        'explainer.storyboard.visual_style',
+        'explainer.storyboard.segment_too_long',
+        'explainer.narration.segment_too_long',
+        'explainer.narration.text_too_long',
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts schema-invalid artifacts as project quality errors', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 
@@ -550,4 +585,73 @@ async function createProject(root: string, projectId: string): Promise<void> {
   )
   await refreshArtifactManifest(artifactsDir)
   await writeText(join(artifactsDir, 'untracked.json'), '{}\n')
+}
+
+async function createCollapsedExplainerProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+
+  await mkdir(artifactsDir, {recursive: true})
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath: '/tmp/input.mp4',
+    projectId,
+    stages: ['quality'],
+  })
+  await writeText(
+    join(artifactsDir, 'media-info.json'),
+    `${JSON.stringify({
+      duration: 237.666,
+      formatName: 'mov,mp4',
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-16T00:00:00.000Z',
+      streams: [{codecName: 'h264', duration: 237.666, fps: 30, height: 1080, index: 0, type: 'video', width: 1920}],
+      version: 1,
+    })}\n`,
+  )
+  await writeText(
+    join(artifactsDir, 'selected-moments.json'),
+    `${JSON.stringify({
+      moments: [
+        {
+          chunkId: 'chunk-000',
+          evidence: [],
+          id: 'chunk-000-moment-001',
+          reason: 'deterministic',
+          sourceRange: [0, 237.666],
+          summary: 'single collapsed moment',
+        },
+      ],
+      source: '/tmp/input.mp4',
+      version: 1,
+    })}\n`,
+  )
+  await writeText(
+    join(artifactsDir, 'storyboard.json'),
+    `${JSON.stringify({
+      language: 'zh-CN',
+      scenes: [{duration: 237.666, id: 'chunk-000-moment-001', sourceRange: [0, 237.666], start: 0, visualStyle: 'app_demo'}],
+      targetPlatform: 'generic',
+      version: 1,
+    })}\n`,
+  )
+  await writeText(
+    join(artifactsDir, 'narration.json'),
+    `${JSON.stringify({
+      language: 'zh-CN',
+      segments: [{duration: 237.666, id: 'chunk-000-moment-001', start: 0, text: '长视频解说'.repeat(180)}],
+      version: 1,
+    })}\n`,
+  )
+  await writeText(
+    join(artifactsDir, 'quality-report.json'),
+    `${JSON.stringify({
+      issues: [],
+      summary: {
+        errors: 0,
+        warnings: 0,
+      },
+      version: 1,
+    })}\n`,
+  )
+  await refreshArtifactManifest(artifactsDir)
 }

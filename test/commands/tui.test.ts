@@ -125,6 +125,7 @@ describe('tui command', () => {
       '  Export blocked: project demo did not pass quality checks.',
       '  Quality: 36 errors, 48 warnings',
       '  Pipeline: 2 errors, 3 warnings',
+      '  Content: 0 errors, 0 warnings',
       '  Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
       '  Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
     ].join('\n'))
@@ -206,6 +207,7 @@ describe('tui command', () => {
       'Errors: 36',
       'Warnings: 48',
       'Pipeline: 2 errors, 3 warnings',
+      'Content: 0 errors, 0 warnings',
       'Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
       'Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
       'Details: not included',
@@ -1126,6 +1128,11 @@ function createProjectQualityReport(): ProjectQualityReport {
         warnings: 2,
       },
       untracked: ['render-output.json', 'quality-report.json'],
+    },
+    content: {
+      errors: 0,
+      issues: 0,
+      warnings: 0,
     },
     generatedAt: '2026-06-15T00:00:00.000Z',
     ok: false,

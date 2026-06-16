@@ -126,10 +126,10 @@ voiceover
   synthesize TTS, align narration segments
 
 render
-  render through HyperFrames or ffmpeg
+  render through HyperFrames or ffmpeg; slide_explainer storyboards auto-select HyperFrames unless a renderer is explicit
 
 quality
-  inspect storyboard source ranges, clip plan consistency, timeline bounds, narration timing, TTS coverage, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
+  inspect storyboard source ranges, clip plan consistency, timeline bounds, narration timing, TTS coverage, long-video explainer structure, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
 
 export
   copy final video, HyperFrames render directory, or project bundle to a user-selected path
@@ -169,9 +169,13 @@ raw video
   -> timeline.json
 ```
 
-`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges, while `frames.json` records extracted analysis frame paths, timestamps, and sampling fps for VLM auditability. Runtime understanding uses analysis ranges for ASR/VLM context, clamps transcript output back to content ranges, writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. With `sceneDetection: true`, VLM batches are transcript-aligned; with `sceneDetection: false`, understanding sends one full-duration VLM batch and assigns that visual context to overlapping chunks using the batch time range. Chunked ASR reruns reuse valid per-chunk transcript artifacts before calling the ASR provider again, and VLM reruns reuse unchanged scenes by matching each cached scene id, time range, and frame list from `scene-batches.json` before calling the VLM provider for stale scenes only. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. The current stage boundary is still `understand`; first-class per-chunk stage status can be added without changing the artifact hierarchy.
+`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges, while `frames.json` records extracted analysis frame paths, timestamps, and sampling fps for VLM auditability. Runtime understanding uses analysis ranges for ASR/VLM context, clamps transcript output back to content ranges, writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. With `sceneDetection: true`, VLM batches are transcript-aligned; with `sceneDetection: false`, understanding sends one full-duration VLM batch and assigns that visual context to overlapping chunks using the batch time range. Chunked ASR reruns reuse valid per-chunk transcript artifacts before calling the ASR provider again, and VLM reruns reuse unchanged scenes by matching each cached scene id, time range, and frame list from `scene-batches.json` before calling the VLM provider for stale scenes only. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. Selected moments are split into PPT-like `slide_explainer` storyboard scenes and page-style narration segments, avoiding a single full-video scene for explainers. The content quality aggregate rechecks current artifacts for too few selected moments, non-slide explainer styles, oversized scenes, and oversized narration segments so stale clean `quality-report.json` artifacts do not mask collapsed explainer output. The current stage boundary is still `understand`; first-class per-chunk stage status can be added without changing the artifact hierarchy.
 
 HyperFrames remains the visual storytelling renderer for page-based explainers and article/podcast-to-video flows. FFmpeg remains the media boundary for probe, extraction, streamcopy clipping, concat, muxing, progress reporting, loudness, subtitles, and final delivery. Remotion can be added later as a second renderer for React composition and chunk/cloud rendering; it should consume storyboard/timeline IR instead of owning understanding logic.
+
+## Text Explainer Strategy
+
+Text and Markdown inputs can bypass media understanding entirely. The text explainer runtime reads the source document, splits it into bounded slide sections, and writes the same artifact family used by media-derived explainers: `media-info.json`, `selected-moments.json`, `storyboard.json`, `timeline.json`, `narration.json`, and `quality-report.json`. These projects use `slide_explainer` visual style from the start, so `render` auto-selects HyperFrames and `export` auto-selects a HyperFrames directory unless the HyperFrames CLI has rendered a video file. This keeps text-to-PPT generation inside the same project workspace, quality aggregate, render, and export contracts instead of creating a separate adapter-only flow.
 
 ## IR Contracts
 

@@ -45,7 +45,7 @@ export default class Tui extends Command {
     'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
     'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
     'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats when --action export is used'}),
-    'export-format': Flags.string({default: 'video', description: 'Export format when --action export is used', options: ['video', 'hyperframes', 'bundle']}),
+    'export-format': Flags.string({description: 'Export format when --action export is used. Omit to infer from the latest render output.', options: ['video', 'hyperframes', 'bundle']}),
     'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),
     'export-require-quality': Flags.boolean({allowNo: true, default: true, description: 'Refuse export unless project quality is clean when --action export is used'}),
     frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
@@ -74,7 +74,7 @@ export default class Tui extends Command {
     'render-hyperframes-render': Flags.boolean({description: 'Run HyperFrames CLI render after project generation when --action render is used'}),
     'render-hyperframes-validate': Flags.boolean({description: 'Run HyperFrames CLI validate after project generation when --action render is used'}),
     'render-output': Flags.string({description: 'Output video path or HyperFrames project directory when --action render is used'}),
-    'render-renderer': Flags.string({default: 'ffmpeg', description: 'Renderer to use when --action render is used', options: ['ffmpeg', 'hyperframes']}),
+    'render-renderer': Flags.string({description: 'Renderer to use when --action render is used. Omit to auto-select from project artifacts.', options: ['ffmpeg', 'hyperframes']}),
     'render-source-volume': Flags.string({description: 'Source audio volume multiplier when --action render is used'}),
     'render-subtitles': Flags.boolean({allowNo: true, default: true, description: 'Burn narration subtitles when --action render is used'}),
     'render-voiceover-volume': Flags.string({description: 'Voiceover audio volume multiplier when --action render is used'}),
@@ -122,7 +122,7 @@ export default class Tui extends Command {
       eventProviderRole: flags['event-provider-role'] as ProviderCallRole | undefined,
       eventProviderStatus: flags['event-provider-status'] as ProviderCallStatus | undefined,
       exportCleanOutput: flags['export-clean-output'],
-      exportFormat: flags['export-format'] as ExportFormat,
+      exportFormat: flags['export-format'] as ExportFormat | undefined,
       exportOutputPath: flags['export-output'],
       exportRequireQuality: flags['export-require-quality'],
       framePath: flags.frame,
@@ -145,7 +145,7 @@ export default class Tui extends Command {
       renderHyperframesRender: flags['render-hyperframes-render'],
       renderHyperframesValidate: flags['render-hyperframes-validate'],
       renderOutputPath: flags['render-output'],
-      renderRenderer: flags['render-renderer'] as ProjectRenderer,
+      renderRenderer: flags['render-renderer'] as ProjectRenderer | undefined,
       renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
       renderSubtitles: flags['render-subtitles'],
       renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
@@ -222,7 +222,7 @@ export interface RunTuiActionOptions {
   eventProviderRole?: ProviderCallRole
   eventProviderStatus?: ProviderCallStatus
   exportCleanOutput?: boolean
-  exportFormat: ExportFormat
+  exportFormat?: ExportFormat
   exportOutputPath?: string
   exportRequireQuality: boolean
   framePath?: string
@@ -245,7 +245,7 @@ export interface RunTuiActionOptions {
   renderHyperframesRender?: boolean
   renderHyperframesValidate?: boolean
   renderOutputPath?: string
-  renderRenderer: ProjectRenderer
+  renderRenderer?: ProjectRenderer
   renderSourceVolume?: number
   renderSubtitles?: boolean
   renderVoiceoverVolume?: number
@@ -637,6 +637,7 @@ export function formatTuiActionResult(result: TuiActionResult): string {
       `Errors: ${result.report.summary.errors}`,
       `Warnings: ${result.report.summary.warnings}`,
       `Pipeline: ${result.report.pipeline.errors} errors, ${result.report.pipeline.warnings} warnings`,
+      `Content: ${result.report.content.errors} errors, ${result.report.content.warnings} warnings`,
       `Render: ${formatQualityRenderSummary(result.report.render)}`,
       `Artifacts: ${result.report.artifacts.ok ? 'ok' : 'not ok'} (${result.report.artifacts.summary.changed} changed, ${result.report.artifacts.summary.missing} missing, ${result.report.artifacts.summary.schemaInvalid} schema invalid, ${result.report.artifacts.summary.untracked} untracked)`,
       `Details: ${result.report.qualityReport === undefined && result.report.renderOutput === undefined ? 'not included' : 'included'}`,

@@ -115,8 +115,23 @@ export async function renderProject(projectId: string, options: RenderProjectOpt
     projectId,
     workspaceDir: options.workspaceDir,
   })
+  const renderer = options.renderer ?? await inferProjectRenderer(workspace)
 
-  return (options.renderer ?? 'ffmpeg') === 'hyperframes' ? renderProjectWithHyperframes(workspace, options) : renderProjectWithFfmpeg(workspace, options)
+  return renderer === 'hyperframes' ? renderProjectWithHyperframes(workspace, options) : renderProjectWithFfmpeg(workspace, options)
+}
+
+async function inferProjectRenderer(workspace: Awaited<ReturnType<typeof createProjectWorkspace>>): Promise<ProjectRenderer> {
+  try {
+    const storyboard = StoryboardSchema.parse(await workspace.store.readJson('storyboard.json'))
+
+    return storyboard.scenes.length > 0 && storyboard.scenes.every((scene) => scene.visualStyle === 'slide_explainer') ? 'hyperframes' : 'ffmpeg'
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return 'ffmpeg'
+    }
+
+    throw error
+  }
 }
 
 export async function inspectFfmpegAudio(projectId: string, options: RenderProjectOptions = {}): Promise<FfmpegAudioDiagnostics> {

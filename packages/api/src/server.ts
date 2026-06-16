@@ -932,6 +932,7 @@ function renderStudioHtml(): string {
         <div class="control-grid">
           <label class="control">Renderer
             <select id="render-renderer">
+              <option value="">auto</option>
               <option value="ffmpeg">ffmpeg</option>
               <option value="hyperframes">hyperframes</option>
             </select>
@@ -965,6 +966,7 @@ function renderStudioHtml(): string {
           </label>
           <label class="control">Export format
             <select id="export-format">
+              <option value="">auto</option>
               <option value="video">video</option>
               <option value="hyperframes">hyperframes</option>
               <option value="bundle">bundle</option>
@@ -1164,9 +1166,9 @@ function renderStudioHtml(): string {
         audioDucking: byId("render-audio-ducking").checked,
         hyperframesRender: byId("render-hf-render").checked,
         hyperframesValidate: byId("render-hf-validate").checked,
-        renderer: byId("render-renderer").value,
         subtitles: byId("render-subtitles").checked,
       };
+      maybe(options, "renderer", optionalString("render-renderer"));
       maybe(options, "sourceVolume", optionalNumber("render-source-volume"));
       maybe(options, "voiceoverVolume", optionalNumber("render-voiceover-volume"));
       maybe(options, "hyperframesCommand", optionalStringArray("render-hf-command"));
@@ -1176,9 +1178,9 @@ function renderStudioHtml(): string {
     const readExportOptions = () => {
       const options = {
         cleanOutput: byId("export-clean-output").checked,
-        format: byId("export-format").value,
         requireQuality: byId("export-require-quality").checked,
       };
+      maybe(options, "format", optionalString("export-format"));
       maybe(options, "outputPath", optionalString("export-output"));
       return options;
     };

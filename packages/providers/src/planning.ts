@@ -22,7 +22,15 @@ export class DeterministicStoryboardProvider implements StoryboardProvider {
 
 export class DeterministicScriptProvider implements ScriptProvider {
   async createNarration(input: ScriptProviderInput) {
-    return NarrationSchema.parse(createNarrationFromClipPlan(input.storyboard, input.clipPlan))
+    const narration = createNarrationFromClipPlan(input.storyboard, input.clipPlan)
+
+    return NarrationSchema.parse({
+      ...narration,
+      segments: narration.segments.map((segment, index) => ({
+        ...segment,
+        text: createExplainerNarrationText(segment.text, index),
+      })),
+    })
   }
 }
 
@@ -36,12 +44,16 @@ export class LLMStoryboardProvider implements StoryboardProvider {
           content: JSON.stringify({
             goal: 'Create concise video storyboard JSON. Return only data that matches the provided schema.',
             instructions: [
-              'Create a StoryboardIR for the video.',
-              'When longVideo.selectedMoments is present, build storyboard scenes from those moments first.',
+              'Create a StoryboardIR for a text-driven explainer video, similar to a slide-by-slide PPT walkthrough over the source footage.',
+              'When longVideo.selectedMoments is present, create one storyboard scene for each selected moment unless two adjacent moments are duplicates.',
+              'Do not collapse all selected moments into one full-length scene.',
               'Use scene IDs from sceneAnalysis or transcript-derived order.',
               'Keep sourceRange within media duration when present.',
+              'Keep each scene duration equal to its sourceRange length.',
               'Preserve selected moment sourceRange values and evidence refs such as chunks/000/vlm.json when useful.',
               'Use evidence refs transcript.json and scene-analysis.json only when selected moment evidence is unavailable.',
+              'Use visualStyle "slide_explainer" for scenes that primarily explain text or app concepts.',
+              'Write concise scene narration that explains the key point; do not paste the raw transcript wholesale.',
             ],
             longVideo: summarizeLongVideoPlanning(input),
             mediaInfo: summarizeMediaInfo(input.mediaInfo),
@@ -74,6 +86,9 @@ export class LLMScriptProvider implements ScriptProvider {
               'Preserve sceneId links.',
               'Keep segment start and duration aligned with clipPlan clips.',
               'When longVideo.selectedMoments is present, use the selected moment summaries and evidence as primary script context.',
+              'Rewrite the source text into concise explainer narration, similar to speaker notes for PPT slides.',
+              'Do not copy a long raw transcript wholesale into one narration segment.',
+              'Keep each narration text focused on one key point and suitable for TTS.',
             ],
             longVideo: summarizeLongVideoPlanning(input),
             storyboard: input.storyboard,
@@ -108,7 +123,7 @@ function createStoryboardFromSelectedMoments(input: StoryboardProviderInput): St
       narration: moment.summary,
       sourceRange,
       start: timelineStart,
-      visualStyle: 'documentary',
+      visualStyle: 'slide_explainer',
     }
 
     timelineStart += duration
@@ -122,6 +137,16 @@ function createStoryboardFromSelectedMoments(input: StoryboardProviderInput): St
     targetPlatform: 'generic',
     version: 1,
   }
+}
+
+function createExplainerNarrationText(value: string, index: number): string {
+  const text = value.replaceAll(/\s+/g, ' ').trim()
+
+  if (/^第\s*\d+\s*页[：:]/.test(text)) {
+    return text
+  }
+
+  return `第 ${index + 1} 页：${text}`
 }
 
 function normalizeSourceRange(range: [number, number], sourceDuration: number | undefined): [number, number] {

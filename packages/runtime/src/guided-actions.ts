@@ -133,7 +133,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
     createGuidedAction(commandPrefix, {
       args: ['tui', '--project', projectId, '--action', 'quality', '--workspace', options.workspaceDir],
       category: 'inspect',
-      description: 'Inspect aggregate project quality and deliverability diagnostics.',
+      description: 'Inspect aggregate project quality, content structure, and deliverability diagnostics.',
       id: 'inspect-quality',
       label: 'Inspect quality',
       priority: 35,
@@ -141,7 +141,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
     createGuidedAction(commandPrefix, {
       args: ['tui', '--project', projectId, '--action', 'quality', '--quality-details', '--json', '--workspace', options.workspaceDir],
       category: 'inspect',
-      description: 'Inspect aggregate quality with raw quality-report and render-output details.',
+      description: 'Inspect aggregate quality with content issues plus raw quality-report and render-output details.',
       id: 'inspect-quality-details',
       label: 'Inspect quality details',
       priority: 36,
@@ -181,9 +181,9 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
     createGuidedAction(commandPrefix, {
       args: ['tui', '--project', projectId, '--action', 'render', '--workspace', options.workspaceDir],
       category: 'render',
-      description: 'Render the focused project with the default renderer settings.',
+      description: 'Render the focused project with auto renderer selection; slide explainers use HyperFrames.',
       id: 'render-final-video',
-      label: 'Render final video',
+      label: 'Render output',
       priority: 60,
     }),
     createGuidedAction(commandPrefix, {
