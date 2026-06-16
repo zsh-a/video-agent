@@ -10,8 +10,8 @@ import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
-import {appendFile, mkdir} from 'node:fs/promises'
-import {join, resolve} from 'node:path'
+import {appendFile, mkdir, readdir} from 'node:fs/promises'
+import {basename, dirname, join, resolve} from 'node:path'
 
 import {refreshArtifactManifest} from './artifact-store.js'
 import {verifyProjectArtifacts} from './artifacts.js'
@@ -106,6 +106,7 @@ type InitialStageInput = IngestOutput | InitialPipelineInput | PlanOutput | Scri
 type InitialStageOutput = IngestOutput | PlanOutput | QualityOutput | ScriptOutput | UnderstandOutput | VoiceoverOutput
 
 const STAGES: readonly InitialPipelineStage[] = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']
+const ANALYSIS_FRAME_FPS = 1
 
 const CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
   ingest: [],
@@ -307,7 +308,7 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
       await emitStep(ctx, {data: summarizeMediaInfo(mediaInfo), message: 'Media probe completed.', stage: 'ingest', step: 'probe-media'})
       await emitStep(ctx, {data: {framePattern}, message: 'Extracting analysis frames.', stage: 'ingest', step: 'extract-frames'})
       await mkdir(initial.workspace.framesDir, {recursive: true})
-      await extractFrames(initial.inputPath, framePattern)
+      await extractFrames(initial.inputPath, framePattern, ANALYSIS_FRAME_FPS)
       await emitStep(ctx, {data: {duration: previewDuration, outputPath: artifacts.preview}, message: 'Creating preview render.', stage: 'ingest', step: 'create-preview'})
       await createPreview(initial.inputPath, artifacts.preview, previewDuration)
       await emitArtifact(ctx, 'ingest', artifacts.preview, 'video')
@@ -367,7 +368,8 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         unit: 'segments',
       })
       await emitStep(ctx, {data: summarizeTranscriptForLog(transcript), message: 'Transcript completed.', stage: 'understand', step: 'asr'})
-      const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, ingest.artifacts.frames)
+      const analysisFrames = await listExtractedAnalysisFrames(ingest.artifacts.frames, ANALYSIS_FRAME_FPS)
+      const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, analysisFrames.length > 0 ? analysisFrames : ingest.artifacts.frames)
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
       const sceneAnalysis = VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches))
       await emitProgress(ctx, {
@@ -394,14 +396,113 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
   }
 }
 
-export function createSceneFrameBatchesFromTranscript(transcript: Transcript, mediaInfo: MediaInfo, framePattern?: string): SceneFrameBatch[] {
-  const frames = framePattern === undefined ? [] : [framePattern]
+export interface ExtractedAnalysisFrame {
+  path: string
+  timestamp: number
+}
 
+export function createSceneFrameBatchesFromTranscript(transcript: Transcript, mediaInfo: MediaInfo, frameSource?: ExtractedAnalysisFrame[] | string): SceneFrameBatch[] {
   return createSceneBoundariesFromTranscript(transcript, mediaInfo.duration ?? 0).map((boundary): SceneFrameBatch => ({
-    frames,
+    frames: selectSceneFramePaths(frameSource, boundary.start, boundary.end),
     sceneId: boundary.id,
     timeRange: [boundary.start, boundary.end],
   }))
+}
+
+async function listExtractedAnalysisFrames(framePattern: string | undefined, fps: number): Promise<ExtractedAnalysisFrame[]> {
+  if (framePattern === undefined) {
+    return []
+  }
+
+  const parsed = parseFfmpegFramePattern(framePattern)
+
+  if (parsed === undefined) {
+    return []
+  }
+
+  let entries: string[]
+
+  try {
+    entries = await readdir(parsed.directory)
+  } catch {
+    return []
+  }
+
+  const frames = entries
+    .map((entry) => parseExtractedFrame(entry, parsed))
+    .filter((frame): frame is {index: number; path: string} => frame !== undefined)
+    .sort((a, b) => a.index - b.index)
+
+  const firstIndex = frames[0]?.index
+
+  if (firstIndex === undefined) {
+    return []
+  }
+
+  return frames.map((frame) => ({
+    path: frame.path,
+    timestamp: (frame.index - firstIndex) / fps,
+  }))
+}
+
+function selectSceneFramePaths(frameSource: ExtractedAnalysisFrame[] | string | undefined, start: number, end: number): string[] {
+  if (frameSource === undefined) {
+    return []
+  }
+
+  if (typeof frameSource === 'string') {
+    return [frameSource]
+  }
+
+  const selected = frameSource
+    .filter((frame) => frame.timestamp >= start && frame.timestamp < end)
+    .map((frame) => frame.path)
+
+  if (selected.length > 0) {
+    return selected
+  }
+
+  const fallback = frameSource.find((frame) => frame.timestamp >= start) ?? frameSource.at(-1)
+
+  return fallback === undefined ? [] : [fallback.path]
+}
+
+interface ParsedFramePattern {
+  directory: string
+  pattern: RegExp
+}
+
+function parseFfmpegFramePattern(framePattern: string): ParsedFramePattern | undefined {
+  const fileName = basename(framePattern)
+  const match = /^(.*)%0?\d*d(.*)$/.exec(fileName)
+
+  if (match === null) {
+    return undefined
+  }
+
+  const [, prefix, suffix] = match
+
+  return {
+    directory: dirname(framePattern),
+    pattern: new RegExp(`^${escapeRegExp(prefix)}(\\d+)${escapeRegExp(suffix)}$`),
+  }
+}
+
+function parseExtractedFrame(entry: string, parsed: ParsedFramePattern): {index: number; path: string} | undefined {
+  const match = parsed.pattern.exec(entry)
+
+  if (match?.[1] === undefined) {
+    return undefined
+  }
+
+  return {
+    index: Number(match[1]),
+    path: join(parsed.directory, entry),
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function createPlanStage(): Stage<InitialStageInput, InitialStageOutput> {

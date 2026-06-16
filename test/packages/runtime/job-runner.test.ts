@@ -47,6 +47,48 @@ describe('job runner', () => {
     ])
   })
 
+  it('assigns extracted VLM frames to scene timing windows', () => {
+    const batches = createSceneFrameBatchesFromTranscript({
+      segments: [
+        {
+          end: 2,
+          start: 0,
+          text: 'Opening.',
+        },
+        {
+          end: 4,
+          start: 2,
+          text: 'Ending.',
+        },
+      ],
+      text: 'Opening. Ending.',
+    }, {
+      duration: 4,
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-15T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    }, [
+      {path: 'frames/frame_00001.jpg', timestamp: 0},
+      {path: 'frames/frame_00002.jpg', timestamp: 1},
+      {path: 'frames/frame_00003.jpg', timestamp: 2},
+      {path: 'frames/frame_00004.jpg', timestamp: 3},
+    ])
+
+    expect(batches).to.deep.equal([
+      {
+        frames: ['frames/frame_00001.jpg', 'frames/frame_00002.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 2],
+      },
+      {
+        frames: ['frames/frame_00003.jpg', 'frames/frame_00004.jpg'],
+        sceneId: 'scene-2',
+        timeRange: [2, 4],
+      },
+    ])
+  })
+
   it('runs the initial pipeline when ffmpeg and ffprobe are available', async () => {
     if (!(await hasMediaTools())) {
       return

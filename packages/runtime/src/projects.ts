@@ -47,5 +47,9 @@ export async function listProjects(workspaceDir = '.video-agent'): Promise<Proje
       }),
   )
 
-  return projects.sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+  return projects.sort((a, b) => {
+    const updatedAtOrder = (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+
+    return updatedAtOrder === 0 ? a.projectId.localeCompare(b.projectId) : updatedAtOrder
+  })
 }

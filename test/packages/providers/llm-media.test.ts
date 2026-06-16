@@ -1,18 +1,86 @@
 import {expect} from '#test/expect'
 import {writeText} from '#test/fs'
-import {mkdtemp, readFile, rm} from 'node:fs/promises'
+import {mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import type {GenerateTextRequest, LLMClient} from '../../../packages/llm/src/index.js'
+import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMMessage} from '../../../packages/llm/src/index.js'
 
 import {MIMO_PROVIDER_MODEL_IDS, readProviderMetadata} from '../../../packages/providers/src/index.js'
 import {createTtsProvider} from '../../../packages/providers/src/registry.js'
-import {MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '../../../packages/providers/src/llm-media.js'
+import {LLMVLMProvider, MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '../../../packages/providers/src/llm-media.js'
 
 const asrOptionsKey = 'asr_options'
 
 describe('LLM media providers', () => {
+  it('sends sampled scene frames through the LLM VLM provider', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-vlm-'))
+    const framePath = join(root, 'frame_00001.jpg')
+    let request: GenerateObjectRequest<unknown> | undefined
+
+    try {
+      await writeFile(framePath, Buffer.from('fake-jpeg'))
+
+      const scenes = await new LLMVLMProvider({
+        async generateObject(input) {
+          request = input as GenerateObjectRequest<unknown>
+
+          return {
+            object: [
+              {
+                description: 'A generated visual scene.',
+                evidence: [framePath],
+                sceneId: 'scene-1',
+              },
+            ],
+            usage: {
+              inputTokens: 12,
+              outputTokens: 4,
+              totalTokens: 16,
+            },
+          }
+        },
+        async generateText() {
+          throw new Error('Not used by this test.')
+        },
+        streamText() {
+          throw new Error('Not used by this test.')
+        },
+      } satisfies LLMClient).analyzeScenes([
+        {
+          frames: [framePath],
+          sceneId: 'scene-1',
+          timeRange: [0, 1],
+        },
+      ], 'test visual context')
+
+      const message = request?.messages?.[0] as LLMMessage | undefined
+      const content = Array.isArray(message?.content) ? message.content : []
+      const textPart = content.find((part) => part.type === 'text')
+      const imagePart = content.find((part) => part.type === 'file')
+
+      expect(scenes).to.deep.equal([
+        {
+          description: 'A generated visual scene.',
+          evidence: [framePath],
+          sceneId: 'scene-1',
+        },
+      ])
+      expect(textPart?.type === 'text' ? JSON.parse(textPart.text) : undefined).to.include({
+        context: 'test visual context',
+        goal: 'Create visual scene analysis JSON. Return only data matching the schema.',
+      })
+      expect(imagePart).to.include({
+        filename: 'frame_00001.jpg',
+        mediaType: 'image/jpeg',
+        type: 'file',
+      })
+      expect(imagePart?.type === 'file' && typeof imagePart.data === 'string' ? imagePart.data : undefined).to.equal('data:image/jpeg;base64,ZmFrZS1qcGVn')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('synthesizes whole-window timestamps when MiMo ASR returns plain text', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-asr-'))
     const audioPath = join(root, 'source.wav')

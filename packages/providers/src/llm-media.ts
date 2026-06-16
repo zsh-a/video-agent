@@ -1,4 +1,4 @@
-import type {LLMClient, LLMUsage} from '@video-agent/llm'
+import type {LLMClient, LLMMessage, LLMUsage} from '@video-agent/llm'
 
 import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -19,6 +19,7 @@ export const MIMO_TTS_BASE_URL = MIMO_PROVIDER_BASE_URL
 export const MIMO_TTS_DEFAULT_VOICE = 'mimo_default'
 export const MIMO_TTS_MODEL = MIMO_PROVIDER_MODEL_IDS.tts
 export const MIMO_ASR_DEFAULT_SEGMENT_SECONDS = 30
+const MAX_VLM_IMAGE_PARTS = 16
 
 export class LLMASRProvider implements ASRProvider {
   constructor(private readonly llm: LLMClient) {}
@@ -166,21 +167,7 @@ export class LLMVLMProvider implements VLMProvider {
 
   async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
     const result = await this.llm.generateObject({
-      messages: [
-        {
-          content: JSON.stringify({
-            context,
-            goal: 'Create visual scene analysis JSON. Return only data matching the schema.',
-            instructions: [
-              'Return one scene entry for each input batch.',
-              'Preserve sceneId values exactly.',
-              'Use frame paths as evidence when they support the description.',
-            ],
-            sceneBatches: input,
-          }),
-          role: 'user',
-        },
-      ],
+      messages: await createVlmMessages(input, context),
       schema: VlmScenesSchema,
       temperature: 0.2,
     })
@@ -188,6 +175,65 @@ export class LLMVLMProvider implements VLMProvider {
     return attachProviderMetadata(VlmScenesSchema.parse(result.object), {
       usage: result.usage,
     })
+  }
+}
+
+async function createVlmMessages(input: SceneFrameBatch[], context?: string): Promise<LLMMessage[]> {
+  const sampledFramePaths = sampleVlmFramePaths(input)
+  const imageParts = await Promise.all(sampledFramePaths.map(async (path) => createVlmImagePart(path)))
+  const content = [
+    {
+      text: JSON.stringify({
+        context,
+        goal: 'Create visual scene analysis JSON. Return only data matching the schema.',
+        instructions: [
+          'Return one scene entry for each input batch.',
+          'Preserve sceneId values exactly.',
+          'Use attached images and frame paths as evidence when they support the description.',
+          'Use seconds for time ranges and do not invent scene ids.',
+        ],
+        sampledFrames: sampledFramePaths,
+        sceneBatches: input,
+      }),
+      type: 'text' as const,
+    },
+    ...imageParts.filter((part): part is NonNullable<typeof part> => part !== undefined),
+  ]
+
+  return [
+    {
+      content,
+      role: 'user',
+    },
+  ] as LLMMessage[]
+}
+
+function sampleVlmFramePaths(input: SceneFrameBatch[]): string[] {
+  const framePaths = Array.from(new Set(input.flatMap((batch) => batch.frames)))
+
+  if (framePaths.length <= MAX_VLM_IMAGE_PARTS) {
+    return framePaths
+  }
+
+  const lastIndex = framePaths.length - 1
+
+  return Array.from({length: MAX_VLM_IMAGE_PARTS}, (_, index) => framePaths[Math.round((index * lastIndex) / (MAX_VLM_IMAGE_PARTS - 1))])
+    .filter((path): path is string => path !== undefined)
+}
+
+async function createVlmImagePart(path: string): Promise<{data: string; filename: string; mediaType: string; type: 'file'} | undefined> {
+  try {
+    const image = await bunFile(path).bytes()
+    const mediaType = resolveImageMimeType(path)
+
+    return {
+      data: createFileDataUri(image, mediaType),
+      filename: posix.basename(path),
+      mediaType,
+      type: 'file',
+    }
+  } catch {
+    return undefined
   }
 }
 
@@ -623,6 +669,18 @@ function resolveAudioMimeType(input: MediaInput): string {
   return 'audio/wav'
 }
 
+function resolveImageMimeType(path: string): string {
+  const ext = extname(path).toLowerCase().slice(1)
+  const mimeTypes: Record<string, string> = {
+    jpeg: 'image/jpeg',
+    jpg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+  }
+
+  return mimeTypes[ext] ?? 'image/jpeg'
+}
+
 function normalizeBaseURL(value: string): string {
   const trimmed = value.trim()
 
@@ -659,7 +717,11 @@ function sanitizePathSegment(value: string): string {
 }
 
 function createAudioDataUri(audio: Uint8Array, mediaType: string): string {
-  return `data:${mediaType};base64,${Buffer.from(audio).toString('base64')}`
+  return createFileDataUri(audio, mediaType)
+}
+
+function createFileDataUri(data: Uint8Array, mediaType: string): string {
+  return `data:${mediaType};base64,${Buffer.from(data).toString('base64')}`
 }
 
 function inferLanguage(text: string): string | undefined {
