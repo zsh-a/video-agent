@@ -406,7 +406,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         unit: 'segments',
       })
       await emitStep(ctx, {data: summarizeTranscriptForLog(transcript), message: 'Transcript completed.', stage: 'understand', step: 'asr'})
-      const analysisFrames = await listExtractedAnalysisFrames(ingest.artifacts.frames, ingest.chunkPlan.defaults.frameSampleFps)
+      const analysisFrames = await readAnalysisFrames(ingest)
       const sceneBatches = createSceneFrameBatchesFromTranscript(transcript, ingest.mediaInfo, analysisFrames.length > 0 ? analysisFrames : ingest.artifacts.frames, {
         maxFramesPerBatch: ingest.chunkPlan.defaults.vlmBatchSize,
         mediaDuration: ingest.chunkPlan.sourceDuration,
@@ -659,6 +659,18 @@ async function readCachedChunkTranscript(ingest: IngestOutput, chunk: LongVideoC
   } catch {
     return undefined
   }
+}
+
+async function readAnalysisFrames(ingest: IngestOutput): Promise<ExtractedAnalysisFrame[]> {
+  if (ingest.artifacts.analysisFrames !== undefined && await bunFile(ingest.artifacts.analysisFrames).exists()) {
+    try {
+      return LongVideoAnalysisFramesSchema.parse(await ingest.workspace.store.readJson('frames.json')).frames
+    } catch {
+      return []
+    }
+  }
+
+  return listExtractedAnalysisFrames(ingest.artifacts.frames, ingest.chunkPlan.defaults.frameSampleFps)
 }
 
 function shouldChunkAsr(ingest: IngestOutput): boolean {
@@ -1658,7 +1670,24 @@ async function findMissingCheckpointSideArtifacts(workspace: ProjectWorkspace, c
     missing.push(formatCheckpointPath(workspace, ingestReport.artifacts.frames))
   }
 
+  missing.push(...await findMissingAnalysisFrameFiles(workspace, checkpointArtifacts))
+
   return missing
+}
+
+async function findMissingAnalysisFrameFiles(workspace: ProjectWorkspace, checkpointArtifacts: readonly string[]): Promise<string[]> {
+  if (!checkpointArtifacts.includes('frames.json') || !await bunFile(workspace.store.resolve('frames.json')).exists()) {
+    return []
+  }
+
+  try {
+    const manifest = LongVideoAnalysisFramesSchema.parse(await workspace.store.readJson('frames.json'))
+    const missing = await Promise.all(manifest.frames.map(async (frame) => await bunFile(frame.path).exists() ? null : formatCheckpointPath(workspace, frame.path)))
+
+    return missing.filter((path): path is string => path !== null)
+  } catch {
+    return []
+  }
 }
 
 async function hasExtractedAnalysisFrames(framePattern: string): Promise<boolean> {

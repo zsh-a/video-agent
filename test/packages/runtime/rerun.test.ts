@@ -191,6 +191,58 @@ describe('rerun project', () => {
     }
   })
 
+  it('fails with a checkpoint error when analysis frame manifest entries are missing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
+    const projectDir = join(root, 'projects', 'demo')
+    const artifactsDir = join(projectDir, 'artifacts')
+    const inputPath = join(root, 'input.mp4')
+
+    try {
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(inputPath, 'placeholder')
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath,
+        projectId: 'demo',
+        stages: ['understand'],
+      })
+      await writeRequiredArtifacts(artifactsDir, inputPath)
+      await writeText(
+        join(artifactsDir, 'frames.json'),
+        `${JSON.stringify({
+          frameCount: 1,
+          framePattern: join(projectDir, 'frames', 'frame_%05d.jpg'),
+          frames: [
+            {
+              path: join(projectDir, 'frames', 'frame_00001.jpg'),
+              timestamp: 0,
+            },
+          ],
+          sampleFps: 1,
+          source: inputPath,
+          version: 1,
+        })}\n`,
+      )
+      await refreshArtifactManifest(artifactsDir)
+
+      let error: unknown
+
+      try {
+        await rerunProject('demo', {
+          fromStage: 'understand',
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
+      }
+
+      expect(error).to.be.instanceOf(PipelineCheckpointError)
+      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['frames/frame_00001.jpg'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('fails with a checkpoint error when per-chunk artifacts are missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
     const projectDir = join(root, 'projects', 'demo')
