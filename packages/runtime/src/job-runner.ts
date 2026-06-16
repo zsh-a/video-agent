@@ -473,13 +473,16 @@ async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineContext)
   /* eslint-disable no-await-in-loop */
   for (const chunk of ingest.chunkPlan.chunks) {
     const chunkAudioPath = join(ingest.workspace.audioDir, 'asr', `${String(chunk.index).padStart(3, '0')}.wav`)
+    const analysisDuration = chunk.analysisRange[1] - chunk.analysisRange[0]
 
     await mkdir(dirname(chunkAudioPath), {recursive: true})
-    await extractAudioSegment(ingest.artifacts.sourceAudio as string, chunkAudioPath, chunk.contentRange[0], chunk.duration)
-    transcripts.push(offsetChunkTranscript(TranscriptSchema.parse(await ingest.providers.asr.transcribe({
-      duration: chunk.duration,
+    await extractAudioSegment(ingest.artifacts.sourceAudio as string, chunkAudioPath, chunk.analysisRange[0], analysisDuration)
+    const analysisTranscript = offsetChunkTranscript(TranscriptSchema.parse(await ingest.providers.asr.transcribe({
+      duration: analysisDuration,
       path: chunkAudioPath,
-    })), chunk.contentRange))
+    })), chunk.analysisRange)
+
+    transcripts.push(createChunkTranscript(analysisTranscript, chunk.contentRange))
   }
   /* eslint-enable no-await-in-loop */
 
@@ -743,7 +746,7 @@ function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, tr
   const sceneRanges = createSceneBoundariesFromTranscript(transcript, chunkPlan.sourceDuration)
   const chunkArtifacts = chunkPlan.chunks.map((chunk): LongVideoChunkArtifact => {
     const chunkTranscript = createChunkTranscript(transcript, chunk.contentRange)
-    const chunkVlm = createChunkVlmScenes(sceneAnalysis, sceneRanges, chunk.contentRange)
+    const chunkVlm = createChunkVlmScenes(sceneAnalysis, sceneRanges, chunk.analysisRange)
     const transcriptSummary = summarizeTranscript(chunkTranscript)
     const visualSummary = summarizeVisualScenes(chunkVlm)
     const keyMoment = createChunkMoment(chunk.id, chunk.contentRange, chunk.artifactPrefix, transcriptSummary, visualSummary)
@@ -871,7 +874,7 @@ export function createSilenceRanges(transcript: Transcript, range: [number, numb
   return silenceRanges
 }
 
-function createChunkVlmScenes(sceneAnalysis: VLMScene[], sceneRanges: Array<{end: number; start: number}>, range: [number, number]): VLMScene[] {
+export function createChunkVlmScenes(sceneAnalysis: VLMScene[], sceneRanges: Array<{end: number; start: number}>, range: [number, number]): VLMScene[] {
   const scenes = sceneAnalysis.filter((_, index) => {
     const sceneRange = sceneRanges[index]
 

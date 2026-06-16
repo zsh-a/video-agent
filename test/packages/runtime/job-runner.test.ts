@@ -7,7 +7,7 @@ import {join} from 'node:path'
 
 import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
-import {createChunkTranscript, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
+import {createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
 
 describe('job runner', () => {
   it('creates VLM scene batches from transcript segment timing', () => {
@@ -206,6 +206,88 @@ describe('job runner', () => {
     })
   })
 
+  it('uses overlapped analysis ASR ranges without overlapping chunk transcript timings', () => {
+    const firstAnalysis = createChunkTranscript(offsetChunkTranscript({
+      language: 'zh-CN',
+      segments: [
+        {
+          end: 2,
+          start: 0,
+          text: 'First content.',
+        },
+        {
+          end: 5.5,
+          start: 4,
+          text: 'Overlap context.',
+        },
+      ],
+      text: 'First content. Overlap context.',
+    }, [0, 6]), [0, 5])
+    const secondAnalysis = createChunkTranscript(offsetChunkTranscript({
+      language: 'zh-CN',
+      segments: [
+        {
+          end: 1.5,
+          start: 0,
+          text: 'Overlap context.',
+        },
+        {
+          end: 5,
+          start: 2,
+          text: 'Second content.',
+        },
+      ],
+      text: 'Overlap context. Second content.',
+    }, [4, 10]), [5, 10])
+
+    expect(firstAnalysis.segments).to.deep.equal([
+      {
+        end: 2,
+        start: 0,
+        text: 'First content.',
+      },
+      {
+        end: 5,
+        start: 4,
+        text: 'Overlap context.',
+      },
+    ])
+    expect(secondAnalysis.segments).to.deep.equal([
+      {
+        end: 5.5,
+        start: 5,
+        text: 'Overlap context.',
+      },
+      {
+        end: 9,
+        start: 6,
+        text: 'Second content.',
+      },
+    ])
+    expect(mergeChunkTranscripts([firstAnalysis, secondAnalysis]).segments).to.deep.equal([
+      {
+        end: 2,
+        start: 0,
+        text: 'First content.',
+      },
+      {
+        end: 5,
+        start: 4,
+        text: 'Overlap context.',
+      },
+      {
+        end: 5.5,
+        start: 5,
+        text: 'Overlap context.',
+      },
+      {
+        end: 9,
+        start: 6,
+        text: 'Second content.',
+      },
+    ])
+  })
+
   it('derives silence ranges from transcript gaps inside a chunk', () => {
     expect(createSilenceRanges({
       segments: [
@@ -267,6 +349,48 @@ describe('job runner', () => {
       text: 'Crosses left boundary.\nCrosses right boundary.',
       timestampConfidence: 'exact',
     })
+  })
+
+  it('uses chunk analysis ranges to include overlapping VLM scene context', () => {
+    const sceneAnalysis = [
+      {
+        description: 'First chunk context.',
+        evidence: [],
+        sceneId: 'scene-1',
+      },
+      {
+        description: 'Boundary context.',
+        evidence: [],
+        sceneId: 'scene-2',
+      },
+      {
+        description: 'Outside context.',
+        evidence: [],
+        sceneId: 'scene-3',
+      },
+    ]
+    const sceneRanges = [
+      {
+        end: 4,
+        start: 0,
+      },
+      {
+        end: 5.5,
+        start: 4.5,
+      },
+      {
+        end: 8,
+        start: 6,
+      },
+    ]
+
+    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 5])).to.deep.equal([
+      sceneAnalysis[0],
+      sceneAnalysis[1],
+    ])
+    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 4])).to.deep.equal([
+      sceneAnalysis[0],
+    ])
   })
 
   it('rejects VLM scene analysis that does not match input batches', () => {

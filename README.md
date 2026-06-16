@@ -76,7 +76,7 @@ bun run dev render <projectId>
 bun run dev export <projectId> --output ./final.mp4
 ```
 
-Long-video work is chunk-first at the artifact boundary. The shared IR and core contracts include a long-video chunk plan with defaults of 5 minute chunks, 10 second overlap, 1 fps preview sampling, 0.2 fps VLM sampling, scene detection enabled, ASR chunking enabled, and VLM batches of 16 frames. Runtime ingest writes `chunk-plan.json`; understanding writes top-level `chunk-summaries.json`, `chapters.json`, `global-outline.json`, and `selected-moments.json` plus per-chunk `summary.json`, `silence.json`, `transcript.json`, and `vlm.json` under `chunks/NNN`. Planning and scripting consume the selected moments and chunk context before producing `clip-plan.json`, `narration.json`, and `timeline.json`.
+Long-video work is chunk-first at the artifact boundary. The shared IR and core contracts include a long-video chunk plan with defaults of 5 minute chunks, 10 second overlap, 1 fps preview sampling, 0.2 fps VLM sampling, scene detection enabled, ASR chunking enabled, and VLM batches of 16 frames. Runtime ingest writes `chunk-plan.json`; understanding uses chunk analysis ranges for ASR/VLM context and writes top-level `chunk-summaries.json`, `chapters.json`, `global-outline.json`, and `selected-moments.json` plus per-chunk `summary.json`, `silence.json`, `transcript.json`, and `vlm.json` under `chunks/NNN`. Planning and scripting consume the selected moments and chunk context before producing `clip-plan.json`, `narration.json`, and `timeline.json`.
 
 Inspect artifacts and quality:
 

@@ -167,7 +167,7 @@ raw video
   -> timeline.json
 ```
 
-`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges. Runtime understanding writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. The current stage boundary is still `understand`; finer per-chunk retry/cache can be added without changing the artifact hierarchy.
+`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges. Runtime understanding uses analysis ranges for ASR/VLM context, clamps transcript output back to content ranges, writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. The current stage boundary is still `understand`; finer per-chunk retry/cache can be added without changing the artifact hierarchy.
 
 HyperFrames remains the visual storytelling renderer for page-based explainers and article/podcast-to-video flows. FFmpeg remains the media boundary for probe, extraction, streamcopy clipping, concat, muxing, progress reporting, loudness, subtitles, and final delivery. Remotion can be added later as a second renderer for React composition and chunk/cloud rendering; it should consume storyboard/timeline IR instead of owning understanding logic.
 
