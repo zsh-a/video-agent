@@ -400,14 +400,6 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       })
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
       const sceneAnalysis = await analyzeSceneBatches(ingest, sceneBatches, ctx)
-      await emitProgress(ctx, {
-        current: sceneAnalysis.length,
-        message: 'VLM scene batches completed.',
-        stage: 'understand',
-        step: 'vlm',
-        total: sceneBatches.length,
-        unit: 'segments',
-      })
       await emitStep(ctx, {data: summarizeVlmScenesForLog(sceneAnalysis), message: 'Visual scene analysis completed.', stage: 'understand', step: 'vlm'})
 
       const longVideoArtifacts = createLongVideoUnderstandingArtifacts(ingest.chunkPlan, transcript, sceneAnalysis)
@@ -463,6 +455,7 @@ export async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineC
   }
 
   const transcripts: Transcript[] = []
+  let completedChunks = 0
 
   await emitStep(ctx, {
     data: {
@@ -490,6 +483,15 @@ export async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineC
         step: 'asr-chunks',
       })
       transcripts.push(cachedTranscript)
+      completedChunks += 1
+      await emitProgress(ctx, {
+        current: completedChunks,
+        message: 'ASR audio chunks completed.',
+        stage: 'understand',
+        step: 'asr-chunks',
+        total: ingest.chunkPlan.chunks.length,
+        unit: 'chunks',
+      })
       continue
     }
 
@@ -508,6 +510,15 @@ export async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineC
     await ingest.workspace.store.writeJson(`${chunk.artifactPrefix}/transcript.json`, chunkTranscript)
     await emitArtifact(ctx, 'understand', ingest.workspace.store.resolve(`${chunk.artifactPrefix}/transcript.json`), 'json')
     transcripts.push(chunkTranscript)
+    completedChunks += 1
+    await emitProgress(ctx, {
+      current: completedChunks,
+      message: 'ASR audio chunks completed.',
+      stage: 'understand',
+      step: 'asr-chunks',
+      total: ingest.chunkPlan.chunks.length,
+      unit: 'chunks',
+    })
   }
   /* eslint-enable no-await-in-loop */
 
@@ -528,10 +539,26 @@ export async function analyzeSceneBatches(ingest: IngestOutput, sceneBatches: Sc
       stage: 'understand',
       step: 'vlm',
     })
+    await emitProgress(ctx, {
+      current: sceneBatches.length,
+      message: 'VLM scene batches completed from cache.',
+      stage: 'understand',
+      step: 'vlm',
+      total: sceneBatches.length,
+      unit: 'scenes',
+    })
     return validateVlmSceneAnalysis(sceneBatches, sceneBatches.map((batch) => cachedSceneAnalysis.get(batch.sceneId) as VLMScene))
   }
 
   if (cachedSceneAnalysis.size > 0) {
+    await emitProgress(ctx, {
+      current: cachedSceneAnalysis.size,
+      message: 'VLM scene batches reused from cache.',
+      stage: 'understand',
+      step: 'vlm',
+      total: sceneBatches.length,
+      unit: 'scenes',
+    })
     await emitStep(ctx, {
       data: {
         cachedScenes: cachedSceneAnalysis.size,
@@ -545,6 +572,14 @@ export async function analyzeSceneBatches(ingest: IngestOutput, sceneBatches: Sc
   }
 
   const freshSceneAnalysis = validateVlmSceneAnalysis(missingSceneBatches, VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(missingSceneBatches)))
+  await emitProgress(ctx, {
+    current: cachedSceneAnalysis.size + freshSceneAnalysis.length,
+    message: 'VLM scene batches completed.',
+    stage: 'understand',
+    step: 'vlm',
+    total: sceneBatches.length,
+    unit: 'scenes',
+  })
   const freshBySceneId = new Map(freshSceneAnalysis.map((scene) => [scene.sceneId, scene]))
   const mergedSceneAnalysis = sceneBatches.map((batch) => cachedSceneAnalysis.get(batch.sceneId) ?? freshBySceneId.get(batch.sceneId))
 

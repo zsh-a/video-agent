@@ -37,4 +37,4 @@ export interface Stage<I, O> {
   run(input: I, ctx: PipelineContext): Promise<O>
 }
 
-export type ProgressUnit = 'files' | 'frames' | 'seconds' | 'segments' | 'tokens'
+export type ProgressUnit = 'chunks' | 'files' | 'frames' | 'scenes' | 'seconds' | 'segments' | 'tokens'

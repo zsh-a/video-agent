@@ -296,6 +296,7 @@ describe('job runner', () => {
       workspaceDir: root,
     })
     let asrCalls = 0
+    const progressEvents: Array<{current?: number; step?: string; total?: number; type: string; unit?: string}> = []
 
     try {
       await workspace.store.writeJson('chunks/000/transcript.json', {
@@ -422,12 +423,38 @@ describe('job runner', () => {
         workspace,
       }, {
         artifactsDir: workspace.artifactsDir,
-        async emit() {},
+        async emit(event) {
+          if (event.type === 'stage:progress') {
+            progressEvents.push({
+              current: event.current,
+              step: event.step,
+              total: event.total,
+              type: event.type,
+              unit: event.unit,
+            })
+          }
+        },
         projectId: workspace.projectId,
         workspaceDir: workspace.workspaceDir,
       })
 
       expect(asrCalls).to.equal(0)
+      expect(progressEvents).to.deep.equal([
+        {
+          current: 1,
+          step: 'asr-chunks',
+          total: 2,
+          type: 'stage:progress',
+          unit: 'chunks',
+        },
+        {
+          current: 2,
+          step: 'asr-chunks',
+          total: 2,
+          type: 'stage:progress',
+          unit: 'chunks',
+        },
+      ])
       expect(transcript).to.deep.equal({
         language: 'zh-CN',
         segments: [
@@ -729,6 +756,7 @@ describe('job runner', () => {
       sceneId: 'scene-2',
     }
     let vlmCalls = 0
+    const progressEvents: Array<{current?: number; step?: string; total?: number; type: string; unit?: string}> = []
 
     try {
       await workspace.store.writeJson('scene-analysis.json', [
@@ -825,12 +853,38 @@ describe('job runner', () => {
         workspace,
       }, sceneBatches, {
         artifactsDir: workspace.artifactsDir,
-        async emit() {},
+        async emit(event) {
+          if (event.type === 'stage:progress') {
+            progressEvents.push({
+              current: event.current,
+              step: event.step,
+              total: event.total,
+              type: event.type,
+              unit: event.unit,
+            })
+          }
+        },
         projectId: workspace.projectId,
         workspaceDir: workspace.workspaceDir,
       })
 
       expect(vlmCalls).to.equal(1)
+      expect(progressEvents).to.deep.equal([
+        {
+          current: 1,
+          step: 'vlm',
+          total: 2,
+          type: 'stage:progress',
+          unit: 'scenes',
+        },
+        {
+          current: 2,
+          step: 'vlm',
+          total: 2,
+          type: 'stage:progress',
+          unit: 'scenes',
+        },
+      ])
       expect(sceneAnalysis).to.deep.equal([cachedFirstScene, freshSecondScene])
     } finally {
       await rm(root, {force: true, recursive: true})
