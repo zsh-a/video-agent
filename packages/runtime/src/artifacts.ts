@@ -123,6 +123,21 @@ const ExportOutputSchema = z.object({
   version: z.literal(1),
 }).passthrough()
 
+const VoiceoverPlanSchema = z.object({
+  generatedAt: z.string().min(1),
+  segments: z.array(z.object({
+    alignment: z.enum(['explicit-start', 'narration-id', 'narration-index', 'sequential']),
+    duration: z.number().nonnegative().optional(),
+    index: z.number().int().nonnegative(),
+    narrationId: z.string().min(1).optional(),
+    path: z.string().min(1).optional(),
+    resolvedPath: z.string().min(1).optional(),
+    start: z.number().nonnegative(),
+    status: z.enum(['available', 'invalid-path', 'missing']),
+  }).strict()),
+  version: z.literal(1),
+}).strict()
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
@@ -143,6 +158,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'timeline.json': TimelineSchema,
   'transcript.json': TranscriptSchema,
   'tts-segments.json': TtsSegmentsSchema,
+  'voiceover-plan.json': VoiceoverPlanSchema,
 }
 
 const NESTED_ARTIFACT_SCHEMAS: Array<{pattern: RegExp; schema: ZodType}> = [

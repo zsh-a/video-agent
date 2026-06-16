@@ -191,6 +191,35 @@ describe('project quality', () => {
     }
   })
 
+  it('counts schema-invalid voiceover plans as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeText(join(artifactsDir, 'voiceover-plan.json'), '{"version":1,"generatedAt":"","segments":[{"index":-1,"start":0,"alignment":"bad","status":"available"}]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['voiceover-plan.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts missing analysis frame references as project quality errors', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 
