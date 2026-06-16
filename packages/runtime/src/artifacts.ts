@@ -95,6 +95,24 @@ const QualityReportSchema = z.object({
   version: z.literal(1),
 }).passthrough()
 
+const IssueCountSchema = z.object({
+  errors: z.number().int().nonnegative(),
+  warnings: z.number().int().nonnegative(),
+}).passthrough()
+
+const RenderOutputSchema = z.object({
+  audioInputs: z.number().int().nonnegative().optional(),
+  audioQuality: IssueCountSchema.optional(),
+  completedAt: z.string().min(1).optional(),
+  outputPath: z.string().min(1).optional(),
+  outputQuality: IssueCountSchema.optional(),
+  renderer: z.enum(['ffmpeg', 'hyperframes']),
+  subtitleQuality: IssueCountSchema.optional(),
+  templateQuality: IssueCountSchema.optional(),
+  version: z.literal(1),
+  visualQuality: IssueCountSchema.optional(),
+}).passthrough()
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
@@ -106,6 +124,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
   'quality-report.json': QualityReportSchema,
+  'render-output.json': RenderOutputSchema,
   'scene-analysis.json': VlmScenesSchema,
   'scene-batches.json': SceneFrameBatchesSchema,
   'selected-moments.json': LongVideoSelectedMomentsSchema,

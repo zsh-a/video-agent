@@ -133,6 +133,35 @@ describe('project quality', () => {
     }
   })
 
+  it('counts schema-invalid render outputs as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeText(join(artifactsDir, 'render-output.json'), '{"renderer":"ffmpeg","version":1,"outputQuality":{"errors":-1,"warnings":0},"audioInputs":-1}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 0,
+      })
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['render-output.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts missing analysis frame references as project quality errors', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 
