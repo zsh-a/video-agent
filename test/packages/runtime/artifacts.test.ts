@@ -144,13 +144,15 @@ describe('artifacts', () => {
 
       await mkdir(artifactsDir, {recursive: true})
       await writeText(join(artifactsDir, 'chunk-plan.json'), '{"version":1,"source":"/tmp/long.mp4","sourceDuration":10,"defaults":{"chunkDuration":0},"chunks":[]}\n')
+      await writeText(join(artifactsDir, 'frames.json'), '{"version":1,"source":"/tmp/long.mp4","framePattern":"frames/frame_%05d.jpg","sampleFps":1,"frameCount":2,"frames":[]}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const result = await verifyProjectArtifacts('demo', root)
 
       expect(result.ok).to.equal(false)
-      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['chunk-plan.json'])
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['chunk-plan.json', 'frames.json'])
       expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('defaults.chunkDuration')
+      expect(result.schemaInvalid[1]?.issues.map((issue) => issue.path.join('.'))).to.include('frameCount')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

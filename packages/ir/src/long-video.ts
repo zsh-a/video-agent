@@ -78,6 +78,28 @@ export const LongVideoChunkPlanSchema = z.object({
   })
 })
 
+export const LongVideoAnalysisFrameSchema = z.object({
+  path: z.string().min(1),
+  timestamp: z.number().finite().nonnegative(),
+})
+
+export const LongVideoAnalysisFramesSchema = z.object({
+  frameCount: z.number().int().nonnegative(),
+  framePattern: z.string().min(1),
+  frames: z.array(LongVideoAnalysisFrameSchema),
+  sampleFps: z.number().finite().positive(),
+  source: z.string().min(1),
+  version: z.literal(1),
+}).superRefine((manifest, ctx) => {
+  if (manifest.frameCount !== manifest.frames.length) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'frameCount must match frames length.',
+      path: ['frameCount'],
+    })
+  }
+})
+
 export const LongVideoMomentSchema = z.object({
   chunkId: z.string().min(1).optional(),
   evidence: z.array(EvidenceSchema).default([]),
@@ -159,6 +181,8 @@ export const LongVideoSelectedMomentsSchema = z.object({
   version: z.literal(1),
 })
 
+export type LongVideoAnalysisFrame = z.infer<typeof LongVideoAnalysisFrameSchema>
+export type LongVideoAnalysisFrames = z.infer<typeof LongVideoAnalysisFramesSchema>
 export type LongVideoChapterSummaries = z.infer<typeof LongVideoChapterSummariesSchema>
 export type LongVideoChapterSummary = z.infer<typeof LongVideoChapterSummarySchema>
 export type LongVideoChunk = z.infer<typeof LongVideoChunkSchema>

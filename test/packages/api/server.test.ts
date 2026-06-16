@@ -994,6 +994,17 @@ function writeLongVideoArtifacts(artifactsDir: string, inputPath: string): Array
       })}\n`,
     ),
     writeFile(
+      join(artifactsDir, 'frames.json'),
+      `${JSON.stringify({
+        frameCount: 0,
+        framePattern: 'frames/frame_%05d.jpg',
+        frames: [],
+        sampleFps: 1,
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
+    writeFile(
       join(artifactsDir, 'chunk-summaries.json'),
       `${JSON.stringify({
         chunks: [chunkSummary],

@@ -158,6 +158,7 @@ The intended hierarchy is:
 ```text
 raw video
   -> chunk-plan.json
+  -> frames.json
   -> scene-batches.json
   -> chunk-summaries.json
   -> chapters.json
@@ -168,7 +169,7 @@ raw video
   -> timeline.json
 ```
 
-`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges. Runtime understanding uses analysis ranges for ASR/VLM context, clamps transcript output back to content ranges, writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. With `sceneDetection: true`, VLM batches are transcript-aligned; with `sceneDetection: false`, understanding sends one full-duration VLM batch and assigns that visual context to overlapping chunks using the batch time range. Chunked ASR reruns reuse valid per-chunk transcript artifacts before calling the ASR provider again, and VLM reruns reuse unchanged scenes by matching each cached scene id, time range, and frame list from `scene-batches.json` before calling the VLM provider for stale scenes only. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. The current stage boundary is still `understand`; first-class per-chunk stage status can be added without changing the artifact hierarchy.
+`chunk-plan.json` divides the source into non-overlapping content ranges plus overlapping analysis ranges, while `frames.json` records extracted analysis frame paths, timestamps, and sampling fps for VLM auditability. Runtime understanding uses analysis ranges for ASR/VLM context, clamps transcript output back to content ranges, writes per-chunk ASR, VLM, silence, and summary evidence under stable artifact prefixes such as `chunks/000`, and checkpoint validation requires those per-chunk artifacts before later-stage reruns. With `sceneDetection: true`, VLM batches are transcript-aligned; with `sceneDetection: false`, understanding sends one full-duration VLM batch and assigns that visual context to overlapping chunks using the batch time range. Chunked ASR reruns reuse valid per-chunk transcript artifacts before calling the ASR provider again, and VLM reruns reuse unchanged scenes by matching each cached scene id, time range, and frame list from `scene-batches.json` before calling the VLM provider for stale scenes only. Planning stages work from chunk and chapter summaries, then select evidence-backed moments for final scripting and rendering. The current stage boundary is still `understand`; first-class per-chunk stage status can be added without changing the artifact hierarchy.
 
 HyperFrames remains the visual storytelling renderer for page-based explainers and article/podcast-to-video flows. FFmpeg remains the media boundary for probe, extraction, streamcopy clipping, concat, muxing, progress reporting, loudness, subtitles, and final delivery. Remotion can be added later as a second renderer for React composition and chunk/cloud rendering; it should consume storyboard/timeline IR instead of owning understanding logic.
 
@@ -210,6 +211,7 @@ workspace/
     audio/
     artifacts/
       chunk-plan.json
+      frames.json
       chunk-summaries.json
       chapters.json
       global-outline.json

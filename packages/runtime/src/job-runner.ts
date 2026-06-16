@@ -5,7 +5,7 @@ import type {LLMClient} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
 import {createClipPlan, createLongVideoChunkPlan, createSceneBoundariesFromTranscript, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
-import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMedia} from '@video-agent/media'
 import {createProviders, SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
@@ -39,6 +39,7 @@ export type InitialPipelineStage = 'ingest' | 'plan' | 'quality' | 'script' | 'u
 
 export interface RunInitialPipelineResult {
   artifacts: {
+    analysisFrames?: string
     clipPlan: string
     chapters: string
     chunkPlan: string
@@ -121,11 +122,11 @@ const ANALYSIS_FRAME_FPS = 1
 
 const CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
   ingest: [],
-  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
-  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
-  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
-  understand: ['ingest-report.json', 'media-info.json', 'chunk-plan.json'],
-  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
+  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
+  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
+  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
+  understand: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json'],
+  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
 }
 
 export class PipelineCheckpointError extends Error {
@@ -170,6 +171,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
   const pipelineEventsPath = workspace.store.resolve('pipeline-events.jsonl')
   const providerCallsPath = workspace.store.resolve('provider-calls.jsonl')
   const artifacts: RunInitialPipelineResult['artifacts'] = {
+    analysisFrames: workspace.store.resolve('frames.json'),
     chapters: workspace.store.resolve('chapters.json'),
     chunkPlan: workspace.store.resolve('chunk-plan.json'),
     chunkSummaries: workspace.store.resolve('chunk-summaries.json'),
@@ -333,6 +335,18 @@ function createIngestStage(artifacts: RunInitialPipelineResult['artifacts']): St
       await emitStep(ctx, {data: {framePattern}, message: 'Extracting analysis frames.', stage: 'ingest', step: 'extract-frames'})
       await mkdir(initial.workspace.framesDir, {recursive: true})
       await extractFrames(initial.inputPath, framePattern, chunkPlan.defaults.frameSampleFps)
+      const analysisFrames = await listExtractedAnalysisFrames(framePattern, chunkPlan.defaults.frameSampleFps)
+      const analysisFramesPath = artifacts.analysisFrames ?? initial.workspace.store.resolve('frames.json')
+
+      await initial.workspace.store.writeJson('frames.json', LongVideoAnalysisFramesSchema.parse({
+        frameCount: analysisFrames.length,
+        framePattern,
+        frames: analysisFrames,
+        sampleFps: chunkPlan.defaults.frameSampleFps,
+        source: initial.inputPath,
+        version: 1,
+      }))
+      await emitArtifact(ctx, 'ingest', analysisFramesPath, 'json')
       await emitStep(ctx, {data: {duration: previewDuration, outputPath: artifacts.preview}, message: 'Creating preview render.', stage: 'ingest', step: 'create-preview'})
       await createPreview(initial.inputPath, artifacts.preview, previewDuration)
       await emitArtifact(ctx, 'ingest', artifacts.preview, 'video')

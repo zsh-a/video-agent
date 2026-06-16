@@ -1130,6 +1130,8 @@ describe('job runner', () => {
       })
 
       expect(result.status).to.equal('completed')
+      expect(result.artifacts.analysisFrames).to.be.a('string')
+      expect(await fileSize(result.artifacts.analysisFrames as string)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.mediaInfo)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.chunkPlan)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.chunkSummaries)).to.be.greaterThan(0)
@@ -1188,7 +1190,7 @@ describe('job runner', () => {
 
       const manifest = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}
 
-      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['chunk-plan.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'scene-batches.json', 'chunks/000/summary.json', 'chunks/000/silence.json', 'chunks/000/transcript.json', 'chunks/000/vlm.json', 'clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
+      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['chunk-plan.json', 'frames.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'scene-batches.json', 'chunks/000/summary.json', 'chunks/000/silence.json', 'chunks/000/transcript.json', 'chunks/000/vlm.json', 'clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
       expect(manifest.artifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256))).to.equal(true)
 
       const resumed = await runInitialPipeline({
