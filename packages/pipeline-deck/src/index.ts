@@ -28,13 +28,13 @@ export type {
   CreateDeckAudioAnchoredProjectResult,
   CreateDeckAudioSummaryProjectResult,
   CreateDeckExplainerProjectOptions,
+  CreateDeckExplainerProjectResult,
   CreateDeckFinalRenderProjectOptions,
   CreateDeckFinalRenderProjectResult,
+  CreateDeckSummarizeProjectOptions,
   CreateDeckSummarizeProjectResult,
   CreateDeckVoiceoverProjectOptions,
   CreateDeckVoiceoverProjectResult,
-  CreateTextExplainerProjectResult as CreateDeckExplainerProjectResult,
-  CreateTextExplainerProjectOptions as CreateDeckSummarizeProjectOptions,
 } from '@video-agent/runtime'
 
 export type DeckExplainerPipelineMode = 'audio-anchored' | 'script-generated' | 'summarize'

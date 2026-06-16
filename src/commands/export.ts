@@ -63,7 +63,6 @@ export default class Export extends Command {
 export function createExportQualityFailurePayload(projectId: string, quality: ProjectQualityReport, message: string): {
   error: {
     code: 'export_quality_failed'
-    legacyCode: 'export.quality_failed'
     message: string
     name: 'ExportQualityError'
   }
@@ -74,7 +73,6 @@ export function createExportQualityFailurePayload(projectId: string, quality: Pr
   return {
     error: {
       code: 'export_quality_failed',
-      legacyCode: 'export.quality_failed',
       message,
       name: 'ExportQualityError',
     },

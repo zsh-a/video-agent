@@ -337,58 +337,6 @@ describe('cli end-to-end workflow', () => {
     }
   })
 
-  it('creates, renders, and exports a PPT-style explainer from text', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-text-'))
-    const workspaceDir = join(root, 'workspace')
-    const inputPath = join(root, 'notes.md')
-    const outputPath = join(root, 'slides')
-    const projectId = 'cli-text'
-
-    try {
-      await writeFile(
-        inputPath,
-        [
-          '长视频讲解应该拆成多页。每一页只承载一个重点，方便观众跟随。',
-          '',
-          '第一页说明背景，第二页说明步骤，第三页总结结论。',
-          '',
-          '这种结构适合把文字稿、文章或视频转写整理成 PPT 类视频。',
-        ].join('\n'),
-      )
-
-      const text = await runCliJson<{
-        projectId: string
-        slides: number
-        status: string
-      }>(['text', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--max-slide-characters', '40', '--json'])
-
-      expect(text.projectId).to.equal(projectId)
-      expect(text.slides).to.be.greaterThan(1)
-      expect(text.status).to.equal('completed')
-
-      const render = await runCliJson<{
-        entryHtml: string
-        projectId: string
-        renderer: string
-      }>(['render', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(render.projectId).to.equal(projectId)
-      expect(render.renderer).to.equal('hyperframes')
-      expect(await fileSize(render.entryHtml)).to.be.greaterThan(0)
-
-      const exported = await runCliJson<{
-        format: string
-        outputPath: string
-      }>(['export', projectId, '--workspace', workspaceDir, '--output', outputPath, '--json'])
-
-      expect(exported.format).to.equal('hyperframes')
-      expect(exported.outputPath).to.equal(outputPath)
-      expect(await fileSize(join(outputPath, 'index.html'))).to.be.greaterThan(0)
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
   it('runs a complete Film Recap pipeline from video', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-film-'))
     const workspaceDir = join(root, 'workspace')

@@ -8,11 +8,11 @@ import {exportProject} from '../../../packages/runtime/src/export.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
 import {renderProject} from '../../../packages/runtime/src/render-project.js'
-import {createDeckAudioAnchoredProject, createDeckFinalRenderProject, createDeckSummarizeProject, createDeckVoiceoverProject, createTextExplainerProject} from '../../../packages/runtime/src/text-project.js'
+import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/runtime/src/deck-project.js'
 
-describe('text explainer project', () => {
+describe('deck explainer project', () => {
   it('creates a renderable PPT-style HyperFrames project from text', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-text-'))
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-'))
     const inputPath = join(root, 'notes.md')
 
     try {
@@ -29,10 +29,10 @@ describe('text explainer project', () => {
         ].join('\n'),
       )
 
-      const result = await createTextExplainerProject({
+      const result = await createDeckExplainerProject({
         inputPath,
         maxSlideCharacters: 60,
-        projectId: 'text-demo',
+        projectId: 'deck-demo',
         slideSeconds: 12,
         title: '安卓开源软件推荐',
         workspaceDir: root,
@@ -44,7 +44,7 @@ describe('text explainer project', () => {
       const narration = JSON.parse(await readFile(result.artifacts.narration, 'utf8')) as {segments: Array<{text: string}>}
       const storyboard = JSON.parse(await readFile(result.artifacts.storyboard, 'utf8')) as {scenes: Array<{visualStyle: string}>}
       const timedDeck = JSON.parse(await readFile(result.artifacts.timedDeck, 'utf8')) as {timings: Array<{slideId: string}>}
-      const quality = await readProjectQualityDetails('text-demo', root)
+      const quality = await readProjectQualityDetails('deck-demo', root)
 
       expect(result.slides).to.be.greaterThan(1)
       expect(deck.format).to.equal('portrait_1080x1920')
@@ -63,7 +63,7 @@ describe('text explainer project', () => {
       expect(quality.ok).to.equal(true)
       expect(quality.content).to.deep.equal({errors: 0, issues: 0, warnings: 0})
 
-      const render = await renderProject('text-demo', {workspaceDir: root})
+      const render = await renderProject('deck-demo', {workspaceDir: root})
 
       expect(render.renderer).to.equal('hyperframes')
 
@@ -77,7 +77,7 @@ describe('text explainer project', () => {
 
       const exported = await exportProject({
         outputPath: join(root, 'out'),
-        projectId: 'text-demo',
+        projectId: 'deck-demo',
         workspaceDir: root,
       })
 
@@ -101,7 +101,7 @@ describe('text explainer project', () => {
           '电影解说围绕原片片段组织，PPT 讲解围绕内容结构组织。',
         ].join('\n'),
       )
-      await createTextExplainerProject({
+      await createDeckExplainerProject({
         inputPath,
         maxSlideCharacters: 30,
         projectId: 'deck-voice-demo',

@@ -19,12 +19,13 @@ import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
 import {createProjectWorkspace} from './workspace.js'
 
-export interface CreateTextExplainerProjectOptions {
+export interface CreateDeckExplainerProjectOptions {
   deckFormat?: DeckFormat
   durationTargetSeconds?: number
   inputPath: string
   language?: string
   maxSlideCharacters?: number
+  mode?: 'script-generated'
   projectId?: string
   slideSeconds?: number
   theme?: string
@@ -32,7 +33,7 @@ export interface CreateTextExplainerProjectOptions {
   workspaceDir?: string
 }
 
-export interface CreateTextExplainerProjectResult {
+export interface CreateDeckExplainerProjectResult {
   artifacts: {
     contentBlocks: string
     claims: string
@@ -161,14 +162,15 @@ export interface CreateDeckAudioAnchoredProjectResult {
   status: 'completed'
 }
 
-export interface CreateDeckAudioSummaryProjectResult extends CreateTextExplainerProjectResult {
-  artifacts: CreateTextExplainerProjectResult['artifacts'] & {
+export interface CreateDeckAudioSummaryProjectResult extends CreateDeckExplainerProjectResult {
+  artifacts: CreateDeckExplainerProjectResult['artifacts'] & {
     transcript: string
   }
   sourceMode: 'audio-summary'
 }
 
-export type CreateDeckSummarizeProjectResult = CreateTextExplainerProjectResult | CreateDeckAudioSummaryProjectResult
+export type CreateDeckSummarizeProjectOptions = Omit<CreateDeckExplainerProjectOptions, 'mode'>
+export type CreateDeckSummarizeProjectResult = CreateDeckExplainerProjectResult | CreateDeckAudioSummaryProjectResult
 
 const DEFAULT_MAX_SLIDE_CHARACTERS = 260
 const DEFAULT_SLIDE_SECONDS = 18
@@ -176,7 +178,7 @@ const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'qu
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
 
-export async function createTextExplainerProject(options: CreateTextExplainerProjectOptions): Promise<CreateTextExplainerProjectResult> {
+export async function createDeckExplainerProject(options: CreateDeckExplainerProjectOptions): Promise<CreateDeckExplainerProjectResult> {
   const inputPath = resolve(options.inputPath)
   await assertFileExists(inputPath)
 
@@ -278,19 +280,14 @@ export async function createTextExplainerProject(options: CreateTextExplainerPro
   }
 }
 
-export interface CreateDeckExplainerProjectOptions extends CreateTextExplainerProjectOptions {
-  mode?: 'script-generated'
-}
-
-export async function createDeckExplainerProject(options: CreateDeckExplainerProjectOptions): Promise<CreateTextExplainerProjectResult> {
-  return createTextExplainerProject(options)
-}
-
-export async function createDeckSummarizeProject(options: CreateTextExplainerProjectOptions): Promise<CreateDeckSummarizeProjectResult> {
+export async function createDeckSummarizeProject(options: CreateDeckSummarizeProjectOptions): Promise<CreateDeckSummarizeProjectResult> {
   const inputPath = resolve(options.inputPath)
 
   if (!isAudioInputPath(inputPath)) {
-    return createTextExplainerProject(options)
+    return createDeckExplainerProject({
+      ...options,
+      mode: 'script-generated',
+    })
   }
 
   await assertFileExists(inputPath)

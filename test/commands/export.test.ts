@@ -28,7 +28,6 @@ describe('export command', () => {
     })
     expect(result.error).to.deep.equal({
       code: 'export_quality_failed',
-      legacyCode: 'export.quality_failed',
       message: 'Project demo did not pass quality checks.',
       name: 'ExportQualityError',
     })

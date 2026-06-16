@@ -59,7 +59,7 @@ Deck Explainer Pipeline
 
 The shared runtime owns jobs, events, checkpoints, artifacts, providers, media wrappers, renderers, and quality checks. Pipeline-specific contracts live in `packages/ir`: film recap uses `StoryIndex`, `NarrativeBeat`, `OutputTimelineMap`, and output-timeline narration; deck explainer uses `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, and `TimedDeck`.
 
-The current runnable Deck slice is available through `deck` and the older `text` command. The current Film slice runs ingest/probe, provider-backed source understanding with ASR/VLM fallbacks, story-index construction, clip planning, cut-first rendering, output-timeline narration, TTS voiceover, source-aware audio mix with ducking when original audio is present, subtitles, final ffmpeg render, and quality report generation.
+The current runnable Deck slice is available through `deck`. The current Film slice runs ingest/probe, provider-backed source understanding with ASR/VLM fallbacks, story-index construction, clip planning, cut-first rendering, output-timeline narration, TTS voiceover, source-aware audio mix with ducking when original audio is present, subtitles, final ffmpeg render, and quality report generation.
 
 ## Setup
 
@@ -109,8 +109,6 @@ bun run dev deck render podcast-summary
 bun run dev deck ./podcast.wav --mode audio-anchored --project-id podcast-demo
 bun run dev deck render podcast-demo
 bun run dev deck render notes-demo --html-render-command '["hyperframes"]' --html-render --html-validate
-bun run dev text ./notes.md --project-id notes-demo
-bun run dev render notes-demo
 bun run dev export notes-demo --output ./notes-slides
 ```
 

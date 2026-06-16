@@ -99,7 +99,7 @@ Deck Explainer
   summarize mode transcribes audio to transcript.json, then generates a new script/TTS deck
   audio-anchored mode writes transcript.json and preserves source audio as deck voiceover
   renders DeckIR to static HTML under renders/html, can hand that HTML project to an external renderer, and still writes final video through an ffmpeg fallback
-  can still render HTML through the existing HyperFrames storyboard/timeline compatibility path
+  generic storyboard/timeline projects still render through the shared HyperFrames boundary
 
 Film Recap
   vagent film <video>

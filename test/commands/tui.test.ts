@@ -113,7 +113,6 @@ describe('tui command', () => {
       action: 'export',
       error: {
         code: 'export_quality_failed',
-        legacyCode: 'export.quality_failed',
         message: 'Project demo did not pass quality checks.',
         name: 'ExportQualityError',
       },
