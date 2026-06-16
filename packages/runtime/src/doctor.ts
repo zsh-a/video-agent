@@ -1,5 +1,5 @@
 import {runProcess} from '@video-agent/media'
-import {getProviderDescriptor, PROVIDER_ROLES, providerEnvName, type ProviderRole} from '@video-agent/providers'
+import {getProviderDescriptor, MIMO_PROVIDER_MODEL_IDS, PROVIDER_ROLES, providerEnvName, type ProviderRole} from '@video-agent/providers'
 import {mkdir, unlink} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
@@ -137,7 +137,7 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
 
     if (authEnvs.some((name) => env[name] !== undefined && env[name]?.trim() !== '')) {
       return {
-        details: {env: authEnvs, model: role === 'tts' ? 'mimo-v2.5-tts' : config.llm.model, provider: 'llm'},
+        details: {env: authEnvs, model: resolveMimoRoleModel(role, config), provider: 'llm'},
         message: `${role} provider uses configured Mimo profile`,
         name: `provider:${role}`,
         status: 'pass',
@@ -145,7 +145,7 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
     }
 
     return {
-      details: {env: authEnvs, model: role === 'tts' ? 'mimo-v2.5-tts' : config.llm.model, provider: 'llm'},
+      details: {env: authEnvs, model: resolveMimoRoleModel(role, config), provider: 'llm'},
       message: `${authEnvs.join(' or ')} is required for Mimo profile`,
       name: `provider:${role}`,
       status: 'fail',
@@ -187,6 +187,18 @@ function createMimoAuthEnvCandidates(config: AgentConfig): string[] {
     'MIMO_API_KEY',
     'VIDEO_AGENT_LLM_TOKEN',
   ].filter((name, index, names): name is string => typeof name === 'string' && name.trim() !== '' && names.indexOf(name) === index)
+}
+
+function resolveMimoRoleModel(role: ProviderRole, config: AgentConfig): string {
+  if (role === 'asr') {
+    return MIMO_PROVIDER_MODEL_IDS.asr
+  }
+
+  if (role === 'tts') {
+    return MIMO_PROVIDER_MODEL_IDS.tts
+  }
+
+  return config.llm?.model ?? MIMO_PROVIDER_MODEL_IDS.llm
 }
 
 function checkCommandProvider(role: ProviderRole, env: Record<string, string | undefined> = bunEnv()): HealthCheck {

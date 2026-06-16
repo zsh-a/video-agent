@@ -6,6 +6,7 @@ import {join} from 'node:path'
 
 import type {GenerateObjectRequest, LLMClient} from '../../../packages/llm/src/index.js'
 
+import {MIMO_PROVIDER_MODEL_IDS} from '../../../packages/providers/src/index.js'
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {runProviderSmokeTest} from '../../../packages/runtime/src/provider-smoke-test.js'
 
@@ -125,7 +126,7 @@ describe('provider smoke test', () => {
             },
           ],
           id: 'chatcmpl-test',
-          model: 'mimo-v2.5-asr',
+          model: MIMO_PROVIDER_MODEL_IDS.asr,
           usage: {
             [completionTokensKey]: 4,
             [promptTokensKey]: 8,
@@ -159,10 +160,10 @@ describe('provider smoke test', () => {
         type: 'transcript',
       })
       expect(report.results[0]?.metadata).to.deep.equal({
-        model: 'mimo-v2.5-asr',
+        model: MIMO_PROVIDER_MODEL_IDS.asr,
       })
       expect(requestUrl).to.equal('https://token-plan-cn.xiaomimimo.com/v1/chat/completions')
-      expect(body.model).to.equal('mimo-v2.5-asr')
+      expect(body.model).to.equal(MIMO_PROVIDER_MODEL_IDS.asr)
       expect(body[asrOptionsKey]).to.deep.equal({language: 'auto'})
       expect(audioPart).to.deep.equal({
         data: 'data:audio/wav;base64,AQID',

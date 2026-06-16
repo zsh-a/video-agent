@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {getProviderProfile, MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODELS, MIMO_PROVIDER_PROFILE, PROVIDER_PROFILE_NAMES} from '../../../packages/providers/src/index.js'
+import {getProviderProfile, MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS, MIMO_PROVIDER_MODELS, MIMO_PROVIDER_PROFILE, PROVIDER_PROFILE_NAMES} from '../../../packages/providers/src/index.js'
 
 describe('provider profiles', () => {
   it('defines the Mimo hosted provider defaults', () => {
@@ -15,17 +15,19 @@ describe('provider profiles', () => {
     expect(MIMO_PROVIDER_PROFILE.llm).to.deep.equal({
       apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
       baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
-      model: 'mimo-v2.5-pro',
+      model: MIMO_PROVIDER_MODEL_IDS.llm,
       name: 'mimo',
       provider: 'openai-compatible',
     })
     expect(MIMO_PROVIDER_PROFILE.providerSettings).to.deep.equal({})
   })
 
-  it('keeps a single LLM model catalog entry', () => {
+  it('keeps one model catalog source for all Mimo roles', () => {
     expect(MIMO_PROVIDER_MODELS.map((model) => model.id)).to.deep.equal([
-      'mimo-v2.5-pro',
+      MIMO_PROVIDER_MODEL_IDS.llm,
+      MIMO_PROVIDER_MODEL_IDS.asr,
+      MIMO_PROVIDER_MODEL_IDS.tts,
     ])
-    expect(MIMO_PROVIDER_MODELS.map((model) => model.roles)).to.deep.equal([['llm']])
+    expect(MIMO_PROVIDER_MODELS.map((model) => model.roles)).to.deep.equal([['llm'], ['asr'], ['tts']])
   })
 })

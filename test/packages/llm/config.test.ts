@@ -6,6 +6,7 @@ const asrOptionsKey = 'asr_options'
 const completionTokensKey = 'completion_tokens'
 const finishReasonKey = 'finish_reason'
 const inputAudioKey = 'input_audio'
+const mimoAsrTestModel = 'mimo-asr-test-model'
 const promptTokensKey = 'prompt_tokens'
 const totalTokensKey = 'total_tokens'
 
@@ -54,7 +55,7 @@ describe('LLM config factory', () => {
             },
           ],
           id: 'chatcmpl-test',
-          model: 'mimo-v2.5-asr',
+          model: mimoAsrTestModel,
           usage: {
             [completionTokensKey]: 4,
             [promptTokensKey]: 8,
@@ -70,7 +71,7 @@ describe('LLM config factory', () => {
       const client = createLLMClientFromConfig({
         apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
         baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
-        model: 'mimo-v2.5-asr',
+        model: mimoAsrTestModel,
         name: 'mimo',
         provider: 'openai-compatible',
       }, {
@@ -109,7 +110,7 @@ describe('LLM config factory', () => {
       const audioPart = content?.[0]?.[inputAudioKey]
 
       expect(result?.text).to.equal('这是中文转写。')
-      expect(body.model).to.equal('mimo-v2.5-asr')
+      expect(body.model).to.equal(mimoAsrTestModel)
       expect(body[asrOptionsKey]).to.deep.equal({language: 'auto'})
       expect(audioPart).to.deep.equal({
         data: 'data:audio/wav;base64,AQID',

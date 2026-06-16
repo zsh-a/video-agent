@@ -115,7 +115,7 @@ That writes:
 }
 ```
 
-At runtime the profile resolves ASR/VLM, storyboard, and script generation through the shared Mimo LLM config. TTS uses MiMo-V2.5-TTS to write real wav files under each project before render. The token stays outside persisted config and can live in `.env`:
+At runtime the profile resolves ASR/VLM, storyboard, and script generation through the shared Mimo LLM config. MiMo model IDs are centralized in `packages/providers/src/profiles.ts`; TTS uses the configured MiMo TTS model to write real wav files under each project before render. The token stays outside persisted config and can live in `.env`:
 
 ```dotenv
 VIDEO_AGENT_LLM_TOKEN=<token>

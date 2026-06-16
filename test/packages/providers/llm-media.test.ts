@@ -6,7 +6,7 @@ import {join} from 'node:path'
 
 import type {GenerateTextRequest, LLMClient} from '../../../packages/llm/src/index.js'
 
-import {readProviderMetadata} from '../../../packages/providers/src/index.js'
+import {MIMO_PROVIDER_MODEL_IDS, readProviderMetadata} from '../../../packages/providers/src/index.js'
 import {createTtsProvider} from '../../../packages/providers/src/registry.js'
 import {MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '../../../packages/providers/src/llm-media.js'
 
@@ -207,7 +207,7 @@ describe('LLM media providers', () => {
         llmConfig: {
           apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
           baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
-          model: 'mimo-v2.5-pro',
+          model: MIMO_PROVIDER_MODEL_IDS.llm,
           name: 'mimo',
           provider: 'openai-compatible',
         },

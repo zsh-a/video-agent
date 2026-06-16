@@ -21,7 +21,7 @@ export interface ProviderProfile {
 
 export interface ProviderProfileModel {
   id: string
-  roles: Array<'llm'>
+  roles: Array<'asr' | 'llm' | 'tts'>
 }
 
 export type ProviderSettings = Partial<Record<ProviderRole, ProviderRoleSettings>>
@@ -32,10 +32,24 @@ export interface ProviderRoleSettings {
 
 export const MIMO_PROVIDER_BASE_URL = 'https://token-plan-cn.xiaomimimo.com/v1'
 
+export const MIMO_PROVIDER_MODEL_IDS = {
+  asr: 'mimo-v2.5-asr',
+  llm: 'mimo-v2.5',
+  tts: 'mimo-v2.5-tts',
+} as const
+
 export const MIMO_PROVIDER_MODELS: ProviderProfileModel[] = [
   {
-    id: 'mimo-v2.5-pro',
+    id: MIMO_PROVIDER_MODEL_IDS.llm,
     roles: ['llm'],
+  },
+  {
+    id: MIMO_PROVIDER_MODEL_IDS.asr,
+    roles: ['asr'],
+  },
+  {
+    id: MIMO_PROVIDER_MODEL_IDS.tts,
+    roles: ['tts'],
   },
 ]
 
@@ -44,7 +58,7 @@ export const MIMO_PROVIDER_PROFILE: ProviderProfile = {
   llm: {
     apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
     baseURL: MIMO_PROVIDER_BASE_URL,
-    model: 'mimo-v2.5-pro',
+    model: MIMO_PROVIDER_MODEL_IDS.llm,
     name: 'mimo',
     provider: 'openai-compatible',
   },

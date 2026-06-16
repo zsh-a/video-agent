@@ -17,7 +17,7 @@ Provider selection remains role-based and string-valued for v0:
 - `command` runs an external JSON stdin/stdout adapter.
 - `llm` uses the configured shared `LLMClient`.
 
-Provider profiles prefill non-secret LLM configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `llm` for ASR, VLM, and TTS and enables the AI SDK-backed planner/script path with `mimo-v2.5-pro`. MiMo ASR uses the same token but a role-specific AI SDK OpenAI-compatible model config for `mimo-v2.5-asr`. MiMo TTS uses the MiMo-V2.5-TTS chat-completions audio API to write real wav files into the project workspace before render.
+Provider profiles prefill non-secret LLM configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `llm` for ASR, VLM, and TTS and enables the AI SDK-backed planner/script path with the profile LLM model. MiMo ASR uses the same token but a role-specific AI SDK OpenAI-compatible model config. MiMo TTS uses the MiMo chat-completions audio API to write real wav files into the project workspace before render. MiMo model IDs are centralized in `MIMO_PROVIDER_MODEL_IDS` in `packages/providers/src/profiles.ts`.
 
 Hosted LLM-like services should be integrated through `packages/llm` and the Vercel AI SDK first. Provider-specific request shape differences belong in the AI SDK config boundary, for example `transformRequestBody`. Media-producing endpoints may stay behind provider interfaces when the SDK boundary cannot return required binary artifacts cleanly, as with MiMo TTS wav output. Add named providers only for boundaries that are not a good fit for AI SDK, such as local command services or non-LLM executors.
 
@@ -72,10 +72,12 @@ At runtime that resolves to `llm` ASR/VLM/TTS providers and the Mimo LLM config.
 
 All MiMo models in the profile use the same base URL, `https://token-plan-cn.xiaomimimo.com/v1`, and the same key resolution order.
 
-The profile keeps one active LLM model:
+The profile keeps one active default model for each MiMo role:
 
 ```text
-mimo-v2.5-pro
+llm: mimo-v2.5-pro
+asr: mimo-v2.5-asr
+tts: mimo-v2.5-tts
 ```
 
 The profile does not write tokens. Configure credentials through `.env` or the shell:

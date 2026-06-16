@@ -93,7 +93,7 @@ function resolveFirstEnvValue(names: Array<string | undefined>, env: Record<stri
 }
 
 function transformMimoRequestBody(body: Record<string, unknown>): Record<string, unknown> {
-  if (body.model !== 'mimo-v2.5-asr') {
+  if (!isMimoAsrRequestBody(body)) {
     return body
   }
 
@@ -101,6 +101,10 @@ function transformMimoRequestBody(body: Record<string, unknown>): Record<string,
     ...body,
     messages: Array.isArray(body.messages) ? body.messages.map((message) => transformMimoMessage(message)) : body.messages,
   }
+}
+
+function isMimoAsrRequestBody(body: Record<string, unknown>): boolean {
+  return isRecord(body['asr_options'])
 }
 
 function transformMimoMessage(message: unknown): unknown {

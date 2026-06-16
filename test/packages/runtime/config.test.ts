@@ -4,6 +4,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
+import {MIMO_PROVIDER_MODEL_IDS} from '../../../packages/providers/src/index.js'
 import {readConfig, writeConfig} from '../../../packages/runtime/src/config.js'
 
 describe('config', () => {
@@ -184,7 +185,7 @@ describe('config', () => {
       expect(config.llm).to.deep.equal({
         apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
         baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
-        model: 'mimo-v2.5-pro',
+        model: MIMO_PROVIDER_MODEL_IDS.llm,
         name: 'mimo',
         provider: 'openai-compatible',
       })

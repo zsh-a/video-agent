@@ -8,14 +8,14 @@ import type {ASRProvider, MediaInput, SceneFrameBatch, Transcript, TTSProvider, 
 
 import {bunFile} from './bun-runtime.js'
 import {attachProviderMetadata} from './metadata.js'
-import {MIMO_PROVIDER_BASE_URL} from './profiles.js'
+import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from './profiles.js'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from './schemas.js'
 
-export const MIMO_ASR_MODEL = 'mimo-v2.5-asr'
+export const MIMO_ASR_MODEL = MIMO_PROVIDER_MODEL_IDS.asr
 export const MIMO_ASR_BASE_URL = MIMO_PROVIDER_BASE_URL
 export const MIMO_TTS_BASE_URL = MIMO_PROVIDER_BASE_URL
 export const MIMO_TTS_DEFAULT_VOICE = 'mimo_default'
-export const MIMO_TTS_MODEL = 'mimo-v2.5-tts'
+export const MIMO_TTS_MODEL = MIMO_PROVIDER_MODEL_IDS.tts
 
 export class LLMASRProvider implements ASRProvider {
   constructor(private readonly llm: LLMClient) {}
