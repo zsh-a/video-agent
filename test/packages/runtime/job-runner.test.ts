@@ -90,6 +90,45 @@ describe('job runner', () => {
     ])
   })
 
+  it('creates one full-duration VLM batch when scene detection is disabled', () => {
+    const batches = createSceneFrameBatchesFromTranscript({
+      segments: [
+        {
+          end: 2,
+          start: 0,
+          text: 'Opening.',
+        },
+        {
+          end: 4,
+          start: 2,
+          text: 'Ending.',
+        },
+      ],
+      text: 'Opening. Ending.',
+    }, {
+      duration: 4,
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-15T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    }, [
+      {path: 'frames/frame_00001.jpg', timestamp: 0},
+      {path: 'frames/frame_00002.jpg', timestamp: 1},
+      {path: 'frames/frame_00003.jpg', timestamp: 2},
+      {path: 'frames/frame_00004.jpg', timestamp: 3},
+    ], {
+      sceneDetection: false,
+    })
+
+    expect(batches).to.deep.equal([
+      {
+        frames: ['frames/frame_00001.jpg', 'frames/frame_00002.jpg', 'frames/frame_00003.jpg', 'frames/frame_00004.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 4],
+      },
+    ])
+  })
+
   it('samples VLM scene frames with chunk-plan frame defaults', () => {
     const batches = createSceneFrameBatchesFromTranscript({
       segments: [
@@ -994,6 +1033,25 @@ describe('job runner', () => {
     expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 4])).to.deep.equal([
       sceneAnalysis[0],
     ])
+  })
+
+  it('uses actual VLM scene ranges when assigning full-video scene context to chunks', () => {
+    const sceneAnalysis = [
+      {
+        description: 'Full-video visual context.',
+        evidence: [],
+        sceneId: 'scene-1',
+      },
+    ]
+    const sceneRanges = [
+      {
+        end: 10,
+        start: 0,
+      },
+    ]
+
+    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 5])).to.deep.equal(sceneAnalysis)
+    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [5, 10])).to.deep.equal(sceneAnalysis)
   })
 
   it('rejects VLM scene analysis that does not match input batches', () => {

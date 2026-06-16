@@ -397,12 +397,13 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         maxFramesPerBatch: ingest.chunkPlan.defaults.vlmBatchSize,
         mediaDuration: ingest.chunkPlan.sourceDuration,
         sampleFps: ingest.chunkPlan.defaults.vlmFrameSampleFps,
+        sceneDetection: ingest.chunkPlan.defaults.sceneDetection,
       })
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
       const sceneAnalysis = await analyzeSceneBatches(ingest, sceneBatches, ctx)
       await emitStep(ctx, {data: summarizeVlmScenesForLog(sceneAnalysis), message: 'Visual scene analysis completed.', stage: 'understand', step: 'vlm'})
 
-      const longVideoArtifacts = createLongVideoUnderstandingArtifacts(ingest.chunkPlan, transcript, sceneAnalysis)
+      const longVideoArtifacts = createLongVideoUnderstandingArtifacts(ingest.chunkPlan, transcript, sceneAnalysis, sceneBatches)
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
       await emitArtifact(ctx, 'understand', ingest.artifacts.transcript, 'json')
@@ -709,14 +710,35 @@ export interface SceneFrameBatchOptions {
   maxFramesPerBatch?: number
   mediaDuration?: number
   sampleFps?: number
+  sceneDetection?: boolean
 }
 
 export function createSceneFrameBatchesFromTranscript(transcript: Transcript, mediaInfo: MediaInfo, frameSource?: ExtractedAnalysisFrame[] | string, options: SceneFrameBatchOptions = {}): SceneFrameBatch[] {
-  return createSceneBoundariesFromTranscript(transcript, options.mediaDuration ?? mediaInfo.duration ?? 0).map((boundary): SceneFrameBatch => ({
+  const boundaries = createSceneBatchBoundaries(transcript, options.mediaDuration ?? mediaInfo.duration ?? 0, options.sceneDetection)
+
+  return boundaries.map((boundary): SceneFrameBatch => ({
     frames: selectSceneFramePaths(frameSource, boundary.start, boundary.end, options),
     sceneId: boundary.id,
     timeRange: [boundary.start, boundary.end],
   }))
+}
+
+function createSceneBatchBoundaries(transcript: Transcript, mediaDuration: number, sceneDetection = true): Array<{end: number; id: string; start: number}> {
+  const boundaries = createSceneBoundariesFromTranscript(transcript, mediaDuration)
+
+  if (sceneDetection) {
+    return boundaries
+  }
+
+  const end = boundaries.reduce((duration, boundary) => Math.max(duration, boundary.end), 0)
+
+  return [
+    {
+      end,
+      id: 'scene-1',
+      start: 0,
+    },
+  ]
 }
 
 export function validateVlmSceneAnalysis(sceneBatches: SceneFrameBatch[], sceneAnalysis: VLMScene[]): VLMScene[] {
@@ -899,8 +921,11 @@ interface LongVideoChunkArtifact {
   vlm: VLMScene[]
 }
 
-function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, transcript: Transcript, sceneAnalysis: VLMScene[]): LongVideoUnderstandingArtifacts {
-  const sceneRanges = createSceneBoundariesFromTranscript(transcript, chunkPlan.sourceDuration)
+function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, transcript: Transcript, sceneAnalysis: VLMScene[], sceneBatches: SceneFrameBatch[]): LongVideoUnderstandingArtifacts {
+  const sceneRanges = sceneBatches.map((batch) => ({
+    end: batch.timeRange[1],
+    start: batch.timeRange[0],
+  }))
   const chunkArtifacts = chunkPlan.chunks.map((chunk): LongVideoChunkArtifact => {
     const chunkTranscript = createChunkTranscript(transcript, chunk.contentRange)
     const chunkVlm = createChunkVlmScenes(sceneAnalysis, sceneRanges, chunk.analysisRange)
