@@ -325,16 +325,22 @@ function readFiniteNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
+function readNonnegativeNumber(value: unknown): number | undefined {
+  const number = readFiniteNumber(value)
+
+  return number === undefined || number < 0 ? undefined : number
+}
+
 function readIssueErrors(value: IssueCountLike | undefined): number {
-  return readFiniteNumber(value?.errors) ?? 0
+  return readNonnegativeNumber(value?.errors) ?? 0
 }
 
 function readIssueWarnings(value: IssueCountLike | undefined): number {
-  return readFiniteNumber(value?.warnings) ?? 0
+  return readNonnegativeNumber(value?.warnings) ?? 0
 }
 
 function isQualitySummary(value: unknown): value is {errors: number; warnings: number} {
-  return isRecord(value) && typeof value.errors === 'number' && Number.isFinite(value.errors) && typeof value.warnings === 'number' && Number.isFinite(value.warnings)
+  return isRecord(value) && readNonnegativeNumber(value.errors) !== undefined && readNonnegativeNumber(value.warnings) !== undefined
 }
 
 function isQualityIssueLike(value: unknown): value is {severity: 'error' | 'warning'} {

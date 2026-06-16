@@ -79,6 +79,22 @@ const IngestReportSchema = z.object({
   version: z.literal(1),
 }).strict()
 
+const QualityReportSchema = z.object({
+  checkedAt: z.string().min(1).optional(),
+  issues: z.array(z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+    severity: z.enum(['error', 'warning']),
+  }).passthrough()),
+  narrationSegments: z.number().int().nonnegative().optional(),
+  summary: z.object({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+  }).strict(),
+  ttsSegments: z.number().int().nonnegative().optional(),
+  version: z.literal(1),
+}).passthrough()
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
@@ -89,6 +105,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'ingest-report.json': IngestReportSchema,
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
+  'quality-report.json': QualityReportSchema,
   'scene-analysis.json': VlmScenesSchema,
   'scene-batches.json': SceneFrameBatchesSchema,
   'selected-moments.json': LongVideoSelectedMomentsSchema,
