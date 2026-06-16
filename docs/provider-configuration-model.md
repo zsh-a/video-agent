@@ -42,7 +42,7 @@ The simplified LLM path is resolved from the active profile or from explicit run
   "llm": {
     "provider": "openai-compatible",
     "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
-    "model": "mimo-v2.5-pro",
+    "model": "mimo-v2.5",
     "apiKeyEnv": "VIDEO_AGENT_LLM_TOKEN",
     "name": "mimo"
   }
@@ -75,7 +75,7 @@ All MiMo models in the profile use the same base URL, `https://token-plan-cn.xia
 The profile keeps one active default model for each MiMo role:
 
 ```text
-llm: mimo-v2.5-pro
+llm: mimo-v2.5
 asr: mimo-v2.5-asr
 tts: mimo-v2.5-tts
 ```
@@ -98,6 +98,14 @@ Optional TTS controls can be provided through environment variables:
 VIDEO_AGENT_TTS_MIMO_VOICE=mimo_default
 VIDEO_AGENT_TTS_MIMO_STYLE=清晰自然地播报
 VIDEO_AGENT_TTS_MIMO_MODEL=mimo-v2.5-tts
+```
+
+MiMo ASR may return plain transcript text without timestamps. Runtime passes media duration into the ASR provider; the MiMo provider uses that duration to synthesize coarse transcript timestamps from local audio windows. Short audio is returned as one `0..duration` segment. Longer audio is cut into 30 second wav windows with ffmpeg, each window is transcribed separately, and the local window boundaries become segment `start` and `end`. Transcript artifacts may include `timestampConfidence`:
+
+```text
+exact: ASR returned usable timestamps
+chunked: local audio window boundaries were used
+untimed: no reliable duration was available
 ```
 
 The runtime reads `.env` from the current working directory and from the workspace directory. Values from the workspace `.env` override the current working directory `.env`; real process environment variables override both. Explicit `--env KEY=VALUE` flags and API/MCP `env` objects bypass `.env` and use only the supplied values.

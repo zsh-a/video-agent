@@ -213,6 +213,7 @@ function summarizeTranscript(transcript: Transcript): Record<string, unknown> {
   return {
     ...(transcript.language === undefined ? {} : {language: transcript.language}),
     segments: transcript.segments.length,
+    ...(transcript.timestampConfidence === undefined ? {} : {timestampConfidence: transcript.timestampConfidence}),
     textLength: transcript.text.length,
   }
 }

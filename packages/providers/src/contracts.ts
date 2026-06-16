@@ -1,6 +1,7 @@
 import type {ClipPlan, MediaInfo, Narration, NarrationSegment, Storyboard} from '@video-agent/ir'
 
 export interface MediaInput {
+  duration?: number
   mimeType?: string
   path: string
 }
@@ -16,7 +17,10 @@ export interface Transcript {
   language?: string
   segments: TranscriptSegment[]
   text: string
+  timestampConfidence?: TranscriptTimestampConfidence
 }
+
+export type TranscriptTimestampConfidence = 'chunked' | 'exact' | 'untimed'
 
 export interface SceneFrameBatch {
   frames: string[]

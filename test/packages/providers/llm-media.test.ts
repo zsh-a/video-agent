@@ -13,7 +13,7 @@ import {MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '
 const asrOptionsKey = 'asr_options'
 
 describe('LLM media providers', () => {
-  it('transcribes audio through the existing AI SDK LLM client', async () => {
+  it('synthesizes whole-window timestamps when MiMo ASR returns plain text', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-asr-'))
     const audioPath = join(root, 'source.wav')
     let request: GenerateTextRequest | undefined
@@ -40,7 +40,10 @@ describe('LLM media providers', () => {
         streamText() {
           throw new Error('Not used by this test.')
         },
-      } satisfies LLMClient).transcribe({path: audioPath})
+      } satisfies LLMClient).transcribe({
+        duration: 12.5,
+        path: audioPath,
+      })
       const metadata = readProviderMetadata(transcript)
       const content = request?.messages?.[0]?.content
       const audioPart = Array.isArray(content) ? content[0] : undefined
@@ -61,12 +64,13 @@ describe('LLM media providers', () => {
         language: 'zh-CN',
         segments: [
           {
-            end: 0,
+            end: 12.5,
             start: 0,
             text: '这是中文转写。',
           },
         ],
         text: '这是中文转写。',
+        timestampConfidence: 'chunked',
       })
       expect(metadata).to.deep.equal({
         model: MIMO_ASR_MODEL,
@@ -74,6 +78,82 @@ describe('LLM media providers', () => {
           inputTokens: 8,
           outputTokens: 4,
           totalTokens: 12,
+        },
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('segments long MiMo ASR input and merges chunk timestamps', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-asr-chunked-'))
+    const audioPath = join(root, 'source.wav')
+    const texts = ['第一段。', '第二段。', '第三段。']
+    const windows: Array<[number, number]> = []
+
+    try {
+      await writeText(audioPath, 'source-audio')
+
+      const transcript = await new MimoASRProvider({
+        async generateObject() {
+          throw new Error('Not used by this test.')
+        },
+        async generateText() {
+          const text = texts.shift() ?? ''
+
+          return {
+            text,
+            usage: {
+              inputTokens: 2,
+              outputTokens: 3,
+              totalTokens: 5,
+            },
+          }
+        },
+        streamText() {
+          throw new Error('Not used by this test.')
+        },
+      } satisfies LLMClient, {
+        async segmentAudio(_inputPath, outputPath, window) {
+          windows.push([window.start, window.end])
+          await writeText(outputPath, `chunk ${window.start}-${window.end}`)
+        },
+        segmentLengthSeconds: 10,
+      }).transcribe({
+        duration: 25,
+        path: audioPath,
+      })
+      const metadata = readProviderMetadata(transcript)
+
+      expect(windows).to.deep.equal([[0, 10], [10, 20], [20, 25]])
+      expect(transcript).to.deep.equal({
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 10,
+            start: 0,
+            text: '第一段。',
+          },
+          {
+            end: 20,
+            start: 10,
+            text: '第二段。',
+          },
+          {
+            end: 25,
+            start: 20,
+            text: '第三段。',
+          },
+        ],
+        text: ['第一段。', '第二段。', '第三段。'].join('\n'),
+        timestampConfidence: 'chunked',
+      })
+      expect(metadata).to.deep.equal({
+        model: MIMO_ASR_MODEL,
+        usage: {
+          inputTokens: 6,
+          outputTokens: 9,
+          totalTokens: 15,
         },
       })
     } finally {

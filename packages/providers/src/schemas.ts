@@ -14,6 +14,7 @@ export const TranscriptSchema = z.object({
   language: z.string().optional(),
   segments: z.array(TranscriptSegmentSchema),
   text: z.string(),
+  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']).optional(),
 })
 
 export const VlmSceneSchema = z.object({

@@ -356,6 +356,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       const asrInputPath = ingest.artifacts.sourceAudio ?? ingest.inputPath
       await emitStep(ctx, {data: {inputPath: asrInputPath, providerInput: ingest.artifacts.sourceAudio === undefined ? 'media' : 'audio'}, message: 'Transcribing source audio.', stage: 'understand', step: 'asr'})
       const transcript = TranscriptSchema.parse(await ingest.providers.asr.transcribe({
+        ...(ingest.mediaInfo.duration === undefined ? {} : {duration: ingest.mediaInfo.duration}),
         path: asrInputPath,
       }))
       await emitProgress(ctx, {
@@ -684,6 +685,7 @@ function summarizeTranscriptForLog(transcript: Transcript): Record<string, unkno
     ...(transcript.language === undefined ? {} : {language: transcript.language}),
     duration,
     segments: transcript.segments.length,
+    ...(transcript.timestampConfidence === undefined ? {} : {timestampConfidence: transcript.timestampConfidence}),
     textLength: transcript.text.length,
   }
 }
