@@ -397,7 +397,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         sampleFps: ingest.chunkPlan.defaults.vlmFrameSampleFps,
       })
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
-      const sceneAnalysis = validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches)))
+      const sceneAnalysis = await analyzeSceneBatches(ingest, sceneBatches, ctx)
       await emitProgress(ctx, {
         current: sceneAnalysis.length,
         message: 'VLM scene batches completed.',
@@ -508,6 +508,37 @@ export async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineC
   /* eslint-enable no-await-in-loop */
 
   return mergeChunkTranscripts(transcripts)
+}
+
+export async function analyzeSceneBatches(ingest: IngestOutput, sceneBatches: SceneFrameBatch[], ctx: PipelineContext): Promise<VLMScene[]> {
+  const cachedSceneAnalysis = await readCachedSceneAnalysis(ingest, sceneBatches)
+
+  if (cachedSceneAnalysis !== undefined) {
+    await emitStep(ctx, {
+      data: {
+        scenes: cachedSceneAnalysis.length,
+      },
+      level: 'debug',
+      message: 'Reusing cached visual scene analysis.',
+      stage: 'understand',
+      step: 'vlm',
+    })
+    return cachedSceneAnalysis
+  }
+
+  return validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches)))
+}
+
+async function readCachedSceneAnalysis(ingest: IngestOutput, sceneBatches: SceneFrameBatch[]): Promise<VLMScene[] | undefined> {
+  if (!await bunFile(ingest.workspace.store.resolve('scene-analysis.json')).exists()) {
+    return undefined
+  }
+
+  try {
+    return validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.workspace.store.readJson('scene-analysis.json')))
+  } catch {
+    return undefined
+  }
 }
 
 async function readCachedChunkTranscript(ingest: IngestOutput, chunk: LongVideoChunk): Promise<Transcript | undefined> {

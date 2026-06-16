@@ -7,7 +7,7 @@ import {join} from 'node:path'
 
 import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
-import {createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, transcribeSourceAudio, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
+import {analyzeSceneBatches, createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, transcribeSourceAudio, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
 import {createProjectWorkspace} from '../../../packages/runtime/src/workspace.js'
 
 describe('job runner', () => {
@@ -444,6 +444,128 @@ describe('job runner', () => {
         text: 'Cached first chunk.\nCached second chunk.',
         timestampConfidence: 'chunked',
       })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reuses valid scene analysis artifacts during VLM reruns', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-vlm-cache-'))
+    const workspace = await createProjectWorkspace({
+      projectId: 'demo',
+      workspaceDir: root,
+    })
+    const sceneBatches = [
+      {
+        frames: ['frames/frame_00001.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 2] as [number, number],
+      },
+      {
+        frames: ['frames/frame_00002.jpg'],
+        sceneId: 'scene-2',
+        timeRange: [2, 4] as [number, number],
+      },
+    ]
+    const cachedSceneAnalysis = [
+      {
+        description: 'Cached first visual scene.',
+        evidence: ['frames/frame_00001.jpg'],
+        sceneId: 'scene-1',
+      },
+      {
+        description: 'Cached second visual scene.',
+        evidence: ['frames/frame_00002.jpg'],
+        sceneId: 'scene-2',
+      },
+    ]
+    let vlmCalls = 0
+
+    try {
+      await workspace.store.writeJson('scene-analysis.json', cachedSceneAnalysis)
+
+      const sceneAnalysis = await analyzeSceneBatches({
+        artifacts: {
+          chapters: workspace.store.resolve('chapters.json'),
+          chunkPlan: workspace.store.resolve('chunk-plan.json'),
+          chunkSummaries: workspace.store.resolve('chunk-summaries.json'),
+          clipPlan: workspace.store.resolve('clip-plan.json'),
+          globalOutline: workspace.store.resolve('global-outline.json'),
+          ingestReport: workspace.store.resolve('ingest-report.json'),
+          mediaInfo: workspace.store.resolve('media-info.json'),
+          narration: workspace.store.resolve('narration.json'),
+          pipelineEvents: workspace.store.resolve('pipeline-events.jsonl'),
+          preview: join(workspace.rendersDir, 'preview.mp4'),
+          providerCalls: workspace.store.resolve('provider-calls.jsonl'),
+          qualityReport: workspace.store.resolve('quality-report.json'),
+          sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+          selectedMoments: workspace.store.resolve('selected-moments.json'),
+          storyboard: workspace.store.resolve('storyboard.json'),
+          timeline: workspace.store.resolve('timeline.json'),
+          transcript: workspace.store.resolve('transcript.json'),
+          ttsSegments: workspace.store.resolve('tts-segments.json'),
+        },
+        chunkPlan: {
+          chunks: [],
+          defaults: {
+            asrChunking: true,
+            chunkDuration: 300,
+            chunkOverlap: 10,
+            frameSampleFps: 1,
+            sceneDetection: true,
+            vlmBatchSize: 16,
+            vlmFrameSampleFps: 0.2,
+          },
+          source: '/tmp/input.mp4',
+          sourceDuration: 4,
+          version: 1,
+        },
+        inputPath: '/tmp/input.mp4',
+        mediaInfo: {
+          duration: 4,
+          inputPath: '/tmp/input.mp4',
+          probedAt: '2026-06-16T00:00:00.000Z',
+          streams: [],
+          version: 1,
+        },
+        providers: {
+          asr: {
+            async transcribe() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          script: {
+            async createNarration() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          storyboard: {
+            async createStoryboard() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          tts: {
+            async synthesize() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          vlm: {
+            async analyzeScenes() {
+              vlmCalls += 1
+              throw new Error('VLM should not run for cached scene analysis.')
+            },
+          },
+        },
+        workspace,
+      }, sceneBatches, {
+        artifactsDir: workspace.artifactsDir,
+        async emit() {},
+        projectId: workspace.projectId,
+        workspaceDir: workspace.workspaceDir,
+      })
+
+      expect(vlmCalls).to.equal(0)
+      expect(sceneAnalysis).to.deep.equal(cachedSceneAnalysis)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
