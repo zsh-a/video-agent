@@ -20,6 +20,16 @@ export const MIMO_TTS_DEFAULT_VOICE = 'mimo_default'
 export const MIMO_TTS_MODEL = MIMO_PROVIDER_MODEL_IDS.tts
 export const MIMO_ASR_DEFAULT_SEGMENT_SECONDS = 30
 const MAX_VLM_IMAGE_PARTS = 16
+const GENERIC_TTS_VOICE_HINTS = new Set([
+  'female',
+  'girl',
+  'male',
+  'man',
+  'narrator',
+  'neutral',
+  'voice',
+  'woman',
+])
 
 export class LLMASRProvider implements ASRProvider {
   constructor(private readonly llm: LLMClient) {}
@@ -366,7 +376,7 @@ export class MimoTTSProvider implements TTSProvider {
       body: JSON.stringify({
         audio: {
           format: 'wav',
-          voice: normalizeOptionalString(segment.voice) ?? this.voice,
+          voice: resolveMimoTtsVoice(segment.voice, this.voice),
         },
         messages: [
           ...(this.options.style === undefined
@@ -725,6 +735,16 @@ function normalizeBaseURL(value: string): string {
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
   return value === undefined || value.trim() === '' ? undefined : value.trim()
+}
+
+function resolveMimoTtsVoice(segmentVoice: string | undefined, fallback: string): string {
+  const voice = normalizeOptionalString(segmentVoice)
+
+  if (voice === undefined || GENERIC_TTS_VOICE_HINTS.has(voice.toLowerCase())) {
+    return fallback
+  }
+
+  return voice
 }
 
 function normalizeOutputDir(value: string | undefined): string {

@@ -381,6 +381,55 @@ describe('LLM media providers', () => {
     }
   })
 
+  it('uses the configured MiMo TTS voice for generic narration voice hints', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-tts-voice-'))
+    const requests: Array<{init?: RequestInit; url: string}> = []
+    const fetchMock: typeof fetch = async (input, init) => {
+      requests.push({init, url: String(input)})
+
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              audio: {
+                data: Buffer.from('fake-wav').toString('base64'),
+              },
+            },
+          },
+        ],
+      }), {status: 200})
+    }
+
+    try {
+      const provider = new MimoTTSProvider({
+        apiKey: 'test-key',
+        fetch: fetchMock,
+        voice: '冰糖',
+      })
+
+      await provider.synthesize([
+        {
+          id: 'narration-1',
+          text: '你好世界。',
+          voice: 'male',
+        },
+      ], {
+        outputDir: join(root, 'tts'),
+      })
+
+      const body = JSON.parse(String(requests[0]?.init?.body)) as {
+        audio: {format: string; voice: string}
+      }
+
+      expect(body.audio).to.deep.equal({
+        format: 'wav',
+        voice: '冰糖',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('selects real MiMo TTS for the Mimo LLM profile', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-tts-registry-'))
     const fetchMock: typeof fetch = async () => new Response(JSON.stringify({
