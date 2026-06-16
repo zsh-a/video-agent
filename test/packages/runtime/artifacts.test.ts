@@ -184,6 +184,60 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports deck quality reports that fail their schema', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'deck-quality-report.json'), '{"version":1,"source":"deck.json","format":"portrait_1080x1920","summary":{"errors":-1,"warnings":0,"slides":1},"issues":[{"code":"","message":"bad","severity":"info"}],"metrics":[]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+      })
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['deck-quality-report.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['source', 'summary.errors', 'issues.0.code', 'issues.0.severity'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports deck normalization artifacts that fail their schemas', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'claims.json'), '{"version":1,"claims":[{"id":"","blockId":"","text":"","type":"unknown","confidence":2}]}\n')
+      await writeText(join(artifactsDir, 'source-quotes.json'), '{"version":1,"quotes":[{"id":"","blockId":"","text":""}]}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.summary).to.deep.include({
+        errors: 2,
+        schemaInvalid: 2,
+      })
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['claims.json', 'source-quotes.json'])
+      expect(result.schemaInvalid.flatMap((issue) => issue.issues.map((schemaIssue) => `${issue.name}:${schemaIssue.path.join('.')}`))).to.include.members([
+        'claims.json:claims.0.id',
+        'claims.json:claims.0.type',
+        'claims.json:claims.0.confidence',
+        'source-quotes.json:quotes.0.id',
+      ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports render outputs that fail their schema', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 

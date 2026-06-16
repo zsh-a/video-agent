@@ -73,15 +73,57 @@ Deck Explainer Pipeline
 
 Do not force both products into one generic `ingest -> understand -> plan -> script -> render` flow. The shared runtime should execute typed stages, but each business pipeline chooses its own stage graph and first-class IR.
 
-Target package direction once the current package APIs are stable:
+Pipeline facade packages now expose the business orchestration surface while reusing the shared runtime implementations:
 
 ```text
 packages/
-  pipeline-film/    film recap orchestration over runtime/core/media/providers/renderers
-  pipeline-deck/    deck explainer orchestration over runtime/core/providers/renderer-html
+  pipeline-film/    film recap orchestration facade over runtime/core/media/providers/renderers
+  pipeline-deck/    deck explainer orchestration facade over runtime/core/providers/renderer-html
 ```
 
-Until those packages exist, keep the behavior in `packages/runtime` but preserve the same separation in stage names, artifact names, and IR contracts.
+The current facade packages are intentionally thin: they define the adapter-facing business boundary first, while the stage implementations remain in `packages/runtime` until the package APIs are stable enough for a low-churn move.
+
+Current implementation status:
+
+```text
+Deck Explainer
+  vagent deck <text-or-markdown>
+  vagent deck <audio> --mode summarize --duration 5m
+  vagent deck <audio> --mode audio-anchored
+  vagent deck synthesize-voice <project-id>
+  vagent deck render <project-id>
+  vagent deck render <project-id> --html-render-command '["hyperframes"]' --html-render --html-validate
+  writes DocumentIR / ContentBlockIR / ClaimsIR / SourceQuotesIR / OutlineIR / DeckIR / SpeakerScriptIR / TimedDeckIR
+  writes tts-segments.json, deck-voiceover.json, and audio/deck_voiceover.wav
+  top-level deck commands synthesize or preserve audio, compile HTML, write deck-quality-report.json, and write renders/final.mp4
+  summarize mode transcribes audio to transcript.json, then generates a new script/TTS deck
+  audio-anchored mode writes transcript.json and preserves source audio as deck voiceover
+  renders DeckIR to static HTML under renders/html, can hand that HTML project to an external renderer, and still writes final video through an ffmpeg fallback
+  can still render HTML through the existing HyperFrames storyboard/timeline compatibility path
+
+Film Recap
+  vagent film <video>
+  vagent film ingest <video>
+  vagent film understand <project-id>
+  vagent film build-story-index <project-id>
+  vagent film plan-clips <project-id> --target 10m
+  vagent film cut <project-id>
+  vagent film narrate <project-id>
+  vagent film synthesize-voice <project-id>
+  vagent film mix-audio <project-id>
+  vagent film subtitle <project-id>
+  vagent film render <project-id>
+  vagent film quality-check <project-id>
+  writes media-info.json, source-manifest.json, scenes.json, frames.json, asr-result.json,
+  silence-periods.json, vlm-analysis.json, timeline-fusion.json, story-index.json,
+  narrative-beats.json, character-index.json, clip-plan.json, clip-plan-validated.json,
+  output-timeline-map.json, output-narration.json, narration.json, tts-segments.json,
+  audio/tts/*, audio/audio_mix.wav, audio-mix.json, subtitles.json,
+  renders/subtitles.srt, renders/final.mp4, render-output.json, quality-report.json,
+  and renders/edited_source.mp4
+  keeps aligned source audio in the cut when present and ducks it under TTS in audio_mix.wav
+  calls configured ASR/VLM providers during understand-source when source audio/frames are available
+```
 
 ## Current Package Layout
 
@@ -107,6 +149,9 @@ packages/
 
   renderer-ffmpeg/
     First runnable renderer that emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
+
+  renderer-html/
+    DeckIR to static HTML slide project compiler boundary
 
   renderer-hyperframes/
     HyperFrames render plan and HTML project compiler boundary
@@ -197,42 +242,55 @@ Important rule: do not write final narration against the original movie timeline
 Primary artifacts:
 
 ```text
-source_manifest.json
+source-manifest.json
 scenes.json
-asr_result.json
-silence_periods.json
+asr-result.json
+silence-periods.json
 frames/
-vlm_analysis.json
-timeline_fusion.json
-story_index.json
-narrative_beats.json
-character_index.json
-clip_plan.json
+vlm-analysis.json
+timeline-fusion.json
+story-index.json
+narrative-beats.json
+character-index.json
+clip-plan.json
 edited_source.mp4
-clip_plan_validated.json
-output_timeline_map.json
+clip-plan-validated.json
+output-timeline-map.json
+output-narration.json
 narration.json
 voiceover/
+tts-segments.json
 subtitles.ass
 audio_mix.wav
 final.mp4
 quality_report.json
 ```
 
+Current `understand-source` behavior is provider-backed: audio sources are extracted to `audio/source_audio.wav`, transcribed through the configured ASR provider, converted into Film ASR segments, and used to derive silence gaps and ASR-aligned scene ranges when timestamps are available. The stage samples one representative frame per scene and sends those scene frame batches to the configured VLM provider before writing `vlm-analysis.json` and `timeline-fusion.json`. Sources without audio or without useful timestamps fall back to coarse duration-based scenes and placeholder/no-audio silence artifacts, but still keep the same Film IR artifact names.
+
+Current `build-story-index` behavior consumes `timeline-fusion.json`, `asr-result.json`, and `vlm-analysis.json`. It prefers evidence text over placeholders, infers narrative beat types such as `decision`, `reversal`, `conflict`, `climax`, and `resolution`, and builds `character-index.json` from VLM character hints plus role names detected in ASR/VLM summaries.
+
+Current `plan-clips` behavior scores beats before cutting: reversal, climax, decision, inciting incident, conflict, resolution, setup, and transition are weighted in that order, then boosted by evidence count, character presence, and plot keywords such as decisions, truth reveals, clues, and showdowns. The selected clips are written back in source chronology so the output remains watchable, while `priorityScore`, `selectionRank`, and `reason` explain why each clip was kept.
+
 Film-specific IR lives in `packages/ir/src/film.ts`: `FilmScene`, `ASRSegment`, `VLMSceneAnalysis`, `StoryIndex`, `NarrativeBeat`, `OutputTimelineMap`, and `OutputNarration`.
 
 Quality checks should focus on source/output timeline consistency, evidence-backed clip choice, narration alignment to the edited output, speech overlap, ducking decisions, subtitle bounds, loudness, and render diagnostics.
 
-Future command shape:
+Target command shape:
 
 ```sh
 vagent film input.mp4 --target 10m --platform douyin --style short-drama
 vagent film ingest input.mp4
 vagent film understand <job-id>
+vagent film build-story-index <job-id>
 vagent film plan-clips <job-id> --target 10m
 vagent film cut <job-id>
 vagent film narrate <job-id>
+vagent film synthesize-voice <job-id>
+vagent film mix-audio <job-id>
+vagent film subtitle <job-id>
 vagent film render <job-id>
+vagent film quality-check <job-id>
 ```
 
 ## Deck Explainer Pipeline
@@ -268,30 +326,30 @@ Primary artifacts:
 content_raw.json
 transcript.json
 document.json
-content_blocks.json
+content-blocks.json
 claims.json
-source_quotes.json
+source-quotes.json
 outline.json
 deck.json
-speaker_script.json
-tts_segments.json
-timed_deck.json
+speaker-script.json
+tts-segments.json
+timed-deck.json
 deck.html
 slides_preview/
 silent_video.mp4
 voiceover.wav
 subtitles.ass
 final.mp4
-deck_quality_report.json
+deck-quality-report.json
 ```
 
 Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`.
 
 The primary renderer for this pipeline is HTML/HyperFrames/Chromium, with ffmpeg used for muxing, subtitles, loudness, and final delivery. Remotion can be added later as another renderer that consumes `DeckIR` or `TimelineIR`; it must not own content understanding.
 
-Quality checks should focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
+Quality checks should focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides. The current `deck-quality-report.json` covers text density, title length, bullet count, slide timing gaps/overlaps, too-short slides, duplicate visible text, and chart-source evidence, and its warnings/errors are included in the project quality aggregate.
 
-Future command shape:
+Current and target command shape:
 
 ```sh
 vagent deck article.md --duration 3m --format portrait --style tech
@@ -337,9 +395,9 @@ HyperFrames remains the visual storytelling renderer for page-based explainers a
 
 ## Current Deck Slice
 
-Text and Markdown inputs can bypass media understanding entirely today. The text explainer runtime reads the source document, splits it into bounded slide sections, and writes the existing artifact family used by media-derived explainers: `media-info.json`, `selected-moments.json`, `storyboard.json`, `timeline.json`, `narration.json`, and `quality-report.json`. These projects use `slide_explainer` visual style from the start, so `render` auto-selects HyperFrames and `export` auto-selects a HyperFrames directory unless the HyperFrames CLI has rendered a video file.
+Text and Markdown inputs can bypass media understanding entirely today. The top-level `deck` command reads the source document, splits it into bounded slide sections, writes DeckIR artifacts (`document.json`, `content-blocks.json`, `claims.json`, `source-quotes.json`, `outline.json`, `deck.json`, `speaker-script.json`, and `timed-deck.json`) plus the existing render artifact family used by media-derived explainers: `media-info.json`, `selected-moments.json`, `storyboard.json`, `timeline.json`, `narration.json`, and `quality-report.json`, then synthesizes voice, updates timing, compiles HTML, writes `deck-quality-report.json`, and writes `renders/final.mp4`. `deck --mode summarize` transcribes audio to `transcript.json`, then treats that transcript as content for a newly generated script/TTS deck. `deck synthesize-voice` remains available as a staged rerun command; it runs TTS from `speaker-script.json`, writes `tts-segments.json`, `deck-voiceover.json`, and `audio/deck_voiceover.wav`, and updates `timed-deck.json`, `timeline.json`, and `narration.json` to the real audio durations. Audio-anchored deck mode runs ASR, writes `transcript.json`, converts the source audio to `audio/deck_voiceover.wav`, and aligns slide timings to ASR timestamps or fixed windows when timestamps are unavailable before rendering. `deck render` calls `packages/renderer-html` to compile `TimedDeckIR` into `renders/html/index.html`, `styles.css`, `runtime.js`, and `deck-render-plan.json`; with `--html-render`, it passes that HTML project to an external renderer command such as HyperFrames and stores the validation/render command results in `render-output.json`. It also creates simple slide frames from DeckIR, renders `renders/deck_silent.mp4`, muxes `audio/deck_voiceover.wav`, and writes `renders/final.mp4` for stable local delivery. These projects use `slide_explainer` visual style from the start, so the generic `render` command can still auto-select HyperFrames and export an HTML directory unless the Deck-specific final render has been run.
 
-This is the early runnable slice of the Deck Explainer Pipeline. It should migrate toward `DocumentIR -> OutlineIR -> DeckIR -> SpeakerScriptIR -> TimedDeckIR -> HTML render`, while still using the same workspace, quality aggregate, render, and export contracts.
+This is the early runnable slice of the Deck Explainer Pipeline. The remaining renderer migration is to make Chromium/HyperFrames capture from `renders/html/` the primary final-video path once that external renderer is available, with the current ffmpeg frame fallback kept for deterministic local operation.
 
 ## IR Contracts
 
@@ -368,7 +426,7 @@ Film Recap IR
   SceneIR, ASRSegmentIR, VLMSceneIR, StoryIndexIR, NarrativeBeatIR, OutputTimelineMapIR, OutputNarrationIR
 
 Deck Explainer IR
-  DocumentIR, ContentBlockIR, OutlineIR, DeckIR, SlideIR, SpeakerScriptIR, SlideTimingIR
+  DocumentIR, ContentBlockIR, ClaimsIR, SourceQuotesIR, OutlineIR, DeckIR, SlideIR, SpeakerScriptIR, SlideTimingIR
 ```
 
 All LLM/provider output should be validated before it enters the pipeline state.

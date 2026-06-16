@@ -1,9 +1,11 @@
 import {expect} from '#test/expect'
 
 import {
+  ClaimsSchema,
   DeckSchema,
   OutputNarrationSchema,
   OutputTimelineMapSchema,
+  SourceQuotesSchema,
   StoryIndexSchema,
   TimedDeckSchema,
 } from '../../../packages/ir/src/index.js'
@@ -51,6 +53,38 @@ describe('pipeline-specific IR schemas', () => {
       slideId: 's001',
       start: 0,
     })
+
+    const claims = ClaimsSchema.parse({
+      claims: [
+        {
+          blockId: 'block-001',
+          evidence: [{ref: 'document.json#block-001', text: 'Agent runtime', type: 'research'}],
+          id: 'claim-001',
+          text: 'Agent runtime owns orchestration.',
+          type: 'claim',
+        },
+      ],
+      version: 1,
+    })
+    const sourceQuotes = SourceQuotesSchema.parse({
+      quotes: [
+        {
+          blockId: 'block-001',
+          id: 'quote-001',
+          sourceRange: [0, 32],
+          text: 'Agent runtime owns orchestration.',
+        },
+      ],
+      version: 1,
+    })
+
+    expect(claims.claims[0]).to.deep.include({
+      blockId: 'block-001',
+      confidence: 0.7,
+      id: 'claim-001',
+      type: 'claim',
+    })
+    expect(sourceQuotes.quotes[0]?.sourceRange).to.deep.equal([0, 32])
   })
 
   it('rejects slide timings that do not reference the deck', () => {

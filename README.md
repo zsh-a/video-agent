@@ -27,8 +27,11 @@ packages/core/             stage and pipeline orchestration contracts
 packages/runtime/          workspace, artifacts, jobs, config, events, workflow APIs
 packages/media/            ffmpeg / ffprobe / subprocess wrappers
 packages/providers/        ASR, VLM, TTS, storyboard, and script provider contracts
+packages/pipeline-deck/    Deck Explainer business pipeline boundary over runtime APIs
+packages/pipeline-film/    Film Recap business pipeline boundary over runtime APIs
 packages/llm/              internal LLMClient and AI SDK-backed adapter
 packages/renderer-ffmpeg/  ffmpeg renderer boundary
+packages/renderer-html/    DeckIR to static HTML slide project boundary
 packages/renderer-hyperframes/ HyperFrames project/compiler boundary
 packages/quality/          pipeline, render, and artifact quality checks
 packages/db/               JSON and Bun SQLite job stores
@@ -56,7 +59,7 @@ Deck Explainer Pipeline
 
 The shared runtime owns jobs, events, checkpoints, artifacts, providers, media wrappers, renderers, and quality checks. Pipeline-specific contracts live in `packages/ir`: film recap uses `StoryIndex`, `NarrativeBeat`, `OutputTimelineMap`, and output-timeline narration; deck explainer uses `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, and `TimedDeck`.
 
-The current runnable Deck slice is the `text` command. Dedicated `film` and `deck` command groups are planned once the runtime stage graph is split around those IR contracts.
+The current runnable Deck slice is available through `deck` and the older `text` command. The current Film slice runs ingest/probe, provider-backed source understanding with ASR/VLM fallbacks, story-index construction, clip planning, cut-first rendering, output-timeline narration, TTS voiceover, source-aware audio mix with ducking when original audio is present, subtitles, final ffmpeg render, and quality report generation.
 
 ## Setup
 
@@ -97,12 +100,40 @@ bun run dev export <projectId> --output ./output
 Create a PPT-style explainer directly from text or Markdown:
 
 ```sh
+bun run dev deck ./notes.md --duration 3m --format portrait --style tech --project-id notes-demo
+bun run dev deck synthesize-voice notes-demo
+bun run dev deck render notes-demo
+bun run dev deck ./podcast.wav --mode summarize --duration 5m --project-id podcast-summary
+bun run dev deck synthesize-voice podcast-summary
+bun run dev deck render podcast-summary
+bun run dev deck ./podcast.wav --mode audio-anchored --project-id podcast-demo
+bun run dev deck render podcast-demo
+bun run dev deck render notes-demo --html-render-command '["hyperframes"]' --html-render --html-validate
 bun run dev text ./notes.md --project-id notes-demo
 bun run dev render notes-demo
 bun run dev export notes-demo --output ./notes-slides
 ```
 
-The text command does not call ASR, VLM, or TTS providers. It splits the input into multiple `slide_explainer` pages, writes standard project artifacts, and leaves render/export to the shared HyperFrames path.
+The top-level `deck` command runs the Deck Explainer business pipeline through final render. Text inputs do not call ASR or VLM providers; they split the input into multiple `slide_explainer` pages, write standard render artifacts plus DeckIR artifacts such as `document.json`, `content-blocks.json`, `claims.json`, `source-quotes.json`, `outline.json`, `deck.json`, `speaker-script.json`, and `timed-deck.json`, synthesize a new narration track, update timing to real TTS durations, compile HTML under `renders/html/`, and mux `renders/final.mp4`. `deck --mode summarize` transcribes audio inputs to `transcript.json`, treats the transcript as content, writes `DeckIR` with `inputMode: "script-generated"`, then creates new TTS narration and final video. `deck --mode audio-anchored` transcribes audio, writes `transcript.json`, preserves the source audio as `audio/deck_voiceover.wav`, aligns slides to ASR timestamps or fixed windows, and renders the final video without new TTS. `deck render` also writes `deck-quality-report.json` with slide density, title length, bullet count, timing, duplicate-slide, and chart-source checks; these issues are included in the project quality aggregate. The staged `deck synthesize-voice` and `deck render` commands remain available for reruns or custom HTML capture; pass `--html-render --html-render-command '["hyperframes"]'` to `deck render` to hand `renders/html/` to an external HTML renderer and record the captured output in `render-output.json`. Export defaults to the muxed video.
+
+Run Film Recap from video to final render, or use staged subcommands for checkpoints and reruns:
+
+```sh
+bun run dev film ./episode.mp4 --project-id episode-demo --target 10m
+bun run dev film ingest ./episode.mp4 --project-id episode-demo
+bun run dev film understand episode-demo
+bun run dev film build-story-index episode-demo
+bun run dev film plan-clips episode-demo --target 10m
+bun run dev film cut episode-demo
+bun run dev film narrate episode-demo
+bun run dev film synthesize-voice episode-demo
+bun run dev film mix-audio episode-demo
+bun run dev film subtitle episode-demo
+bun run dev film render episode-demo
+bun run dev film quality-check episode-demo
+```
+
+Film ingest probes the source, computes a source hash, writes `media-info.json` and `source-manifest.json`, and initializes the Film Recap stage list. Source understanding writes `scenes.json`, `frames.json`, `asr-result.json`, `silence-periods.json`, `vlm-analysis.json`, and `timeline-fusion.json`; when the source has audio it extracts `audio/source_audio.wav`, calls the configured ASR provider, derives silence gaps from timestamped ASR, samples scene frames, and calls the configured VLM provider for scene evidence. No-audio or untimed inputs fall back to coarse scene/silence artifacts. Story indexing writes `story-index.json`, `narrative-beats.json`, and `character-index.json`, inferring beat types and character evidence from ASR/VLM facts when available. Clip planning writes `clip-plan.json` with beat-backed source ranges, `priorityScore`, `selectionRank`, and rationale text; it selects high-value evidence-backed beats first, then orders selected clips by source chronology for the cut. Cut rendering writes `renders/edited_source.mp4`, `clip-plan-validated.json`, and `output-timeline-map.json`; when the source has audio, the cut keeps the aligned source audio. Output narration writes Film-specific `output-narration.json` plus compatible `narration.json`. Voice synthesis writes provider-backed `tts-segments.json` and audio files under `audio/tts/`. Audio mixing writes `audio/audio_mix.wav` and `audio-mix.json`; it emits `source-ducked` when original cut audio and TTS are both present, `source-only` for original audio without TTS, `voiceover-only` for silent sources with TTS, and `silence` as the fallback. Subtitle and final render write `subtitles.json`, `renders/subtitles.srt`, `renders/final.mp4`, and `render-output.json`; quality check writes `quality-report.json`.
 
 Long-video work is chunk-first at the artifact boundary. The shared IR and core contracts include a long-video chunk plan with defaults of 5 minute chunks, 10 second overlap, 1 fps preview sampling, 0.2 fps VLM sampling, scene detection enabled, ASR chunking enabled, and VLM batches of 16 frames. Runtime ingest writes `chunk-plan.json` and `frames.json`; understanding uses chunk analysis ranges for ASR/VLM context and writes top-level `scene-batches.json`, `chunk-summaries.json`, `chapters.json`, `global-outline.json`, and `selected-moments.json` plus per-chunk `summary.json`, `silence.json`, `transcript.json`, and `vlm.json` under `chunks/NNN`. When scene detection is disabled, VLM uses one full-duration scene batch; otherwise transcript-aligned scene batches are used. VLM reruns reuse unchanged scene analysis entries by matching each scene id, time range, and frame list. Planning and scripting consume the selected moments and chunk context before producing `clip-plan.json`, `narration.json`, and `timeline.json`.
 
@@ -211,10 +242,11 @@ The current runnable slice supports:
 - Headless runtime with durable workspace artifacts, job state, events, provider call logs, and checkpoint validation.
 - Long-video IR and core chunk planning contracts for chunk-first, evidence-backed, resumable processing.
 - Pipeline-specific IR contracts for Film Recap and Deck Explainer flows.
-- Text/Markdown to PPT-style HyperFrames explainer projects without provider calls.
+- Text/Markdown and audio-summary to DeckIR-backed PPT-style explainer projects, with optional TTS voiceover timing and DeckIR-to-HTML render artifacts.
+- Film Recap ingest, provider-backed source understanding, story-index, clip-plan, cut-first, output-narration, voiceover, source-aware audio mix, subtitle, final render, and quality checkpoints.
 - Mock, command, LLM, and Mimo-profile provider configuration.
 - LLM-backed ASR/VLM/TTS/storyboard/script provider path through the internal AI SDK-backed `LLMClient`.
-- ffmpeg and HyperFrames render boundaries, render diagnostics, quality aggregation, export, and quality-gated export.
+- ffmpeg, HTML, and HyperFrames render boundaries, render diagnostics, quality aggregation, export, and quality-gated export.
 - CLI, TUI, Fetch API, MCP, and Claude Code skill adapters over the same runtime APIs.
 
 Near-term work:

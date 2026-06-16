@@ -14,8 +14,11 @@
     {"path": "./packages/runtime"},
     {"path": "./packages/media"},
     {"path": "./packages/mcp"},
+    {"path": "./packages/pipeline-deck"},
+    {"path": "./packages/pipeline-film"},
     {"path": "./packages/providers"},
     {"path": "./packages/renderer-ffmpeg"},
+    {"path": "./packages/renderer-html"},
     {"path": "./packages/renderer-hyperframes"},
     {"path": "./packages/quality"},
     {"path": "./packages/db"}

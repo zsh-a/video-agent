@@ -1,6 +1,6 @@
 import {z, type ZodType} from 'zod'
 
-import {ArtifactRefSchema, ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {ASRResultSchema, ArtifactRefSchema, CharacterIndexSchema, ClaimsSchema, ClipPlanSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, NarrativeBeatsSchema, OutlineSchema, OutputNarrationSchema, OutputTimelineMapSchema, SilencePeriodsSchema, SourceManifestSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryIndexSchema, StoryboardSchema, TimedDeckSchema, TimelineFusionSchema, TimelineSchema, VLMAnalysisSchema} from '@video-agent/ir'
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
@@ -106,7 +106,7 @@ const RenderOutputSchema = z.object({
   completedAt: z.string().min(1).optional(),
   outputPath: z.string().min(1).optional(),
   outputQuality: IssueCountSchema.optional(),
-  renderer: z.enum(['ffmpeg', 'hyperframes']),
+  renderer: z.enum(['ffmpeg', 'html', 'hyperframes']),
   subtitleQuality: IssueCountSchema.optional(),
   templateQuality: IssueCountSchema.optional(),
   version: z.literal(1),
@@ -138,7 +138,57 @@ const VoiceoverPlanSchema = z.object({
   version: z.literal(1),
 }).strict()
 
+const AudioMixSchema = z.object({
+  duration: z.number().nonnegative(),
+  ducking: z.object({
+    attackMs: z.number().nonnegative(),
+    ratio: z.number().nonnegative(),
+    releaseMs: z.number().nonnegative(),
+    threshold: z.number().nonnegative(),
+  }).strict().optional(),
+  generatedAt: z.string().min(1),
+  mode: z.enum(['silence', 'source-ducked', 'source-only', 'voiceover-only']),
+  outputPath: z.string().min(1),
+  sourceAudioRetained: z.boolean(),
+  sourcePath: z.string().min(1),
+  sourceVolume: z.number().nonnegative(),
+  version: z.literal(1),
+  voiceoverVolume: z.number().nonnegative(),
+  voiceoverSegments: z.array(z.object({
+    delayMs: z.number().int().nonnegative(),
+    duration: z.number().nonnegative(),
+    narrationId: z.string().min(1),
+    path: z.string().min(1),
+    resolvedPath: z.string().min(1),
+    start: z.number().nonnegative(),
+  }).strict()),
+}).strict()
+
+const SubtitleOutputSchema = z.object({
+  cues: z.number().int().nonnegative(),
+  format: z.literal('srt'),
+  generatedAt: z.string().min(1),
+  path: z.string().min(1),
+  version: z.literal(1),
+}).strict()
+
+const DeckVoiceoverSchema = z.object({
+  duration: z.number().nonnegative(),
+  generatedAt: z.string().min(1),
+  outputPath: z.string().min(1),
+  segments: z.array(z.object({
+    duration: z.number().nonnegative(),
+    narrationId: z.string().min(1),
+    path: z.string().min(1),
+    slideId: z.string().min(1),
+    start: z.number().nonnegative(),
+  }).strict()),
+  version: z.literal(1),
+}).strict()
+
 const RenderOutputReferenceSchema = z.object({
+  audioPath: z.string().min(1).optional(),
+  audioMixPath: z.string().min(1).optional(),
   entryHtml: z.string().min(1).optional(),
   outputDir: z.string().min(1).optional(),
   outputPath: z.string().min(1).optional(),
@@ -146,7 +196,10 @@ const RenderOutputReferenceSchema = z.object({
   rendered: z.object({
     command: z.array(z.string()),
   }).passthrough().optional(),
+  runtimePath: z.string().min(1).optional(),
   subtitlePath: z.string().min(1).optional(),
+  silentVideoPath: z.string().min(1).optional(),
+  stylesPath: z.string().min(1).optional(),
   visualQuality: z.object({
     frameSample: z.object({
       path: z.string().min(1).optional(),
@@ -221,25 +274,49 @@ const ProviderCallLogLineSchema = z.object({
 })
 
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
+  'audio-mix.json': AudioMixSchema,
+  'asr-result.json': ASRResultSchema,
+  'character-index.json': CharacterIndexSchema,
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
   'chunk-summaries.json': LongVideoChunkSummariesSchema,
+  'claims.json': ClaimsSchema,
   'clip-plan.json': ClipPlanSchema,
+  'clip-plan-validated.json': ClipPlanSchema,
+  'content-blocks.json': ContentBlocksSchema,
+  'deck-voiceover.json': DeckVoiceoverSchema,
+  'deck-quality-report.json': DeckQualityReportSchema,
+  'deck.json': DeckSchema,
+  'document.json': DocumentSchema,
   'export-output.json': ExportOutputSchema,
   'frames.json': LongVideoAnalysisFramesSchema,
   'global-outline.json': LongVideoGlobalOutlineSchema,
   'ingest-report.json': IngestReportSchema,
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
+  'outline.json': OutlineSchema,
+  'output-narration.json': OutputNarrationSchema,
+  'output-timeline-map.json': OutputTimelineMapSchema,
   'quality-report.json': QualityReportSchema,
   'render-output.json': RenderOutputSchema,
   'scene-analysis.json': VlmScenesSchema,
   'scene-batches.json': SceneFrameBatchesSchema,
+  'scenes.json': FilmScenesSchema,
   'selected-moments.json': LongVideoSelectedMomentsSchema,
+  'silence-periods.json': SilencePeriodsSchema,
+  'speaker-script.json': SpeakerScriptSchema,
+  'source-manifest.json': SourceManifestSchema,
+  'source-quotes.json': SourceQuotesSchema,
+  'story-index.json': StoryIndexSchema,
   'storyboard.json': StoryboardSchema,
+  'subtitles.json': SubtitleOutputSchema,
+  'narrative-beats.json': NarrativeBeatsSchema,
+  'timed-deck.json': TimedDeckSchema,
+  'timeline-fusion.json': TimelineFusionSchema,
   'timeline.json': TimelineSchema,
   'transcript.json': TranscriptSchema,
   'tts-segments.json': TtsSegmentsSchema,
+  'vlm-analysis.json': VLMAnalysisSchema,
   'voiceover-plan.json': VoiceoverPlanSchema,
 }
 
@@ -376,6 +453,10 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
 
   missing.push(...await findMissingIngestSideArtifactReferences(artifactsDir))
   missing.push(...await findMissingAnalysisFrameReferences(artifactsDir))
+  missing.push(...await findMissingAudioMixReferences(artifactsDir))
+  missing.push(...await findMissingDeckVoiceoverReferences(artifactsDir))
+  missing.push(...await findMissingSubtitleOutputReferences(artifactsDir))
+  missing.push(...await findMissingTimedDeckReferences(artifactsDir))
   missing.push(...await findMissingTtsSegmentReferences(artifactsDir))
   missing.push(...await findMissingRenderOutputReferences(artifactsDir))
   missing.push(...await findMissingExportOutputReferences(artifactsDir))
@@ -405,6 +486,59 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
       untracked,
     }),
     untracked,
+  }
+}
+
+async function findMissingTimedDeckReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const timedDeck = TimedDeckSchema.parse(await bunFile(resolve(artifactsDir, 'timed-deck.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths([timedDeck.audioRef]))
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckVoiceoverReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const deckVoiceover = DeckVoiceoverSchema.parse(await bunFile(resolve(artifactsDir, 'deck-voiceover.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+    const paths = uniquePaths([
+      deckVoiceover.outputPath,
+      ...deckVoiceover.segments.map((segment) => segment.path),
+    ])
+
+    return findMissingProjectPathReferences(projectDir, paths)
+  } catch {
+    return []
+  }
+}
+
+async function findMissingSubtitleOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const subtitles = SubtitleOutputSchema.parse(await bunFile(resolve(artifactsDir, 'subtitles.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths([subtitles.path]))
+  } catch {
+    return []
+  }
+}
+
+async function findMissingAudioMixReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const audioMix = AudioMixSchema.parse(await bunFile(resolve(artifactsDir, 'audio-mix.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+    const paths = uniquePaths([
+      audioMix.outputPath,
+      audioMix.sourcePath,
+      ...audioMix.voiceoverSegments.flatMap((segment) => [segment.path, segment.resolvedPath]),
+    ])
+
+    return findMissingProjectPathReferences(projectDir, paths)
+  } catch {
+    return []
   }
 }
 
@@ -472,11 +606,16 @@ async function findMissingRenderOutputReferences(artifactsDir: string): Promise<
     const projectDir = resolve(artifactsDir, '..')
     const paths = uniquePaths([
       renderOutput.outputPath,
+      renderOutput.audioPath,
+      renderOutput.audioMixPath,
       renderOutput.subtitlePath,
+      renderOutput.silentVideoPath,
       renderOutput.voiceoverPlanPath,
       renderOutput.outputDir,
       renderOutput.entryHtml,
       renderOutput.planPath,
+      renderOutput.runtimePath,
+      renderOutput.stylesPath,
       extractHyperframesRenderOutputPath(renderOutput.rendered?.command),
       renderOutput.visualQuality?.frameSample?.path,
       ...(renderOutput.visualQuality?.frameSamples ?? []).map((sample) => sample.path),
@@ -502,12 +641,26 @@ async function findMissingExportOutputReferences(artifactsDir: string): Promise<
 async function findMissingProjectPathReferences(projectDir: string, paths: string[]): Promise<ArtifactIntegrityMissingIssue[]> {
   const missing = await Promise.all(paths.map(async (path) => {
     const resolvedPath = resolveProjectPath(projectDir, path)
-    const exists = await bunFile(resolvedPath).exists()
+    const exists = await pathExists(resolvedPath)
 
     return exists ? null : {name: toProjectReferenceName(projectDir, resolvedPath), reason: 'missing' as const}
   }))
 
   return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+
+    throw error
+  }
 }
 
 function uniquePaths(paths: Array<string | undefined>): string[] {

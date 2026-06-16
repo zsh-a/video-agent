@@ -46,6 +46,75 @@ describe('project quality', () => {
     }
   })
 
+  it('counts deck quality report issues in project quality', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.md',
+        projectId: 'demo',
+        stages: ['render-final'],
+      })
+      await writeText(join(artifactsDir, 'deck-quality-report.json'), `${JSON.stringify({
+        checkedAt: '2026-01-01T00:00:00.000Z',
+        format: 'portrait_1080x1920',
+        issues: [
+          {
+            code: 'deck.text_density_high',
+            message: 'too much text',
+            severity: 'warning',
+            slideId: 's001',
+          },
+          {
+            code: 'deck.timing_overlap',
+            message: 'overlap',
+            severity: 'error',
+            slideId: 's002',
+          },
+        ],
+        metrics: [
+          {
+            bulletCount: 8,
+            duration: 1,
+            estimatedCharactersPerSecond: 30,
+            slideId: 's001',
+            textCharacters: 240,
+            titleCharacters: 12,
+          },
+        ],
+        source: 'timed-deck.json',
+        summary: {
+          errors: 1,
+          slides: 1,
+          warnings: 1,
+        },
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQualityDetails('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.deck).to.deep.equal({
+        errors: 1,
+        issues: 2,
+        warnings: 1,
+      })
+      expect(report.summary).to.deep.equal({
+        errors: 1,
+        warnings: 1,
+      })
+      expect(report.deckIssues.map((issue) => issue.code)).to.deep.equal(['deck.text_density_high', 'deck.timing_overlap'])
+      expect(report.deckQualityReport).to.be.an('object')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts long-video explainer structure issues from current artifacts even when quality-report is stale', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 

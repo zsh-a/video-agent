@@ -3,7 +3,7 @@ import {resolve} from 'node:path'
 import type {ArtifactIntegrityResult} from './artifacts.js'
 import type {ProjectStatus, QualitySummary, RenderSummary} from './project-status.js'
 
-import {LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema} from '@video-agent/ir'
+import {DeckQualityReportSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema} from '@video-agent/ir'
 import {checkExplainerStructure, type QualityIssue} from '@video-agent/quality'
 
 import {verifyProjectArtifacts} from './artifacts.js'
@@ -13,6 +13,7 @@ import {readProjectStatus} from './project-status.js'
 export interface ProjectQualityReport {
   artifacts: ArtifactIntegrityResult
   content: QualitySummary
+  deck: QualitySummary
   generatedAt: string
   ok: boolean
   pipeline: QualitySummary
@@ -33,12 +34,15 @@ export async function readProjectQuality(projectId: string, workspaceDir = '.vid
     verifyProjectArtifacts(projectId, workspaceDir),
     readProjectContentIssues(artifactsDir),
   ])
+  const deckIssues = await readProjectDeckQualityIssues(artifactsDir)
   const content = summarizeQualityIssues(contentIssues)
-  const summary = summarizeProjectQuality(status, artifacts, content)
+  const deck = summarizeQualityIssues(deckIssues)
+  const summary = summarizeProjectQuality(status, artifacts, content, deck)
 
   return {
     artifacts,
     content,
+    deck,
     generatedAt: new Date().toISOString(),
     ok: summary.errors === 0 && summary.warnings === 0,
     pipeline: status.summary.quality,
@@ -48,19 +52,21 @@ export async function readProjectQuality(projectId: string, workspaceDir = '.vid
   }
 }
 
-export async function readProjectQualityDetails(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectQualityReport & {contentIssues: QualityIssue[]; qualityReport?: unknown; renderOutput?: unknown}> {
+export async function readProjectQualityDetails(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectQualityReport & {contentIssues: QualityIssue[]; deckIssues: QualityIssue[]; deckQualityReport?: unknown; qualityReport?: unknown; renderOutput?: unknown}> {
   const report = await readProjectQuality(projectId, workspaceDir)
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
 
   return {
     ...report,
     contentIssues: await readProjectContentIssues(artifactsDir),
+    deckIssues: await readProjectDeckQualityIssues(artifactsDir),
+    ...(await readOptionalJsonProperty(resolve(artifactsDir, 'deck-quality-report.json'), 'deckQualityReport')),
     ...(await readOptionalJsonProperty(resolve(artifactsDir, 'quality-report.json'), 'qualityReport')),
     ...(await readOptionalJsonProperty(resolve(artifactsDir, 'render-output.json'), 'renderOutput')),
   }
 }
 
-function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactIntegrityResult, content: QualitySummary): ProjectQualitySummary {
+function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactIntegrityResult, content: QualitySummary, deck: QualitySummary): ProjectQualitySummary {
   const errors =
     status.summary.quality.errors +
     status.summary.render.outputErrors +
@@ -69,7 +75,8 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
     status.summary.render.templateErrors +
     status.summary.render.visualErrors +
     artifacts.summary.errors +
-    content.errors
+    content.errors +
+    deck.errors
   const warnings =
     status.summary.quality.warnings +
     status.summary.render.outputWarnings +
@@ -80,12 +87,19 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
     status.summary.render.audioWarnings +
     status.summary.render.missingVoiceovers +
     artifacts.summary.warnings +
-    content.warnings
+    content.warnings +
+    deck.warnings
 
   return {
     errors,
     warnings,
   }
+}
+
+async function readProjectDeckQualityIssues(artifactsDir: string): Promise<QualityIssue[]> {
+  const report = await readOptionalParsedJson(resolve(artifactsDir, 'deck-quality-report.json'), DeckQualityReportSchema)
+
+  return report?.issues ?? []
 }
 
 async function readProjectContentIssues(artifactsDir: string): Promise<QualityIssue[]> {

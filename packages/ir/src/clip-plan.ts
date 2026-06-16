@@ -1,10 +1,13 @@
 import {z} from 'zod'
 
 export const ClipPlanItemSchema = z.object({
+  beatId: z.string().min(1).optional(),
   duration: z.number().nonnegative(),
   id: z.string().min(1),
+  priorityScore: z.number().nonnegative().optional(),
   reason: z.string().optional(),
   sceneId: z.string().min(1),
+  selectionRank: z.number().int().positive().optional(),
   source: z.string().min(1),
   sourceRange: z.tuple([z.number().nonnegative(), z.number().nonnegative()]),
   start: z.number().nonnegative(),

@@ -3,10 +3,29 @@ import {z} from 'zod'
 import {LongVideoTimeRangeSchema} from './long-video.js'
 import {EvidenceSchema} from './storyboard.js'
 
+export const SourceManifestSchema = z.object({
+  audioTracks: z.number().int().nonnegative(),
+  codecName: z.string().optional(),
+  duration: z.number().finite().nonnegative(),
+  fps: z.number().finite().positive().optional(),
+  height: z.number().int().positive().optional(),
+  orientation: z.enum(['landscape', 'portrait', 'square', 'unknown']),
+  sourceHash: z.string().min(1),
+  sourcePath: z.string().min(1),
+  version: z.literal(1),
+  width: z.number().int().positive().optional(),
+})
+
 export const FilmSceneSchema = z.object({
   id: z.string().min(1),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().optional(),
+})
+
+export const FilmScenesSchema = z.object({
+  scenes: z.array(FilmSceneSchema),
+  source: z.string().min(1),
+  version: z.literal(1),
 })
 
 export const ASRSegmentSchema = z.object({
@@ -22,6 +41,30 @@ export const ASRSegmentSchema = z.object({
   path: ['end'],
 })
 
+export const ASRResultSchema = z.object({
+  language: z.string().default('unknown'),
+  segments: z.array(ASRSegmentSchema),
+  text: z.string(),
+  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']).default('untimed'),
+  version: z.literal(1),
+})
+
+export const SilencePeriodSchema = z.object({
+  end: z.number().finite().nonnegative(),
+  id: z.string().min(1),
+  reason: z.enum(['detected', 'no-audio', 'placeholder']).default('placeholder'),
+  start: z.number().finite().nonnegative(),
+}).refine((period) => period.end >= period.start, {
+  message: 'Silence period end must be greater than or equal to start.',
+  path: ['end'],
+})
+
+export const SilencePeriodsSchema = z.object({
+  periods: z.array(SilencePeriodSchema),
+  source: z.string().min(1),
+  version: z.literal(1),
+})
+
 export const VLMSceneAnalysisSchema = z.object({
   actions: z.array(z.string().min(1)).default([]),
   characters: z.array(z.string().min(1)).default([]),
@@ -33,6 +76,29 @@ export const VLMSceneAnalysisSchema = z.object({
   sceneId: z.string().min(1),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().min(1),
+})
+
+export const VLMAnalysisSchema = z.object({
+  scenes: z.array(VLMSceneAnalysisSchema),
+  source: z.string().min(1),
+  version: z.literal(1),
+})
+
+export const TimelineFusionItemSchema = z.object({
+  asrSegmentIds: z.array(z.string().min(1)).default([]),
+  evidence: z.array(EvidenceSchema).default([]),
+  id: z.string().min(1),
+  sceneId: z.string().min(1),
+  silencePeriodIds: z.array(z.string().min(1)).default([]),
+  sourceRange: LongVideoTimeRangeSchema,
+  summary: z.string().min(1),
+  vlmAnalysisIds: z.array(z.string().min(1)).default([]),
+})
+
+export const TimelineFusionSchema = z.object({
+  items: z.array(TimelineFusionItemSchema),
+  source: z.string().min(1),
+  version: z.literal(1),
 })
 
 export const CharacterIndexEntrySchema = z.object({
@@ -69,6 +135,18 @@ export const StoryIndexSchema = z.object({
   language: z.string().default('zh-CN'),
   source: z.string().min(1),
   sourceDuration: z.number().finite().nonnegative(),
+  version: z.literal(1),
+})
+
+export const NarrativeBeatsSchema = z.object({
+  beats: z.array(NarrativeBeatSchema),
+  source: z.string().min(1),
+  version: z.literal(1),
+})
+
+export const CharacterIndexSchema = z.object({
+  characters: z.array(CharacterIndexEntrySchema),
+  source: z.string().min(1),
   version: z.literal(1),
 })
 
@@ -134,13 +212,23 @@ export const OutputNarrationSchema = z.object({
 })
 
 export type ASRSegment = z.infer<typeof ASRSegmentSchema>
+export type ASRResult = z.infer<typeof ASRResultSchema>
+export type CharacterIndex = z.infer<typeof CharacterIndexSchema>
 export type CharacterIndexEntry = z.infer<typeof CharacterIndexEntrySchema>
 export type FilmScene = z.infer<typeof FilmSceneSchema>
+export type FilmScenes = z.infer<typeof FilmScenesSchema>
 export type NarrativeBeat = z.infer<typeof NarrativeBeatSchema>
+export type NarrativeBeats = z.infer<typeof NarrativeBeatsSchema>
 export type NarrativeBeatType = z.infer<typeof NarrativeBeatTypeSchema>
 export type OutputNarration = z.infer<typeof OutputNarrationSchema>
 export type OutputNarrationSegment = z.infer<typeof OutputNarrationSegmentSchema>
 export type OutputTimelineMap = z.infer<typeof OutputTimelineMapSchema>
 export type OutputTimelineMapClip = z.infer<typeof OutputTimelineMapClipSchema>
+export type SilencePeriod = z.infer<typeof SilencePeriodSchema>
+export type SilencePeriods = z.infer<typeof SilencePeriodsSchema>
+export type SourceManifest = z.infer<typeof SourceManifestSchema>
 export type StoryIndex = z.infer<typeof StoryIndexSchema>
+export type TimelineFusion = z.infer<typeof TimelineFusionSchema>
+export type TimelineFusionItem = z.infer<typeof TimelineFusionItemSchema>
+export type VLMAnalysis = z.infer<typeof VLMAnalysisSchema>
 export type VLMSceneAnalysis = z.infer<typeof VLMSceneAnalysisSchema>

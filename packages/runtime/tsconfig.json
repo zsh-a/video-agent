@@ -17,6 +17,7 @@
     {"path": "../providers"},
     {"path": "../quality"},
     {"path": "../renderer-ffmpeg"},
+    {"path": "../renderer-html"},
     {"path": "../renderer-hyperframes"}
   ]
 }

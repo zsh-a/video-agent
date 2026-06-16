@@ -33,6 +33,38 @@ export const DocumentSchema = z.object({
   version: z.literal(1),
 })
 
+export const ContentBlocksSchema = z.object({
+  blocks: z.array(ContentBlockSchema),
+  version: z.literal(1),
+})
+
+export const ClaimSchema = z.object({
+  blockId: z.string().min(1),
+  confidence: z.number().finite().min(0).max(1).default(0.7),
+  evidence: z.array(EvidenceSchema).default([]),
+  id: z.string().min(1),
+  text: z.string().min(1),
+  type: z.enum(['claim', 'data', 'recommendation', 'summary']),
+})
+
+export const ClaimsSchema = z.object({
+  claims: z.array(ClaimSchema),
+  version: z.literal(1),
+})
+
+export const SourceQuoteSchema = z.object({
+  blockId: z.string().min(1),
+  evidence: z.array(EvidenceSchema).default([]),
+  id: z.string().min(1),
+  sourceRange: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
+  text: z.string().min(1),
+})
+
+export const SourceQuotesSchema = z.object({
+  quotes: z.array(SourceQuoteSchema),
+  version: z.literal(1),
+})
+
 export const OutlineSectionSchema = z.object({
   blockIds: z.array(z.string().min(1)).default([]),
   duration: z.number().finite().positive().optional(),
@@ -121,10 +153,46 @@ export const TimedDeckSchema = z.object({
   })
 })
 
+export const DeckQualityIssueSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+  severity: z.enum(['error', 'warning']),
+  slideId: z.string().min(1).optional(),
+})
+
+export const DeckSlideQualityMetricsSchema = z.object({
+  bulletCount: z.number().int().nonnegative(),
+  duration: z.number().finite().nonnegative(),
+  estimatedCharactersPerSecond: z.number().finite().nonnegative(),
+  slideId: z.string().min(1),
+  textCharacters: z.number().int().nonnegative(),
+  titleCharacters: z.number().int().nonnegative(),
+})
+
+export const DeckQualityReportSchema = z.object({
+  checkedAt: z.string().min(1),
+  format: DeckFormatSchema,
+  issues: z.array(DeckQualityIssueSchema),
+  metrics: z.array(DeckSlideQualityMetricsSchema),
+  source: z.literal('timed-deck.json'),
+  summary: z.object({
+    errors: z.number().int().nonnegative(),
+    slides: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+  }),
+  version: z.literal(1),
+})
+
 export type ContentBlock = z.infer<typeof ContentBlockSchema>
+export type ContentBlocks = z.infer<typeof ContentBlocksSchema>
+export type Claim = z.infer<typeof ClaimSchema>
+export type Claims = z.infer<typeof ClaimsSchema>
 export type Deck = z.infer<typeof DeckSchema>
 export type DeckFormat = z.infer<typeof DeckFormatSchema>
 export type DeckInputMode = z.infer<typeof DeckInputModeSchema>
+export type DeckQualityIssue = z.infer<typeof DeckQualityIssueSchema>
+export type DeckQualityReport = z.infer<typeof DeckQualityReportSchema>
+export type DeckSlideQualityMetrics = z.infer<typeof DeckSlideQualityMetricsSchema>
 export type DeckVisual = z.infer<typeof DeckVisualSchema>
 export type Document = z.infer<typeof DocumentSchema>
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>
@@ -134,4 +202,6 @@ export type Slide = z.infer<typeof SlideSchema>
 export type SlideTiming = z.infer<typeof SlideTimingSchema>
 export type SpeakerScript = z.infer<typeof SpeakerScriptSchema>
 export type SpeakerScriptSegment = z.infer<typeof SpeakerScriptSegmentSchema>
+export type SourceQuote = z.infer<typeof SourceQuoteSchema>
+export type SourceQuotes = z.infer<typeof SourceQuotesSchema>
 export type TimedDeck = z.infer<typeof TimedDeckSchema>
