@@ -338,6 +338,7 @@ describe('job runner', () => {
           providerCalls: workspace.store.resolve('provider-calls.jsonl'),
           qualityReport: workspace.store.resolve('quality-report.json'),
           sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+          sceneBatches: workspace.store.resolve('scene-batches.json'),
           selectedMoments: workspace.store.resolve('selected-moments.json'),
           sourceAudio: join(workspace.audioDir, 'missing-source.wav'),
           storyboard: workspace.store.resolve('storyboard.json'),
@@ -483,6 +484,7 @@ describe('job runner', () => {
 
     try {
       await workspace.store.writeJson('scene-analysis.json', cachedSceneAnalysis)
+      await workspace.store.writeJson('scene-batches.json', sceneBatches)
 
       const sceneAnalysis = await analyzeSceneBatches({
         artifacts: {
@@ -499,6 +501,7 @@ describe('job runner', () => {
           providerCalls: workspace.store.resolve('provider-calls.jsonl'),
           qualityReport: workspace.store.resolve('quality-report.json'),
           sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+          sceneBatches: workspace.store.resolve('scene-batches.json'),
           selectedMoments: workspace.store.resolve('selected-moments.json'),
           storyboard: workspace.store.resolve('storyboard.json'),
           timeline: workspace.store.resolve('timeline.json'),
@@ -566,6 +569,132 @@ describe('job runner', () => {
 
       expect(vlmCalls).to.equal(0)
       expect(sceneAnalysis).to.deep.equal(cachedSceneAnalysis)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reruns VLM when cached scene batch metadata is stale', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-vlm-stale-cache-'))
+    const workspace = await createProjectWorkspace({
+      projectId: 'demo',
+      workspaceDir: root,
+    })
+    const sceneBatches = [
+      {
+        frames: ['frames/frame_00002.jpg'],
+        sceneId: 'scene-1',
+        timeRange: [0, 2] as [number, number],
+      },
+    ]
+    const freshSceneAnalysis = [
+      {
+        description: 'Fresh visual scene.',
+        evidence: ['frames/frame_00002.jpg'],
+        sceneId: 'scene-1',
+      },
+    ]
+    let vlmCalls = 0
+
+    try {
+      await workspace.store.writeJson('scene-analysis.json', [
+        {
+          description: 'Stale visual scene.',
+          evidence: ['frames/frame_00001.jpg'],
+          sceneId: 'scene-1',
+        },
+      ])
+      await workspace.store.writeJson('scene-batches.json', [
+        {
+          frames: ['frames/frame_00001.jpg'],
+          sceneId: 'scene-1',
+          timeRange: [0, 2],
+        },
+      ])
+
+      const sceneAnalysis = await analyzeSceneBatches({
+        artifacts: {
+          chapters: workspace.store.resolve('chapters.json'),
+          chunkPlan: workspace.store.resolve('chunk-plan.json'),
+          chunkSummaries: workspace.store.resolve('chunk-summaries.json'),
+          clipPlan: workspace.store.resolve('clip-plan.json'),
+          globalOutline: workspace.store.resolve('global-outline.json'),
+          ingestReport: workspace.store.resolve('ingest-report.json'),
+          mediaInfo: workspace.store.resolve('media-info.json'),
+          narration: workspace.store.resolve('narration.json'),
+          pipelineEvents: workspace.store.resolve('pipeline-events.jsonl'),
+          preview: join(workspace.rendersDir, 'preview.mp4'),
+          providerCalls: workspace.store.resolve('provider-calls.jsonl'),
+          qualityReport: workspace.store.resolve('quality-report.json'),
+          sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+          sceneBatches: workspace.store.resolve('scene-batches.json'),
+          selectedMoments: workspace.store.resolve('selected-moments.json'),
+          storyboard: workspace.store.resolve('storyboard.json'),
+          timeline: workspace.store.resolve('timeline.json'),
+          transcript: workspace.store.resolve('transcript.json'),
+          ttsSegments: workspace.store.resolve('tts-segments.json'),
+        },
+        chunkPlan: {
+          chunks: [],
+          defaults: {
+            asrChunking: true,
+            chunkDuration: 300,
+            chunkOverlap: 10,
+            frameSampleFps: 1,
+            sceneDetection: true,
+            vlmBatchSize: 16,
+            vlmFrameSampleFps: 0.2,
+          },
+          source: '/tmp/input.mp4',
+          sourceDuration: 2,
+          version: 1,
+        },
+        inputPath: '/tmp/input.mp4',
+        mediaInfo: {
+          duration: 2,
+          inputPath: '/tmp/input.mp4',
+          probedAt: '2026-06-16T00:00:00.000Z',
+          streams: [],
+          version: 1,
+        },
+        providers: {
+          asr: {
+            async transcribe() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          script: {
+            async createNarration() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          storyboard: {
+            async createStoryboard() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          tts: {
+            async synthesize() {
+              throw new Error('Not used by this test.')
+            },
+          },
+          vlm: {
+            async analyzeScenes() {
+              vlmCalls += 1
+              return freshSceneAnalysis
+            },
+          },
+        },
+        workspace,
+      }, sceneBatches, {
+        artifactsDir: workspace.artifactsDir,
+        async emit() {},
+        projectId: workspace.projectId,
+        workspaceDir: workspace.workspaceDir,
+      })
+
+      expect(vlmCalls).to.equal(1)
+      expect(sceneAnalysis).to.deep.equal(freshSceneAnalysis)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -759,6 +888,7 @@ describe('job runner', () => {
       expect(await fileSize(result.artifacts.globalOutline)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.selectedMoments)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.sceneAnalysis)).to.be.greaterThan(0)
+      expect(await fileSize(result.artifacts.sceneBatches)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.storyboard)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.clipPlan)).to.be.greaterThan(0)
       expect(await fileSize(result.artifacts.timeline)).to.be.greaterThan(0)
@@ -809,7 +939,7 @@ describe('job runner', () => {
 
       const manifest = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'artifact-manifest.json'), 'utf8')) as {artifacts: Array<{name: string; sha256: string}>}
 
-      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['chunk-plan.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'chunks/000/summary.json', 'chunks/000/silence.json', 'chunks/000/transcript.json', 'chunks/000/vlm.json', 'clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
+      expect(manifest.artifacts.map((artifact) => artifact.name)).to.include.members(['chunk-plan.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'scene-batches.json', 'chunks/000/summary.json', 'chunks/000/silence.json', 'chunks/000/transcript.json', 'chunks/000/vlm.json', 'clip-plan.json', 'pipeline-events.jsonl', 'provider-calls.jsonl', 'quality-report.json'])
       expect(manifest.artifacts.every((artifact) => /^[a-f0-9]{64}$/.test(artifact.sha256))).to.equal(true)
 
       const resumed = await runInitialPipeline({

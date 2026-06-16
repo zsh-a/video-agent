@@ -266,6 +266,7 @@ async function createRecoverableProject(root: string, projectId: string, options
     }),
     ...writeLongVideoArtifacts(artifactsDir, inputPath),
     writeJson(artifactsDir, 'scene-analysis.json', []),
+    writeJson(artifactsDir, 'scene-batches.json', []),
     writeJson(artifactsDir, 'transcript.json', {
       segments: [],
       text: '',

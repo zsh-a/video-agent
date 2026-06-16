@@ -380,6 +380,16 @@ async function writeRequiredArtifacts(artifactsDir: string, inputPath: string, o
       ])}\n`,
     ),
     writeText(
+      join(artifactsDir, 'scene-batches.json'),
+      `${JSON.stringify([
+        {
+          frames: [],
+          sceneId: 'scene-1',
+          timeRange: [0, 1],
+        },
+      ])}\n`,
+    ),
+    writeText(
       join(artifactsDir, 'transcript.json'),
       `${JSON.stringify({
         segments: [],

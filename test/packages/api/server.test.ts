@@ -837,6 +837,16 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       ])}\n`,
     ),
     writeFile(
+      join(artifactsDir, 'scene-batches.json'),
+      `${JSON.stringify([
+        {
+          frames: [],
+          sceneId: 'scene-1',
+          timeRange: [0, 1],
+        },
+      ])}\n`,
+    ),
+    writeFile(
       join(artifactsDir, 'transcript.json'),
       `${JSON.stringify({
         segments: [],

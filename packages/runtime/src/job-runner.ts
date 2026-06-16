@@ -8,7 +8,7 @@ import {createClipPlan, createLongVideoChunkPlan, createSceneBoundariesFromTrans
 import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {createLLMClientFromConfig} from '@video-agent/llm'
 import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMedia} from '@video-agent/media'
-import {createProviders, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
+import {createProviders, SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {appendFile, mkdir, readdir} from 'node:fs/promises'
 import {basename, dirname, join, resolve} from 'node:path'
@@ -53,6 +53,7 @@ export interface RunInitialPipelineResult {
     providerCalls: string
     qualityReport: string
     sceneAnalysis: string
+    sceneBatches: string
     selectedMoments: string
     sourceAudio?: string
     storyboard: string
@@ -120,11 +121,11 @@ const ANALYSIS_FRAME_FPS = 1
 
 const CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
   ingest: [],
-  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
-  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
-  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
+  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
+  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
+  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
   understand: ['ingest-report.json', 'media-info.json', 'chunk-plan.json'],
-  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
+  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
 }
 
 export class PipelineCheckpointError extends Error {
@@ -182,6 +183,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     providerCalls: providerCallsPath,
     qualityReport: workspace.store.resolve('quality-report.json'),
     sceneAnalysis: workspace.store.resolve('scene-analysis.json'),
+    sceneBatches: workspace.store.resolve('scene-batches.json'),
     selectedMoments: workspace.store.resolve('selected-moments.json'),
     storyboard: workspace.store.resolve('storyboard.json'),
     timeline: workspace.store.resolve('timeline.json'),
@@ -396,6 +398,8 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         mediaDuration: ingest.chunkPlan.sourceDuration,
         sampleFps: ingest.chunkPlan.defaults.vlmFrameSampleFps,
       })
+      await ingest.workspace.store.writeJson('scene-batches.json', SceneFrameBatchesSchema.parse(sceneBatches))
+      await emitArtifact(ctx, 'understand', ingest.artifacts.sceneBatches, 'json')
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
       const sceneAnalysis = await analyzeSceneBatches(ingest, sceneBatches, ctx)
       await emitProgress(ctx, {
@@ -534,11 +538,41 @@ async function readCachedSceneAnalysis(ingest: IngestOutput, sceneBatches: Scene
     return undefined
   }
 
+  if (!await bunFile(ingest.workspace.store.resolve('scene-batches.json')).exists()) {
+    return undefined
+  }
+
   try {
+    const cachedSceneBatches = SceneFrameBatchesSchema.parse(await ingest.workspace.store.readJson('scene-batches.json'))
+
+    if (!sceneBatchesEqual(cachedSceneBatches, sceneBatches)) {
+      return undefined
+    }
+
     return validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.workspace.store.readJson('scene-analysis.json')))
   } catch {
     return undefined
   }
+}
+
+function sceneBatchesEqual(left: SceneFrameBatch[], right: SceneFrameBatch[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((batch, index) => {
+    const other = right[index]
+
+    return other !== undefined &&
+      batch.sceneId === other.sceneId &&
+      batch.timeRange[0] === other.timeRange[0] &&
+      batch.timeRange[1] === other.timeRange[1] &&
+      stringArraysEqual(batch.frames, other.frames)
+  })
+}
+
+function stringArraysEqual(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
 async function readCachedChunkTranscript(ingest: IngestOutput, chunk: LongVideoChunk): Promise<Transcript | undefined> {

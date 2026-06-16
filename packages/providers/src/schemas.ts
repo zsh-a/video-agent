@@ -25,6 +25,19 @@ export const VlmSceneSchema = z.object({
 
 export const VlmScenesSchema = z.array(VlmSceneSchema)
 
+export const SceneFrameBatchSchema = z.object({
+  frames: z.array(z.string()),
+  sceneId: z.string().min(1),
+  timeRange: z.tuple([
+    z.number().finite().nonnegative(),
+    z.number().finite().nonnegative(),
+  ]).refine(([start, end]) => end >= start, {
+    message: 'Scene frame batch timeRange end must be greater than or equal to start.',
+  }),
+})
+
+export const SceneFrameBatchesSchema = z.array(SceneFrameBatchSchema)
+
 export const TtsSegmentSchema = z.object({
   duration: z.number().finite().nonnegative(),
   narrationId: z.string().min(1),

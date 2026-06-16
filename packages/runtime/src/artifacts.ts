@@ -1,7 +1,7 @@
 import type {ZodType} from 'zod'
 
 import {ClipPlanSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
-import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
+import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
 import {extname, join, relative, resolve, sep} from 'node:path'
@@ -80,6 +80,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'media-info.json': MediaInfoSchema,
   'narration.json': NarrationSchema,
   'scene-analysis.json': VlmScenesSchema,
+  'scene-batches.json': SceneFrameBatchesSchema,
   'selected-moments.json': LongVideoSelectedMomentsSchema,
   'storyboard.json': StoryboardSchema,
   'timeline.json': TimelineSchema,
