@@ -40,6 +40,20 @@ describe('hyperframes compiler', () => {
           start: 0,
           visualStyle: 'slide_explainer',
         },
+        {
+          duration: 1,
+          evidence: [
+            {
+              ref: 'chunks/000/transcript.json',
+              text: 'Second slide evidence.',
+              type: 'asr' as const,
+            },
+          ],
+          id: 'scene-2',
+          narration: '第 2 页：Seal 已获得 1.3 万星标。支持下载视频和音频。',
+          start: 1,
+          visualStyle: 'slide_explainer',
+        },
       ],
       targetPlatform: 'generic' as const,
       version: 1 as const,
@@ -66,10 +80,17 @@ describe('hyperframes compiler', () => {
 
       expect(html).to.contain('data-duration="1"')
       expect(html).to.contain('Slide 1')
+      expect(html).to.contain('Slide 2')
+      expect(html).to.contain('data-start="1"')
       expect(html).to.contain('scene__bullets')
       expect(html).to.contain('slide explainer')
       expect(html).to.contain('介绍开源下载器')
-      expect(styles).to.contain('@keyframes show-scene')
+      expect(html).to.contain('Seal 已获得 1.3 万星标')
+      expect(html).not.include('<li>Seal 已获得 1</li>')
+      expect(html).not.include('<aside class="captions">')
+      expect(styles).to.contain('page-break-after: always')
+      expect(styles).not.include('@keyframes show-scene')
+      expect(styles).not.include('position: absolute')
       expect(await checkHyperframesTemplateProject({
         entryHtml: result.entryHtml,
         narration,

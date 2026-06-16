@@ -40,6 +40,24 @@ adapters/claude-code-skill/ Claude Code skill adapter over CLI/MCP
 
 See [docs/architecture.md](./docs/architecture.md) for package responsibilities and architectural rules.
 
+## Pipeline Model
+
+`video-agent` is moving toward two business pipelines over one shared runtime:
+
+```text
+Film Recap Pipeline
+  Video-first, evidence-first, cut-first.
+  Used for TV/movie/long-video commentary where source clips are the main visual.
+
+Deck Explainer Pipeline
+  Content-first, deck-first, voice-driven.
+  Used for text, article, podcast, course, and audio material rendered as PPT-style video.
+```
+
+The shared runtime owns jobs, events, checkpoints, artifacts, providers, media wrappers, renderers, and quality checks. Pipeline-specific contracts live in `packages/ir`: film recap uses `StoryIndex`, `NarrativeBeat`, `OutputTimelineMap`, and output-timeline narration; deck explainer uses `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, and `TimedDeck`.
+
+The current runnable Deck slice is the `text` command. Dedicated `film` and `deck` command groups are planned once the runtime stage graph is split around those IR contracts.
+
 ## Setup
 
 Requirements:
@@ -178,6 +196,7 @@ bun run dev config --max-stage-retries 2 --retry-backoff-ms 500
 ## Documentation Map
 
 - [Architecture](./docs/architecture.md): package boundaries, runtime strategy, provider strategy.
+- [Pipeline Split](./docs/architecture.md#business-pipelines): Film Recap and Deck Explainer pipeline split.
 - [Provider Configuration Model](./docs/provider-configuration-model.md): persisted config, profiles, env contract, adding providers.
 - [Provider Adapter Recipes](./docs/provider-adapter-recipes.md): command JSON adapter examples.
 - [Agent Client Checks](./docs/agent-client-checks.md): MCP/skill/client validation and secret-handling checks.
@@ -191,6 +210,7 @@ The current runnable slice supports:
 - Bun workspace build/test/lint.
 - Headless runtime with durable workspace artifacts, job state, events, provider call logs, and checkpoint validation.
 - Long-video IR and core chunk planning contracts for chunk-first, evidence-backed, resumable processing.
+- Pipeline-specific IR contracts for Film Recap and Deck Explainer flows.
 - Text/Markdown to PPT-style HyperFrames explainer projects without provider calls.
 - Mock, command, LLM, and Mimo-profile provider configuration.
 - LLM-backed ASR/VLM/TTS/storyboard/script provider path through the internal AI SDK-backed `LLMClient`.

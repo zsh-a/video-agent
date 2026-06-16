@@ -37,13 +37,51 @@ Core
   typed stages, pipeline orchestration, resumable execution contracts
 
 Domain Packages
-  IR, providers, LLM adapters, media wrappers, renderers, quality checks, DB schema
+  IR, business pipelines, providers, LLM adapters, media wrappers, renderers, quality checks, DB schema
 
 Executors
   ffmpeg, ffprobe, Chromium, HyperFrames, AI SDK-backed hosted models, local command adapters
 ```
 
 Adapters can submit commands and render state. They must not own pipeline logic.
+
+## Business Pipelines
+
+The product should be modeled as two business pipelines over the same runtime, provider, media, IR, renderer, artifact, checkpoint, and quality layers.
+
+```text
+vagent-core
+  Job Runtime / Event Bus / Checkpoint
+  Artifact Store
+  Provider Layer: ASR / VLM / LLM / TTS / Asset
+  Media Layer: ffmpeg / ffprobe / Chromium
+  IR Layer: StoryIR / TimelineIR / DeckIR / RenderIR
+  Renderer Layer: FFmpeg / HTML / HyperFrames / Remotion / Jianying
+```
+
+The pipelines differ by what owns the primary timeline:
+
+```text
+Film Recap Pipeline
+  Media-first, evidence-first, cut-first.
+  The source video is the main visual, and narration is written against the edited output timeline.
+
+Deck Explainer Pipeline
+  Content-first, deck-first, voice-driven.
+  The content structure is the main line, and visuals are generated as slides, diagrams, charts, images, and animation.
+```
+
+Do not force both products into one generic `ingest -> understand -> plan -> script -> render` flow. The shared runtime should execute typed stages, but each business pipeline chooses its own stage graph and first-class IR.
+
+Target package direction once the current package APIs are stable:
+
+```text
+packages/
+  pipeline-film/    film recap orchestration over runtime/core/media/providers/renderers
+  pipeline-deck/    deck explainer orchestration over runtime/core/providers/renderer-html
+```
+
+Until those packages exist, keep the behavior in `packages/runtime` but preserve the same separation in stage names, artifact names, and IR contracts.
 
 ## Current Package Layout
 
@@ -105,9 +143,9 @@ adapters/
 
 These folders should call `@video-agent/core` and `@video-agent/runtime` instead of duplicating workflow behavior. The first Claude Code skill adapter lives in `adapters/claude-code-skill/video-agent` and documents CLI/MCP workflows for agent shells. The first MCP adapter currently lives in `packages/mcp` and can later move under `adapters/mcp` if the repository is reorganized around app packages.
 
-## Pipeline Stages
+## Shared Stage Runtime
 
-The default workflow is stage-based:
+The runtime executes stage graphs. Stage outputs must be serializable artifacts so runs can resume from checkpoints. The existing runnable chain is still stage-based:
 
 ```text
 ingest
@@ -135,7 +173,131 @@ export
   copy final video, HyperFrames render directory, or project bundle to a user-selected path
 ```
 
-Each stage accepts typed input, writes artifacts, emits events, and returns typed output. Stage outputs should be serializable so runs can resume from checkpoint artifacts. The current `JobRunner` runs the initial chain: ingest -> understand -> plan -> script -> voiceover -> quality. CLI runs can resume from a later stage with `run --from-stage` when required artifacts already exist, or with `rerun <projectId> --from-stage` to reuse the input path stored in `job-state.json`. Before resuming, the runtime validates the upstream artifact set for the requested checkpoint and fails without mutating job state when artifacts are missing, changed, untracked by the artifact manifest, or invalid against the relevant IR schema. Runtime adapters can use the project quality aggregate to combine pipeline checks, render diagnostics, and artifact integrity into a single deliverability report.
+Each stage accepts typed input, writes artifacts, emits events, and returns typed output. The current `JobRunner` runs the initial chain: ingest -> understand -> plan -> script -> voiceover -> quality. CLI runs can resume from a later stage with `run --from-stage` when required artifacts already exist, or with `rerun <projectId> --from-stage` to reuse the input path stored in `job-state.json`. Before resuming, the runtime validates the upstream artifact set for the requested checkpoint and fails without mutating job state when artifacts are missing, changed, untracked by the artifact manifest, or invalid against the relevant IR schema. Runtime adapters can use the project quality aggregate to combine pipeline checks, render diagnostics, and artifact integrity into a single deliverability report.
+
+## Film Recap Pipeline
+
+Film recap is for TV, movie, and long-video editing commentary. Its stage graph is media-first and cut-first:
+
+```text
+input video
+  -> ingest / probe
+  -> source understanding
+  -> story index / narrative beats
+  -> clip planning
+  -> render cut
+  -> narrate against cut output
+  -> voiceover / subtitles / audio mix
+  -> render / export
+  -> quality check
+```
+
+Important rule: do not write final narration against the original movie timeline and then cut large sections away. The pipeline first writes an evidence-backed `clip-plan.json`, renders `edited_source.mp4`, writes `output_timeline_map.json`, and only then writes narration timestamps against the output timeline.
+
+Primary artifacts:
+
+```text
+source_manifest.json
+scenes.json
+asr_result.json
+silence_periods.json
+frames/
+vlm_analysis.json
+timeline_fusion.json
+story_index.json
+narrative_beats.json
+character_index.json
+clip_plan.json
+edited_source.mp4
+clip_plan_validated.json
+output_timeline_map.json
+narration.json
+voiceover/
+subtitles.ass
+audio_mix.wav
+final.mp4
+quality_report.json
+```
+
+Film-specific IR lives in `packages/ir/src/film.ts`: `FilmScene`, `ASRSegment`, `VLMSceneAnalysis`, `StoryIndex`, `NarrativeBeat`, `OutputTimelineMap`, and `OutputNarration`.
+
+Quality checks should focus on source/output timeline consistency, evidence-backed clip choice, narration alignment to the edited output, speech overlap, ducking decisions, subtitle bounds, loudness, and render diagnostics.
+
+Future command shape:
+
+```sh
+vagent film input.mp4 --target 10m --platform douyin --style short-drama
+vagent film ingest input.mp4
+vagent film understand <job-id>
+vagent film plan-clips <job-id> --target 10m
+vagent film cut <job-id>
+vagent film narrate <job-id>
+vagent film render <job-id>
+```
+
+## Deck Explainer Pipeline
+
+Deck explainer is for text, article, podcast, audio, tutorial, research, product, or meeting material that becomes a PPT-style video. Its stage graph is content-first and deck-first:
+
+```text
+text / audio
+  -> content ingest
+  -> transcript / document normalize
+  -> outline planning
+  -> deck storyboard
+  -> speaker script
+  -> timing
+  -> HTML slide render
+  -> capture / mux
+  -> quality check
+```
+
+There are two modes:
+
+```text
+script-generated
+  Input text/audio is summarized and rewritten, then new TTS drives slide timing.
+
+audio-anchored
+  Original audio is preserved; ASR timestamps drive chapter segmentation and slide alignment.
+```
+
+Primary artifacts:
+
+```text
+content_raw.json
+transcript.json
+document.json
+content_blocks.json
+claims.json
+source_quotes.json
+outline.json
+deck.json
+speaker_script.json
+tts_segments.json
+timed_deck.json
+deck.html
+slides_preview/
+silent_video.mp4
+voiceover.wav
+subtitles.ass
+final.mp4
+deck_quality_report.json
+```
+
+Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`.
+
+The primary renderer for this pipeline is HTML/HyperFrames/Chromium, with ffmpeg used for muxing, subtitles, loudness, and final delivery. Remotion can be added later as another renderer that consumes `DeckIR` or `TimelineIR`; it must not own content understanding.
+
+Quality checks should focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
+
+Future command shape:
+
+```sh
+vagent deck article.md --duration 3m --format portrait --style tech
+vagent deck podcast.mp3 --mode summarize --duration 5m
+vagent deck podcast.mp3 --mode audio-anchored
+```
 
 ## Long-Video Strategy
 
@@ -173,9 +335,11 @@ raw video
 
 HyperFrames remains the visual storytelling renderer for page-based explainers and article/podcast-to-video flows. FFmpeg remains the media boundary for probe, extraction, streamcopy clipping, concat, muxing, progress reporting, loudness, subtitles, and final delivery. Remotion can be added later as a second renderer for React composition and chunk/cloud rendering; it should consume storyboard/timeline IR instead of owning understanding logic.
 
-## Text Explainer Strategy
+## Current Deck Slice
 
-Text and Markdown inputs can bypass media understanding entirely. The text explainer runtime reads the source document, splits it into bounded slide sections, and writes the same artifact family used by media-derived explainers: `media-info.json`, `selected-moments.json`, `storyboard.json`, `timeline.json`, `narration.json`, and `quality-report.json`. These projects use `slide_explainer` visual style from the start, so `render` auto-selects HyperFrames and `export` auto-selects a HyperFrames directory unless the HyperFrames CLI has rendered a video file. This keeps text-to-PPT generation inside the same project workspace, quality aggregate, render, and export contracts instead of creating a separate adapter-only flow.
+Text and Markdown inputs can bypass media understanding entirely today. The text explainer runtime reads the source document, splits it into bounded slide sections, and writes the existing artifact family used by media-derived explainers: `media-info.json`, `selected-moments.json`, `storyboard.json`, `timeline.json`, `narration.json`, and `quality-report.json`. These projects use `slide_explainer` visual style from the start, so `render` auto-selects HyperFrames and `export` auto-selects a HyperFrames directory unless the HyperFrames CLI has rendered a video file.
+
+This is the early runnable slice of the Deck Explainer Pipeline. It should migrate toward `DocumentIR -> OutlineIR -> DeckIR -> SpeakerScriptIR -> TimedDeckIR -> HTML render`, while still using the same workspace, quality aggregate, render, and export contracts.
 
 ## IR Contracts
 
@@ -199,6 +363,12 @@ LongVideoChunkPlan
 
 LongVideoChunkSummary / LongVideoChunkSilence / LongVideoChapterSummary / LongVideoGlobalOutline / LongVideoSelectedMoments
   per-chunk summaries, silence ranges, hierarchical summaries, and evidence-backed selections for long-video planning
+
+Film Recap IR
+  SceneIR, ASRSegmentIR, VLMSceneIR, StoryIndexIR, NarrativeBeatIR, OutputTimelineMapIR, OutputNarrationIR
+
+Deck Explainer IR
+  DocumentIR, ContentBlockIR, OutlineIR, DeckIR, SlideIR, SpeakerScriptIR, SlideTimingIR
 ```
 
 All LLM/provider output should be validated before it enters the pipeline state.
