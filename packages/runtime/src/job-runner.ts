@@ -398,8 +398,6 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
         mediaDuration: ingest.chunkPlan.sourceDuration,
         sampleFps: ingest.chunkPlan.defaults.vlmFrameSampleFps,
       })
-      await ingest.workspace.store.writeJson('scene-batches.json', SceneFrameBatchesSchema.parse(sceneBatches))
-      await emitArtifact(ctx, 'understand', ingest.artifacts.sceneBatches, 'json')
       await emitStep(ctx, {data: summarizeSceneBatchesForLog(sceneBatches), message: 'Analyzing visual scene batches.', stage: 'understand', step: 'vlm'})
       const sceneAnalysis = await analyzeSceneBatches(ingest, sceneBatches, ctx)
       await emitProgress(ctx, {
@@ -416,6 +414,8 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
       await emitArtifact(ctx, 'understand', ingest.artifacts.transcript, 'json')
+      await ingest.workspace.store.writeJson('scene-batches.json', SceneFrameBatchesSchema.parse(sceneBatches))
+      await emitArtifact(ctx, 'understand', ingest.artifacts.sceneBatches, 'json')
       await ingest.workspace.store.writeJson('scene-analysis.json', sceneAnalysis)
       await emitArtifact(ctx, 'understand', ingest.artifacts.sceneAnalysis, 'json')
       await ingest.workspace.store.writeJson('chunk-summaries.json', longVideoArtifacts.chunkSummaries)
@@ -515,60 +515,82 @@ export async function transcribeSourceAudio(ingest: IngestOutput, ctx: PipelineC
 }
 
 export async function analyzeSceneBatches(ingest: IngestOutput, sceneBatches: SceneFrameBatch[], ctx: PipelineContext): Promise<VLMScene[]> {
-  const cachedSceneAnalysis = await readCachedSceneAnalysis(ingest, sceneBatches)
+  const cachedSceneAnalysis = await readReusableSceneAnalysis(ingest, sceneBatches)
+  const missingSceneBatches = sceneBatches.filter((batch) => cachedSceneAnalysis.get(batch.sceneId) === undefined)
 
-  if (cachedSceneAnalysis !== undefined) {
+  if (missingSceneBatches.length === 0) {
     await emitStep(ctx, {
       data: {
-        scenes: cachedSceneAnalysis.length,
+        scenes: cachedSceneAnalysis.size,
       },
       level: 'debug',
       message: 'Reusing cached visual scene analysis.',
       stage: 'understand',
       step: 'vlm',
     })
-    return cachedSceneAnalysis
+    return validateVlmSceneAnalysis(sceneBatches, sceneBatches.map((batch) => cachedSceneAnalysis.get(batch.sceneId) as VLMScene))
   }
 
-  return validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(sceneBatches)))
+  if (cachedSceneAnalysis.size > 0) {
+    await emitStep(ctx, {
+      data: {
+        cachedScenes: cachedSceneAnalysis.size,
+        scenesToAnalyze: missingSceneBatches.length,
+      },
+      level: 'debug',
+      message: 'Reusing cached visual scene analysis for unchanged scenes.',
+      stage: 'understand',
+      step: 'vlm',
+    })
+  }
+
+  const freshSceneAnalysis = validateVlmSceneAnalysis(missingSceneBatches, VlmScenesSchema.parse(await ingest.providers.vlm.analyzeScenes(missingSceneBatches)))
+  const freshBySceneId = new Map(freshSceneAnalysis.map((scene) => [scene.sceneId, scene]))
+  const mergedSceneAnalysis = sceneBatches.map((batch) => cachedSceneAnalysis.get(batch.sceneId) ?? freshBySceneId.get(batch.sceneId))
+
+  return validateVlmSceneAnalysis(sceneBatches, mergedSceneAnalysis.map((scene, index) => {
+    if (scene === undefined) {
+      throw new Error(`VLM provider did not return analysis for sceneId ${JSON.stringify(sceneBatches[index]?.sceneId)}.`)
+    }
+
+    return scene
+  }))
 }
 
-async function readCachedSceneAnalysis(ingest: IngestOutput, sceneBatches: SceneFrameBatch[]): Promise<VLMScene[] | undefined> {
+async function readReusableSceneAnalysis(ingest: IngestOutput, sceneBatches: SceneFrameBatch[]): Promise<Map<string, VLMScene>> {
   if (!await bunFile(ingest.workspace.store.resolve('scene-analysis.json')).exists()) {
-    return undefined
+    return new Map()
   }
 
   if (!await bunFile(ingest.workspace.store.resolve('scene-batches.json')).exists()) {
-    return undefined
+    return new Map()
   }
 
   try {
     const cachedSceneBatches = SceneFrameBatchesSchema.parse(await ingest.workspace.store.readJson('scene-batches.json'))
+    const cachedSceneAnalysis = validateVlmSceneAnalysis(cachedSceneBatches, VlmScenesSchema.parse(await ingest.workspace.store.readJson('scene-analysis.json')))
+    const reusable = new Map<string, VLMScene>()
 
-    if (!sceneBatchesEqual(cachedSceneBatches, sceneBatches)) {
-      return undefined
+    for (const batch of sceneBatches) {
+      const cachedIndex = cachedSceneBatches.findIndex((cachedBatch) => sceneBatchEqual(cachedBatch, batch))
+      const cachedScene = cachedIndex === -1 ? undefined : cachedSceneAnalysis[cachedIndex]
+
+      if (cachedScene !== undefined) {
+        reusable.set(batch.sceneId, cachedScene)
+      }
     }
 
-    return validateVlmSceneAnalysis(sceneBatches, VlmScenesSchema.parse(await ingest.workspace.store.readJson('scene-analysis.json')))
+    return reusable
   } catch {
-    return undefined
+    return new Map()
   }
 }
 
-function sceneBatchesEqual(left: SceneFrameBatch[], right: SceneFrameBatch[]): boolean {
-  if (left.length !== right.length) {
-    return false
-  }
-
-  return left.every((batch, index) => {
-    const other = right[index]
-
-    return other !== undefined &&
-      batch.sceneId === other.sceneId &&
-      batch.timeRange[0] === other.timeRange[0] &&
-      batch.timeRange[1] === other.timeRange[1] &&
-      stringArraysEqual(batch.frames, other.frames)
-  })
+function sceneBatchEqual(left: SceneFrameBatch, right: SceneFrameBatch): boolean {
+  return left.sceneId === right.sceneId &&
+    left.timeRange[0] === right.timeRange[0] &&
+    left.timeRange[1] === right.timeRange[1] &&
+    stringArraysEqual(left.frames, right.frames)
 }
 
 function stringArraysEqual(left: string[], right: string[]): boolean {
