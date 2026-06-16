@@ -754,6 +754,7 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
       operation: 'transcribe',
       output: {},
       provider: 'mock',
+      requestId: 'asr_1',
       role: 'asr',
       startedAt: '2026-01-01T00:00:00.990Z',
       status: 'succeeded',

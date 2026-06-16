@@ -70,7 +70,7 @@ describe('artifacts', () => {
 
       await mkdir(artifactsDir, {recursive: true})
       await writeText(join(artifactsDir, 'media-info.json'), `${JSON.stringify(createMediaInfoArtifact())}\n`)
-      await writeText(join(artifactsDir, 'pipeline-events.jsonl'), '{}\n')
+      await writeText(join(artifactsDir, 'pipeline-events.jsonl'), `${JSON.stringify(createPipelineEvent())}\n`)
       await refreshArtifactManifest(artifactsDir)
 
       expect(await verifyProjectArtifacts('demo', root)).to.include({
@@ -506,6 +506,65 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports pipeline event logs that fail their JSONL schema', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'pipeline-events.jsonl'), '{"projectId":"demo","time":"","type":"stage:bogus"}\nnot json\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['pipeline-events.jsonl'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['1.time', '1.type', '2'])
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports provider call logs that fail their JSONL schema', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'provider-calls.jsonl'), `${JSON.stringify({
+        completedAt: '2026-01-01T00:00:00.000Z',
+        durationMs: -1,
+        input: {},
+        operation: 'transcribe',
+        provider: 'mock',
+        requestId: 'asr_1',
+        role: 'asr',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        status: 'failed',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['provider-calls.jsonl'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['1.durationMs', '1.error'])
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('rejects paths outside the artifact directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
@@ -532,5 +591,14 @@ function createMediaInfoArtifact(): Record<string, unknown> {
     probedAt: '2026-01-01T00:00:00.000Z',
     streams: [],
     version: 1,
+  }
+}
+
+function createPipelineEvent(): Record<string, unknown> {
+  return {
+    projectId: 'demo',
+    stage: 'ingest',
+    time: '2026-01-01T00:00:00.000Z',
+    type: 'stage:start',
   }
 }

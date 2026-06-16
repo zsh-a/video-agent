@@ -441,6 +441,47 @@ describe('project quality', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('counts schema-invalid JSONL event logs as project quality errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['quality'],
+      })
+      await writeText(join(artifactsDir, 'pipeline-events.jsonl'), '{"projectId":"demo","time":"","type":"stage:bogus"}\n')
+      await writeText(join(artifactsDir, 'provider-calls.jsonl'), `${JSON.stringify({
+        completedAt: '2026-01-01T00:00:00.000Z',
+        durationMs: -1,
+        input: {},
+        operation: 'transcribe',
+        provider: 'mock',
+        requestId: 'asr_1',
+        role: 'asr',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        status: 'failed',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQuality('demo', root)
+
+      expect(report.ok).to.equal(false)
+      expect(report.summary).to.deep.equal({
+        errors: 2,
+        warnings: 0,
+      })
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['pipeline-events.jsonl', 'provider-calls.jsonl'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function createProject(root: string, projectId: string): Promise<void> {

@@ -1,6 +1,6 @@
 import {z, type ZodType} from 'zod'
 
-import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {ArtifactRefSchema, ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
@@ -158,6 +158,68 @@ const RenderOutputReferenceSchema = z.object({
   voiceoverPlanPath: z.string().min(1).optional(),
 }).passthrough()
 
+const PipelineEventLogLineSchema = z.object({
+  artifact: ArtifactRefSchema.optional(),
+  attempt: z.number().int().positive().optional(),
+  current: z.number().nonnegative().optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+  level: z.enum(['debug', 'error', 'info', 'warn']).optional(),
+  maxAttempts: z.number().int().positive().optional(),
+  message: z.string().min(1).optional(),
+  percent: z.number().nonnegative().optional(),
+  projectId: z.string().min(1),
+  retryDelayMs: z.number().nonnegative().optional(),
+  stage: z.string().min(1).optional(),
+  step: z.string().min(1).optional(),
+  time: z.string().min(1),
+  total: z.number().nonnegative().optional(),
+  type: z.enum(['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']),
+  unit: z.enum(['chunks', 'files', 'frames', 'scenes', 'seconds', 'segments', 'tokens']).optional(),
+}).passthrough()
+
+const ProviderCostMetadataSchema = z.object({
+  amount: z.number(),
+  currency: z.string().min(1),
+  estimated: z.boolean().optional(),
+}).passthrough()
+
+const ProviderUsageMetadataSchema = z.object({
+  audioSeconds: z.number().nonnegative().optional(),
+  inputCharacters: z.number().nonnegative().optional(),
+  inputTokens: z.number().nonnegative().optional(),
+  outputCharacters: z.number().nonnegative().optional(),
+  outputTokens: z.number().nonnegative().optional(),
+}).passthrough()
+
+const ProviderCallLogLineSchema = z.object({
+  completedAt: z.string().min(1),
+  cost: ProviderCostMetadataSchema.optional(),
+  durationMs: z.number().nonnegative(),
+  error: z.object({
+    message: z.string().min(1),
+    name: z.string().min(1),
+  }).strict().optional(),
+  input: z.record(z.string(), z.unknown()),
+  model: z.string().min(1).optional(),
+  operation: z.string().min(1),
+  output: z.record(z.string(), z.unknown()).optional(),
+  provider: z.string().min(1),
+  requestId: z.string().min(1),
+  role: z.enum(['asr', 'tts', 'vlm']),
+  startedAt: z.string().min(1),
+  status: z.enum(['failed', 'succeeded']),
+  usage: ProviderUsageMetadataSchema.optional(),
+  version: z.literal(1),
+}).passthrough().superRefine((value, ctx) => {
+  if (value.status === 'failed' && value.error === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Failed provider calls must include an error.',
+      path: ['error'],
+    })
+  }
+})
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'chapters.json': LongVideoChapterSummariesSchema,
   'chunk-plan.json': LongVideoChunkPlanSchema,
@@ -187,6 +249,11 @@ const NESTED_ARTIFACT_SCHEMAS: Array<{pattern: RegExp; schema: ZodType}> = [
   {pattern: /^chunks\/[^/]+\/transcript\.json$/, schema: TranscriptSchema},
   {pattern: /^chunks\/[^/]+\/vlm\.json$/, schema: VlmScenesSchema},
 ]
+
+const ARTIFACT_JSONL_SCHEMAS: Record<string, ZodType> = {
+  'pipeline-events.jsonl': PipelineEventLogLineSchema,
+  'provider-calls.jsonl': ProviderCallLogLineSchema,
+}
 
 export async function listProjectArtifacts(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectArtifact[]> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
@@ -507,10 +574,16 @@ function inferArtifactKind(name: string): ProjectArtifact['kind'] {
 function validateKnownArtifactSchema(name: string, content: Uint8Array): ArtifactSchemaInvalidIssue | undefined {
   const schema = findArtifactSchema(name)
 
-  if (schema === undefined) {
-    return undefined
+  if (schema !== undefined) {
+    return validateJsonArtifactSchema(name, content, schema)
   }
 
+  const jsonlSchema = ARTIFACT_JSONL_SCHEMAS[name]
+
+  return jsonlSchema === undefined ? undefined : validateJsonlArtifactSchema(name, content, jsonlSchema)
+}
+
+function validateJsonArtifactSchema(name: string, content: Uint8Array, schema: ZodType): ArtifactSchemaInvalidIssue | undefined {
   let value: unknown
 
   try {
@@ -540,6 +613,44 @@ function validateKnownArtifactSchema(name: string, content: Uint8Array): Artifac
     })),
     name,
   }
+}
+
+function validateJsonlArtifactSchema(name: string, content: Uint8Array, schema: ZodType): ArtifactSchemaInvalidIssue | undefined {
+  const issues: ArtifactSchemaIssue[] = []
+  const lines = new TextDecoder().decode(content).split('\n')
+
+  lines.forEach((line, index) => {
+    const lineNumber = String(index + 1)
+
+    if (line.trim().length === 0) {
+      return
+    }
+
+    let value: unknown
+
+    try {
+      value = JSON.parse(line)
+    } catch (error) {
+      issues.push({
+        code: 'invalid_json',
+        message: error instanceof Error ? error.message : 'Invalid JSON',
+        path: [lineNumber],
+      })
+      return
+    }
+
+    const result = schema.safeParse(value)
+
+    if (!result.success) {
+      issues.push(...result.error.issues.map((issue) => ({
+        code: issue.code,
+        message: issue.message,
+        path: [lineNumber, ...issue.path.map(String)],
+      })))
+    }
+  })
+
+  return issues.length === 0 ? undefined : {issues, name}
 }
 
 async function collectArtifactFiles(rootDir: string, currentDir: string): Promise<Array<{name: string; path: string}>> {
