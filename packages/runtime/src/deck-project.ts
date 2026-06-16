@@ -1,4 +1,5 @@
 import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {LLMClient} from '@video-agent/llm'
 import type {Transcript, TTSSegment} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
@@ -12,12 +13,13 @@ import {writeDeckHtmlProject} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
 import {mkdir} from 'node:fs/promises'
 import {extname, join, resolve} from 'node:path'
+import {z} from 'zod'
 
 import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
-import {createRuntimeProviders} from './runtime-providers.js'
+import {createRuntimeLLMClient, createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace} from './workspace.js'
 
 export interface CreateDeckExplainerProjectOptions {
@@ -25,6 +27,7 @@ export interface CreateDeckExplainerProjectOptions {
   durationTargetSeconds?: number
   inputPath: string
   language?: string
+  llmClient?: LLMClient
   maxSlideCharacters?: number
   mode?: 'script-generated'
   projectId?: string
@@ -179,6 +182,30 @@ const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'qu
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
 
+interface TextDeckProjectPlan {
+  claims: Claims
+  contentBlocks: {blocks: ContentBlock[]; version: 1}
+  deck: Deck
+  document: Document
+  mediaInfo: MediaInfo
+  narration: Narration
+  outline: Outline
+  qualityReport: {
+    checkedAt: string
+    issues: QualityIssue[]
+    narrationSegments: number
+    summary: {errors: number; warnings: number}
+    ttsSegments: number
+    version: 1
+  }
+  selectedMoments: LongVideoSelectedMoments
+  sourceQuotes: SourceQuotes
+  speakerScript: SpeakerScript
+  storyboard: Storyboard
+  timedDeck: TimedDeck
+  timeline: Timeline
+}
+
 export async function createDeckExplainerProject(options: CreateDeckExplainerProjectOptions): Promise<CreateDeckExplainerProjectResult> {
   const inputPath = resolve(options.inputPath)
   await assertFileExists(inputPath)
@@ -195,63 +222,45 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     workspaceDir: options.workspaceDir,
   })
   const language = options.language ?? 'zh-CN'
-  const slideSeconds = options.slideSeconds ?? DEFAULT_SLIDE_SECONDS
-  const slides = createTextSlides(text, {
-    maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-    title: options.title,
+  const config = await readConfig(workspace.workspaceDir)
+  const llmClient = await createRuntimeLLMClient(config, workspace.workspaceDir, {
+    llmClient: options.llmClient,
   })
-  const title = options.title ?? slides[0]?.title ?? 'Deck Explainer'
-  const deckSlideSeconds = options.durationTargetSeconds === undefined ? slideSeconds : Math.max(1, options.durationTargetSeconds / Math.max(1, slides.length))
-  const mediaInfo = createTextMediaInfo(inputPath, slides.length * deckSlideSeconds)
-  const selectedMoments = createTextSelectedMoments(inputPath, slides, deckSlideSeconds)
-  const document = DocumentSchema.parse(createTextDocument(inputPath, text, slides, language, title))
-  const contentBlocks = ContentBlocksSchema.parse({
-    blocks: document.blocks,
-    version: 1,
-  })
-  const claims = ClaimsSchema.parse(createClaimsFromDocument(document))
-  const sourceQuotes = SourceQuotesSchema.parse(createSourceQuotesFromDocument(document))
-  const outline = OutlineSchema.parse(createTextOutline(slides, language, title, options.durationTargetSeconds))
-  const deck = DeckSchema.parse(createTextDeck(slides, language, title, {
-    format: options.deckFormat,
-    theme: options.theme,
-  }))
-  const speakerScript = SpeakerScriptSchema.parse(createTextSpeakerScript(slides, language))
-  const timings = createSlideTimings(slides, deckSlideSeconds)
-  const timedDeck = TimedDeckSchema.parse(createTimedDeck(deck, timings))
-  const storyboard = StoryboardSchema.parse(createTextStoryboard(slides, deckSlideSeconds, language))
-  const timeline = TimelineSchema.parse(createTextTimeline(slides.length * deckSlideSeconds))
-  const narration = NarrationSchema.parse(createTextNarration(storyboard, slides, language))
-  const issues = createTextQualityIssues({
-    mediaInfo,
-    narration,
-    selectedMoments,
-    storyboard,
-    timeline,
-  })
-  const qualityReport = {
-    checkedAt: new Date().toISOString(),
-    issues,
-    narrationSegments: narration.segments.length,
-    summary: summarizeQualityIssues(issues),
-    ttsSegments: 0,
-    version: 1 as const,
-  }
+  const plan = llmClient === undefined
+    ? createFallbackTextDeckProjectPlan(inputPath, text, {
+        deckFormat: options.deckFormat,
+        durationTargetSeconds: options.durationTargetSeconds,
+        language,
+        maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+        slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+        theme: options.theme,
+        title: options.title,
+      })
+    : await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+        deckFormat: options.deckFormat,
+        durationTargetSeconds: options.durationTargetSeconds,
+        language,
+        maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+        slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+        sourceType: inferDocumentSourceType(inputPath),
+        theme: options.theme,
+        title: options.title,
+      })
   const artifacts = {
-    document: await workspace.store.writeJson('document.json', document),
-    contentBlocks: await workspace.store.writeJson('content-blocks.json', contentBlocks),
-    claims: await workspace.store.writeJson('claims.json', claims),
-    sourceQuotes: await workspace.store.writeJson('source-quotes.json', sourceQuotes),
-    outline: await workspace.store.writeJson('outline.json', outline),
-    deck: await workspace.store.writeJson('deck.json', deck),
-    speakerScript: await workspace.store.writeJson('speaker-script.json', speakerScript),
-    timedDeck: await workspace.store.writeJson('timed-deck.json', timedDeck),
-    mediaInfo: await workspace.store.writeJson('media-info.json', mediaInfo),
-    selectedMoments: await workspace.store.writeJson('selected-moments.json', selectedMoments),
-    storyboard: await workspace.store.writeJson('storyboard.json', storyboard),
-    timeline: await workspace.store.writeJson('timeline.json', timeline),
-    narration: await workspace.store.writeJson('narration.json', narration),
-    qualityReport: await workspace.store.writeJson('quality-report.json', qualityReport),
+    document: await workspace.store.writeJson('document.json', plan.document),
+    contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),
+    claims: await workspace.store.writeJson('claims.json', plan.claims),
+    sourceQuotes: await workspace.store.writeJson('source-quotes.json', plan.sourceQuotes),
+    outline: await workspace.store.writeJson('outline.json', plan.outline),
+    deck: await workspace.store.writeJson('deck.json', plan.deck),
+    speakerScript: await workspace.store.writeJson('speaker-script.json', plan.speakerScript),
+    timedDeck: await workspace.store.writeJson('timed-deck.json', plan.timedDeck),
+    mediaInfo: await workspace.store.writeJson('media-info.json', plan.mediaInfo),
+    selectedMoments: await workspace.store.writeJson('selected-moments.json', plan.selectedMoments),
+    storyboard: await workspace.store.writeJson('storyboard.json', plan.storyboard),
+    timeline: await workspace.store.writeJson('timeline.json', plan.timeline),
+    narration: await workspace.store.writeJson('narration.json', plan.narration),
+    qualityReport: await workspace.store.writeJson('quality-report.json', plan.qualityReport),
   }
   const jobStore = new JsonJobStore(resolve(workspace.projectDir, 'job-state.json'))
 
@@ -276,7 +285,7 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     artifacts,
     projectDir: workspace.projectDir,
     projectId: workspace.projectId,
-    slides: slides.length,
+    slides: plan.deck.slides.length,
     status: 'completed',
   }
 }
@@ -972,6 +981,471 @@ async function convertDeckSourceAudio(inputPath: string, outputPath: string): Pr
     '2',
     outputPath,
   ])
+}
+
+const LLMDeckSlideTypeSchema = z.enum(['bullet', 'chart', 'code', 'compare', 'cta', 'image', 'process', 'quote', 'section', 'summary', 'timeline', 'title'])
+const LLMDeckVisualKindSchema = z.enum(['chart', 'code', 'diagram', 'image', 'process', 'table', 'text', 'title-card'])
+
+const LLMTextDeckPlanSchema = z.object({
+  audience: z.string().optional(),
+  slides: z.array(z.object({
+    bullets: z.array(z.string().min(1)).max(4).default([]),
+    duration: z.number().finite().positive().optional(),
+    speakerNote: z.string().min(1),
+    subtitle: z.string().min(1).optional(),
+    title: z.string().min(1),
+    type: LLMDeckSlideTypeSchema.optional(),
+    visualKind: LLMDeckVisualKindSchema.optional(),
+  })).min(1).max(24),
+  summary: z.string().min(1),
+  title: z.string().min(1),
+})
+
+type LLMTextDeckPlan = z.infer<typeof LLMTextDeckPlanSchema>
+
+interface TextDeckProjectPlanOptions {
+  deckFormat?: DeckFormat
+  durationTargetSeconds?: number
+  language: string
+  maxSlideCharacters: number
+  slideSeconds: number
+  sourceType?: Document['source']['sourceType']
+  theme?: string
+  title?: string
+}
+
+async function createLLMTextDeckProjectPlan(
+  llm: LLMClient,
+  inputPath: string,
+  text: string,
+  options: TextDeckProjectPlanOptions,
+): Promise<TextDeckProjectPlan> {
+  const targetSlideCount = estimateTextDeckSlideCount(text, options.durationTargetSeconds)
+  const result = await llm.generateObject({
+    messages: [
+      {
+        content: JSON.stringify({
+          goal: 'Turn the source Markdown/text into a concise PPT-style explainer deck. Return only clean semantic slide data matching the schema.',
+          instructions: [
+            'Use the requested output language for all visible text and speaker notes.',
+            'Remove YAML frontmatter, Markdown syntax, code fences, table pipes, raw template markers, and implementation-only metadata.',
+            'Do not split sentences by character count. Merge related source sections into audience-facing ideas.',
+            'If the source is an agent skill or internal instruction document, explain what it does, when to use it, the workflow, output shape, and quality bar.',
+            'Do not paste the raw source verbatim. Rewrite it into natural presentation language.',
+            'Keep slide titles short and concrete.',
+            'Use 2-4 concise bullets per content slide.',
+            'Write one natural speakerNote per slide for TTS. It should sound like a presenter, not a file reader.',
+            'Avoid page-number prefixes such as "第 1 页" in speakerNote.',
+            'Keep speakerNote close to the target narration length unless the slide is an intro or summary.',
+          ],
+          source: {
+            path: inputPath,
+            sourceType: options.sourceType ?? inferDocumentSourceType(inputPath),
+            text: truncateForLLM(text, 60_000),
+          },
+          target: {
+            durationSeconds: options.durationTargetSeconds,
+            format: options.deckFormat ?? 'portrait_1080x1920',
+            language: options.language,
+            maxVisibleCharactersPerSlide: options.maxSlideCharacters,
+            requestedTitle: options.title,
+            slideCount: targetSlideCount,
+            speakerNoteCharactersPerSlide: estimateNarrationCharactersPerSlide(options.durationTargetSeconds, targetSlideCount),
+            theme: options.theme ?? 'default',
+          },
+        }),
+        role: 'user',
+      },
+    ],
+    schema: LLMTextDeckPlanSchema,
+    temperature: 0.2,
+  })
+
+  return createTextDeckProjectPlanFromLLM(inputPath, text, result.object, options)
+}
+
+function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string, rawPlan: LLMTextDeckPlan, options: TextDeckProjectPlanOptions): TextDeckProjectPlan {
+  const planTitle = options.title ?? cleanGeneratedText(rawPlan.title, 'Deck Explainer')
+  const slides = normalizeLLMTextDeckSlides(rawPlan)
+  const sourceEvidence = truncateForLLM(stripMarkdownControlText(sourceText), 4000)
+  const deckSlides = slides.map((slide, index): Slide => {
+    const slideId = `slide-${String(index + 1).padStart(3, '0')}`
+    const blockId = `block-${String(index + 1).padStart(3, '0')}`
+
+    return {
+      blockIds: [blockId],
+      bullets: slide.bullets,
+      duration: slide.duration,
+      evidence: sourceEvidence === '' ? [] : [{ref: 'text-input', text: sourceEvidence, type: 'research'}],
+      slideId,
+      speakerNote: slide.speakerNote,
+      ...(slide.subtitle === undefined ? {} : {subtitle: slide.subtitle}),
+      title: slide.title,
+      type: slide.type ?? (index === 0 ? 'title' : 'bullet'),
+      visual: {
+        assetRefs: [],
+        kind: slide.visualKind ?? (index === 0 ? 'title-card' : 'text'),
+      },
+    }
+  })
+  const deck = DeckSchema.parse({
+    format: options.deckFormat ?? 'portrait_1080x1920',
+    inputMode: 'script-generated',
+    language: options.language,
+    slides: deckSlides,
+    theme: options.theme ?? 'default',
+    title: planTitle,
+    version: 1,
+  })
+  const speakerScript = SpeakerScriptSchema.parse({
+    language: options.language,
+    mode: 'script-generated',
+    segments: slides.map((slide, index) => ({
+      estimatedDuration: slide.duration ?? estimateNarrationDuration(slide.speakerNote),
+      slideId: deck.slides[index]?.slideId ?? `slide-${String(index + 1).padStart(3, '0')}`,
+      text: slide.speakerNote,
+    })),
+    version: 1,
+  })
+  const timings = createSlideTimingsFromSpeakerScript(speakerScript, options.durationTargetSeconds, options.slideSeconds)
+  const timedDeck = TimedDeckSchema.parse(createTimedDeck(deck, timings))
+  const duration = timings.at(-1)?.end ?? deck.slides.length * options.slideSeconds
+  const mediaInfo = createTextMediaInfo(inputPath, duration)
+  const document = DocumentSchema.parse(createLLMTextDocument(inputPath, sourceText, deck, speakerScript, options.language, planTitle, rawPlan.summary, options.sourceType))
+  const contentBlocks = ContentBlocksSchema.parse({
+    blocks: document.blocks,
+    version: 1,
+  })
+  const claims = ClaimsSchema.parse(createClaimsFromDocument(document))
+  const sourceQuotes = SourceQuotesSchema.parse(createSourceQuotesFromDocument(document))
+  const outline = OutlineSchema.parse(createDeckOutlineFromSlides(deck, options.language, planTitle, options.durationTargetSeconds, rawPlan.audience))
+  const selectedMoments = createDeckSelectedMoments(inputPath, deck, speakerScript, timings)
+  const storyboard = StoryboardSchema.parse(createDeckStoryboard(deck, speakerScript, timings, options.language))
+  const timeline = TimelineSchema.parse(createTextTimeline(duration))
+  const narration = NarrationSchema.parse(createDeckNarrationFromTimings(speakerScript, timings))
+  const qualityReport = createTextPlanQualityReport({
+    mediaInfo,
+    narration,
+    selectedMoments,
+    storyboard,
+    timeline,
+  })
+
+  return {
+    claims,
+    contentBlocks,
+    deck,
+    document,
+    mediaInfo,
+    narration,
+    outline,
+    qualityReport,
+    selectedMoments,
+    sourceQuotes,
+    speakerScript,
+    storyboard,
+    timedDeck,
+    timeline,
+  }
+}
+
+function createFallbackTextDeckProjectPlan(inputPath: string, text: string, options: TextDeckProjectPlanOptions): TextDeckProjectPlan {
+  const slides = createTextSlides(text, {
+    maxSlideCharacters: options.maxSlideCharacters,
+    title: options.title,
+  })
+  const title = options.title ?? slides[0]?.title ?? 'Deck Explainer'
+  const deckSlideSeconds = options.durationTargetSeconds === undefined ? options.slideSeconds : Math.max(1, options.durationTargetSeconds / Math.max(1, slides.length))
+  const mediaInfo = createTextMediaInfo(inputPath, slides.length * deckSlideSeconds)
+  const selectedMoments = createTextSelectedMoments(inputPath, slides, deckSlideSeconds)
+  const document = DocumentSchema.parse(createTextDocument(inputPath, text, slides, options.language, title))
+  const contentBlocks = ContentBlocksSchema.parse({
+    blocks: document.blocks,
+    version: 1,
+  })
+  const claims = ClaimsSchema.parse(createClaimsFromDocument(document))
+  const sourceQuotes = SourceQuotesSchema.parse(createSourceQuotesFromDocument(document))
+  const outline = OutlineSchema.parse(createTextOutline(slides, options.language, title, options.durationTargetSeconds))
+  const deck = DeckSchema.parse(createTextDeck(slides, options.language, title, {
+    format: options.deckFormat,
+    theme: options.theme,
+  }))
+  const speakerScript = SpeakerScriptSchema.parse(createTextSpeakerScript(slides, options.language))
+  const timings = createSlideTimings(slides, deckSlideSeconds)
+  const timedDeck = TimedDeckSchema.parse(createTimedDeck(deck, timings))
+  const storyboard = StoryboardSchema.parse(createTextStoryboard(slides, deckSlideSeconds, options.language))
+  const timeline = TimelineSchema.parse(createTextTimeline(slides.length * deckSlideSeconds))
+  const narration = NarrationSchema.parse(createTextNarration(storyboard, slides, options.language))
+  const qualityReport = createTextPlanQualityReport({
+    mediaInfo,
+    narration,
+    selectedMoments,
+    storyboard,
+    timeline,
+  })
+
+  return {
+    claims,
+    contentBlocks,
+    deck,
+    document,
+    mediaInfo,
+    narration,
+    outline,
+    qualityReport,
+    selectedMoments,
+    sourceQuotes,
+    speakerScript,
+    storyboard,
+    timedDeck,
+    timeline,
+  }
+}
+
+function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): LLMTextDeckPlan['slides'] {
+  const slides = plan.slides.map((slide, index) => {
+    const title = cleanGeneratedText(slide.title, `第 ${index + 1} 页`).slice(0, 72)
+    const bullets = slide.bullets
+      .map((bullet) => cleanGeneratedText(bullet, ''))
+      .filter((bullet) => bullet !== '' && bullet !== title)
+      .slice(0, 4)
+    const speakerNote = cleanGeneratedText(slide.speakerNote, [title, ...bullets].join('。'))
+    const subtitle = cleanGeneratedText(slide.subtitle, '')
+
+    return {
+      ...slide,
+      bullets,
+      speakerNote,
+      ...(subtitle === '' ? {} : {subtitle}),
+      title,
+    }
+  }).filter((slide) => slide.title !== '' && slide.speakerNote !== '')
+
+  return slides.length === 0
+    ? [{
+        bullets: [],
+        speakerNote: cleanGeneratedText(plan.summary, plan.title),
+        title: cleanGeneratedText(plan.title, 'Deck Explainer'),
+        type: 'title',
+        visualKind: 'title-card',
+      }]
+    : slides
+}
+
+function createLLMTextDocument(
+  inputPath: string,
+  sourceText: string,
+  deck: Deck,
+  speakerScript: SpeakerScript,
+  language: string,
+  title: string,
+  summary: string,
+  sourceType: Document['source']['sourceType'] | undefined,
+): Document {
+  const sourceEvidence = truncateForLLM(stripMarkdownControlText(sourceText), 4000)
+
+  return {
+    blocks: deck.slides.map((slide, index): ContentBlock => {
+      const script = speakerScript.segments[index]?.text
+      const text = [slide.title, slide.subtitle, ...slide.bullets, script].filter((value): value is string => typeof value === 'string' && value.trim() !== '').join(' ')
+
+      return {
+        evidence: sourceEvidence === '' ? [] : [{ref: 'text-input', text: sourceEvidence, type: 'research'}],
+        id: `block-${String(index + 1).padStart(3, '0')}`,
+        text: text || slide.title,
+        type: index === 0 ? 'summary' : contentBlockTypeForSlide(slide),
+      }
+    }),
+    source: {
+      language,
+      path: inputPath,
+      sourceType: sourceType ?? inferDocumentSourceType(inputPath),
+      title,
+    },
+    text: [title, cleanGeneratedText(summary, ''), ...speakerScript.segments.map((segment) => segment.text)].filter(Boolean).join('\n\n'),
+    version: 1,
+  }
+}
+
+function contentBlockTypeForSlide(slide: Slide): ContentBlock['type'] {
+  if (slide.type === 'quote') {
+    return 'quote'
+  }
+
+  if (slide.type === 'cta') {
+    return 'recommendation'
+  }
+
+  if (slide.type === 'summary') {
+    return 'summary'
+  }
+
+  if (slide.type === 'chart' || slide.type === 'timeline') {
+    return 'data'
+  }
+
+  return 'claim'
+}
+
+function createDeckOutlineFromSlides(deck: Deck, language: string, title: string, durationTarget: number | undefined, audience: string | undefined): Outline {
+  return {
+    ...(audience === undefined ? {} : {audience: cleanGeneratedText(audience, '')}),
+    durationTarget,
+    language,
+    sections: deck.slides.map((slide, index) => ({
+      blockIds: slide.blockIds,
+      duration: slide.duration,
+      goal: slide.speakerNote ?? `Explain ${slide.title}.`,
+      id: `section-${String(index + 1).padStart(3, '0')}`,
+      title: slide.title,
+    })),
+    title,
+    version: 1,
+  }
+}
+
+function createDeckSelectedMoments(inputPath: string, deck: Deck, speakerScript: SpeakerScript, timings: SlideTiming[]): LongVideoSelectedMoments {
+  return {
+    moments: deck.slides.map((slide, index) => {
+      const timing = timings[index] ?? {end: index + 1, slideId: slide.slideId, start: index}
+      const script = speakerScript.segments[index]
+
+      return {
+        chunkId: 'text-000',
+        evidence: slide.evidence,
+        id: `text-slide-${String(index + 1).padStart(3, '0')}`,
+        reason: 'LLM-planned text section converted into a slide explainer page.',
+        score: 0.85,
+        sourceRange: [timing.start, timing.end] as [number, number],
+        summary: script?.text ?? slide.speakerNote ?? slide.title,
+        title: slide.title,
+      }
+    }),
+    source: inputPath,
+    version: 1,
+  }
+}
+
+function createDeckStoryboard(deck: Deck, speakerScript: SpeakerScript, timings: SlideTiming[], language: string): Storyboard {
+  return {
+    language,
+    scenes: deck.slides.map((slide, index) => {
+      const timing = timings[index] ?? {end: index + 1, slideId: slide.slideId, start: index}
+      const script = speakerScript.segments[index]
+
+      return {
+        duration: Math.max(0.001, roundSeconds(timing.end - timing.start)),
+        evidence: slide.evidence,
+        id: `scene-${index + 1}`,
+        narration: script?.text ?? slide.speakerNote ?? slide.title,
+        sourceRange: [timing.start, timing.end] as [number, number],
+        start: timing.start,
+        visualStyle: 'slide_explainer',
+      }
+    }),
+    targetPlatform: 'generic',
+    version: 1,
+  }
+}
+
+function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript, durationTargetSeconds: number | undefined, fallbackSlideSeconds: number): SlideTiming[] {
+  const segmentCount = Math.max(1, speakerScript.segments.length)
+  const targetDuration = durationTargetSeconds === undefined ? undefined : Math.max(segmentCount * 2, durationTargetSeconds)
+  let cursor = 0
+
+  return speakerScript.segments.map((segment) => {
+    const duration = targetDuration === undefined
+      ? Math.max(2, segment.estimatedDuration ?? fallbackSlideSeconds)
+      : targetDuration / segmentCount
+    const start = roundSeconds(cursor)
+    const end = roundSeconds(start + duration)
+
+    cursor = end
+
+    return {
+      end,
+      slideId: segment.slideId,
+      start,
+    }
+  })
+}
+
+function createTextPlanQualityReport(input: {
+  mediaInfo: MediaInfo
+  narration: Narration
+  selectedMoments: LongVideoSelectedMoments
+  storyboard: Storyboard
+  timeline: Timeline
+}): TextDeckProjectPlan['qualityReport'] {
+  const issues = createTextQualityIssues(input)
+
+  return {
+    checkedAt: new Date().toISOString(),
+    issues,
+    narrationSegments: input.narration.segments.length,
+    summary: summarizeQualityIssues(issues),
+    ttsSegments: 0,
+    version: 1,
+  }
+}
+
+function estimateTextDeckSlideCount(text: string, durationTargetSeconds: number | undefined): number {
+  if (durationTargetSeconds !== undefined) {
+    return clampInteger(Math.round(durationTargetSeconds / 22), 4, 14)
+  }
+
+  return clampInteger(Math.ceil(text.length / 900), 4, 12)
+}
+
+function estimateNarrationCharactersPerSlide(durationTargetSeconds: number | undefined, slideCount: number): number {
+  if (durationTargetSeconds === undefined) {
+    return 110
+  }
+
+  return clampInteger(Math.round(durationTargetSeconds / Math.max(1, slideCount) * 4.5), 60, 150)
+}
+
+function estimateNarrationDuration(text: string): number {
+  return Math.max(4, Math.ceil(text.length / 12))
+}
+
+function clampInteger(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function truncateForLLM(text: string, maxCharacters: number): string {
+  if (text.length <= maxCharacters) {
+    return text
+  }
+
+  return `${text.slice(0, maxCharacters)}\n\n[truncated ${text.length - maxCharacters} characters]`
+}
+
+function cleanGeneratedText(value: string | undefined, fallback: string): string {
+  const cleaned = stripMarkdownControlText(value ?? '')
+    .replaceAll(/^第\s*\d+\s*页[：:]\s*/g, '')
+    .replaceAll(/\s+/g, ' ')
+    .trim()
+
+  return cleaned === '' ? fallback : cleaned
+}
+
+function stripMarkdownControlText(value: string): string {
+  return value
+    .replaceAll(/\r\n?/g, '\n')
+    .replace(/^---\n[\s\S]*?\n---\n?/u, '')
+    .replaceAll(/```[a-zA-Z0-9_-]*\n?/g, '')
+    .replaceAll(/```/g, '')
+    .split('\n')
+    .map((line) => line
+      .replace(/^#{1,6}\s+/u, '')
+      .replace(/^[-*+]\s+/u, '')
+      .replace(/^>\s*/u, '')
+      .replace(/\|/g, ' ')
+      .trim())
+    .filter((line) => line !== '---')
+    .join('\n')
+    .trim()
 }
 
 function createTextSlides(text: string, options: {maxSlideCharacters: number; title?: string}): TextSlide[] {

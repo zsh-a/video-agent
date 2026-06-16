@@ -3,6 +3,8 @@ import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
+import type {GenerateObjectRequest, LLMClient} from '../../../packages/llm/src/index.js'
+
 import {runProcess} from '../../../packages/media/src/process.js'
 import {exportProject} from '../../../packages/runtime/src/export.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
@@ -10,6 +12,52 @@ import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
 import {renderProject} from '../../../packages/runtime/src/render-project.js'
 import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/runtime/src/deck-project.js'
+
+function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<unknown>) => void): LLMClient {
+  return {
+    async generateObject(input) {
+      onRequest?.(input as GenerateObjectRequest<unknown>)
+
+      return {
+        object: {
+          summary: 'Serenity Alpha turns market news into testable financial hypotheses.',
+          title: 'Serenity Alpha',
+          slides: [
+            {
+              bullets: ['从新闻开始', '落到财务报表'],
+              speakerNote: 'Serenity Alpha 的核心，是把市场新闻翻译成可验证的财务假设。',
+              title: 'Serenity Alpha 方法',
+              type: 'title',
+              visualKind: 'title-card',
+            },
+            {
+              bullets: ['观察需求是否已经发生', '区分故事和真实订单'],
+              speakerNote: '第一步不是判断新闻是否热闹，而是确认需求变化是否已经出现。',
+              title: '先验证需求',
+            },
+            {
+              bullets: ['收入', '毛利率', '经营杠杆'],
+              speakerNote: '第二步把需求变化映射到收入、毛利率和经营杠杆这些具体财务行项目。',
+              title: '翻译成财务语言',
+            },
+            {
+              bullets: ['确认指标', '证伪条件'],
+              speakerNote: '最后用未来几个季度的财报和电话会指标，确认或者否定这条假设。',
+              title: '建立验证链',
+              type: 'summary',
+            },
+          ],
+        },
+      }
+    },
+    async generateText() {
+      throw new Error('Not used by this test.')
+    },
+    streamText() {
+      throw new Error('Not used by this test.')
+    },
+  } satisfies LLMClient
+}
 
 describe('deck explainer project', () => {
   it('creates a renderable PPT-style HyperFrames project from text', async () => {
@@ -84,6 +132,58 @@ describe('deck explainer project', () => {
 
       expect(exported.format).to.equal('hyperframes')
       expect((await stat(join(exported.outputPath, 'index.html'))).isFile()).to.equal(true)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('plans Markdown Deck content through an injected LLM instead of raw text chunking', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-llm-'))
+    const inputPath = join(root, 'skill.md')
+    let request: GenerateObjectRequest<unknown> | undefined
+
+    try {
+      await writeFile(
+        inputPath,
+        [
+          '---',
+          'name: serenity-alpha',
+          'description: Internal skill metadata that should not become a slide.',
+          '---',
+          '',
+          '# Serenity Alpha',
+          '',
+          '## Core Principle',
+          '',
+          'Turn news into a testable alpha hypothesis.',
+          '',
+          '```text',
+          'news -> demand -> revenue',
+          '```',
+        ].join('\n'),
+      )
+
+      const result = await createDeckExplainerProject({
+        durationTargetSeconds: 180,
+        inputPath,
+        llmClient: createDeckPlanningLLMClient((input) => {
+          request = input
+        }),
+        projectId: 'deck-llm-demo',
+        workspaceDir: root,
+      })
+      const prompt = JSON.parse(String(request?.messages?.[0]?.content)) as {instructions: string[]; target: {slideCount: number}}
+      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {slides: Array<{bullets: string[]; speakerNote?: string; title: string}>; title: string}
+      const document = JSON.parse(await readFile(result.artifacts.document, 'utf8')) as {text: string}
+      const speakerScript = JSON.parse(await readFile(result.artifacts.speakerScript, 'utf8')) as {segments: Array<{text: string}>}
+
+      expect(prompt.instructions.join(' ')).to.contain('Remove YAML frontmatter')
+      expect(prompt.target.slideCount).to.equal(8)
+      expect(result.slides).to.equal(4)
+      expect(deck.title).to.equal('Serenity Alpha')
+      expect(deck.slides.some((slide) => /---|#|```|name:/.test(`${slide.title} ${slide.bullets.join(' ')}`))).to.equal(false)
+      expect(document.text).not.include('name: serenity-alpha')
+      expect(speakerScript.segments.some((segment) => /^第\s*\d+\s*页/.test(segment.text))).to.equal(false)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -275,6 +375,7 @@ describe('deck explainer project', () => {
       await writeFile(inputPath, 'Deck voiceover only needs TTS, but the provider set still includes VLM.')
       await createDeckExplainerProject({
         inputPath,
+        llmClient: createDeckPlanningLLMClient(),
         maxSlideCharacters: 40,
         projectId: 'deck-voice-llm-demo',
         workspaceDir: root,
