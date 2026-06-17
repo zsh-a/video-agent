@@ -16,7 +16,7 @@ import type {
   StreamTextRequest,
 } from './types.js'
 
-import {randomUUID} from 'node:crypto'
+import {createHash, randomUUID} from 'node:crypto'
 
 export interface AISDKLLMClientOptions {
   model: LanguageModel
@@ -358,12 +358,76 @@ function traceRequest(request: GenerateTextRequest | GenerateObjectRequest<unkno
   temperature?: number
 } {
   return {
-    ...(request.messages === undefined ? {} : {messages: request.messages}),
+    ...(request.messages === undefined ? {} : {messages: sanitizeTraceMessages(request.messages)}),
     ...(request.prompt === undefined ? {} : {prompt: request.prompt}),
     ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
     ...(!('schema' in request) ? {} : {schema: toJSONSchema(request.schema)}),
     ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
   }
+}
+
+function sanitizeTraceMessages(messages: ModelMessage[]): ModelMessage[] {
+  return messages.map((message) => {
+    if (!('content' in message) || !Array.isArray(message.content)) {
+      return message
+    }
+
+    return {
+      ...message,
+      content: message.content.map((part) => sanitizeTraceContentPart(part)),
+    } as ModelMessage
+  })
+}
+
+function sanitizeTraceContentPart(part: unknown): unknown {
+  if (!isRecord(part)) {
+    return part
+  }
+
+  const sanitized = {...part}
+
+  if (shouldOmitTraceData(sanitized.data, sanitized)) {
+    sanitized.data = summarizeTraceMediaData(sanitized.data)
+  }
+
+  if (shouldOmitTraceData(sanitized.image, sanitized)) {
+    sanitized.image = summarizeTraceMediaData(sanitized.image)
+  }
+
+  return sanitized
+}
+
+function shouldOmitTraceData(value: unknown, part: Record<string, unknown>): value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    return false
+  }
+
+  return value.startsWith('data:')
+    || typeof part.mediaType === 'string'
+    || part.type === 'file'
+    || part.type === 'image'
+}
+
+function summarizeTraceMediaData(value: string): string {
+  return `[omitted media payload: ${summarizeTraceMediaPayload(value)}]`
+}
+
+function summarizeTraceMediaPayload(value: string): string {
+  const dataUri = /^data:([^;,]+)?(?:;base64)?,/u.exec(value)
+  const mediaType = dataUri?.[1]
+  const dataStart = dataUri === null ? 0 : dataUri[0].length
+  const payloadChars = value.length - dataStart
+  const sha256 = createHash('sha256').update(value).digest('hex')
+
+  return [
+    ...(mediaType === undefined ? [] : [`mediaType=${mediaType}`]),
+    `chars=${payloadChars}`,
+    `sha256=${sha256}`,
+  ].join(' ')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function traceResponse(result: {object?: unknown; text?: string}): {object?: unknown; text?: string} {
