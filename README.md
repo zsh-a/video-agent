@@ -31,7 +31,7 @@ packages/pipeline-deck/    Deck Explainer business pipeline boundary over runtim
 packages/pipeline-film/    Film Recap business pipeline boundary over runtime APIs
 packages/llm/              internal LLMClient and AI SDK-backed adapter
 packages/renderer-ffmpeg/  ffmpeg renderer boundary
-packages/renderer-html/    DeckIR to static HTML slide project boundary
+packages/renderer-html/    DeckIR to template/theme/motion HTML runtime boundary
 packages/renderer-hyperframes/ HyperFrames project/compiler boundary
 packages/quality/          pipeline, render, and artifact quality checks
 packages/db/               JSON and Bun SQLite job stores
@@ -95,7 +95,7 @@ bun run dev export <projectId> --output ./output
 Create a PPT-style explainer from text or Markdown:
 
 ```sh
-bun run dev deck ./notes.md --duration 3m --format portrait --style tech --project-id notes-demo
+bun run dev deck ./notes.md --duration 3m --format portrait --style elegant-dark --project-id notes-demo
 bun run dev deck synthesize-voice notes-demo
 bun run dev deck render notes-demo
 ```

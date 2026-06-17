@@ -78,9 +78,9 @@ describe('project quality', () => {
         ],
         metrics: [
           {
-            bulletCount: 8,
             duration: 1,
             estimatedCharactersPerSecond: 30,
+            pointCount: 8,
             slideId: 's001',
             textCharacters: 240,
             titleCharacters: 12,

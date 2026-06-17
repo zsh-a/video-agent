@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {buildChromiumScreenshotArgs} from '../../../packages/renderer-html/src/chromium.js'
-import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck-compiler.js'
+import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck/compiler.js'
 
 describe('html deck compiler', () => {
   it('writes an HTML slide project directly from DeckIR', async () => {
@@ -23,25 +23,27 @@ describe('html deck compiler', () => {
             slides: [
               {
                 blockIds: ['block-001'],
-                bullets: ['Core 独立', 'Renderer 可替换'],
                 evidence: [{ref: 'block-001', text: 'DeckIR evidence', type: 'research'}],
+                motion: 'cinematic-rise',
+                points: ['Core 独立', 'Renderer 可替换'],
                 slideId: 'slide-001',
                 speakerNote: '这一页说明核心架构。',
                 title: '视频 Agent 的正确架构',
-                type: 'title',
+                type: 'hero',
                 visual: {assetRefs: [], kind: 'title-card'},
               },
               {
                 blockIds: ['block-002'],
-                bullets: ['Film 是 media-first', 'Deck 是 content-first'],
                 evidence: [],
+                motion: 'progressive-reveal',
+                points: ['Film 是 media-first', 'Deck 是 content-first'],
                 slideId: 'slide-002',
                 title: '两条业务 Pipeline',
-                type: 'bullet',
+                type: 'three-points',
                 visual: {assetRefs: [], kind: 'text'},
               },
             ],
-            theme: 'tech',
+            theme: 'elegant-dark',
             title: '视频 Agent 的正确架构',
             version: 1,
           },
@@ -63,26 +65,39 @@ describe('html deck compiler', () => {
       const html = await readText(result.entryHtml)
       const styles = await readText(result.stylesPath)
       const runtime = await readText(result.runtimePath)
-      const plan = JSON.parse(await readText(result.planPath)) as {audioRef?: string; deck: {title: string}; duration: number; timings: Array<{slideId: string}>}
+      const plan = JSON.parse(await readText(result.planPath)) as {
+        audioRef?: string
+        canvas: {height: number; width: number}
+        deck: {title: string}
+        duration: number
+        motion: {steps: Array<{preset: string; selector: string}>}
+        timings: Array<{slideId: string}>
+        version: number
+      }
 
       expect(html).to.contain('id="deck-render-plan"')
       expect(html).to.contain('data-format="portrait_1080x1920"')
       expect(html).to.contain('data-slide="slide-001"')
       expect(html).to.contain('data-start="6"')
+      expect(html).to.contain('class="stage"')
       expect(html).to.contain('视频 Agent 的正确架构')
       expect(html).to.contain('Film 是 media-first')
-      expect(html).to.contain('DeckIR evidence')
       expect(html).not.include('class="slide__evidence"')
-      expect(styles).to.contain('aspect-ratio: 9 / 16')
+      expect(styles).to.contain('--canvas-w: 1080px')
+      expect(styles).to.contain('--safe-bottom: 160px')
       expect(styles).to.contain('@font-face')
       expect(styles).to.contain('Noto Sans SC')
       expect(styles).to.contain('body[data-capture="slide"]')
-      expect(styles).to.contain('@media (max-width: 700px)')
-      expect(runtime).to.contain("captureMode === 'slide'")
-      expect(runtime).to.contain('window.videoAgentDeck')
+      expect(styles).not.include('@keyframes')
+      expect(runtime).to.contain('window.vagent')
+      expect(runtime).to.contain('function seek(timeSeconds)')
       expect(plan.audioRef).to.equal('audio/deck_voiceover.wav')
+      expect(plan.canvas).to.deep.equal({height: 1920, width: 1080})
       expect(plan.deck.title).to.equal('视频 Agent 的正确架构')
       expect(plan.duration).to.equal(18)
+      expect(plan.version).to.equal(2)
+      expect(plan.motion.steps.some((step) => step.preset === 'cinematic-rise')).to.equal(true)
+      expect(plan.motion.steps.some((step) => step.selector.includes('.point'))).to.equal(true)
       expect(plan.timings.map((timing) => timing.slideId)).to.deep.equal(['slide-001', 'slide-002'])
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -95,6 +110,7 @@ describe('html deck compiler', () => {
       entryHtml: '/tmp/deck/index.html',
       outputPath: '/tmp/deck/slide-001.png',
       slideId: 'slide-001',
+      time: 1.25,
       viewport: {height: 1920, width: 1080},
     })
     const url = args.at(-1)
@@ -105,6 +121,7 @@ describe('html deck compiler', () => {
     expect(url).to.contain('index.html')
     expect(url).to.contain('capture=slide')
     expect(url).to.contain('slide=slide-001')
+    expect(url).to.contain('time=1.25')
   })
 })
 

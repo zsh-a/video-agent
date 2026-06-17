@@ -1,4 +1,4 @@
-import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, DeckSlideType, DeckVisual, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 import type {Transcript, TTSSegment} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
@@ -180,6 +180,8 @@ export type CreateDeckSummarizeProjectResult = CreateDeckExplainerProjectResult 
 
 const DEFAULT_MAX_SLIDE_CHARACTERS = 260
 const DEFAULT_SLIDE_SECONDS = 18
+const DEFAULT_DECK_THEME: Deck['theme'] = 'elegant-dark'
+const DECK_THEMES = ['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
 const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'quality'] as const
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
@@ -899,19 +901,20 @@ function createAudioDeck(slides: AudioSlide[], language: string, title: string, 
     language,
     slides: slides.map((slide) => ({
       blockIds: [`block-${String(slide.index + 1).padStart(3, '0')}`],
-      bullets: splitSlideBullets(slide.body),
       duration: roundSeconds(slide.end - slide.start),
       evidence: [{ref: `transcript.json#${slide.index}`, text: slide.body, type: 'asr'}],
+      motion: slide.index === 0 ? 'cinematic-rise' : 'progressive-reveal',
+      points: splitSlidePoints(slide.body),
       slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
       speakerNote: slide.body,
       title: slide.index === 0 ? title : slide.title,
-      type: slide.index === 0 ? 'title' : 'bullet',
+      type: slide.index === 0 ? 'hero' : 'three-points',
       visual: {
         assetRefs: [],
         kind: slide.index === 0 ? 'title-card' : 'text',
       },
     })),
-    theme: options.theme ?? 'default',
+    theme: normalizeDeckTheme(options.theme),
     title,
     version: 1,
   }
@@ -1002,19 +1005,42 @@ async function convertDeckSourceAudio(inputPath: string, outputPath: string): Pr
   ])
 }
 
-const LLMDeckSlideTypeSchema = z.enum(['bullet', 'chart', 'code', 'compare', 'cta', 'image', 'process', 'quote', 'section', 'summary', 'timeline', 'title'])
-const LLMDeckVisualKindSchema = z.enum(['chart', 'code', 'diagram', 'image', 'process', 'table', 'text', 'title-card'])
+const LLMDeckSlideTypeSchema = z.enum(['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta'])
+const LLMDeckMotionPresetSchema = z.enum(['fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up', 'progressive-reveal', 'card-stack', 'line-draw', 'number-count', 'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise'])
 
 const LLMTextDeckPlanSchema = z.object({
   audience: z.string().optional(),
   slides: z.array(z.object({
-    bullets: z.array(z.string().min(1)).max(4).default([]),
+    code: z.object({
+      language: z.string().min(1).default('text'),
+      text: z.string().min(1),
+    }).optional(),
+    comparison: z.object({
+      left: z.object({
+        label: z.string().min(1),
+        points: z.array(z.string().min(1)).max(3).default([]),
+      }),
+      right: z.object({
+        label: z.string().min(1),
+        points: z.array(z.string().min(1)).max(3).default([]),
+      }),
+    }).optional(),
     duration: z.number().finite().positive().optional(),
+    motion: LLMDeckMotionPresetSchema.optional(),
+    points: z.array(z.string().min(1)).max(4).default([]),
+    quote: z.object({
+      attribution: z.string().min(1).optional(),
+      text: z.string().min(1),
+    }).optional(),
     speakerNote: z.string().min(1),
+    stat: z.object({
+      caption: z.string().min(1).optional(),
+      label: z.string().min(1),
+      value: z.string().min(1),
+    }).optional(),
     subtitle: z.string().min(1).optional(),
     title: z.string().min(1),
     type: LLMDeckSlideTypeSchema.optional(),
-    visualKind: LLMDeckVisualKindSchema.optional(),
   })).min(1).max(24),
   summary: z.string().min(1),
   title: z.string().min(1),
@@ -1052,7 +1078,9 @@ async function createLLMTextDeckProjectPlan(
             'If the source is an agent skill or internal instruction document, explain what it does, when to use it, the workflow, output shape, and quality bar.',
             'Do not paste the raw source verbatim. Rewrite it into natural presentation language.',
             'Keep slide titles short and concrete.',
-            'Use 2-4 concise bullets per content slide.',
+            'Use 1-4 concise points per content slide.',
+            'Choose slide type from controlled templates only: hero, section, one-big-idea, three-points, comparison, process, timeline, quote, stat, chart, code, summary, cta.',
+            'Choose motion only from controlled presets; do not describe CSS, colors, fonts, or absolute positions.',
             'Write one natural speakerNote per slide for TTS. It should sound like a presenter, not a file reader.',
             'Avoid page-number prefixes such as "第 1 页" in speakerNote.',
             'Keep speakerNote close to the target narration length unless the slide is an intro or summary.',
@@ -1070,7 +1098,7 @@ async function createLLMTextDeckProjectPlan(
             requestedTitle: options.title,
             slideCount: targetSlideCount,
             speakerNoteCharactersPerSlide: estimateNarrationCharactersPerSlide(options.durationTargetSeconds, targetSlideCount),
-            theme: options.theme ?? 'default',
+            theme: normalizeDeckTheme(options.theme),
           },
         }),
         role: 'user',
@@ -1093,17 +1121,22 @@ function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string,
 
     return {
       blockIds: [blockId],
-      bullets: slide.bullets,
+      ...(slide.code === undefined ? {} : {code: slide.code}),
+      ...(slide.comparison === undefined ? {} : {comparison: slide.comparison}),
       duration: slide.duration,
       evidence: sourceEvidence === '' ? [] : [{ref: 'text-input', text: sourceEvidence, type: 'research'}],
+      motion: slide.motion ?? defaultSlideMotion(index, slide.type),
+      points: slide.points,
+      ...(slide.quote === undefined ? {} : {quote: slide.quote}),
       slideId,
       speakerNote: slide.speakerNote,
+      ...(slide.stat === undefined ? {} : {stat: slide.stat}),
       ...(slide.subtitle === undefined ? {} : {subtitle: slide.subtitle}),
       title: slide.title,
-      type: slide.type ?? (index === 0 ? 'title' : 'bullet'),
+      type: slide.type ?? (index === 0 ? 'hero' : 'three-points'),
       visual: {
         assetRefs: [],
-        kind: slide.visualKind ?? (index === 0 ? 'title-card' : 'text'),
+        kind: visualKindForSlideType(slide.type ?? (index === 0 ? 'hero' : 'three-points')),
       },
     }
   })
@@ -1112,7 +1145,7 @@ function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string,
     inputMode: 'script-generated',
     language: options.language,
     slides: deckSlides,
-    theme: options.theme ?? 'default',
+    theme: normalizeDeckTheme(options.theme),
     title: planTitle,
     version: 1,
   })
@@ -1224,16 +1257,16 @@ function createFallbackTextDeckProjectPlan(inputPath: string, text: string, opti
 function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): LLMTextDeckPlan['slides'] {
   const slides = plan.slides.map((slide, index) => {
     const title = cleanGeneratedText(slide.title, `第 ${index + 1} 页`).slice(0, 72)
-    const bullets = slide.bullets
-      .map((bullet) => cleanGeneratedText(bullet, ''))
-      .filter((bullet) => bullet !== '' && bullet !== title)
+    const points = slide.points
+      .map((point) => cleanGeneratedText(point, ''))
+      .filter((point) => point !== '' && point !== title)
       .slice(0, 4)
-    const speakerNote = cleanGeneratedText(slide.speakerNote, [title, ...bullets].join('。'))
+    const speakerNote = cleanGeneratedText(slide.speakerNote, [title, ...points].join('。'))
     const subtitle = cleanGeneratedText(slide.subtitle, '')
 
     return {
       ...slide,
-      bullets,
+      points,
       speakerNote,
       ...(subtitle === '' ? {} : {subtitle}),
       title,
@@ -1242,11 +1275,11 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): LLMTextDeckPlan['sli
 
   return slides.length === 0
     ? [{
-        bullets: [],
+        motion: 'cinematic-rise',
+        points: [],
         speakerNote: cleanGeneratedText(plan.summary, plan.title),
         title: cleanGeneratedText(plan.title, 'Deck Explainer'),
-        type: 'title',
-        visualKind: 'title-card',
+        type: 'hero',
       }]
     : slides
 }
@@ -1266,7 +1299,7 @@ function createLLMTextDocument(
   return {
     blocks: deck.slides.map((slide, index): ContentBlock => {
       const script = speakerScript.segments[index]?.text
-      const text = [slide.title, slide.subtitle, ...slide.bullets, script].filter((value): value is string => typeof value === 'string' && value.trim() !== '').join(' ')
+      const text = [slide.title, slide.subtitle, ...deckSlideContentParts(slide), script].filter((value): value is string => typeof value === 'string' && value.trim() !== '').join(' ')
 
       return {
         evidence: sourceEvidence === '' ? [] : [{ref: 'text-input', text: sourceEvidence, type: 'research'}],
@@ -1299,7 +1332,7 @@ function contentBlockTypeForSlide(slide: Slide): ContentBlock['type'] {
     return 'summary'
   }
 
-  if (slide.type === 'chart' || slide.type === 'timeline') {
+  if (slide.type === 'chart' || slide.type === 'stat' || slide.type === 'timeline') {
     return 'data'
   }
 
@@ -1631,30 +1664,83 @@ function createTextDeck(slides: TextSlide[], language: string, title: string, op
     language,
     slides: slides.map((slide) => ({
       blockIds: [`block-${String(slide.index + 1).padStart(3, '0')}`],
-      bullets: splitSlideBullets(slide.body),
       evidence: [{ref: `block-${String(slide.index + 1).padStart(3, '0')}`, text: slide.body, type: 'research'}],
+      motion: slide.index === 0 ? 'cinematic-rise' : 'progressive-reveal',
+      points: splitSlidePoints(slide.body),
       slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
       speakerNote: `第 ${slide.index + 1} 页：${slide.body}`,
       title: slide.title,
-      type: slide.index === 0 ? 'title' : 'bullet',
+      type: slide.index === 0 ? 'hero' : 'three-points',
       visual: {
         assetRefs: [],
         kind: slide.index === 0 ? 'title-card' : 'text',
       },
     })),
-    theme: options.theme ?? 'default',
+    theme: normalizeDeckTheme(options.theme),
     title,
     version: 1,
   }
 }
 
-function splitSlideBullets(body: string): string[] {
+function splitSlidePoints(body: string): string[] {
   const sentences = body
     .split(/(?<=[。！？.!?；;])\s*/u)
     .map((sentence) => sentence.trim())
     .filter(Boolean)
 
   return (sentences.length === 0 ? [body] : sentences).slice(0, 4)
+}
+
+function normalizeDeckTheme(theme: string | undefined): Deck['theme'] {
+  if (theme === undefined) {
+    return DEFAULT_DECK_THEME
+  }
+
+  if (DECK_THEMES.includes(theme as Deck['theme'])) {
+    return theme as Deck['theme']
+  }
+
+  throw new Error(`Unsupported deck theme "${theme}". Expected one of: ${DECK_THEMES.join(', ')}.`)
+}
+
+function defaultSlideMotion(index: number, type: DeckSlideType | undefined): Slide['motion'] {
+  if (index === 0 || type === 'hero') {
+    return 'cinematic-rise'
+  }
+
+  if (type === 'comparison') {
+    return 'card-stack'
+  }
+
+  if (type === 'timeline' || type === 'process') {
+    return 'progressive-reveal'
+  }
+
+  if (type === 'stat') {
+    return 'number-count'
+  }
+
+  return 'progressive-reveal'
+}
+
+function visualKindForSlideType(type: DeckSlideType): DeckVisual['kind'] {
+  if (type === 'hero') {
+    return 'title-card'
+  }
+
+  if (type === 'chart' || type === 'stat') {
+    return 'chart'
+  }
+
+  if (type === 'code') {
+    return 'code'
+  }
+
+  if (type === 'process' || type === 'timeline') {
+    return 'process'
+  }
+
+  return 'text'
 }
 
 function createTextSpeakerScript(slides: TextSlide[], language: string): SpeakerScript {
@@ -2084,9 +2170,9 @@ function createDeckSlideQualityMetrics(slide: Slide, duration: number): DeckSlid
   const textCharacters = deckSlideText(slide).length
 
   return {
-    bulletCount: slide.bullets.length,
     duration,
     estimatedCharactersPerSecond: duration <= 0 ? 0 : roundSeconds(textCharacters / duration),
+    pointCount: slide.points.length,
     slideId: slide.slideId,
     textCharacters,
     titleCharacters: slide.title.length,
@@ -2116,10 +2202,10 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     })
   }
 
-  if (metric.bulletCount > 6) {
+  if (metric.pointCount > 4) {
     issues.push({
-      code: 'deck.too_many_bullets',
-      message: `Slide ${slide.slideId} has ${metric.bulletCount} bullets; target is 6 or fewer.`,
+      code: 'deck.too_many_points',
+      message: `Slide ${slide.slideId} has ${metric.pointCount} points; target is 4 or fewer.`,
       severity: 'warning',
       slideId: slide.slideId,
     })
@@ -2208,7 +2294,22 @@ function createDuplicateSlideQualityIssues(slides: Slide[]): DeckQualityIssue[] 
 }
 
 function deckSlideText(slide: Slide): string {
-  return [slide.title, slide.subtitle, ...slide.bullets].filter((value): value is string => value !== undefined).join(' ').trim()
+  return [slide.title, slide.subtitle, ...deckSlideContentParts(slide)].filter((value): value is string => value !== undefined).join(' ').trim()
+}
+
+function deckSlideContentParts(slide: Slide): string[] {
+  return [
+    ...slide.points,
+    ...(slide.comparison === undefined ? [] : [
+      slide.comparison.left.label,
+      ...slide.comparison.left.points,
+      slide.comparison.right.label,
+      ...slide.comparison.right.points,
+    ]),
+    ...(slide.quote === undefined ? [] : [slide.quote.text, slide.quote.attribution].filter((value): value is string => value !== undefined)),
+    ...(slide.stat === undefined ? [] : [slide.stat.value, slide.stat.label, slide.stat.caption].filter((value): value is string => value !== undefined)),
+    ...(slide.code === undefined ? [] : [slide.code.language, slide.code.text]),
+  ]
 }
 
 function summarizeQualityIssues(issues: QualityIssue[]): {errors: number; warnings: number} {

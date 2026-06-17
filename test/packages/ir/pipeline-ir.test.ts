@@ -16,9 +16,11 @@ describe('pipeline-specific IR schemas', () => {
       inputMode: 'audio-anchored',
       slides: [
         {
+          motion: 'cinematic-rise',
+          points: ['Core only emits events', 'Adapters render events'],
           slideId: 's001',
           title: 'Agent runtime',
-          type: 'title',
+          type: 'hero',
           visual: {
             kind: 'title-card',
           },
@@ -32,7 +34,7 @@ describe('pipeline-specific IR schemas', () => {
       format: 'portrait_1080x1920',
       inputMode: 'audio-anchored',
       language: 'zh-CN',
-      theme: 'default',
+      theme: 'elegant-dark',
     })
 
     const timedDeck = TimedDeckSchema.parse({
@@ -97,7 +99,7 @@ describe('pipeline-specific IR schemas', () => {
             {
               slideId: 's001',
               title: 'Only slide',
-              type: 'title',
+              type: 'hero',
             },
           ],
           title: 'Deck',

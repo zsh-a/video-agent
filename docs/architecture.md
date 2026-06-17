@@ -92,7 +92,7 @@ packages/
   providers/          ASR / VLM / TTS plus storyboard/script business provider interfaces
   llm/                Internal LLMClient interface, AI SDK config factory, and AI SDK-backed default adapter
   renderer-ffmpeg/    Emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
-  renderer-html/      DeckIR to static HTML slide project compiler boundary
+  renderer-html/      DeckIR to template/theme/motion HTML runtime compiler boundary
   renderer-hyperframes/ HyperFrames render plan and HTML project compiler boundary
   api/                Fetch API handler for runtime state, project operations, and audio preflight diagnostics
   mcp/                Stdio MCP adapter exposing runtime operations as agent-callable tools
@@ -186,8 +186,9 @@ text / audio
   -> deck storyboard
   -> speaker script
   -> timing
-  -> HTML slide render
-  -> capture / mux
+  -> Template + Theme + MotionPreset
+  -> seekable HTML runtime
+  -> Chromium capture / ffmpeg mux
   -> quality check
 ```
 
@@ -196,9 +197,19 @@ Two modes:
 - **script-generated**: Input text/audio is summarized and rewritten, then new TTS drives slide timing.
 - **audio-anchored**: Original audio is preserved; ASR timestamps drive chapter segmentation and slide alignment.
 
-Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`.
+Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`. `Slide` is semantic: it chooses a controlled slide type (`hero`, `three-points`, `comparison`, `process`, `timeline`, `quote`, `stat`, `chart`, `code`, `summary`, `cta`) plus structured content and a motion preset. LLM providers generate DeckIR only; they do not generate HTML, CSS, absolute positions, fonts, colors, or animation curves.
 
-The primary renderer for this pipeline is HTML/HyperFrames/Chromium, with ffmpeg used for muxing, subtitles, loudness, and final delivery.
+`packages/renderer-html` compiles DeckIR through four boundaries:
+
+```text
+DeckIR + TimedDeck
+  -> templates      semantic slide DOM
+  -> theme tokens   fixed canvas, safe area, typography, color system
+  -> motion plan    deterministic preset timeline
+  -> runtime.js     window.vagent.seek(t) / play() / pause()
+```
+
+The primary renderer for this pipeline is HTML/Chromium plus ffmpeg for muxing, subtitles, loudness, and final delivery. HyperFrames remains an optional backend for compatible HTML project rendering.
 
 Quality checks focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
 

@@ -1,16 +1,18 @@
-import type {DeckFormat, TimedDeck} from '@video-agent/ir'
+import type {TimedDeck} from '@video-agent/ir'
 
 import {runProcess} from '@video-agent/media'
 import {mkdir, stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
-import {writeDeckHtmlCapturePage} from './deck-compiler.js'
+import {writeDeckHtmlCapturePage} from './deck/compiler.js'
+import {deckCanvasSize} from './deck/format.js'
 
 export interface DeckHtmlFrame {
   duration: number
   path: string
   slideId: string
+  time: number
 }
 
 export interface CaptureDeckHtmlFramesOptions {
@@ -45,15 +47,18 @@ export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOption
   const projectDir = resolve(options.projectDir)
   const captureDir = resolve(projectDir, 'capture')
   const command = resolveChromiumCommand(options.chromiumCommand)
-  const viewport = deckRenderSize(options.timedDeck.deck.format)
+  const viewport = deckCanvasSize(options.timedDeck.deck.format)
   const timingsBySlide = new Map(options.timedDeck.timings.map((timing) => [timing.slideId, timing]))
   const frames = options.timedDeck.deck.slides.map((slide, index) => {
     const timing = timingsBySlide.get(slide.slideId)
+    const start = timing?.start ?? 0
+    const duration = Math.max(0.1, timing === undefined ? slide.duration ?? 1 : timing.end - timing.start)
 
     return {
-      duration: Math.max(0.1, timing === undefined ? slide.duration ?? 1 : timing.end - timing.start),
+      duration,
       path: resolve(outputDir, `slide-${String(index + 1).padStart(3, '0')}.png`),
       slideId: slide.slideId,
+      time: round(start + Math.min(duration * 0.5, Math.max(0.5, duration * 0.22))),
     }
   })
 
@@ -88,6 +93,7 @@ async function captureDeckHtmlFrame(input: {
 }): Promise<void> {
   const entryHtml = await writeDeckHtmlCapturePage({
     outputPath: resolve(input.captureDir, `slide-${String(input.index + 1).padStart(3, '0')}.html`),
+    runtimeHref: '../runtime.js',
     slideId: input.frame.slideId,
     stylesheetHref: '../styles.css',
     timedDeck: input.timedDeck,
@@ -97,6 +103,7 @@ async function captureDeckHtmlFrame(input: {
     entryHtml,
     outputPath: input.frame.path,
     slideId: input.frame.slideId,
+    time: input.frame.time,
     viewport: input.viewport,
   })
   const result = await runProcess(args)
@@ -117,12 +124,14 @@ export function buildChromiumScreenshotArgs(input: {
   entryHtml: string
   outputPath: string
   slideId: string
+  time: number
   viewport: {height: number; width: number}
 }): string[] {
   const url = pathToFileURL(input.entryHtml)
 
   url.searchParams.set('capture', 'slide')
   url.searchParams.set('slide', input.slideId)
+  url.searchParams.set('time', String(input.time))
 
   return [
     ...input.command,
@@ -146,14 +155,6 @@ function resolveChromiumCommand(command: string[] | undefined): string[] {
   return command === undefined ? ['chromium'] : command
 }
 
-function deckRenderSize(format: DeckFormat): {height: number; width: number} {
-  if (format === 'landscape_1920x1080') {
-    return {height: 1080, width: 1920}
-  }
-
-  if (format === 'square_1080x1080') {
-    return {height: 1080, width: 1080}
-  }
-
-  return {height: 1920, width: 1080}
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000
 }

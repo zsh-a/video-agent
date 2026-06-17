@@ -545,7 +545,7 @@ describe('cli end-to-end workflow', () => {
         '--format',
         'landscape',
         '--style',
-        'tech',
+        'tech-gradient',
         '--max-slide-characters',
         '45',
         '--chromium-command',
@@ -572,7 +572,7 @@ describe('cli end-to-end workflow', () => {
       }
 
       expect(deck.format).to.equal('landscape_1920x1080')
-      expect(deck.theme).to.equal('tech')
+      expect(deck.theme).to.equal('tech-gradient')
       expect(timedDeck.timings.length).to.equal(deck.slides.length)
       expect(timedDeck.timings[0]?.start).to.equal(0)
       expect(timedDeck.timings.at(-1)?.end).to.equal(deckProject.voiceover?.duration)
@@ -720,7 +720,7 @@ describe('cli end-to-end workflow', () => {
         '--format',
         'square',
         '--style',
-        'tech',
+        'tech-gradient',
         '--chromium-command',
         JSON.stringify(chromiumCommand),
         '--json',

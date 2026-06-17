@@ -24,24 +24,26 @@ function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<u
           title: 'Serenity Alpha',
           slides: [
             {
-              bullets: ['从新闻开始', '落到财务报表'],
+              motion: 'cinematic-rise',
+              points: ['从新闻开始', '落到财务报表'],
               speakerNote: 'Serenity Alpha 的核心，是把市场新闻翻译成可验证的财务假设。',
               title: 'Serenity Alpha 方法',
-              type: 'title',
-              visualKind: 'title-card',
+              type: 'hero',
             },
             {
-              bullets: ['观察需求是否已经发生', '区分故事和真实订单'],
+              points: ['观察需求是否已经发生', '区分故事和真实订单'],
               speakerNote: '第一步不是判断新闻是否热闹，而是确认需求变化是否已经出现。',
               title: '先验证需求',
+              type: 'three-points',
             },
             {
-              bullets: ['收入', '毛利率', '经营杠杆'],
+              points: ['收入', '毛利率', '经营杠杆'],
               speakerNote: '第二步把需求变化映射到收入、毛利率和经营杠杆这些具体财务行项目。',
               title: '翻译成财务语言',
+              type: 'three-points',
             },
             {
-              bullets: ['确认指标', '证伪条件'],
+              points: ['确认指标', '证伪条件'],
               speakerNote: '最后用未来几个季度的财报和电话会指标，确认或者否定这条假设。',
               title: '建立验证链',
               type: 'summary',
@@ -86,7 +88,7 @@ describe('deck explainer project', () => {
         title: '安卓开源软件推荐',
         workspaceDir: root,
       })
-      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {format: string; slides: Array<{slideId: string}>; theme: string}
+      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {format: string; slides: Array<{motion: string; points: string[]; slideId: string; type: string}>; theme: string}
       const document = JSON.parse(await readFile(result.artifacts.document, 'utf8')) as {blocks: Array<{id: string}>; source: {sourceType: string}}
       const claims = JSON.parse(await readFile(result.artifacts.claims, 'utf8')) as {claims: Array<{blockId: string; confidence: number; id: string; type: string}>}
       const sourceQuotes = JSON.parse(await readFile(result.artifacts.sourceQuotes, 'utf8')) as {quotes: Array<{blockId: string; text: string}>}
@@ -97,8 +99,11 @@ describe('deck explainer project', () => {
 
       expect(result.slides).to.be.greaterThan(1)
       expect(deck.format).to.equal('portrait_1080x1920')
-      expect(deck.theme).to.equal('default')
+      expect(deck.theme).to.equal('elegant-dark')
       expect(deck.slides.length).to.equal(result.slides)
+      expect(deck.slides[0]?.type).to.equal('hero')
+      expect(deck.slides.every((slide) => slide.motion.length > 0)).to.equal(true)
+      expect(deck.slides.every((slide) => Array.isArray(slide.points))).to.equal(true)
       expect(document.source.sourceType).to.equal('markdown')
       expect(document.blocks.length).to.equal(result.slides)
       expect(claims.claims.length).to.be.greaterThan(0)
@@ -173,15 +178,18 @@ describe('deck explainer project', () => {
         workspaceDir: root,
       })
       const prompt = JSON.parse(String(request?.messages?.[0]?.content)) as {instructions: string[]; target: {slideCount: number}}
-      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {slides: Array<{bullets: string[]; speakerNote?: string; title: string}>; title: string}
+      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {slides: Array<{motion: string; points: string[]; speakerNote?: string; title: string; type: string}>; title: string}
       const document = JSON.parse(await readFile(result.artifacts.document, 'utf8')) as {text: string}
       const speakerScript = JSON.parse(await readFile(result.artifacts.speakerScript, 'utf8')) as {segments: Array<{text: string}>}
 
       expect(prompt.instructions.join(' ')).to.contain('Remove YAML frontmatter')
+      expect(prompt.instructions.join(' ')).to.contain('controlled templates')
       expect(prompt.target.slideCount).to.equal(8)
       expect(result.slides).to.equal(4)
       expect(deck.title).to.equal('Serenity Alpha')
-      expect(deck.slides.some((slide) => /---|#|```|name:/.test(`${slide.title} ${slide.bullets.join(' ')}`))).to.equal(false)
+      expect(deck.slides[0]?.type).to.equal('hero')
+      expect(deck.slides.every((slide) => slide.motion.length > 0)).to.equal(true)
+      expect(deck.slides.some((slide) => /---|#|```|name:/.test(`${slide.title} ${slide.points.join(' ')}`))).to.equal(false)
       expect(document.text).not.include('name: serenity-alpha')
       expect(speakerScript.segments.some((segment) => /^第\s*\d+\s*页/.test(segment.text))).to.equal(false)
     } finally {

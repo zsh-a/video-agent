@@ -6,6 +6,47 @@ export const DeckFormatSchema = z.enum(['landscape_1920x1080', 'portrait_1080x19
 
 export const DeckInputModeSchema = z.enum(['script-generated', 'audio-anchored'])
 
+export const DeckThemeSchema = z.enum([
+  'elegant-dark',
+  'clean-white',
+  'finance-terminal',
+  'tech-gradient',
+  'minimal-editorial',
+  'warm-paper',
+])
+
+export const DeckMotionPresetSchema = z.enum([
+  'fade-in',
+  'slide-up',
+  'soft-scale',
+  'blur-rise',
+  'stagger-up',
+  'progressive-reveal',
+  'card-stack',
+  'line-draw',
+  'number-count',
+  'spotlight',
+  'wipe',
+  'zoom-focus',
+  'cinematic-rise',
+])
+
+export const DeckSlideTypeSchema = z.enum([
+  'hero',
+  'section',
+  'one-big-idea',
+  'three-points',
+  'comparison',
+  'process',
+  'timeline',
+  'quote',
+  'stat',
+  'chart',
+  'code',
+  'summary',
+  'cta',
+])
+
 export const DocumentSourceSchema = z.object({
   author: z.string().optional(),
   language: z.string().default('zh-CN'),
@@ -89,16 +130,47 @@ export const DeckVisualSchema = z.object({
   prompt: z.string().min(1).optional(),
 })
 
+export const DeckComparisonSideSchema = z.object({
+  label: z.string().min(1),
+  points: z.array(z.string().min(1)).default([]),
+})
+
+export const DeckComparisonSchema = z.object({
+  left: DeckComparisonSideSchema,
+  right: DeckComparisonSideSchema,
+})
+
+export const DeckQuoteSchema = z.object({
+  attribution: z.string().min(1).optional(),
+  text: z.string().min(1),
+})
+
+export const DeckStatSchema = z.object({
+  caption: z.string().min(1).optional(),
+  label: z.string().min(1),
+  value: z.string().min(1),
+})
+
+export const DeckCodeBlockSchema = z.object({
+  language: z.string().min(1).default('text'),
+  text: z.string().min(1),
+})
+
 export const SlideSchema = z.object({
   blockIds: z.array(z.string().min(1)).default([]),
-  bullets: z.array(z.string().min(1)).default([]),
+  code: DeckCodeBlockSchema.optional(),
+  comparison: DeckComparisonSchema.optional(),
   duration: z.number().finite().positive().optional(),
   evidence: z.array(EvidenceSchema).default([]),
+  motion: DeckMotionPresetSchema.default('progressive-reveal'),
+  points: z.array(z.string().min(1)).default([]),
+  quote: DeckQuoteSchema.optional(),
   slideId: z.string().min(1),
   speakerNote: z.string().optional(),
+  stat: DeckStatSchema.optional(),
   subtitle: z.string().optional(),
   title: z.string().min(1),
-  type: z.enum(['bullet', 'chart', 'code', 'compare', 'cta', 'image', 'process', 'quote', 'section', 'summary', 'timeline', 'title']),
+  type: DeckSlideTypeSchema,
   visual: DeckVisualSchema.optional(),
 })
 
@@ -107,7 +179,7 @@ export const DeckSchema = z.object({
   inputMode: DeckInputModeSchema.default('script-generated'),
   language: z.string().default('zh-CN'),
   slides: z.array(SlideSchema),
-  theme: z.string().default('default'),
+  theme: DeckThemeSchema.default('elegant-dark'),
   title: z.string().min(1),
   version: z.literal(1),
 })
@@ -161,9 +233,9 @@ export const DeckQualityIssueSchema = z.object({
 })
 
 export const DeckSlideQualityMetricsSchema = z.object({
-  bulletCount: z.number().int().nonnegative(),
   duration: z.number().finite().nonnegative(),
   estimatedCharactersPerSecond: z.number().finite().nonnegative(),
+  pointCount: z.number().int().nonnegative(),
   slideId: z.string().min(1),
   textCharacters: z.number().int().nonnegative(),
   titleCharacters: z.number().int().nonnegative(),
@@ -188,11 +260,19 @@ export type ContentBlocks = z.infer<typeof ContentBlocksSchema>
 export type Claim = z.infer<typeof ClaimSchema>
 export type Claims = z.infer<typeof ClaimsSchema>
 export type Deck = z.infer<typeof DeckSchema>
+export type DeckCodeBlock = z.infer<typeof DeckCodeBlockSchema>
+export type DeckComparison = z.infer<typeof DeckComparisonSchema>
+export type DeckComparisonSide = z.infer<typeof DeckComparisonSideSchema>
 export type DeckFormat = z.infer<typeof DeckFormatSchema>
 export type DeckInputMode = z.infer<typeof DeckInputModeSchema>
+export type DeckMotionPreset = z.infer<typeof DeckMotionPresetSchema>
 export type DeckQualityIssue = z.infer<typeof DeckQualityIssueSchema>
 export type DeckQualityReport = z.infer<typeof DeckQualityReportSchema>
+export type DeckQuote = z.infer<typeof DeckQuoteSchema>
+export type DeckSlideType = z.infer<typeof DeckSlideTypeSchema>
 export type DeckSlideQualityMetrics = z.infer<typeof DeckSlideQualityMetricsSchema>
+export type DeckStat = z.infer<typeof DeckStatSchema>
+export type DeckTheme = z.infer<typeof DeckThemeSchema>
 export type DeckVisual = z.infer<typeof DeckVisualSchema>
 export type Document = z.infer<typeof DocumentSchema>
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>
