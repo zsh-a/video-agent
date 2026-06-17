@@ -21,7 +21,9 @@ import {
 } from './agent-run-state.js'
 
 export interface CreateAgentRunProgressRendererOptions {
+  inputPath?: string
   output?: NodeJS.WriteStream
+  workspaceDir?: string
 }
 
 export interface AgentRunProgressRenderer {
@@ -73,9 +75,13 @@ class InkAgentRunProgressRenderer implements AgentRunProgressRenderer {
   private readonly instance: Instance
   private readonly tickInterval: ReturnType<typeof setInterval>
   private finalized = false
-  private state = createAgentRunProgressState()
+  private state: AgentRunProgressState
 
   constructor(options: CreateAgentRunProgressRendererOptions) {
+    this.state = createAgentRunProgressState(Date.now(), {
+      inputPath: options.inputPath,
+      workspaceDir: options.workspaceDir,
+    })
     this.instance = render(this.element(), {
       exitOnCtrlC: false,
       incrementalRendering: true,
@@ -169,7 +175,18 @@ function Header({now, state}: AgentRunProgressAppProps) {
       h(Text, {dimColor: true}, 'elapsed'),
       h(Text, null, formatDuration(now - state.startedAt)),
     ),
-    state.workspaceDir === undefined ? null : h(Text, {dimColor: true}, state.workspaceDir),
+    state.inputPath === undefined ? null : h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'input'),
+      h(Text, {wrap: 'truncate-end'}, state.inputPath),
+    ),
+    state.workspaceDir === undefined ? null : h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'workspace'),
+      h(Text, {wrap: 'truncate-end'}, state.workspaceDir),
+    ),
+    state.projectDir === undefined ? null : h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'projectDir'),
+      h(Text, {wrap: 'truncate-end'}, state.projectDir),
+    ),
   )
 }
 

@@ -80,7 +80,10 @@ describe('agent run progress state', () => {
   })
 
   it('records completion summary without changing adapter output contracts', () => {
-    const state = completeAgentRunProgressState(createAgentRunProgressState(Date.parse('2026-06-18T00:00:00.000Z')), {
+    const state = completeAgentRunProgressState(createAgentRunProgressState(Date.parse('2026-06-18T00:00:00.000Z'), {
+      inputPath: '/tmp/input.mp4',
+      workspaceDir: '/tmp/workspace',
+    }), {
       artifactCount: 3,
       projectDir: '/tmp/project',
       projectId: 'demo',
@@ -88,7 +91,9 @@ describe('agent run progress state', () => {
     }, Date.parse('2026-06-18T00:00:10.000Z'))
 
     expect(state.projectId).to.equal('demo')
-    expect(state.workspaceDir).to.equal('/tmp/project')
+    expect(state.inputPath).to.equal('/tmp/input.mp4')
+    expect(state.workspaceDir).to.equal('/tmp/workspace')
+    expect(state.projectDir).to.equal('/tmp/project')
     expect(state.status).to.equal('succeeded')
     expect(state.transcript.map((entry) => entry.text)).to.deep.equal(['run completed project=demo artifacts=3'])
   })

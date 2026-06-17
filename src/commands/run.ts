@@ -29,10 +29,11 @@ export default class Run extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Run)
     const inputPath = resolve(args.input)
-    const progressRenderer = flags.progress && !flags.json && process.stderr.isTTY === true && process.env.CI !== 'true'
-      ? createAgentRunProgressRenderer({output: process.stderr})
+    const progressRequested = flags.progress && !flags.json
+    const progressRenderer = progressRequested && process.stderr.isTTY === true && process.env.CI !== 'true'
+      ? createAgentRunProgressRenderer({inputPath, output: process.stderr, workspaceDir: flags.workspace})
       : undefined
-    const verbose = flags.verbose && !flags.json && progressRenderer === undefined
+    const verbose = (flags.verbose || (progressRequested && progressRenderer === undefined)) && !flags.json
     const verboseLogger = verbose ? new RunVerboseLogger((line) => this.log(line)) : undefined
     let output: Awaited<ReturnType<typeof runInitialPipeline>>
 

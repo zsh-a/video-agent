@@ -45,13 +45,20 @@ export interface AgentRunProgressState {
   artifactsWritten: number
   completedAt?: number
   currentStage?: string
+  inputPath?: string
   lastMessages: string[]
+  projectDir?: string
   projectId?: string
   providerCalls: AgentRunProviderState[]
   startedAt: number
   status: 'failed' | 'running' | 'succeeded'
   stages: AgentRunStageState[]
   transcript: AgentRunTranscriptEntry[]
+  workspaceDir?: string
+}
+
+export interface CreateAgentRunProgressStateOptions {
+  inputPath?: string
   workspaceDir?: string
 }
 
@@ -62,9 +69,10 @@ export interface AgentRunCompleteSummary {
   status: string
 }
 
-export function createAgentRunProgressState(now = Date.now()): AgentRunProgressState {
+export function createAgentRunProgressState(now = Date.now(), options: CreateAgentRunProgressStateOptions = {}): AgentRunProgressState {
   return {
     artifactsWritten: 0,
+    inputPath: options.inputPath,
     lastMessages: [],
     providerCalls: [],
     startedAt: now,
@@ -74,6 +82,7 @@ export function createAgentRunProgressState(now = Date.now()): AgentRunProgressS
       status: 'pending',
     })),
     transcript: [],
+    workspaceDir: options.workspaceDir,
   }
 }
 
@@ -222,9 +231,9 @@ export function completeAgentRunProgressState(state: AgentRunProgressState, summ
   return appendTranscript({
     ...state,
     completedAt: now,
+    projectDir: summary.projectDir,
     projectId: summary.projectId,
     status: summary.status === 'completed' ? 'succeeded' : 'failed',
-    workspaceDir: summary.projectDir,
   }, summary.status === 'completed' ? 'success' : 'warn', `run ${summary.status} project=${summary.projectId} artifacts=${summary.artifactCount}`)
 }
 

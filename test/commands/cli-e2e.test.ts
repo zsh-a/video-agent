@@ -292,6 +292,13 @@ describe('cli end-to-end workflow', () => {
       expect(run.stdout).to.include(`Project: ${projectId}`)
       expect(run.stdout).to.include('Status: completed')
 
+      const progressFallback = await expectCommand(['bun', './bin/dev.js', 'run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--from-stage', 'quality', '--progress'])
+
+      expect(progressFallback.stdout).to.include('[pipeline] quality started')
+      expect(progressFallback.stdout).to.include('[pipeline] quality completed')
+      expect(progressFallback.stdout).to.include(`Project: ${projectId}`)
+      expect(progressFallback.stdout).to.include('Status: completed')
+
       const render = await runCliJson<{
         artifactPath: string
         outputPath: string
