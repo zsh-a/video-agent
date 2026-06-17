@@ -33,9 +33,8 @@ export default class Deck extends Command {
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
     'slide-seconds': Flags.integer({description: 'Fallback duration in seconds for each generated slide', default: 18}),
     style: Flags.string({
-      default: 'elegant-dark',
-      description: 'Deck theme/style name',
-      options: ['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'],
+      description: 'Deck theme/style name (auto lets LLM choose based on content)',
+      options: ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'],
     }),
     title: Flags.string({description: 'Title to use for the first slide and DeckIR'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),

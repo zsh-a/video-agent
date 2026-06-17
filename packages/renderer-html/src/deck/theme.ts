@@ -62,6 +62,10 @@ function themeTokens(): string {
   --accent: #38bdf8;
   --accent-2: #10b981;
   --accent-warm: #f59e0b;
+  --glow: rgb(56 189 248 / 25%);
+  --mesh-1: rgb(56 189 248 / 8%);
+  --mesh-2: rgb(16 185 129 / 6%);
+  --mesh-3: rgb(245 158 11 / 4%);
 }
 
 body[data-theme="clean-white"] {
@@ -76,6 +80,10 @@ body[data-theme="clean-white"] {
   --accent: #0f766e;
   --accent-2: #2563eb;
   --accent-warm: #c2410c;
+  --glow: rgb(15 118 110 / 15%);
+  --mesh-1: rgb(15 118 110 / 6%);
+  --mesh-2: rgb(37 99 235 / 5%);
+  --mesh-3: rgb(194 65 12 / 3%);
 }
 
 body[data-theme="finance-terminal"] {
@@ -89,6 +97,10 @@ body[data-theme="finance-terminal"] {
   --accent: #22c55e;
   --accent-2: #38bdf8;
   --accent-warm: #eab308;
+  --glow: rgb(34 197 94 / 20%);
+  --mesh-1: rgb(34 197 94 / 7%);
+  --mesh-2: rgb(56 189 248 / 5%);
+  --mesh-3: rgb(234 179 8 / 3%);
 }
 
 body[data-theme="tech-gradient"] {
@@ -102,6 +114,10 @@ body[data-theme="tech-gradient"] {
   --accent: #22d3ee;
   --accent-2: #a3e635;
   --accent-warm: #fb7185;
+  --glow: rgb(34 211 238 / 20%);
+  --mesh-1: rgb(34 211 238 / 7%);
+  --mesh-2: rgb(163 230 53 / 5%);
+  --mesh-3: rgb(251 113 133 / 4%);
 }
 
 body[data-theme="minimal-editorial"] {
@@ -116,6 +132,10 @@ body[data-theme="minimal-editorial"] {
   --accent: #1d4ed8;
   --accent-2: #0f766e;
   --accent-warm: #b45309;
+  --glow: rgb(29 78 216 / 12%);
+  --mesh-1: rgb(29 78 216 / 5%);
+  --mesh-2: rgb(15 118 110 / 4%);
+  --mesh-3: rgb(180 83 9 / 3%);
 }
 
 body[data-theme="warm-paper"] {
@@ -130,6 +150,10 @@ body[data-theme="warm-paper"] {
   --accent: #0f766e;
   --accent-2: #7c3aed;
   --accent-warm: #ea580c;
+  --glow: rgb(234 88 12 / 15%);
+  --mesh-1: rgb(15 118 110 / 5%);
+  --mesh-2: rgb(124 58 237 / 4%);
+  --mesh-3: rgb(234 88 12 / 3%);
 }`
 }
 
@@ -156,8 +180,11 @@ body {
 
 .stage {
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34%),
-    linear-gradient(215deg, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 38%),
+    radial-gradient(ellipse 80% 60% at 15% 20%, var(--mesh-1), transparent),
+    radial-gradient(ellipse 70% 50% at 85% 75%, var(--mesh-2), transparent),
+    radial-gradient(ellipse 50% 40% at 50% 50%, var(--mesh-3), transparent),
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 50%),
+    linear-gradient(215deg, color-mix(in srgb, var(--accent-2) 5%, transparent), transparent 50%),
     var(--bg);
   height: var(--canvas-h);
   overflow: hidden;
@@ -172,9 +199,20 @@ body {
   background-size: 72px 72px;
   content: "";
   inset: 0;
-  opacity: 0.12;
+  opacity: 0.08;
   pointer-events: none;
   position: absolute;
+}
+
+.stage::after {
+  background:
+    radial-gradient(ellipse 40% 30% at 8% 8%, var(--glow), transparent),
+    radial-gradient(ellipse 35% 25% at 92% 92%, color-mix(in srgb, var(--accent-2) 12%, transparent), transparent);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
 }
 
 .slide {
@@ -200,8 +238,9 @@ body {
   font-size: var(--font-caption);
   font-weight: 700;
   justify-content: space-between;
+  letter-spacing: 0.08em;
   line-height: 1;
-  opacity: 0.72;
+  opacity: 0.6;
   text-transform: uppercase;
 }
 
@@ -223,7 +262,7 @@ body {
   color: var(--fg);
   font-size: var(--font-heading);
   font-weight: 700;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
   line-height: var(--line-title);
   margin: 0;
   max-width: 12em;
@@ -248,8 +287,19 @@ function templateCss(): string {
 }
 
 .slide--hero .slide__title {
+  background: linear-gradient(135deg, var(--fg), color-mix(in srgb, var(--accent) 70%, var(--fg)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   font-size: var(--font-title);
   max-width: 10em;
+}
+
+.slide--section .slide__title {
+  background: linear-gradient(90deg, var(--fg), color-mix(in srgb, var(--accent) 50%, var(--fg)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .hero__points,
@@ -263,6 +313,7 @@ function templateCss(): string {
   align-items: start;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
   border-radius: var(--radius-md);
   display: grid;
   gap: 18px;
@@ -290,9 +341,22 @@ function templateCss(): string {
 
 .section__rule {
   background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-warm));
-  height: 10px;
+  border-radius: 999px;
+  height: 6px;
+  position: relative;
   transform-origin: left center;
   width: min(560px, 70%);
+}
+
+.section__rule::after {
+  background: linear-gradient(90deg, var(--glow), transparent);
+  border-radius: 999px;
+  content: "";
+  height: 20px;
+  left: 0;
+  position: absolute;
+  top: -7px;
+  width: 100%;
 }
 
 .idea-card,
@@ -304,11 +368,24 @@ function templateCss(): string {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
+  position: relative;
+}
+
+.idea-card::before,
+.cta-block::before {
+  background: linear-gradient(135deg, var(--glow), transparent 60%);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  content: "";
+  height: 4px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
 }
 
 .idea-card,
 .cta-block {
-  padding: 44px 48px;
+  padding: 48px 52px;
 }
 
 .idea-card p,
@@ -332,9 +409,26 @@ function templateCss(): string {
   padding: 32px;
 }
 
+.comparison__side::before {
+  background: linear-gradient(180deg, var(--accent), transparent);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  content: "";
+  height: 3px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+.comparison__side--right::before {
+  background: linear-gradient(180deg, var(--accent-warm), transparent);
+}
+
 .comparison__side h2 {
   color: var(--accent);
   font-size: calc(var(--font-body) * 0.95);
+  font-weight: 700;
+  letter-spacing: 0.02em;
   line-height: 1.2;
   margin: 0;
 }
@@ -355,6 +449,20 @@ function templateCss(): string {
   color: var(--fg);
   font-size: calc(var(--font-body) * 0.82);
   line-height: var(--line-body);
+  padding-left: 16px;
+  position: relative;
+}
+
+.comparison__side li::before {
+  color: var(--accent);
+  content: "\\2022";
+  font-size: 1.1em;
+  left: 0;
+  position: absolute;
+}
+
+.comparison__side--right li::before {
+  color: var(--accent-warm);
 }
 
 .process-list {
@@ -370,6 +478,7 @@ function templateCss(): string {
   align-items: center;
   background: var(--surface);
   border: 1px solid var(--line);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 50%, transparent);
   border-radius: var(--radius-md);
   display: grid;
   gap: 22px;
@@ -395,6 +504,17 @@ function templateCss(): string {
   width: 4px;
 }
 
+.timeline__line::after {
+  background: linear-gradient(180deg, var(--glow), transparent);
+  border-radius: 999px;
+  content: "";
+  height: 100%;
+  left: -6px;
+  position: absolute;
+  top: 0;
+  width: 16px;
+}
+
 .timeline__item {
   align-items: center;
   display: grid;
@@ -405,16 +525,29 @@ function templateCss(): string {
 .timeline__item span {
   background: var(--accent);
   border-radius: 999px;
+  box-shadow: 0 0 12px var(--glow);
   height: 20px;
   margin-left: -41px;
   width: 20px;
 }
 
 .quote-block {
+  border-left: 4px solid var(--accent);
   display: grid;
   gap: 26px;
   margin: 0;
   padding: 48px;
+}
+
+.quote-block::after {
+  color: color-mix(in srgb, var(--accent) 20%, transparent);
+  content: "\\201C";
+  font-size: calc(var(--font-title) * 2);
+  font-weight: 700;
+  line-height: 1;
+  position: absolute;
+  right: 36px;
+  top: 20px;
 }
 
 .quote-block blockquote {
@@ -428,6 +561,7 @@ function templateCss(): string {
 .quote-block figcaption {
   color: var(--muted);
   font-size: var(--font-caption);
+  letter-spacing: 0.02em;
 }
 
 .stat-block {
@@ -437,7 +571,10 @@ function templateCss(): string {
 }
 
 .stat-block strong {
-  color: var(--accent);
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   font-size: calc(var(--font-title) * 1.15);
   line-height: 0.95;
 }
@@ -473,8 +610,19 @@ function templateCss(): string {
   border-radius: 999px;
   display: block;
   height: 22px;
+  position: relative;
   transform-origin: left center;
   width: var(--bar-value);
+}
+
+.chart-bar i::after {
+  background: linear-gradient(90deg, transparent, var(--glow));
+  border-radius: 999px;
+  content: "";
+  height: 100%;
+  position: absolute;
+  right: 0;
+  width: 40%;
 }
 
 .code-block {
@@ -485,7 +633,20 @@ function templateCss(): string {
   margin: 0;
   overflow: hidden;
   padding: 34px;
+  position: relative;
   white-space: pre-wrap;
+}
+
+.code-block::before {
+  color: color-mix(in srgb, var(--accent) 60%, #94a3b8);
+  content: attr(data-language);
+  font-size: calc(var(--font-caption) * 0.75);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  position: absolute;
+  right: 20px;
+  text-transform: uppercase;
+  top: 12px;
 }
 
 body[data-theme="clean-white"] .code-block,

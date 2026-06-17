@@ -7,6 +7,7 @@ export const DeckFormatSchema = z.enum(['landscape_1920x1080', 'portrait_1080x19
 export const DeckInputModeSchema = z.enum(['script-generated', 'audio-anchored'])
 
 export const DeckThemeSchema = z.enum([
+  'auto',
   'elegant-dark',
   'clean-white',
   'finance-terminal',

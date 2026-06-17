@@ -181,7 +181,15 @@ export type CreateDeckSummarizeProjectResult = CreateDeckExplainerProjectResult 
 const DEFAULT_MAX_SLIDE_CHARACTERS = 260
 const DEFAULT_SLIDE_SECONDS = 18
 const DEFAULT_DECK_THEME: Deck['theme'] = 'elegant-dark'
-const DECK_THEMES = ['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
+const DECK_THEMES = ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
+const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
+  'elegant-dark': '深色科技风，适合技术、AI、数据、编程主题',
+  'clean-white': '简洁白净，适合商业汇报、教育、通用主题',
+  'finance-terminal': '终端绿色风，适合金融、加密货币、数据终端主题',
+  'tech-gradient': '蓝紫渐变，适合前沿科技、创新、未来感主题',
+  'minimal-editorial': '暖色纸张风，适合人文、编辑、出版、学术主题',
+  'warm-paper': '暖橙纸张风，适合生活、文化、温暖、故事性主题',
+}
 const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'quality'] as const
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
@@ -1008,6 +1016,8 @@ async function convertDeckSourceAudio(inputPath: string, outputPath: string): Pr
 const LLMDeckSlideTypeSchema = z.enum(['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta'])
 const LLMDeckMotionPresetSchema = z.enum(['fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up', 'progressive-reveal', 'card-stack', 'line-draw', 'number-count', 'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise'])
 
+const LLMDeckThemeSchema = z.enum(['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'])
+
 const LLMTextDeckPlanSchema = z.object({
   audience: z.string().optional(),
   slides: z.array(z.object({
@@ -1043,6 +1053,7 @@ const LLMTextDeckPlanSchema = z.object({
     type: LLMDeckSlideTypeSchema.optional(),
   })).min(1).max(24),
   summary: z.string().min(1),
+  theme: LLMDeckThemeSchema.optional(),
   title: z.string().min(1),
 })
 
@@ -1084,6 +1095,7 @@ async function createLLMTextDeckProjectPlan(
             'Write one natural speakerNote per slide for TTS. It should sound like a presenter, not a file reader.',
             'Avoid page-number prefixes such as "第 1 页" in speakerNote.',
             'Keep speakerNote close to the target narration length unless the slide is an intro or summary.',
+            'Choose the most appropriate visual theme from the available themes based on the content topic and tone. Return the theme name in the "theme" field.',
           ],
           source: {
             path: inputPath,
@@ -1091,14 +1103,15 @@ async function createLLMTextDeckProjectPlan(
             text: truncateForLLM(text, 60_000),
           },
           target: {
+            availableThemes: Object.entries(DECK_THEME_DESCRIPTIONS).map(([name, description]) => ({description, name})),
             durationSeconds: options.durationTargetSeconds,
             format: options.deckFormat ?? 'portrait_1080x1920',
             language: options.language,
             maxVisibleCharactersPerSlide: options.maxSlideCharacters,
+            requestedTheme: options.theme === undefined || options.theme === 'auto' ? undefined : options.theme,
             requestedTitle: options.title,
             slideCount: targetSlideCount,
             speakerNoteCharactersPerSlide: estimateNarrationCharactersPerSlide(options.durationTargetSeconds, targetSlideCount),
-            theme: normalizeDeckTheme(options.theme),
           },
         }),
         role: 'user',
@@ -1140,12 +1153,13 @@ function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string,
       },
     }
   })
+  const resolvedTheme = resolveTheme(rawPlan.theme, options.theme)
   const deck = DeckSchema.parse({
     format: options.deckFormat ?? 'portrait_1080x1920',
     inputMode: 'script-generated',
     language: options.language,
     slides: deckSlides,
-    theme: normalizeDeckTheme(options.theme),
+    theme: resolvedTheme,
     title: planTitle,
     version: 1,
   })
@@ -1692,7 +1706,7 @@ function splitSlidePoints(body: string): string[] {
 }
 
 function normalizeDeckTheme(theme: string | undefined): Deck['theme'] {
-  if (theme === undefined) {
+  if (theme === undefined || theme === 'auto') {
     return DEFAULT_DECK_THEME
   }
 
@@ -1701,6 +1715,18 @@ function normalizeDeckTheme(theme: string | undefined): Deck['theme'] {
   }
 
   throw new Error(`Unsupported deck theme "${theme}". Expected one of: ${DECK_THEMES.join(', ')}.`)
+}
+
+function resolveTheme(llmTheme: string | undefined, optionTheme: string | undefined): Deck['theme'] {
+  if (optionTheme !== undefined && optionTheme !== 'auto') {
+    return normalizeDeckTheme(optionTheme)
+  }
+
+  if (llmTheme !== undefined && DECK_THEMES.includes(llmTheme as Deck['theme'])) {
+    return llmTheme as Deck['theme']
+  }
+
+  return DEFAULT_DECK_THEME
 }
 
 function defaultSlideMotion(index: number, type: DeckSlideType | undefined): Slide['motion'] {
