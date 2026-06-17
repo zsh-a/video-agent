@@ -37,6 +37,7 @@ export default class Deck extends Command {
       options: ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'],
     }),
     title: Flags.string({description: 'Title to use for the first slide and DeckIR'}),
+    trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -53,6 +54,7 @@ export default class Deck extends Command {
       slideSeconds: flags['slide-seconds'],
       theme: flags.style,
       title: flags.title,
+      trace: flags.trace,
       workspaceDir: flags.workspace,
     }
     const output = await runDeckExplainerPipeline({

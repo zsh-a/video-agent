@@ -3,7 +3,7 @@ import type {LanguageModel} from 'ai'
 import {createAnthropic} from '@ai-sdk/anthropic'
 import {createOpenAICompatible} from '@ai-sdk/openai-compatible'
 
-import type {LLMClient} from './types.js'
+import type {LLMClient, LLMTraceRecorder} from './types.js'
 
 import {AISDKLLMClient} from './ai-sdk-adapter.js'
 import {bunEnv} from './bun-runtime.js'
@@ -23,6 +23,7 @@ export interface LLMClientConfig {
 
 export interface LLMClientFactoryOptions {
   env?: Record<string, string | undefined>
+  trace?: LLMTraceRecorder
 }
 
 export function createLLMClientFromConfig(config?: LLMClientConfig, options: LLMClientFactoryOptions = {}): LLMClient | undefined {
@@ -32,6 +33,7 @@ export function createLLMClientFromConfig(config?: LLMClientConfig, options: LLM
 
   return new AISDKLLMClient({
     model: createLanguageModelFromConfig(config, options),
+    trace: options.trace,
   })
 }
 

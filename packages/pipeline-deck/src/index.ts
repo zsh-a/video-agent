@@ -69,6 +69,7 @@ export async function runDeckExplainerPipeline(options: RunDeckExplainerPipeline
         })
   const common = {
     projectId: deck.projectId,
+    trace: options.trace,
     workspaceDir: options.workspaceDir,
   }
   const voiceover = mode === 'audio-anchored'

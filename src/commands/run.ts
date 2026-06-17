@@ -19,6 +19,7 @@ export default class Run extends Command {
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
+    trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
     verbose: Flags.boolean({char: 'v', description: 'Print live stage and provider progress'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
@@ -38,6 +39,7 @@ export default class Run extends Command {
         onProviderCall: verboseLogger === undefined ? undefined : (call) => verboseLogger.providerCall(call),
         onProviderCallStart: verboseLogger === undefined ? undefined : (call) => verboseLogger.providerCallStart(call),
         projectId: flags['project-id'],
+        trace: flags.trace,
         workspaceDir: flags.workspace,
       })
     } catch (error) {

@@ -6,6 +6,7 @@ import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} fro
 
 import {createClipPlan, createLongVideoChunkPlan, createSceneBoundariesFromTranscript, createTimelineFromClipPlan, runPipeline} from '@video-agent/core'
 import {ClipPlanSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {createPreview, extractAudio, extractAudioSegment, extractFrames, probeMedia} from '@video-agent/media'
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkClipPlanConsistency, checkExplainerStructure, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
@@ -30,6 +31,7 @@ export interface RunInitialPipelineOptions {
   onProviderCall?: (call: ProviderCallRecord) => Promise<void> | void
   onProviderCallStart?: (call: ProviderCallStartRecord) => Promise<void> | void
   projectId?: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -45,6 +47,7 @@ export interface RunInitialPipelineResult {
     frames?: string
     globalOutline: string
     ingestReport: string
+    llmTrace?: string
     mediaInfo: string
     narration: string
     pipelineEvents: string
@@ -168,6 +171,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
   })
   const pipelineEventsPath = workspace.store.resolve('pipeline-events.jsonl')
   const providerCallsPath = workspace.store.resolve('provider-calls.jsonl')
+  const llmTracePath = workspace.store.resolve('llm-traces.jsonl')
   const artifacts: RunInitialPipelineResult['artifacts'] = {
     analysisFrames: workspace.store.resolve('frames.json'),
     chapters: workspace.store.resolve('chapters.json'),
@@ -176,6 +180,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     clipPlan: workspace.store.resolve('clip-plan.json'),
     globalOutline: workspace.store.resolve('global-outline.json'),
     ingestReport: workspace.store.resolve('ingest-report.json'),
+    ...(options.trace === true ? {llmTrace: llmTracePath} : {}),
     mediaInfo: workspace.store.resolve('media-info.json'),
     narration: workspace.store.resolve('narration.json'),
     pipelineEvents: pipelineEventsPath,
@@ -191,7 +196,10 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     ttsSegments: workspace.store.resolve('tts-segments.json'),
   }
   const config = await readConfig(workspace.workspaceDir)
-  const providerSet = await createRuntimeProviders(config, workspace.workspaceDir, {llmClient: options.llmClient})
+  const providerSet = await createRuntimeProviders(config, workspace.workspaceDir, {
+    llmClient: options.llmClient,
+    ...(options.trace === true ? {llmTrace: createJsonlLLMTraceRecorder(llmTracePath)} : {}),
+  })
   const providers = instrumentProviders(providerSet, config.providers, createRuntimeProviderCallRecorder(providerCallsPath, options.onProviderCall, options.onProviderCallStart))
   const ctx = {
     artifactsDir: workspace.artifactsDir,

@@ -1,4 +1,4 @@
-import type {LLMClient} from '@video-agent/llm'
+import type {LLMClient, LLMTraceRecorder} from '@video-agent/llm'
 import type {ProviderSet} from '@video-agent/providers'
 
 import {createLLMClientFromConfig} from '@video-agent/llm'
@@ -12,6 +12,7 @@ import {createProviderEnv} from './provider-settings.js'
 export interface RuntimeProviderOptions {
   env?: Record<string, string | undefined>
   llmClient?: LLMClient
+  llmTrace?: LLMTraceRecorder
 }
 
 export async function createRuntimeProviders(config: AgentConfig, workspaceDir: string, options: RuntimeProviderOptions = {}): Promise<ProviderSet> {
@@ -20,6 +21,7 @@ export async function createRuntimeProviders(config: AgentConfig, workspaceDir: 
   return createProviders(config, {
     env,
     llmClient: options.llmClient,
+    llmTrace: options.llmTrace,
   })
 }
 
@@ -30,6 +32,7 @@ export async function createRuntimeLLMClient(config: AgentConfig, workspaceDir: 
 
   return createLLMClientFromConfig(config.llm, {
     env: await createRuntimeProviderEnv(config, workspaceDir, options.env),
+    trace: options.llmTrace,
   })
 }
 

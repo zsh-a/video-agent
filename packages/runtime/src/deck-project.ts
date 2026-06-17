@@ -1,11 +1,12 @@
 import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, DeckSlideType, DeckVisual, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
-import type {LLMClient} from '@video-agent/llm'
+import type {LLMClient, LLMTraceRecorder} from '@video-agent/llm'
 import type {Transcript, TTSSegment} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 
 import {JsonJobStore} from '@video-agent/db'
 import {ClaimsSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
+import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
 import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkStoryboardConsistency, checkTimelineBounds, createRenderedMediaProbeFailure} from '@video-agent/quality'
@@ -20,7 +21,7 @@ import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
 import {createRuntimeLLMClient, createRuntimeProviders} from './runtime-providers.js'
-import {createProjectWorkspace} from './workspace.js'
+import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
 export interface CreateDeckExplainerProjectOptions {
   deckFormat?: DeckFormat
@@ -34,6 +35,7 @@ export interface CreateDeckExplainerProjectOptions {
   slideSeconds?: number
   theme?: string
   title?: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -43,6 +45,7 @@ export interface CreateDeckExplainerProjectResult {
     claims: string
     deck: string
     document: string
+    llmTrace?: string
     mediaInfo: string
     narration: string
     outline: string
@@ -62,6 +65,7 @@ export interface CreateDeckExplainerProjectResult {
 
 export interface CreateDeckVoiceoverProjectOptions {
   projectId: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -84,6 +88,7 @@ export interface DeckVoiceover {
 export interface CreateDeckVoiceoverProjectResult {
   artifacts: {
     deckVoiceover: string
+    llmTrace?: string
     mediaInfo: string
     narration: string
     qualityReport: string
@@ -193,6 +198,12 @@ const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
 const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'quality'] as const
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
+const LLM_TRACE_ARTIFACT_NAME = 'llm-traces.jsonl'
+
+interface ProjectLLMTrace {
+  path?: string
+  recorder?: LLMTraceRecorder
+}
 
 interface TextDeckProjectPlan {
   claims: Claims
@@ -218,6 +229,28 @@ interface TextDeckProjectPlan {
   timeline: Timeline
 }
 
+function createProjectLLMTrace(workspace: ProjectWorkspace, enabled: boolean | undefined): ProjectLLMTrace {
+  if (enabled !== true) {
+    return {}
+  }
+
+  const path = workspace.store.resolve(LLM_TRACE_ARTIFACT_NAME)
+
+  return {
+    path,
+    recorder: createJsonlLLMTraceRecorder(path),
+  }
+}
+
+function withLLMTracePath(error: unknown, tracePath: string | undefined): Error {
+  const message = error instanceof Error ? error.message : String(error)
+  const suffix = tracePath === undefined ? '' : `\nLLM trace: ${tracePath}`
+
+  return new Error(`${message}${suffix}`, {
+    cause: error,
+  })
+}
+
 export async function createDeckExplainerProject(options: CreateDeckExplainerProjectOptions): Promise<CreateDeckExplainerProjectResult> {
   const inputPath = resolve(options.inputPath)
   await assertFileExists(inputPath)
@@ -233,31 +266,39 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     projectId: options.projectId,
     workspaceDir: options.workspaceDir,
   })
+  const llmTrace = createProjectLLMTrace(workspace, options.trace)
   const language = options.language ?? 'zh-CN'
   const config = await readConfig(workspace.workspaceDir)
   const llmClient = await createRuntimeLLMClient(config, workspace.workspaceDir, {
     llmClient: options.llmClient,
+    llmTrace: llmTrace.recorder,
   })
-  const plan = llmClient === undefined
-    ? createFallbackTextDeckProjectPlan(inputPath, text, {
-        deckFormat: options.deckFormat,
-        durationTargetSeconds: options.durationTargetSeconds,
-        language,
-        maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-        slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-        theme: options.theme,
-        title: options.title,
-      })
-    : await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
-        deckFormat: options.deckFormat,
-        durationTargetSeconds: options.durationTargetSeconds,
-        language,
-        maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-        slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-        sourceType: inferDocumentSourceType(inputPath),
-        theme: options.theme,
-        title: options.title,
-      })
+  let plan: TextDeckProjectPlan
+
+  try {
+    plan = llmClient === undefined
+      ? createFallbackTextDeckProjectPlan(inputPath, text, {
+          deckFormat: options.deckFormat,
+          durationTargetSeconds: options.durationTargetSeconds,
+          language,
+          maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+          slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+          theme: options.theme,
+          title: options.title,
+        })
+      : await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+          deckFormat: options.deckFormat,
+          durationTargetSeconds: options.durationTargetSeconds,
+          language,
+          maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+          slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+          sourceType: inferDocumentSourceType(inputPath),
+          theme: options.theme,
+          title: options.title,
+        })
+  } catch (error) {
+    throw withLLMTracePath(error, llmTrace.path)
+  }
   const artifacts = {
     document: await workspace.store.writeJson('document.json', plan.document),
     contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),
@@ -273,6 +314,7 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     timeline: await workspace.store.writeJson('timeline.json', plan.timeline),
     narration: await workspace.store.writeJson('narration.json', plan.narration),
     qualityReport: await workspace.store.writeJson('quality-report.json', plan.qualityReport),
+    ...(llmTrace.path === undefined ? {} : {llmTrace: llmTrace.path}),
   }
   const jobStore = new JsonJobStore(resolve(workspace.projectDir, 'job-state.json'))
 
@@ -585,6 +627,7 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
     projectId,
     workspaceDir,
   })
+  const llmTrace = createProjectLLMTrace(workspace, options.trace)
 
   await jobStore.initialize({
     inputPath: state.inputPath,
@@ -595,7 +638,9 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
 
   try {
     const config = await readConfig(workspaceDir)
-    const providers = await createRuntimeProviders(config, workspaceDir)
+    const providers = await createRuntimeProviders(config, workspaceDir, {
+      llmTrace: llmTrace.recorder,
+    })
     const [deck, speakerScript, currentTimedDeck, currentStoryboard, currentSelectedMoments, currentMediaInfo] = await Promise.all([
       DeckSchema.parseAsync(await workspace.store.readJson('deck.json')),
       SpeakerScriptSchema.parseAsync(await workspace.store.readJson('speaker-script.json')),
@@ -672,6 +717,7 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
       timeline: await workspace.store.writeJson('timeline.json', timeline),
       narration: await workspace.store.writeJson('narration.json', narration),
       qualityReport: await workspace.store.writeJson('quality-report.json', qualityReport),
+      ...(llmTrace.path === undefined ? {} : {llmTrace: llmTrace.path}),
     }
 
     await jobStore.updateStage('synthesize-voice', 'completed', undefined, 1)
@@ -690,8 +736,9 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
       status: 'voiced',
     }
   } catch (error) {
-    await jobStore.updateStage('synthesize-voice', 'failed', error instanceof Error ? error.message : String(error), 1)
-    throw error
+    const tracedError = withLLMTracePath(error, llmTrace.path)
+    await jobStore.updateStage('synthesize-voice', 'failed', tracedError.message, 1)
+    throw tracedError
   }
 }
 
@@ -1013,10 +1060,8 @@ async function convertDeckSourceAudio(inputPath: string, outputPath: string): Pr
   ])
 }
 
-const LLMDeckSlideTypeSchema = z.enum(['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta'])
-const LLMDeckMotionPresetSchema = z.enum(['fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up', 'progressive-reveal', 'card-stack', 'line-draw', 'number-count', 'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise'])
-
-const LLMDeckThemeSchema = z.enum(['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'])
+const LLM_DECK_SLIDE_TYPES = ['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta'] as const
+const LLM_DECK_MOTION_PRESETS = ['fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up', 'progressive-reveal', 'card-stack', 'line-draw', 'number-count', 'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise'] as const
 
 const LLMTextDeckPlanSchema = z.object({
   audience: z.string().optional(),
@@ -1028,16 +1073,16 @@ const LLMTextDeckPlanSchema = z.object({
     comparison: z.object({
       left: z.object({
         label: z.string().min(1),
-        points: z.array(z.string().min(1)).max(3).default([]),
+        points: z.array(z.string().min(1)).default([]),
       }),
       right: z.object({
         label: z.string().min(1),
-        points: z.array(z.string().min(1)).max(3).default([]),
+        points: z.array(z.string().min(1)).default([]),
       }),
     }).optional(),
     duration: z.number().finite().positive().optional(),
-    motion: LLMDeckMotionPresetSchema.optional(),
-    points: z.array(z.string().min(1)).max(4).default([]),
+    motion: z.string().min(1).optional(),
+    points: z.array(z.string().min(1)).default([]),
     quote: z.object({
       attribution: z.string().min(1).optional(),
       text: z.string().min(1),
@@ -1050,14 +1095,32 @@ const LLMTextDeckPlanSchema = z.object({
     }).optional(),
     subtitle: z.string().min(1).optional(),
     title: z.string().min(1),
-    type: LLMDeckSlideTypeSchema.optional(),
+    type: z.string().min(1).optional(),
   })).min(1).max(24),
   summary: z.string().min(1),
-  theme: LLMDeckThemeSchema.optional(),
+  theme: z.string().min(1).optional(),
   title: z.string().min(1),
 })
 
 type LLMTextDeckPlan = z.infer<typeof LLMTextDeckPlanSchema>
+type LLMTextDeckSlide = LLMTextDeckPlan['slides'][number]
+
+interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'comparison' | 'motion' | 'points' | 'subtitle' | 'type'> {
+  comparison?: {
+    left: {
+      label: string
+      points: string[]
+    }
+    right: {
+      label: string
+      points: string[]
+    }
+  }
+  motion?: Slide['motion']
+  points: string[]
+  subtitle?: string
+  type: DeckSlideType
+}
 
 interface TextDeckProjectPlanOptions {
   deckFormat?: DeckFormat
@@ -1268,22 +1331,28 @@ function createFallbackTextDeckProjectPlan(inputPath: string, text: string, opti
   }
 }
 
-function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): LLMTextDeckPlan['slides'] {
+function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDeckSlide[] {
   const slides = plan.slides.map((slide, index) => {
+    const {comparison: rawComparison, motion: rawMotion, subtitle: rawSubtitle, type: rawType, ...rest} = slide
     const title = cleanGeneratedText(slide.title, `第 ${index + 1} 页`).slice(0, 72)
     const points = slide.points
       .map((point) => cleanGeneratedText(point, ''))
       .filter((point) => point !== '' && point !== title)
       .slice(0, 4)
+    const comparison = normalizeLLMComparison(rawComparison)
     const speakerNote = cleanGeneratedText(slide.speakerNote, [title, ...points].join('。'))
-    const subtitle = cleanGeneratedText(slide.subtitle, '')
+    const subtitle = cleanGeneratedText(rawSubtitle, '')
+    const motion = normalizeLLMMotion(rawMotion)
 
     return {
-      ...slide,
+      ...rest,
+      ...(comparison === undefined ? {} : {comparison}),
+      ...(motion === undefined ? {} : {motion}),
       points,
       speakerNote,
       ...(subtitle === '' ? {} : {subtitle}),
       title,
+      type: normalizeLLMSlideType(rawType, index),
     }
   }).filter((slide) => slide.title !== '' && slide.speakerNote !== '')
 
@@ -1296,6 +1365,53 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): LLMTextDeckPlan['sli
         type: 'hero',
       }]
     : slides
+}
+
+function normalizeLLMComparison(comparison: LLMTextDeckSlide['comparison']): NormalizedLLMTextDeckSlide['comparison'] {
+  if (comparison === undefined) {
+    return undefined
+  }
+
+  const leftLabel = cleanGeneratedText(comparison.left.label, '')
+  const rightLabel = cleanGeneratedText(comparison.right.label, '')
+
+  if (leftLabel === '' || rightLabel === '') {
+    return undefined
+  }
+
+  return {
+    left: {
+      label: leftLabel,
+      points: cleanGeneratedPoints(comparison.left.points, 3),
+    },
+    right: {
+      label: rightLabel,
+      points: cleanGeneratedPoints(comparison.right.points, 3),
+    },
+  }
+}
+
+function cleanGeneratedPoints(points: string[], limit: number): string[] {
+  return points
+    .map((point) => cleanGeneratedText(point, ''))
+    .filter((point) => point !== '')
+    .slice(0, limit)
+}
+
+function normalizeLLMSlideType(type: string | undefined, index: number): DeckSlideType {
+  return isLLMDeckSlideType(type) ? type : index === 0 ? 'hero' : 'three-points'
+}
+
+function normalizeLLMMotion(motion: string | undefined): Slide['motion'] | undefined {
+  return isLLMDeckMotionPreset(motion) ? motion : undefined
+}
+
+function isLLMDeckSlideType(value: unknown): value is DeckSlideType {
+  return typeof value === 'string' && (LLM_DECK_SLIDE_TYPES as readonly string[]).includes(value)
+}
+
+function isLLMDeckMotionPreset(value: unknown): value is Slide['motion'] {
+  return typeof value === 'string' && (LLM_DECK_MOTION_PRESETS as readonly string[]).includes(value)
 }
 
 function createLLMTextDocument(

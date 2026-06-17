@@ -1,4 +1,4 @@
-import {createLLMClientFromConfig, type LLMClient, type LLMClientConfig} from '@video-agent/llm'
+import {createLLMClientFromConfig, type LLMClient, type LLMClientConfig, type LLMTraceRecorder} from '@video-agent/llm'
 
 import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMProvider} from './contracts.js'
 
@@ -46,6 +46,7 @@ export interface ProviderRegistryOptions {
   fetch?: typeof fetch
   llmClient?: LLMClient
   llmConfig?: LLMClientConfig
+  llmTrace?: LLMTraceRecorder
 }
 
 export interface ProviderSet {
@@ -177,6 +178,7 @@ function createMimoAsrClient(options: ProviderRegistryOptions): LLMClient | unde
     provider: 'openai-compatible',
   }, {
     env,
+    trace: options.llmTrace,
   })
 
   if (client === undefined) {
@@ -246,6 +248,7 @@ function resolveLLMClient(role: ProviderRole, options: ProviderRegistryOptions):
 function resolveOptionalLLMClient(options: ProviderRegistryOptions): LLMClient | undefined {
   return options.llmClient ?? createLLMClientFromConfig(options.llmConfig, {
     env: options.env ?? bunEnv(),
+    trace: options.llmTrace,
   })
 }
 

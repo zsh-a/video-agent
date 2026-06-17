@@ -48,6 +48,41 @@ export interface LLMUsage {
   totalTokens?: number
 }
 
+export type LLMTraceOperation = 'generateObject' | 'generateObjectFallbackText' | 'generateText' | 'streamText'
+export type LLMTraceStatus = 'failed' | 'succeeded'
+
+export interface LLMTraceRecord {
+  completedAt: string
+  durationMs: number
+  error?: {
+    message: string
+    name: string
+  }
+  model?: string
+  operation: LLMTraceOperation
+  provider?: string
+  request: {
+    messages?: LLMMessage[]
+    prompt?: string
+    providerOptions?: LLMProviderOptions
+    schema?: unknown
+    temperature?: number
+  }
+  requestId: string
+  response?: {
+    object?: unknown
+    text?: string
+  }
+  startedAt: string
+  status: LLMTraceStatus
+  usage?: LLMUsage
+  version: 1
+}
+
+export interface LLMTraceRecorder {
+  record(trace: LLMTraceRecord): Promise<void> | void
+}
+
 export interface LLMClient {
   generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>>
   generateText(request: GenerateTextRequest): Promise<GenerateTextResult>

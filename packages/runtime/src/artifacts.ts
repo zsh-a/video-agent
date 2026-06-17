@@ -273,6 +273,48 @@ const ProviderCallLogLineSchema = z.object({
   }
 })
 
+const LLMUsageSchema = z.object({
+  inputTokens: z.number().nonnegative().optional(),
+  outputTokens: z.number().nonnegative().optional(),
+  totalTokens: z.number().nonnegative().optional(),
+}).passthrough()
+
+const LLMTraceLogLineSchema = z.object({
+  completedAt: z.string().min(1),
+  durationMs: z.number().nonnegative(),
+  error: z.object({
+    message: z.string().min(1),
+    name: z.string().min(1),
+  }).strict().optional(),
+  model: z.string().min(1).optional(),
+  operation: z.enum(['generateObject', 'generateObjectFallbackText', 'generateText', 'streamText']),
+  provider: z.string().min(1).optional(),
+  request: z.object({
+    messages: z.array(z.unknown()).optional(),
+    prompt: z.string().optional(),
+    providerOptions: z.record(z.string(), z.unknown()).optional(),
+    schema: z.unknown().optional(),
+    temperature: z.number().optional(),
+  }).passthrough(),
+  requestId: z.string().min(1),
+  response: z.object({
+    object: z.unknown().optional(),
+    text: z.string().optional(),
+  }).passthrough().optional(),
+  startedAt: z.string().min(1),
+  status: z.enum(['failed', 'succeeded']),
+  usage: LLMUsageSchema.optional(),
+  version: z.literal(1),
+}).passthrough().superRefine((value, ctx) => {
+  if (value.status === 'failed' && value.error === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Failed LLM traces must include an error.',
+      path: ['error'],
+    })
+  }
+})
+
 const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'audio-mix.json': AudioMixSchema,
   'asr-result.json': ASRResultSchema,
@@ -328,6 +370,7 @@ const NESTED_ARTIFACT_SCHEMAS: Array<{pattern: RegExp; schema: ZodType}> = [
 ]
 
 const ARTIFACT_JSONL_SCHEMAS: Record<string, ZodType> = {
+  'llm-traces.jsonl': LLMTraceLogLineSchema,
   'pipeline-events.jsonl': PipelineEventLogLineSchema,
   'provider-calls.jsonl': ProviderCallLogLineSchema,
 }

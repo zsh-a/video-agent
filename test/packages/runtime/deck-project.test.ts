@@ -197,6 +197,85 @@ describe('deck explainer project', () => {
     }
   })
 
+  it('normalizes loose LLM Deck plans before creating DeckIR', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-llm-loose-'))
+    const inputPath = join(root, 'skill.md')
+
+    try {
+      await writeFile(inputPath, '# Loose Deck\n\nExplain the framework clearly.')
+
+      const result = await createDeckExplainerProject({
+        inputPath,
+        llmClient: {
+          async generateObject(input) {
+            return {
+              object: input.schema.parse({
+                summary: 'Loose plans should be accepted and normalized.',
+                theme: 'unknown-theme',
+                title: 'Loose Deck',
+                slides: [
+                  {
+                    motion: 'invalid-motion',
+                    points: ['A', 'B', 'C', 'D', 'E'],
+                    speakerNote: 'Intro note.',
+                    title: 'Loose intro',
+                    type: 'cover',
+                  },
+                  {
+                    comparison: {
+                      left: {
+                        label: 'Left',
+                        points: ['L1', 'L2', 'L3', 'L4'],
+                      },
+                      right: {
+                        label: 'Right',
+                        points: ['R1', 'R2', 'R3', 'R4'],
+                      },
+                    },
+                    points: [],
+                    speakerNote: 'Comparison note.',
+                    title: 'Loose comparison',
+                    type: 'comparison',
+                  },
+                ],
+              }),
+            }
+          },
+          async generateText() {
+            throw new Error('Not used by this test.')
+          },
+          streamText() {
+            throw new Error('Not used by this test.')
+          },
+        } satisfies LLMClient,
+        projectId: 'deck-llm-loose-demo',
+        workspaceDir: root,
+      })
+      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {
+        slides: Array<{
+          comparison?: {
+            left: {points: string[]}
+            right: {points: string[]}
+          }
+          motion: string
+          points: string[]
+          type: string
+        }>
+        theme: string
+      }
+
+      expect(deck.theme).to.equal('elegant-dark')
+      expect(deck.slides[0]?.type).to.equal('hero')
+      expect(deck.slides[0]?.points).to.deep.equal(['A', 'B', 'C', 'D'])
+      expect(deck.slides[0]?.motion).to.equal('cinematic-rise')
+      expect(deck.slides[1]?.type).to.equal('comparison')
+      expect(deck.slides[1]?.comparison?.left.points).to.deep.equal(['L1', 'L2', 'L3'])
+      expect(deck.slides[1]?.comparison?.right.points).to.deep.equal(['R1', 'R2', 'R3'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('synthesizes Deck voiceover, renders final video, and updates timed DeckIR', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-voice-'))
     const inputPath = join(root, 'notes.md')
