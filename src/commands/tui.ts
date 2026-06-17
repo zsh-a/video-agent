@@ -4,6 +4,7 @@ import {Command, Flags} from '@oclif/core'
 import {ALL_PIPELINE_STAGES, createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
+import {type TuiManagerActionRequest, launchTuiManager} from '../ui/tui-manager.js'
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 import {createExportQualityFailurePayload, formatExportQualityFailure} from './export.js'
 import {formatQualityRenderSummary} from './quality.js'
@@ -31,7 +32,7 @@ export interface FormatTuiSnapshotOptions {
 export type TuiCommandSuggestion = VideoAgentGuidedAction
 
 export default class Tui extends Command {
-  static description = 'Show a lightweight terminal workspace dashboard'
+  static description = 'Manage video-agent workspace projects in the terminal'
   static flags = {
     action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'projects', 'provider-test', 'quality', 'render', 'rerun', 'select', 'status', 'verify', 'visual', 'worker']}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
@@ -53,6 +54,7 @@ export default class Tui extends Command {
       description: 'Stage to start from when --action rerun is used',
       options: [...ALL_PIPELINE_STAGES],
     }),
+    interactive: Flags.boolean({allowNo: true, default: true, description: 'Use the interactive Ink manager when a TTY is available'}),
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),
     limit: Flags.integer({description: 'Maximum recoverable jobs to process when --action worker is used'}),
     'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value when --action worker is used'}),
@@ -61,7 +63,7 @@ export default class Tui extends Command {
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
     'provider-role': Flags.string({default: 'all', description: 'Provider role to test when --action provider-test is used', options: ['all', 'asr', 'tts', 'vlm']}),
     'quality-details': Flags.boolean({description: 'Include raw quality-report.json and render-output.json content when --action quality is used'}),
-    'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval when --watch is enabled'}),
+    'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval for the interactive manager or --watch dashboard'}),
     'render-audio': Flags.boolean({allowNo: true, default: true, description: 'Mix available source audio and TTS voiceover segments when --action render is used'}),
     'render-audio-ducking': Flags.boolean({description: 'Use voiceover sidechain compression to duck source audio when --action render is used'}),
     'render-ducking-attack-ms': Flags.integer({description: 'Audio ducking compressor attack in milliseconds when --action render is used'}),
@@ -101,6 +103,30 @@ export default class Tui extends Command {
 
     if (flags.watch && action !== 'dashboard') {
       throw new Error('The tui command cannot combine --watch with an action.')
+    }
+
+    if (shouldLaunchInteractiveTui({
+      action,
+      interactive: flags.interactive,
+      json: flags.json,
+      watch: flags.watch,
+    })) {
+      await launchTuiManager({
+        initialProjectId: flags.project,
+        refreshMs: flags['refresh-ms'],
+        runtime: {
+          createCommands: (snapshot) => createTuiCommandSuggestions(snapshot, {commandPrefix: flags['command-prefix']}),
+          formatActionResult: formatTuiActionResult,
+          readSnapshot: (projectId) => readTuiSnapshot({
+            artifactLimit: flags['artifact-limit'],
+            eventLimit: flags['event-limit'],
+            projectId,
+            workspaceDir: flags.workspace,
+          }),
+          runAction: (request) => runTuiAction(createTuiManagerActionOptions(flags, request)),
+        },
+      })
+      return
     }
 
     if (flags.watch) {
@@ -198,6 +224,120 @@ export default class Tui extends Command {
       // eslint-disable-next-line no-await-in-loop
       await wait(Math.max(250, refreshMs))
     }
+  }
+}
+
+interface TuiManagerLaunchCheck {
+  action: TuiAction
+  interactive: boolean
+  json: boolean
+  watch: boolean
+}
+
+function shouldLaunchInteractiveTui(options: TuiManagerLaunchCheck): boolean {
+  return options.interactive
+    && options.action === 'dashboard'
+    && !options.json
+    && !options.watch
+    && process.stdin.isTTY === true
+    && process.stdout.isTTY === true
+    && process.env.CI !== 'true'
+}
+
+interface ParsedTuiFlags {
+  'artifact-limit': number
+  artifact?: string
+  'command-prefix': string
+  'dry-run'?: boolean
+  'event-kind'?: string
+  'event-limit': number
+  'event-provider-role'?: string
+  'event-provider-status'?: string
+  'event-stage'?: string
+  'event-type'?: string
+  'export-clean-output'?: boolean
+  'export-format'?: string
+  'export-output'?: string
+  'export-require-quality': boolean
+  frame?: string
+  'from-stage'?: string
+  limit?: number
+  'max-attempts'?: number
+  media?: string
+  'order-by'?: string
+  project?: string
+  'provider-role': string
+  'quality-details'?: boolean
+  'render-audio'?: boolean
+  'render-audio-ducking'?: boolean
+  'render-ducking-attack-ms'?: number
+  'render-ducking-ratio'?: number
+  'render-ducking-release-ms'?: number
+  'render-ducking-threshold'?: string
+  'render-hyperframes-command'?: string
+  'render-hyperframes-output'?: string
+  'render-hyperframes-render'?: boolean
+  'render-hyperframes-validate'?: boolean
+  'render-output'?: string
+  'render-renderer'?: string
+  'render-source-volume'?: string
+  'render-subtitles'?: boolean
+  'render-voiceover-volume'?: string
+  'running-stale-after-ms'?: number
+  status: string
+  text?: string
+  'visual-include-content'?: boolean
+  workspace: string
+}
+
+function createTuiManagerActionOptions(flags: ParsedTuiFlags, request: TuiManagerActionRequest): RunTuiActionOptions {
+  const action = request.id === 'worker-dry-run' ? 'worker' : request.id
+
+  return {
+    action,
+    artifactLimit: flags['artifact-limit'],
+    artifactName: request.artifactName ?? flags.artifact,
+    commandPrefix: flags['command-prefix'],
+    dryRun: request.id === 'worker-dry-run' ? true : flags['dry-run'],
+    eventKind: flags['event-kind'] as ProjectEventKind | undefined,
+    eventLimit: flags['event-limit'],
+    eventPipelineStage: flags['event-stage'],
+    eventPipelineType: flags['event-type'] as ProjectPipelineEventType | undefined,
+    eventProviderRole: flags['event-provider-role'] as ProviderCallRole | undefined,
+    eventProviderStatus: flags['event-provider-status'] as ProviderCallStatus | undefined,
+    exportCleanOutput: flags['export-clean-output'],
+    exportFormat: flags['export-format'] as ExportFormat | undefined,
+    exportOutputPath: flags['export-output'],
+    exportRequireQuality: flags['export-require-quality'],
+    framePath: flags.frame,
+    fromStage: flags['from-stage'] as PipelineStage | undefined,
+    limit: flags.limit,
+    maxAttempts: flags['max-attempts'],
+    mediaPath: flags.media,
+    orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
+    projectId: request.projectId ?? flags.project,
+    providerRole: flags['provider-role'],
+    qualityDetails: flags['quality-details'],
+    renderAudio: flags['render-audio'],
+    renderAudioDucking: flags['render-audio-ducking'],
+    renderDuckingAttackMs: flags['render-ducking-attack-ms'],
+    renderDuckingRatio: flags['render-ducking-ratio'],
+    renderDuckingReleaseMs: flags['render-ducking-release-ms'],
+    renderDuckingThreshold: parseOptionalNumber(flags['render-ducking-threshold'], 'render-ducking-threshold'),
+    renderHyperframesCommand: parseCommandPrefix(flags['render-hyperframes-command']),
+    renderHyperframesOutput: flags['render-hyperframes-output'],
+    renderHyperframesRender: flags['render-hyperframes-render'],
+    renderHyperframesValidate: flags['render-hyperframes-validate'],
+    renderOutputPath: flags['render-output'],
+    renderRenderer: flags['render-renderer'] as ProjectRenderer | undefined,
+    renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
+    renderSubtitles: flags['render-subtitles'],
+    renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
+    runningStaleAfterMs: flags['running-stale-after-ms'],
+    status: flags.status,
+    text: flags.text,
+    visualIncludeContent: flags['visual-include-content'],
+    workspaceDir: flags.workspace,
   }
 }
 

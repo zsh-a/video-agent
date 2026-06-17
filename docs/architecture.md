@@ -100,7 +100,7 @@ packages/
   db/                 Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The root oclif CLI remains the primary local adapter. It includes an optional Ink-rendered `run --progress` live view over pipeline events, plus a lightweight `vagent tui` terminal dashboard over runtime state, controlled artifact inspection, shared guided actions, rerun, and worker recovery actions. Dynamic terminal UI code must stay in the CLI adapter and consume runtime events instead of owning workflow behavior.
+The root oclif CLI remains the primary local adapter. It includes an optional Ink-rendered `run --progress` live view over pipeline events and an interactive Ink `vagent tui` manager over runtime state, project navigation, artifact inspection, events, guided commands, rerun, render/export, and worker recovery actions. Non-TTY, `--json`, `--watch`, and `--no-interactive` paths keep the script-friendly dashboard/action output. Dynamic terminal UI code must stay in the CLI adapter and consume runtime APIs/events instead of owning workflow behavior.
 
 ## Target Adapter Layout
 

@@ -173,6 +173,8 @@ bun run dev mcp --workspace .video-agent
 bun run dev mcp --print-config
 ```
 
+In an interactive terminal, `tui` opens the Ink manager for project navigation, artifact inspection, events, guided commands, and confirmed management actions. Use `--no-interactive`, `--json`, `--watch`, or a non-TTY shell for the script-friendly dashboard/action output.
+
 ## Documentation
 
 - [Architecture](./docs/architecture.md) — package boundaries, pipeline stages, provider strategy.
