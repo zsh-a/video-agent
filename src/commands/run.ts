@@ -4,6 +4,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {type InitialPipelineStage, PipelineCheckpointError, type ProviderCallRecord, type ProviderCallStartRecord, runInitialPipeline} from '@video-agent/runtime'
 import {resolve} from 'node:path'
 
+import {createAgentRunProgressRenderer} from '../ui/agent-run-renderer.js'
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 
 export default class Run extends Command {
@@ -18,6 +19,7 @@ export default class Run extends Command {
       options: ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality'],
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
+    progress: Flags.boolean({description: 'Show an agent-style live progress UI'}),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
     trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
     verbose: Flags.boolean({char: 'v', description: 'Print live stage and provider progress'}),
@@ -27,7 +29,10 @@ export default class Run extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Run)
     const inputPath = resolve(args.input)
-    const verbose = flags.verbose && !flags.json
+    const progressRenderer = flags.progress && !flags.json && process.stderr.isTTY === true && process.env.CI !== 'true'
+      ? createAgentRunProgressRenderer({output: process.stderr})
+      : undefined
+    const verbose = flags.verbose && !flags.json && progressRenderer === undefined
     const verboseLogger = verbose ? new RunVerboseLogger((line) => this.log(line)) : undefined
     let output: Awaited<ReturnType<typeof runInitialPipeline>>
 
@@ -35,14 +40,25 @@ export default class Run extends Command {
       output = await runInitialPipeline({
         fromStage: flags['from-stage'] as InitialPipelineStage,
         inputPath,
-        onEvent: verboseLogger === undefined ? undefined : (event) => verboseLogger.event(event),
-        onProviderCall: verboseLogger === undefined ? undefined : (call) => verboseLogger.providerCall(call),
-        onProviderCallStart: verboseLogger === undefined ? undefined : (call) => verboseLogger.providerCallStart(call),
+        onEvent: progressRenderer === undefined && verboseLogger === undefined ? undefined : (event) => {
+          progressRenderer?.event(event)
+          verboseLogger?.event(event)
+        },
+        onProviderCall: progressRenderer === undefined && verboseLogger === undefined ? undefined : (call) => {
+          progressRenderer?.providerCall(call)
+          verboseLogger?.providerCall(call)
+        },
+        onProviderCallStart: progressRenderer === undefined && verboseLogger === undefined ? undefined : (call) => {
+          progressRenderer?.providerCallStart(call)
+          verboseLogger?.providerCallStart(call)
+        },
         projectId: flags['project-id'],
         trace: flags.trace,
         workspaceDir: flags.workspace,
       })
     } catch (error) {
+      await progressRenderer?.fail(error)
+
       if (error instanceof PipelineCheckpointError) {
         this.log(flags.json ? JSON.stringify(createCheckpointErrorPayload(error), null, 2) : formatCheckpointFailure(error))
         process.exitCode = 1
@@ -51,6 +67,8 @@ export default class Run extends Command {
 
       throw error
     }
+
+    await progressRenderer?.complete(output)
 
     if (flags.json) {
       this.log(JSON.stringify(output, null, 2))

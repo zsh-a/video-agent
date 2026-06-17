@@ -100,7 +100,7 @@ packages/
   db/                 Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The root oclif CLI remains the primary local adapter. It includes a lightweight `vagent tui` terminal dashboard over runtime state plus controlled artifact inspection, shared guided actions, rerun, and worker recovery actions.
+The root oclif CLI remains the primary local adapter. It includes an optional Ink-rendered `run --progress` live view over pipeline events, plus a lightweight `vagent tui` terminal dashboard over runtime state, controlled artifact inspection, shared guided actions, rerun, and worker recovery actions. Dynamic terminal UI code must stay in the CLI adapter and consume runtime events instead of owning workflow behavior.
 
 ## Target Adapter Layout
 
@@ -311,4 +311,4 @@ If workspace config contains an `llm` block, runtime creates an AI SDK-backed `L
 1. Keep hosted ASR/VLM model endpoints on the shared AI SDK-backed `LLMClient` path.
 2. Validate MCP config output against named external clients and document a client matrix.
 3. Add named providers only for non-LLM/local execution boundaries.
-4. Replace the dependency-free TUI guided selector with richer Ink/Clack interactions after the dependency policy is accepted.
+4. Continue moving richer terminal interactions into adapter-only Ink/Clack surfaces without adding workflow ownership to the UI layer.

@@ -87,10 +87,13 @@ Run a local media file through the pipeline:
 ```sh
 bun run dev inspect ./input.mp4
 bun run dev run ./input.mp4
+bun run dev run ./input.mp4 --progress
 bun run dev status <projectId>
 bun run dev render <projectId>
 bun run dev export <projectId> --output ./output
 ```
+
+`run --progress` enables an Ink-rendered live progress view for interactive terminals. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
 
 Create a PPT-style explainer from text or Markdown:
 

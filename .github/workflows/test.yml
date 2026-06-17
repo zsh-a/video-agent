@@ -14,6 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Install media tools (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Install media tools (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ffmpeg -y --no-progress
+      - name: Verify media tools
+        run: |
+          ffmpeg -version
+          ffprobe -version
       - run: bun install --frozen-lockfile
       - run: bun run build
       - run: bun run test
