@@ -5,6 +5,12 @@ import type {Instance} from 'ink'
 import {Box, Static, Text, render} from 'ink'
 import {Fragment, createElement as h} from 'react'
 
+import {Badge} from './components/Badge.js'
+import {Panel} from './components/Panel.js'
+import {ProgressBar} from './components/ProgressBar.js'
+import {Spinner} from './components/Spinner.js'
+import {formatPercent} from './tui-format.js'
+import {symbols} from './theme.js'
 import {
   type AgentRunProgressState,
   type AgentRunProviderState,
@@ -39,9 +45,6 @@ interface AgentRunProgressAppProps {
   state: AgentRunProgressState
 }
 
-const SPINNER_FRAMES = ['-', '\\', '|', '/']
-const PROGRESS_BAR_WIDTH = 24
-
 export function createAgentRunProgressRenderer(options: CreateAgentRunProgressRendererOptions = {}): AgentRunProgressRenderer {
   return new InkAgentRunProgressRenderer(options)
 }
@@ -49,9 +52,11 @@ export function createAgentRunProgressRenderer(options: CreateAgentRunProgressRe
 export function AgentRunProgressApp({now, state}: AgentRunProgressAppProps) {
   return h(Fragment, null,
     h(Transcript, {items: state.transcript}),
-    h(Box, {flexDirection: 'column', gap: 1},
+    h(Panel, {border: state.status === 'failed' ? 'error' : 'active', title: 'video-agent run'},
       h(Header, {now, state}),
+      h(SectionLabel, {title: 'Pipeline'}),
       h(StageList, {state}),
+      h(SectionLabel, {title: 'Live'}),
       h(LivePanel, {now, state}),
     ),
   )
@@ -169,7 +174,6 @@ class InkAgentRunProgressRenderer implements AgentRunProgressRenderer {
 function Header({now, state}: AgentRunProgressAppProps) {
   return h(Box, {flexDirection: 'column'},
     h(Box, {gap: 1},
-      h(Text, {bold: true}, 'video-agent run'),
       h(Text, {dimColor: true}, 'project'),
       h(Text, null, state.projectId ?? 'pending'),
       h(Text, {dimColor: true}, 'elapsed'),
@@ -203,9 +207,7 @@ function StageRow({stage}: {stage: AgentRunStageState}) {
   const detail = formatStageDetail(stage)
 
   return h(Box, {gap: 1},
-    h(Text, {
-      color: stageColor(stage.status),
-    }, statusLabel(stage.status)),
+    h(Badge, {label: statusLabel(stage.status), status: stage.status}),
     h(Text, {
       bold: stage.status === 'running' || stage.status === 'retrying',
       color: stage.status === 'pending' ? 'gray' : undefined,
@@ -242,18 +244,14 @@ function LivePanel({now, state}: AgentRunProgressAppProps) {
 }
 
 function CurrentStageLine({now, stage, state}: {now: number; stage: AgentRunStageState; state: AgentRunProgressState}) {
-  const frame = SPINNER_FRAMES[Math.floor((now - state.startedAt) / 120) % SPINNER_FRAMES.length]
-  const label = stage.status === 'running' || stage.status === 'retrying' ? frame : statusLabel(stage.status)
-  const progress = stage.percent === undefined ? '' : ` ${renderProgressBar(stage.percent)} ${formatPercent(stage.percent)}`
+  const active = stage.status === 'running' || stage.status === 'retrying'
   const count = formatCount(stage)
   const name = stage.step === undefined ? stage.name : `${stage.name}.${stage.step}`
 
   return h(Box, {gap: 1},
-    h(Text, {
-      color: stageColor(stage.status),
-    }, label),
+    active ? h(Spinner, {now: now - state.startedAt}) : h(Badge, {label: statusLabel(stage.status), status: stage.status}),
     h(Text, {bold: stage.status !== 'pending'}, name),
-    progress === '' ? null : h(Text, {color: 'cyan'}, progress),
+    stage.percent === undefined ? null : h(ProgressBar, {percent: stage.percent, width: 12}),
     count === '' ? null : h(Text, {dimColor: true}, count),
     stage.message === undefined ? null : h(Text, {dimColor: true, wrap: 'truncate-end'}, stage.message),
   )
@@ -266,7 +264,7 @@ function ProviderLine({call, now, prefix}: {call: AgentRunProviderState; now: nu
 
   return h(Box, {gap: 1},
     h(Text, {dimColor: true}, prefix),
-    h(Text, {color: providerColor(call.status)}, call.status),
+    h(Badge, {status: call.status}),
     h(Text, null, `${call.role}/${call.provider}`),
     h(Text, {wrap: 'truncate-end'}, call.operation),
     duration === undefined ? null : h(Text, {dimColor: true}, duration),
@@ -292,16 +290,6 @@ function formatCount(stage: AgentRunStageState): string {
   return `${stage.current}/${stage.total}${stage.unit === undefined ? '' : ` ${stage.unit}`}`
 }
 
-function renderProgressBar(percent: number): string {
-  const filled = Math.round((Math.max(0, Math.min(100, percent)) / 100) * PROGRESS_BAR_WIDTH)
-
-  return `[${'#'.repeat(filled)}${'-'.repeat(PROGRESS_BAR_WIDTH - filled)}]`
-}
-
-function formatPercent(percent: number): string {
-  return `${Math.round(percent)}%`
-}
-
 function statusLabel(status: AgentRunStageState['status']): string {
   if (status === 'completed') {
     return 'done'
@@ -322,38 +310,6 @@ function statusLabel(status: AgentRunStageState['status']): string {
   return 'wait'
 }
 
-function stageColor(status: AgentRunStageState['status']): string | undefined {
-  if (status === 'completed') {
-    return 'green'
-  }
-
-  if (status === 'failed') {
-    return 'red'
-  }
-
-  if (status === 'retrying') {
-    return 'yellow'
-  }
-
-  if (status === 'running') {
-    return 'cyan'
-  }
-
-  return 'gray'
-}
-
-function providerColor(status: AgentRunProviderState['status']): string {
-  if (status === 'failed') {
-    return 'red'
-  }
-
-  if (status === 'succeeded') {
-    return 'green'
-  }
-
-  return 'cyan'
-}
-
 function transcriptColor(level: AgentRunTranscriptEntry['level']): string | undefined {
   if (level === 'error') {
     return 'red'
@@ -372,16 +328,23 @@ function transcriptColor(level: AgentRunTranscriptEntry['level']): string | unde
 
 function transcriptPrefix(level: AgentRunTranscriptEntry['level']): string {
   if (level === 'error') {
-    return 'fail'
+    return symbols.failure
   }
 
   if (level === 'success') {
-    return 'done'
+    return symbols.success
   }
 
   if (level === 'warn') {
-    return 'warn'
+    return symbols.warning
   }
 
-  return 'info'
+  return symbols.info
+}
+
+function SectionLabel({title}: {title: string}) {
+  return h(Box, {gap: 1, marginTop: 1},
+    h(Text, {dimColor: true}, symbols.horizontal.repeat(2)),
+    h(Text, {bold: true}, title),
+  )
 }

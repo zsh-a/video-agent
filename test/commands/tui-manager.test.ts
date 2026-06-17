@@ -23,10 +23,12 @@ describe('interactive tui manager', () => {
     expect(output).to.include('/tmp/workspace')
     expect(output).to.include('Projects')
     expect(output).to.include('demo')
-    expect(output).to.include('quality 1/0e')
+    expect(output).to.include('1:Dashboard')
+    expect(output).to.include('quality 1 issues')
+    expect(output).to.include('1 issues, 0 errors')
     expect(output).to.include('Pipeline')
     expect(output).to.include('ingest')
-    expect(output).to.include('tab next')
+    expect(output).to.include('← → tabs')
   })
 
   it('renders actions, commands, and action output views', () => {
