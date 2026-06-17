@@ -94,6 +94,7 @@ export async function runFilmRecapPipeline(options: RunFilmRecapPipelineOptions)
   const ingest = await createFilmIngestProject(options)
   const common = {
     projectId: ingest.projectId,
+    trace: options.trace,
     workspaceDir: options.workspaceDir,
   }
   const understanding = await createFilmUnderstandingProject({

@@ -11,6 +11,7 @@ export default class FilmUnderstand extends Command {
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'max-scenes': Flags.integer({description: 'Maximum deterministic scene windows to create', default: 12}),
+    trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -19,6 +20,7 @@ export default class FilmUnderstand extends Command {
     const output = await createFilmUnderstandingProject({
       maxScenes: flags['max-scenes'],
       projectId: args.projectId,
+      trace: flags.trace,
       workspaceDir: flags.workspace,
     })
 

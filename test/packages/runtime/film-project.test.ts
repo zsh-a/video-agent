@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {probeMedia} from '../../../packages/media/src/ffmpeg.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
-import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject} from '../../../packages/runtime/src/film-project.js'
+import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/runtime/src/film-project.js'
 
 describe('film recap project', () => {
   it('creates an ingest checkpoint with source manifest evidence', async () => {
@@ -810,6 +810,28 @@ describe('film recap project', () => {
       expect(qualityReport.narrationSegments).to.equal(1)
       expect(qualityReport.ttsSegments).to.equal(1)
       expect(qualityReport.summary.errors).to.equal(0)
+      const jobState = JSON.parse(await readFile(join(root, 'projects', 'film-final-demo', 'job-state.json'), 'utf8')) as {pipeline?: string; status: string}
+      const pipelineEvents = await readFile(join(root, 'projects', 'film-final-demo', 'artifacts', 'pipeline-events.jsonl'), 'utf8')
+
+      expect(jobState).to.include({
+        pipeline: 'film',
+        status: 'completed',
+      })
+      expect(pipelineEvents).to.contain('"stage":"quality-check"')
+
+      const resumed = await runFilmRecapProject({
+        fromStage: 'quality-check',
+        inputPath,
+        projectId: 'film-final-demo',
+        workspaceDir: root,
+      })
+
+      expect(resumed).to.include({
+        fromStage: 'quality-check',
+        pipeline: 'film',
+        status: 'completed',
+      })
+      expect(resumed.completedStages).to.deep.equal(['quality-check'])
 
       const verification = await verifyProjectArtifacts('film-final-demo', root)
 

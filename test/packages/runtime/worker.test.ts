@@ -150,9 +150,10 @@ describe('workspace worker recovery', () => {
       expect(report.skipped).to.equal(1)
       expect(report.results).to.deep.include({
         attempt: 1,
-        fromStage: 'quality',
-        jobStatus: 'running',
-        projectId: 'demo',
+	        fromStage: 'quality',
+	        jobStatus: 'running',
+	        pipeline: 'initial',
+	        projectId: 'demo',
         skipReason: 'running-active',
         status: 'skipped',
         updatedAt: report.results[0]?.updatedAt,

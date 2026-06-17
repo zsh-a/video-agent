@@ -1,29 +1,36 @@
+import type {PipelineEvent} from '@video-agent/core'
 import type {ASRResult, CharacterIndex, ClipPlan, ClipPlanItem, FilmScenes, LongVideoAnalysisFrames, MediaInfo, MediaStream, Narration, NarrativeBeat, NarrativeBeats, OutputNarration, OutputTimelineMap, SilencePeriods, SourceManifest, StoryIndex, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
+import type {LLMTraceRecorder} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
 
-import {JsonJobStore} from '@video-agent/db'
+import type {JobStore} from '@video-agent/db'
 import {ASRResultSchema, CharacterIndexSchema, ClipPlanSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, NarrationSchema, NarrativeBeatsSchema, OutputNarrationSchema, OutputTimelineMapSchema, SilencePeriodsSchema, SourceManifestSchema, StoryIndexSchema, TimelineFusionSchema, VLMAnalysisSchema} from '@video-agent/ir'
+import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkAudioLoudness, checkRenderedMedia, checkSrtSubtitles, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {narrationToSrt} from '@video-agent/renderer-ffmpeg'
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
-import {mkdir} from 'node:fs/promises'
+import {appendFile, mkdir} from 'node:fs/promises'
 import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
-import {createJsonlProviderCallRecorder, instrumentProviders} from './provider-calls.js'
+import {assertPipelineCheckpointArtifacts} from './job-runner.js'
+import {createConfiguredJobStore} from './job-store.js'
+import {FILM_PIPELINE_DEFINITION, FILM_PIPELINE_STAGES, type FilmPipelineStage, assertPipelineStage} from './pipeline-definitions.js'
+import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecorder} from './provider-calls.js'
 import {createRuntimeProviders} from './runtime-providers.js'
-import {createProjectWorkspace} from './workspace.js'
+import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
 export interface CreateFilmIngestProjectOptions {
   inputPath: string
   projectId?: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -41,6 +48,7 @@ export interface CreateFilmIngestProjectResult {
 export interface CreateFilmUnderstandingProjectOptions {
   maxScenes?: number
   projectId: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -129,6 +137,7 @@ export interface CreateFilmOutputNarrationProjectResult {
 
 export interface CreateFilmVoiceoverProjectOptions {
   projectId: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -252,60 +261,234 @@ export interface CreateFilmQualityCheckProjectResult {
   status: 'checked'
 }
 
-const FILM_STAGES = [
-  'ingest',
-  'understand-source',
-  'build-story-index',
-  'plan-clips',
-  'render-cut',
-  'narrate-output',
-  'synthesize-voice',
-  'mix-audio',
-  'subtitle',
-  'render-final',
-  'quality-check',
-] as const
+export interface RunFilmRecapProjectOptions extends CreateFilmIngestProjectOptions {
+  fromStage?: FilmPipelineStage
+  maxScenes?: CreateFilmUnderstandingProjectOptions['maxScenes']
+  targetDurationSeconds?: CreateFilmClipPlanProjectOptions['targetDurationSeconds']
+}
+
+export interface RunFilmRecapProjectResult {
+  audioMix?: CreateFilmAudioMixProjectResult
+  clipPlan?: CreateFilmClipPlanProjectResult
+  completedStages: FilmPipelineStage[]
+  cut?: CreateFilmCutProjectResult
+  finalRender?: CreateFilmFinalRenderProjectResult
+  fromStage: FilmPipelineStage
+  ingest?: CreateFilmIngestProjectResult
+  narration?: CreateFilmOutputNarrationProjectResult
+  pipeline: 'film'
+  projectDir: string
+  projectId: string
+  quality?: CreateFilmQualityCheckProjectResult
+  status: 'completed' | 'failed'
+  storyIndex?: CreateFilmStoryIndexProjectResult
+  subtitle?: CreateFilmSubtitleProjectResult
+  understanding?: CreateFilmUnderstandingProjectResult
+  voiceover?: CreateFilmVoiceoverProjectResult
+}
+
+const FILM_STAGES = FILM_PIPELINE_STAGES
+const LLM_TRACE_ARTIFACT_NAME = 'llm-traces.jsonl'
+
+export async function runFilmRecapProject(options: RunFilmRecapProjectOptions): Promise<RunFilmRecapProjectResult> {
+  const fromStage = options.fromStage ?? FILM_PIPELINE_DEFINITION.defaultRerunStage
+  assertPipelineStage(FILM_PIPELINE_DEFINITION, fromStage)
+
+  if (fromStage !== 'ingest' && options.projectId === undefined) {
+    throw new Error('projectId is required when running a Film Recap project from a checkpoint stage.')
+  }
+
+  if (options.projectId !== undefined) {
+    await assertPipelineCheckpointArtifacts(options.projectId, options.workspaceDir ?? '.video-agent', FILM_PIPELINE_DEFINITION, fromStage)
+  }
+
+  const common = {
+    projectId: options.projectId,
+    trace: options.trace,
+    workspaceDir: options.workspaceDir,
+  }
+  const result: RunFilmRecapProjectResult = {
+    completedStages: [],
+    fromStage,
+    pipeline: 'film',
+    projectDir: '',
+    projectId: options.projectId ?? '',
+    status: 'completed',
+  }
+  const runStage = async <T>(stage: FilmPipelineStage, operation: () => Promise<T>): Promise<T | undefined> => {
+    if (FILM_STAGES.indexOf(stage) < FILM_STAGES.indexOf(fromStage)) {
+      return undefined
+    }
+
+    const output = await operation()
+    const stageProject = output as {projectDir?: string; projectId?: string}
+    result.completedStages.push(stage)
+    result.projectDir = stageProject.projectDir ?? result.projectDir
+    result.projectId = stageProject.projectId ?? result.projectId
+
+    return output
+  }
+
+  result.ingest = await runStage('ingest', () => createFilmIngestProject({
+    inputPath: options.inputPath,
+    projectId: options.projectId,
+    trace: options.trace,
+    workspaceDir: options.workspaceDir,
+  }))
+  const projectId = result.projectId || options.projectId
+
+  if (projectId === undefined || projectId === '') {
+    throw new Error('Film Recap project id could not be resolved.')
+  }
+
+  const stageCommon = {
+    ...common,
+    projectId,
+  }
+
+  result.understanding = await runStage('understand-source', () => createFilmUnderstandingProject({
+    ...stageCommon,
+    maxScenes: options.maxScenes,
+  }))
+  result.storyIndex = await runStage('build-story-index', () => createFilmStoryIndexProject(stageCommon))
+  result.clipPlan = await runStage('plan-clips', () => createFilmClipPlanProject({
+    ...stageCommon,
+    targetDurationSeconds: options.targetDurationSeconds,
+  }))
+  result.cut = await runStage('render-cut', () => createFilmCutProject(stageCommon))
+  result.narration = await runStage('narrate-output', () => createFilmOutputNarrationProject(stageCommon))
+  result.voiceover = await runStage('synthesize-voice', () => createFilmVoiceoverProject(stageCommon))
+  result.audioMix = await runStage('mix-audio', () => createFilmAudioMixProject(stageCommon))
+  result.subtitle = await runStage('subtitle', () => createFilmSubtitleProject(stageCommon))
+  result.finalRender = await runStage('render-final', () => createFilmFinalRenderProject(stageCommon))
+  result.quality = await runStage('quality-check', () => createFilmQualityCheckProject(stageCommon))
+  result.status = result.quality?.qualityReport.summary.errors === undefined || result.quality.qualityReport.summary.errors === 0 ? 'completed' : 'failed'
+
+  return result
+}
+
+async function startFilmStage(jobStore: JobStore, workspace: ProjectWorkspace, stage: FilmPipelineStage): Promise<void> {
+  await appendFilmEvent(workspace, {
+    attempt: 1,
+    level: 'info',
+    projectId: workspace.projectId,
+    stage,
+    time: new Date().toISOString(),
+    type: 'stage:start',
+  })
+  await jobStore.updateStage(stage, 'running', undefined, 1)
+}
+
+async function completeFilmStage(jobStore: JobStore, workspace: ProjectWorkspace, stage: FilmPipelineStage): Promise<void> {
+  await jobStore.updateStage(stage, 'completed', undefined, 1)
+  await appendFilmEvent(workspace, {
+    attempt: 1,
+    level: 'info',
+    projectId: workspace.projectId,
+    stage,
+    time: new Date().toISOString(),
+    type: 'stage:complete',
+  })
+}
+
+async function failFilmStage(jobStore: JobStore, workspace: ProjectWorkspace, stage: FilmPipelineStage, error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error)
+
+  await jobStore.updateStage(stage, 'failed', message, 1)
+  await appendFilmEvent(workspace, {
+    attempt: 1,
+    level: 'error',
+    message,
+    projectId: workspace.projectId,
+    stage,
+    time: new Date().toISOString(),
+    type: 'stage:fail',
+  })
+}
+
+async function appendFilmEvent(workspace: ProjectWorkspace, event: PipelineEvent): Promise<void> {
+  await appendFile(workspace.store.resolve('pipeline-events.jsonl'), `${JSON.stringify(event)}\n`)
+}
+
+async function createFilmJobStore(projectId: string, workspaceDir: string): Promise<JobStore> {
+  const resolvedWorkspaceDir = resolve(workspaceDir)
+  const config = await readConfig(resolvedWorkspaceDir)
+  const projectDir = resolve(resolvedWorkspaceDir, 'projects', projectId)
+
+  return createConfiguredJobStore({
+    config,
+    projectDir,
+    projectId,
+    workspaceDir: resolvedWorkspaceDir,
+  })
+}
+
+function createFilmLLMTrace(workspace: ProjectWorkspace, enabled: boolean | undefined): {path?: string; recorder?: LLMTraceRecorder} {
+  if (enabled !== true) {
+    return {}
+  }
+
+  const path = workspace.store.resolve(LLM_TRACE_ARTIFACT_NAME)
+
+  return {
+    path,
+    recorder: createJsonlLLMTraceRecorder(path),
+  }
+}
+
+function createFilmProviderCallRecorder(workspace: ProjectWorkspace): ProviderCallRecorder {
+  return createJsonlProviderCallRecorder(workspace.store.resolve('provider-calls.jsonl'))
+}
 
 export async function createFilmIngestProject(options: CreateFilmIngestProjectOptions): Promise<CreateFilmIngestProjectResult> {
   const inputPath = resolve(options.inputPath)
   await assertFileExists(inputPath)
 
-  const [mediaInfo, sourceHash] = await Promise.all([
-    probeMedia(inputPath),
-    hashFile(inputPath),
-  ])
-  const sourceManifest = SourceManifestSchema.parse(createSourceManifest(mediaInfo, sourceHash))
   const workspace = await createProjectWorkspace({
     inputPath,
     projectId: options.projectId,
     workspaceDir: options.workspaceDir,
   })
-  const artifacts = {
-    mediaInfo: await workspace.store.writeJson('media-info.json', mediaInfo),
-    sourceManifest: await workspace.store.writeJson('source-manifest.json', sourceManifest),
-  }
-  const jobStore = new JsonJobStore(resolve(workspace.projectDir, 'job-state.json'))
+  const jobStore = await createFilmJobStore(workspace.projectId, workspace.workspaceDir)
 
   await jobStore.initialize({
     inputPath,
+    pipeline: FILM_PIPELINE_DEFINITION.kind,
     projectId: workspace.projectId,
     stages: FILM_STAGES,
   })
-  await jobStore.updateStage('ingest', 'completed', undefined, 1)
-  await refreshArtifactManifest(workspace.artifactsDir)
+  await startFilmStage(jobStore, workspace, 'ingest')
 
-  return {
-    artifacts,
-    projectDir: workspace.projectDir,
-    projectId: workspace.projectId,
-    sourceManifest,
-    status: 'ingested',
+  try {
+    const [mediaInfo, sourceHash] = await Promise.all([
+      probeMedia(inputPath),
+      hashFile(inputPath),
+    ])
+    const sourceManifest = SourceManifestSchema.parse(createSourceManifest(mediaInfo, sourceHash))
+    const artifacts = {
+      mediaInfo: await workspace.store.writeJson('media-info.json', mediaInfo),
+      sourceManifest: await workspace.store.writeJson('source-manifest.json', sourceManifest),
+    }
+
+    await completeFilmStage(jobStore, workspace, 'ingest')
+    await refreshArtifactManifest(workspace.artifactsDir)
+
+    return {
+      artifacts,
+      projectDir: workspace.projectDir,
+      projectId: workspace.projectId,
+      sourceManifest,
+      status: 'ingested',
+    }
+  } catch (error) {
+    await failFilmStage(jobStore, workspace, 'ingest', error)
+    throw error
   }
 }
 
 export async function createFilmUnderstandingProject(options: CreateFilmUnderstandingProjectOptions): Promise<CreateFilmUnderstandingProjectResult> {
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(options.workspaceDir ?? '.video-agent', 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, options.workspaceDir ?? '.video-agent')
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -313,14 +496,17 @@ export async function createFilmUnderstandingProject(options: CreateFilmUndersta
     workspaceDir: options.workspaceDir,
   })
 
-  await jobStore.updateStage('understand-source', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'understand-source')
 
   try {
     const config = await readConfig(workspace.workspaceDir)
+    const llmTrace = createFilmLLMTrace(workspace, options.trace)
     const providers = instrumentProviders(
-      await createRuntimeProviders(config, workspace.workspaceDir),
+      await createRuntimeProviders(config, workspace.workspaceDir, {
+        llmTrace: llmTrace.recorder,
+      }),
       config.providers,
-      createJsonlProviderCallRecorder(workspace.store.resolve('provider-calls.jsonl')),
+      createFilmProviderCallRecorder(workspace),
     )
     const sourceManifest = SourceManifestSchema.parse(await workspace.store.readJson('source-manifest.json'))
     const asrResult = ASRResultSchema.parse(await createFilmAsrResult(workspace.audioDir, sourceManifest, providers))
@@ -338,7 +524,7 @@ export async function createFilmUnderstandingProject(options: CreateFilmUndersta
       timelineFusion: await workspace.store.writeJson('timeline-fusion.json', timelineFusion),
     }
 
-    await jobStore.updateStage('understand-source', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'understand-source')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -349,14 +535,14 @@ export async function createFilmUnderstandingProject(options: CreateFilmUndersta
       status: 'understood',
     }
   } catch (error) {
-    await jobStore.updateStage('understand-source', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'understand-source', error)
     throw error
   }
 }
 
 export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexProjectOptions): Promise<CreateFilmStoryIndexProjectResult> {
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(options.workspaceDir ?? '.video-agent', 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, options.workspaceDir ?? '.video-agent')
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -364,7 +550,7 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
     workspaceDir: options.workspaceDir,
   })
 
-  await jobStore.updateStage('build-story-index', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'build-story-index')
 
   try {
     const [sourceManifest, timelineFusion, asrResult, vlmAnalysis] = await Promise.all([
@@ -382,7 +568,7 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
       characterIndex: await workspace.store.writeJson('character-index.json', characterIndex),
     }
 
-    await jobStore.updateStage('build-story-index', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'build-story-index')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -393,14 +579,14 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
       status: 'indexed',
     }
   } catch (error) {
-    await jobStore.updateStage('build-story-index', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'build-story-index', error)
     throw error
   }
 }
 
 export async function createFilmClipPlanProject(options: CreateFilmClipPlanProjectOptions): Promise<CreateFilmClipPlanProjectResult> {
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(options.workspaceDir ?? '.video-agent', 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, options.workspaceDir ?? '.video-agent')
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -408,7 +594,7 @@ export async function createFilmClipPlanProject(options: CreateFilmClipPlanProje
     workspaceDir: options.workspaceDir,
   })
 
-  await jobStore.updateStage('plan-clips', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'plan-clips')
 
   try {
     const sourceManifest = SourceManifestSchema.parse(await workspace.store.readJson('source-manifest.json'))
@@ -418,7 +604,7 @@ export async function createFilmClipPlanProject(options: CreateFilmClipPlanProje
       clipPlan: await workspace.store.writeJson('clip-plan.json', clipPlan),
     }
 
-    await jobStore.updateStage('plan-clips', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'plan-clips')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -430,14 +616,14 @@ export async function createFilmClipPlanProject(options: CreateFilmClipPlanProje
       status: 'planned',
     }
   } catch (error) {
-    await jobStore.updateStage('plan-clips', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'plan-clips', error)
     throw error
   }
 }
 
 export async function createFilmCutProject(options: CreateFilmCutProjectOptions): Promise<CreateFilmCutProjectResult> {
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(options.workspaceDir ?? '.video-agent', 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, options.workspaceDir ?? '.video-agent')
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -445,7 +631,7 @@ export async function createFilmCutProject(options: CreateFilmCutProjectOptions)
     workspaceDir: options.workspaceDir,
   })
 
-  await jobStore.updateStage('render-cut', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'render-cut')
 
   try {
     const [clipPlan, sourceManifest] = await Promise.all([
@@ -463,7 +649,7 @@ export async function createFilmCutProject(options: CreateFilmCutProjectOptions)
       outputTimelineMap: await workspace.store.writeJson('output-timeline-map.json', outputTimelineMap),
     }
 
-    await jobStore.updateStage('render-cut', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'render-cut')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -474,14 +660,14 @@ export async function createFilmCutProject(options: CreateFilmCutProjectOptions)
       status: 'cut',
     }
   } catch (error) {
-    await jobStore.updateStage('render-cut', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'render-cut', error)
     throw error
   }
 }
 
 export async function createFilmOutputNarrationProject(options: CreateFilmOutputNarrationProjectOptions): Promise<CreateFilmOutputNarrationProjectResult> {
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(options.workspaceDir ?? '.video-agent', 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, options.workspaceDir ?? '.video-agent')
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -489,7 +675,7 @@ export async function createFilmOutputNarrationProject(options: CreateFilmOutput
     workspaceDir: options.workspaceDir,
   })
 
-  await jobStore.updateStage('narrate-output', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'narrate-output')
 
   try {
     const clipPlan = ClipPlanSchema.parse(await workspace.store.readJson('clip-plan-validated.json'))
@@ -502,7 +688,7 @@ export async function createFilmOutputNarrationProject(options: CreateFilmOutput
       narration: await workspace.store.writeJson('narration.json', narration),
     }
 
-    await jobStore.updateStage('narrate-output', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'narrate-output')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -513,7 +699,7 @@ export async function createFilmOutputNarrationProject(options: CreateFilmOutput
       status: 'narrated',
     }
   } catch (error) {
-    await jobStore.updateStage('narrate-output', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'narrate-output', error)
     throw error
   }
 }
@@ -521,7 +707,7 @@ export async function createFilmOutputNarrationProject(options: CreateFilmOutput
 export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverProjectOptions): Promise<CreateFilmVoiceoverProjectResult> {
   const projectId = options.projectId
   const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, workspaceDir)
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -529,11 +715,18 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
     workspaceDir,
   })
 
-  await jobStore.updateStage('synthesize-voice', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'synthesize-voice')
 
   try {
     const config = await readConfig(workspaceDir)
-    const providers = await createRuntimeProviders(config, workspaceDir)
+    const llmTrace = createFilmLLMTrace(workspace, options.trace)
+    const providers = instrumentProviders(
+      await createRuntimeProviders(config, workspaceDir, {
+        llmTrace: llmTrace.recorder,
+      }),
+      config.providers,
+      createFilmProviderCallRecorder(workspace),
+    )
     const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
     const ttsSegments = TtsSegmentsSchema.parse(await providers.tts.synthesize(narration.segments, {
       outputDir: join(workspace.audioDir, 'tts'),
@@ -543,7 +736,7 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
       ttsSegments: await workspace.store.writeJson('tts-segments.json', ttsSegments),
     }
 
-    await jobStore.updateStage('synthesize-voice', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'synthesize-voice')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -555,7 +748,7 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
       ttsSegments,
     }
   } catch (error) {
-    await jobStore.updateStage('synthesize-voice', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'synthesize-voice', error)
     throw error
   }
 }
@@ -563,7 +756,7 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
 export async function createFilmAudioMixProject(options: CreateFilmAudioMixProjectOptions): Promise<CreateFilmAudioMixProjectResult> {
   const projectId = options.projectId
   const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, workspaceDir)
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -571,7 +764,7 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
     workspaceDir,
   })
 
-  await jobStore.updateStage('mix-audio', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'mix-audio')
 
   try {
     const [outputTimelineMap, narration, sourceManifest, ttsSegments] = await Promise.all([
@@ -618,7 +811,7 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
       audioMix: await workspace.store.writeJson('audio-mix.json', audioMix),
     }
 
-    await jobStore.updateStage('mix-audio', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'mix-audio')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -630,7 +823,7 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
       status: 'mixed',
     }
   } catch (error) {
-    await jobStore.updateStage('mix-audio', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'mix-audio', error)
     throw error
   }
 }
@@ -638,7 +831,7 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
 export async function createFilmSubtitleProject(options: CreateFilmSubtitleProjectOptions): Promise<CreateFilmSubtitleProjectResult> {
   const projectId = options.projectId
   const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, workspaceDir)
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -646,7 +839,7 @@ export async function createFilmSubtitleProject(options: CreateFilmSubtitleProje
     workspaceDir,
   })
 
-  await jobStore.updateStage('subtitle', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'subtitle')
 
   try {
     const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
@@ -665,7 +858,7 @@ export async function createFilmSubtitleProject(options: CreateFilmSubtitleProje
       subtitles: await workspace.store.writeJson('subtitles.json', subtitles),
     }
 
-    await jobStore.updateStage('subtitle', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'subtitle')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -677,7 +870,7 @@ export async function createFilmSubtitleProject(options: CreateFilmSubtitleProje
       subtitles,
     }
   } catch (error) {
-    await jobStore.updateStage('subtitle', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'subtitle', error)
     throw error
   }
 }
@@ -685,7 +878,7 @@ export async function createFilmSubtitleProject(options: CreateFilmSubtitleProje
 export async function createFilmFinalRenderProject(options: CreateFilmFinalRenderProjectOptions): Promise<CreateFilmFinalRenderProjectResult> {
   const projectId = options.projectId
   const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, workspaceDir)
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -693,7 +886,7 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
     workspaceDir,
   })
 
-  await jobStore.updateStage('render-final', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'render-final')
 
   try {
     const [audioMix, subtitles, outputTimelineMap, narration] = await Promise.all([
@@ -743,7 +936,7 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
       version: 1 as const,
     })
 
-    await jobStore.updateStage('render-final', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'render-final')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -757,7 +950,7 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
       subtitlePath,
     }
   } catch (error) {
-    await jobStore.updateStage('render-final', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'render-final', error)
     throw error
   }
 }
@@ -765,7 +958,7 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
 export async function createFilmQualityCheckProject(options: CreateFilmQualityCheckProjectOptions): Promise<CreateFilmQualityCheckProjectResult> {
   const projectId = options.projectId
   const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createFilmJobStore(projectId, workspaceDir)
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -773,7 +966,7 @@ export async function createFilmQualityCheckProject(options: CreateFilmQualityCh
     workspaceDir,
   })
 
-  await jobStore.updateStage('quality-check', 'running', undefined, 1)
+  await startFilmStage(jobStore, workspace, 'quality-check')
 
   try {
     const [renderOutput, narration, ttsSegments] = await Promise.all([
@@ -795,7 +988,8 @@ export async function createFilmQualityCheckProject(options: CreateFilmQualityCh
     }
     const artifactPath = await workspace.store.writeJson('quality-report.json', qualityReport)
 
-    await jobStore.updateStage('quality-check', 'completed', undefined, 1)
+    await completeFilmStage(jobStore, workspace, 'quality-check')
+    await jobStore.complete(qualityReport.summary.errors === 0 ? 'completed' : 'failed')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -806,7 +1000,7 @@ export async function createFilmQualityCheckProject(options: CreateFilmQualityCh
       status: 'checked',
     }
   } catch (error) {
-    await jobStore.updateStage('quality-check', 'failed', error instanceof Error ? error.message : String(error), 1)
+    await failFilmStage(jobStore, workspace, 'quality-check', error)
     throw error
   }
 }

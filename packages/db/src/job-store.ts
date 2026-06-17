@@ -19,6 +19,7 @@ export interface JobState {
   completedAt?: string
   createdAt: string
   inputPath: string
+  pipeline?: string
   projectId: string
   stages: JobStageState[]
   status: JobRunStatus
@@ -28,6 +29,7 @@ export interface JobState {
 
 export interface InitializeJobOptions {
   inputPath: string
+  pipeline?: string
   projectId: string
   stages: readonly string[]
 }
@@ -63,6 +65,7 @@ export class JsonJobStore implements JobStore {
       completedAt: undefined,
       createdAt: existing?.createdAt ?? now,
       inputPath: options.inputPath,
+      pipeline: options.pipeline ?? existing?.pipeline,
       projectId: options.projectId,
       stages: options.stages.map((stage) => existing?.stages.find((existingStage) => existingStage.name === stage) ?? {name: stage, status: 'pending'}),
       status: 'running',

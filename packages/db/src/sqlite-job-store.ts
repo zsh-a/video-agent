@@ -18,6 +18,7 @@ interface JobRow {
   completed_at: null | string
   created_at: string
   input_path: string
+  pipeline: null | string
   project_id: string
   status: JobRunStatus
   updated_at: string
@@ -68,15 +69,16 @@ export class BunSqliteJobStore implements JobStore {
     database
       .prepare(
         `
-          insert into jobs (project_id, input_path, status, created_at, updated_at, version)
-          values (?, ?, ?, ?, ?, 1)
+          insert into jobs (project_id, input_path, pipeline, status, created_at, updated_at, version)
+          values (?, ?, ?, ?, ?, ?, 1)
           on conflict(project_id) do update set
             input_path = excluded.input_path,
+            pipeline = coalesce(excluded.pipeline, jobs.pipeline),
             status = excluded.status,
             updated_at = excluded.updated_at
         `,
       )
-      .run(options.projectId, options.inputPath, 'running', createdAt, now)
+      .run(options.projectId, options.inputPath, options.pipeline ?? null, 'running', createdAt, now)
 
     database.prepare('delete from job_stages where project_id = ?').run(options.projectId)
 
@@ -110,7 +112,7 @@ export class BunSqliteJobStore implements JobStore {
     const job = database
       .prepare<JobRow>(
         `
-          select completed_at, created_at, input_path, project_id, status, updated_at, version
+          select completed_at, created_at, input_path, pipeline, project_id, status, updated_at, version
           from jobs
           where project_id = ?
         `,
@@ -136,6 +138,7 @@ export class BunSqliteJobStore implements JobStore {
       ...(job.completed_at === null ? {} : {completedAt: job.completed_at}),
       createdAt: job.created_at,
       inputPath: job.input_path,
+      ...(job.pipeline === null ? {} : {pipeline: job.pipeline}),
       projectId: job.project_id,
       stages: stages.map((stage) => deserializeStage(stage)),
       status: job.status,
@@ -207,6 +210,7 @@ export class BunSqliteJobStore implements JobStore {
       create table if not exists jobs (
         project_id text primary key,
         input_path text not null,
+        pipeline text,
         status text not null,
         completed_at text,
         created_at text not null,
@@ -230,6 +234,7 @@ export class BunSqliteJobStore implements JobStore {
       create index if not exists job_stages_project_position_idx
       on job_stages(project_id, position);
     `)
+    addColumnIfMissing(database, 'jobs', 'pipeline text')
     addColumnIfMissing(database, 'job_stages', 'attempt integer')
 
     this.db = database

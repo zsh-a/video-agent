@@ -19,6 +19,7 @@ import {bunFile} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
 import {createConfiguredJobStore} from './job-store.js'
+import {INITIAL_PIPELINE_DEFINITION, INITIAL_PIPELINE_STAGES, type InitialPipelineStage, type PipelineDefinition, type PipelineStage} from './pipeline-definitions.js'
 import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecord, type ProviderCallRecorder, type ProviderCallStartRecord} from './provider-calls.js'
 import {createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
@@ -35,7 +36,7 @@ export interface RunInitialPipelineOptions {
   workspaceDir?: string
 }
 
-export type InitialPipelineStage = 'ingest' | 'plan' | 'quality' | 'script' | 'understand' | 'voiceover'
+export type {InitialPipelineStage} from './pipeline-definitions.js'
 
 export interface RunInitialPipelineResult {
   artifacts: {
@@ -118,26 +119,17 @@ interface PipelineProviders {
 type InitialStageInput = IngestOutput | InitialPipelineInput | PlanOutput | ScriptOutput | UnderstandOutput | VoiceoverOutput
 type InitialStageOutput = IngestOutput | PlanOutput | QualityOutput | ScriptOutput | UnderstandOutput | VoiceoverOutput
 
-const STAGES: readonly InitialPipelineStage[] = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']
+const STAGES = INITIAL_PIPELINE_STAGES
 const ANALYSIS_FRAME_FPS = 1
-
-const CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
-  ingest: [],
-  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
-  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
-  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
-  understand: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json'],
-  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
-}
 
 export class PipelineCheckpointError extends Error {
   readonly changedArtifacts: string[]
-  readonly fromStage: InitialPipelineStage
+  readonly fromStage: PipelineStage
   readonly missingArtifacts: string[]
   readonly schemaInvalidArtifacts: string[]
   readonly untrackedArtifacts: string[]
 
-  constructor(fromStage: InitialPipelineStage, issues: {changedArtifacts?: string[]; missingArtifacts?: string[]; schemaInvalidArtifacts?: string[]; untrackedArtifacts?: string[]}) {
+  constructor(fromStage: PipelineStage, issues: {changedArtifacts?: string[]; missingArtifacts?: string[]; schemaInvalidArtifacts?: string[]; untrackedArtifacts?: string[]}) {
     const changedArtifacts = issues.changedArtifacts ?? []
     const missingArtifacts = issues.missingArtifacts ?? []
     const schemaInvalidArtifacts = issues.schemaInvalidArtifacts ?? []
@@ -220,6 +212,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
   await assertCheckpointArtifacts(workspace.projectId, workspace.workspaceDir, fromStage)
   await jobStore.initialize({
     inputPath,
+    pipeline: INITIAL_PIPELINE_DEFINITION.kind,
     projectId: workspace.projectId,
     stages,
   })
@@ -1715,11 +1708,19 @@ async function hydratePipelineInput(options: HydratePipelineInputOptions): Promi
 }
 
 export async function assertCheckpointArtifacts(projectId: string, workspaceDir: string, fromStage: InitialPipelineStage): Promise<void> {
+  await assertPipelineCheckpointArtifacts(projectId, workspaceDir, INITIAL_PIPELINE_DEFINITION, fromStage)
+}
+
+export async function assertPipelineCheckpointArtifacts(projectId: string, workspaceDir: string, definition: PipelineDefinition, fromStage: PipelineStage): Promise<void> {
   const workspace = await createProjectWorkspace({
     projectId,
     workspaceDir,
   })
-  const checkpointArtifacts = CHECKPOINT_ARTIFACTS_BY_STAGE[fromStage]
+  const checkpointArtifacts = definition.checkpointArtifactsByStage[fromStage]
+
+  if (checkpointArtifacts === undefined) {
+    throw new Error(`Unknown ${definition.kind} pipeline stage: ${fromStage}`)
+  }
 
   if (checkpointArtifacts.length === 0) {
     return

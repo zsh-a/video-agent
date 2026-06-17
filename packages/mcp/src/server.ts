@@ -1,6 +1,7 @@
-import type {ExportFormat, InitialPipelineStage, ProjectRenderer, ProviderSmokeTestRole} from '@video-agent/runtime'
+import type {ExportFormat, InitialPipelineStage, PipelineStage, ProjectRenderer, ProviderSmokeTestRole} from '@video-agent/runtime'
 
 import {
+  ALL_PIPELINE_STAGES,
   checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
   exportProject,
@@ -71,6 +72,7 @@ export interface McpServer {
 }
 
 const STAGE_VALUES: InitialPipelineStage[] = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']
+const RERUN_STAGE_VALUES: PipelineStage[] = [...ALL_PIPELINE_STAGES]
 const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {
@@ -119,7 +121,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     inputPath: stringSchema('Path to the source media file to inspect and process.'),
     projectId: stringSchema('Optional stable project id. Defaults to a slug generated from the input filename and timestamp.'),
   }),
-  createTool('video_agent_rerun', 'Rerun an existing project from a checkpoint stage.', {fromStage: enumSchema(STAGE_VALUES, 'Checkpoint stage to resume from. Defaults to plan.'), projectId: projectIdSchema()}),
+  createTool('video_agent_rerun', 'Rerun an existing project from a checkpoint stage.', {fromStage: enumSchema(RERUN_STAGE_VALUES, 'Checkpoint stage to resume from. Defaults to the project pipeline default.'), projectId: projectIdSchema()}),
   createTool('video_agent_render', 'Render a project with ffmpeg or HyperFrames.', {
     audio: booleanSchema('When false, render without source or voiceover audio. Defaults to true.'),
     audioDucking: booleanSchema('Enable sidechain ducking so voiceover lowers source audio.'),
@@ -346,7 +348,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
 
     case 'video_agent_rerun': {
       return rerunProject(readRequiredString(args, 'projectId'), {
-        fromStage: readOptionalEnum(args, 'fromStage', STAGE_VALUES),
+        fromStage: readOptionalEnum(args, 'fromStage', RERUN_STAGE_VALUES),
         workspaceDir,
       })
     }

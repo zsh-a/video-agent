@@ -2,7 +2,9 @@ import type {JobRunStatus, JobStageState} from '@video-agent/db'
 
 import {ZodError} from 'zod'
 
-import {assertCheckpointArtifacts, type InitialPipelineStage, PipelineCheckpointError, type RunInitialPipelineResult} from './job-runner.js'
+import {assertPipelineCheckpointArtifacts, PipelineCheckpointError} from './job-runner.js'
+import type {RerunProjectResult} from './rerun.js'
+import {detectPipelineKind, getPipelineDefinition, isPipelineStage, type PipelineKind, type PipelineStage} from './pipeline-definitions.js'
 import {readProjectStatus} from './project-status.js'
 import {listProjects} from './projects.js'
 import {rerunProject} from './rerun.js'
@@ -29,11 +31,12 @@ export interface RecoverWorkspaceJobResult {
   attempt?: number
   changedArtifacts?: string[]
   error?: string
-  fromStage?: InitialPipelineStage
+  fromStage?: PipelineStage
   jobStatus?: JobRunStatus
   missingArtifacts?: string[]
+  pipeline?: PipelineKind
   projectId: string
-  result?: RunInitialPipelineResult
+  result?: RerunProjectResult
   schemaInvalidArtifacts?: string[]
   skipReason?: 'attempt-limit' | 'checkpoint-invalid' | 'limit' | 'not-recoverable' | 'running-active'
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
@@ -46,13 +49,13 @@ export type RecoverableJobStatus = 'failed' | 'running'
 export type RecoveryOrderBy = 'attempt' | 'oldest' | 'recent'
 
 type RecoveryCandidate = RecoverWorkspaceJobResult & {
-  fromStage: InitialPipelineStage
+  fromStage: PipelineStage
   jobStatus: JobRunStatus
+  pipeline: PipelineKind
   status: 'would-recover'
 }
 
 const RECOVERABLE_STATUSES: readonly RecoverableJobStatus[] = ['failed', 'running']
-const STAGE_VALUES = new Set<InitialPipelineStage>(['ingest', 'plan', 'quality', 'script', 'understand', 'voiceover'])
 
 export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions = {}): Promise<RecoverWorkspaceJobsReport> {
   const workspaceDir = options.workspaceDir ?? '.video-agent'
@@ -70,6 +73,7 @@ export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions 
     attempt: candidate.attempt,
     fromStage: candidate.fromStage,
     jobStatus: candidate.jobStatus,
+    pipeline: candidate.pipeline,
     projectId: candidate.projectId,
     workspaceDir,
   })))
@@ -94,11 +98,13 @@ interface ReadRecoveryCandidateOptions {
 async function readRecoveryCandidate(projectId: string, workspaceDir: string, options: ReadRecoveryCandidateOptions): Promise<RecoverWorkspaceJobResult> {
   const status = await readProjectStatus(projectId, workspaceDir)
   const {status: jobStatus, updatedAt} = status.job
-  const stage = options.statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages) : undefined
+  const pipeline = detectPipelineKind(status.job)
+  const stage = options.statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages, pipeline) : undefined
 
   if (stage === undefined) {
     return {
       jobStatus,
+      pipeline,
       projectId,
       skipReason: 'not-recoverable',
       status: 'skipped',
@@ -111,6 +117,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
       attempt: stage.attempt,
       fromStage: stage.name,
       jobStatus,
+      pipeline,
       projectId,
       skipReason: 'running-active',
       status: 'skipped',
@@ -123,6 +130,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
       attempt: stage.attempt,
       fromStage: stage.name,
       jobStatus,
+      pipeline,
       projectId,
       skipReason: 'attempt-limit',
       status: 'skipped',
@@ -130,7 +138,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
     }
   }
 
-  const checkpointIssue = await readCheckpointIssue(projectId, workspaceDir, stage.name)
+  const checkpointIssue = await readCheckpointIssue(projectId, workspaceDir, pipeline, stage.name)
 
   if (checkpointIssue !== undefined) {
     return {
@@ -139,6 +147,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
       error: checkpointIssue.message,
       fromStage: stage.name,
       jobStatus,
+      pipeline,
       missingArtifacts: checkpointIssue.missingArtifacts,
       projectId,
       schemaInvalidArtifacts: checkpointIssue.schemaInvalidArtifacts,
@@ -154,6 +163,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
     attempt: stage.attempt,
     fromStage: stage.name,
     jobStatus,
+    pipeline,
     projectId,
     status: 'would-recover',
     updatedAt,
@@ -179,7 +189,7 @@ function sortRecoveryCandidates(results: RecoverWorkspaceJobResult[], orderBy: R
 }
 
 function selectRecoveryCandidates(results: RecoverWorkspaceJobResult[], limit: number | undefined): RecoveryCandidate[] {
-  const candidates = results.filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined)
+  const candidates = results.filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined && result.pipeline !== undefined)
 
   return limit === undefined ? candidates : candidates.slice(0, limit)
 }
@@ -190,12 +200,13 @@ function selectDeferredCandidates(results: RecoverWorkspaceJobResult[], limit: n
   }
 
   return results
-    .filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined)
+    .filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined && result.pipeline !== undefined)
     .slice(limit)
     .map((candidate) => ({
       attempt: candidate.attempt,
       fromStage: candidate.fromStage,
       jobStatus: candidate.jobStatus,
+      pipeline: candidate.pipeline,
       projectId: candidate.projectId,
       skipReason: 'limit',
       status: 'skipped',
@@ -204,19 +215,21 @@ function selectDeferredCandidates(results: RecoverWorkspaceJobResult[], limit: n
 }
 
 type RecoverableStage = JobStageState & {
-  name: InitialPipelineStage
+  name: PipelineStage
 }
 
-function findRecoveryStage(stages: JobStageState[]): RecoverableStage | undefined {
+function findRecoveryStage(stages: JobStageState[], pipeline: PipelineKind): RecoverableStage | undefined {
   const stage = stages.find((item) => item.status === 'failed') ?? stages.find((item) => item.status === 'running') ?? stages.find((item) => item.status === 'pending')
+  const definition = getPipelineDefinition(pipeline)
 
-  return isInitialPipelineStage(stage?.name) ? {...stage, name: stage.name} : undefined
+  return isPipelineStage(definition, stage?.name) ? {...stage, name: stage.name} : undefined
 }
 
 interface RecoverProjectOptions {
   attempt?: number
-  fromStage: InitialPipelineStage
+  fromStage: PipelineStage
   jobStatus: JobRunStatus
+  pipeline: PipelineKind
   projectId: string
   workspaceDir: string
 }
@@ -227,6 +240,7 @@ async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWo
       attempt: options.attempt,
       fromStage: options.fromStage,
       jobStatus: options.jobStatus,
+      pipeline: options.pipeline,
       projectId: options.projectId,
       result: await rerunProject(options.projectId, {
         fromStage: options.fromStage,
@@ -240,14 +254,11 @@ async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWo
       error: error instanceof Error ? error.message : String(error),
       fromStage: options.fromStage,
       jobStatus: options.jobStatus,
+      pipeline: options.pipeline,
       projectId: options.projectId,
       status: 'failed',
     }
   }
-}
-
-function isInitialPipelineStage(value: string | undefined): value is InitialPipelineStage {
-  return value !== undefined && STAGE_VALUES.has(value as InitialPipelineStage)
 }
 
 interface CheckpointIssue {
@@ -265,9 +276,9 @@ export interface CheckpointValidationIssue {
   path: string[]
 }
 
-async function readCheckpointIssue(projectId: string, workspaceDir: string, fromStage: InitialPipelineStage): Promise<CheckpointIssue | undefined> {
+async function readCheckpointIssue(projectId: string, workspaceDir: string, pipeline: PipelineKind, fromStage: PipelineStage): Promise<CheckpointIssue | undefined> {
   try {
-    await assertCheckpointArtifacts(projectId, workspaceDir, fromStage)
+    await assertPipelineCheckpointArtifacts(projectId, workspaceDir, getPipelineDefinition(pipeline), fromStage)
     return undefined
   } catch (error) {
     if (error instanceof PipelineCheckpointError) {

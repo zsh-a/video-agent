@@ -10,6 +10,7 @@ export default class FilmSynthesizeVoice extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
+    trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -17,6 +18,7 @@ export default class FilmSynthesizeVoice extends Command {
     const {args, flags} = await this.parse(FilmSynthesizeVoice)
     const output = await createFilmVoiceoverProject({
       projectId: args.projectId,
+      trace: flags.trace,
       workspaceDir: flags.workspace,
     })
 

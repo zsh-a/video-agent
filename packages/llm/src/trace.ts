@@ -1,4 +1,4 @@
-import type {LLMTraceRecord, LLMTraceRecorder} from './types.js'
+import type {LLMTraceRecorder} from './types.js'
 
 import {appendFile, mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'

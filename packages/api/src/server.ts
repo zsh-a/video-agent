@@ -3,6 +3,7 @@ import {
   createProviderEnvironmentShellTemplate,
   exportProject,
   ExportQualityError,
+  ALL_PIPELINE_STAGES,
   inspectFfmpegAudio,
   listProjectArtifacts,
   listProjects,
@@ -193,7 +194,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
 
     return jsonResponse(
       await rerunProject(projectId, {
-        fromStage: parseOptionalEnum(readStringField(body, 'fromStage'), ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']),
+        fromStage: parseOptionalEnum(readStringField(body, 'fromStage'), ALL_PIPELINE_STAGES),
         workspaceDir,
       }),
     )

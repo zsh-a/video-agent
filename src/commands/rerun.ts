@@ -1,5 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type InitialPipelineStage, PipelineCheckpointError, rerunProject} from '@video-agent/runtime'
+import {ALL_PIPELINE_STAGES, type PipelineStage, PipelineCheckpointError, rerunProject} from '@video-agent/runtime'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 
@@ -10,9 +10,8 @@ export default class Rerun extends Command {
   static description = 'Rerun an existing project from a checkpoint stage'
   static flags = {
     'from-stage': Flags.string({
-      default: 'plan',
       description: 'Stage to start from when checkpoint artifacts already exist',
-      options: ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality'],
+      options: [...ALL_PIPELINE_STAGES],
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
@@ -24,7 +23,7 @@ export default class Rerun extends Command {
 
     try {
       output = await rerunProject(args.project, {
-        fromStage: flags['from-stage'] as InitialPipelineStage,
+        fromStage: flags['from-stage'] as PipelineStage | undefined,
         workspaceDir: flags.workspace,
       })
     } catch (error) {
@@ -44,7 +43,12 @@ export default class Rerun extends Command {
 
     this.log(`Project: ${output.projectId}`)
     this.log(`Workspace: ${output.projectDir}`)
-    this.log(`Artifacts: ${Object.keys(output.artifacts).length}`)
+    if ('artifacts' in output) {
+      this.log(`Artifacts: ${Object.keys(output.artifacts).length}`)
+    } else {
+      this.log(`Pipeline: ${output.pipeline}`)
+      this.log(`Stages: ${output.completedStages.join(', ')}`)
+    }
     this.log(`Status: ${output.status}`)
   }
 }

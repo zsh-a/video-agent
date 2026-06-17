@@ -11,10 +11,10 @@ export default class Film extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    platform: Flags.string({description: 'Target platform hint for later clip planning'}),
+    'max-scenes': Flags.integer({description: 'Maximum source scenes to derive during film understanding'}),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
-    style: Flags.string({description: 'Recap style hint for later narration'}),
     target: Flags.string({description: 'Target duration hint for later clip planning'}),
+    trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
@@ -22,8 +22,10 @@ export default class Film extends Command {
     const {args, flags} = await this.parse(Film)
     const output = await runFilmRecapPipeline({
       inputPath: resolve(args.input),
+      maxScenes: flags['max-scenes'],
       projectId: flags['project-id'],
       targetDurationSeconds: flags.target === undefined ? undefined : parseDurationSeconds(flags.target),
+      trace: flags.trace,
       workspaceDir: flags.workspace,
     })
 

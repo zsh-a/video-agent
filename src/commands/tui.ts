@@ -1,7 +1,7 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, InitialPipelineStage, PipelineCheckpointError as PipelineCheckpointErrorType, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, PipelineCheckpointError as PipelineCheckpointErrorType, PipelineStage, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {ALL_PIPELINE_STAGES, createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
@@ -50,9 +50,8 @@ export default class Tui extends Command {
     'export-require-quality': Flags.boolean({allowNo: true, default: true, description: 'Refuse export unless project quality is clean when --action export is used'}),
     frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
     'from-stage': Flags.string({
-      default: 'plan',
       description: 'Stage to start from when --action rerun is used',
-      options: ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality'],
+      options: [...ALL_PIPELINE_STAGES],
     }),
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),
     limit: Flags.integer({description: 'Maximum recoverable jobs to process when --action worker is used'}),
@@ -126,7 +125,7 @@ export default class Tui extends Command {
       exportOutputPath: flags['export-output'],
       exportRequireQuality: flags['export-require-quality'],
       framePath: flags.frame,
-      fromStage: flags['from-stage'] as InitialPipelineStage,
+      fromStage: flags['from-stage'] as PipelineStage | undefined,
       limit: flags.limit,
       maxAttempts: flags['max-attempts'],
       mediaPath: flags.media,
@@ -226,7 +225,7 @@ export interface RunTuiActionOptions {
   exportOutputPath?: string
   exportRequireQuality: boolean
   framePath?: string
-  fromStage: InitialPipelineStage
+  fromStage?: PipelineStage
   limit?: number
   maxAttempts?: number
   mediaPath?: string
@@ -266,7 +265,7 @@ export type TuiActionResult =
   | {commands: TuiCommandSuggestion[]; type: 'commands'}
   | {diagnostics: FfmpegAudioDiagnostics; projectId: string; type: 'audio'}
   | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
-  | {fromStage: InitialPipelineStage; projectId: string; status: string; type: 'rerun'}
+  | {fromStage?: PipelineStage; projectId: string; status: string; type: 'rerun'}
   | {projectId: string; result: ArtifactIntegrityResult; type: 'verify'}
   | {projects: ProjectSummary[]; type: 'projects'}
   | {report: ProjectVisualSamplesReport; type: 'visual'}
@@ -748,7 +747,7 @@ function formatTuiWorkerIssue(result: RecoverWorkspaceJobResult): string[] {
 }
 
 function createCheckpointErrorFromPayload(error: TuiCheckpointErrorActionResult['error']): PipelineCheckpointErrorType {
-  return new PipelineCheckpointError(error.fromStage as InitialPipelineStage, {
+  return new PipelineCheckpointError(error.fromStage as PipelineStage, {
     changedArtifacts: error.changedArtifacts,
     missingArtifacts: error.missingArtifacts,
     schemaInvalidArtifacts: error.schemaInvalidArtifacts,
