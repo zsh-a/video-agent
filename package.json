@@ -76,6 +76,8 @@
     "dev": "bun ./bin/dev.js",
     "lint": "eslint",
     "posttest": "bun run lint",
+    "postpack": "bun run clean",
+    "prepack": "bun run build",
     "start": "bun ./bin/dev.js",
     "test": "bun run build && bun test --timeout 60000 ./test"
   },
