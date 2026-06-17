@@ -248,6 +248,57 @@ describe('AI SDK LLM adapter', () => {
     expect(fallbackTrace.usage.totalTokens).to.equal(7)
   })
 
+  it('omits inline media payloads from traces', async () => {
+    const traces: unknown[] = []
+    const model = createMockLanguageModel({
+      generateResult: {
+        content: [
+          {
+            text: 'transcript',
+            type: 'text',
+          },
+        ],
+        finishReason: 'stop',
+        usage: {
+          inputTokens: 3,
+          outputTokens: 1,
+          totalTokens: 4,
+        },
+        warnings: [],
+      },
+    })
+    const client = new AISDKLLMClient({
+      model,
+      trace: {
+        record(trace) {
+          traces.push(trace)
+        },
+      },
+    })
+    const data = 'data:audio/wav;base64,SGVsbG8='
+
+    await client.generateText({
+      messages: [
+        {
+          content: [
+            {
+              data,
+              mediaType: 'audio/wav',
+              type: 'file',
+            },
+          ],
+          role: 'user',
+        },
+      ],
+    })
+
+    const trace = traces[0] as {request: {messages: Array<{content: Array<{data: string}>}>}}
+
+    expect(trace.request.messages[0]?.content[0]?.data).to.contain('[omitted media payload:')
+    expect(trace.request.messages[0]?.content[0]?.data).to.contain('mediaType=audio/wav')
+    expect(trace.request.messages[0]?.content[0]?.data.includes('SGVsbG8=')).to.equal(false)
+  })
+
   it('repairs a common malformed comparison object in fallback JSON', async () => {
     let calls = 0
     const model = createMockLanguageModel({
