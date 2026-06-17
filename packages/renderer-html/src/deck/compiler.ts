@@ -147,7 +147,7 @@ function createDeckHtml(plan: DeckHtmlRenderPlan, options: CreateDeckHtmlOptions
   <meta name="viewport" content="width=${plan.canvas.width}, initial-scale=1" />
   <title>${escapeHtml(plan.deck.title)}</title>
   <link rel="stylesheet" href="${escapeHtml(options.stylesheetHref)}" />
-  <script type="application/json" id="deck-render-plan">${escapeHtml(JSON.stringify(plan))}</script>
+  <script type="application/json" id="deck-render-plan">${serializeJsonForScript(plan)}</script>
 </head>
 <body data-format="${escapeHtml(plan.deck.format)}" data-theme="${escapeHtml(plan.deck.theme)}"${options.captureSlideId === undefined ? '' : ' data-capture="slide"'}>
 ${renderDeckStage(plan.deck, {
@@ -167,6 +167,15 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
+}
+
+function serializeJsonForScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll('<', '\\u003c')
+    .replaceAll('>', '\\u003e')
+    .replaceAll('&', '\\u0026')
+    .replaceAll('\u2028', '\\u2028')
+    .replaceAll('\u2029', '\\u2029')
 }
 
 async function writeDeckFontAssets(outputDir: string): Promise<void> {

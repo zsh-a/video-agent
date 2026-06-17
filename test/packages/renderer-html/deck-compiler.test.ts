@@ -74,8 +74,11 @@ describe('html deck compiler', () => {
         timings: Array<{slideId: string}>
         version: number
       }
+      const embeddedPlanText = html.match(/<script type="application\/json" id="deck-render-plan">(?<json>[\s\S]*?)<\/script>/)?.groups?.json
+      const embeddedPlan = JSON.parse(embeddedPlanText ?? '{}') as {audioRef?: string; deck?: {title: string}}
 
       expect(html).to.contain('id="deck-render-plan"')
+      expect(html).not.include('&quot;audioRef&quot;')
       expect(html).to.contain('data-format="portrait_1080x1920"')
       expect(html).to.contain('data-slide="slide-001"')
       expect(html).to.contain('data-start="6"')
@@ -91,7 +94,12 @@ describe('html deck compiler', () => {
       expect(styles).not.include('@keyframes')
       expect(runtime).to.contain('window.vagent')
       expect(runtime).to.contain('function seek(timeSeconds)')
+      expect(runtime).to.contain('requestedTimeParam')
+      expect(runtime).to.contain('firstSlidePreviewTime()')
+      expect(runtime).to.contain('latestMotionEndForSlide')
       expect(plan.audioRef).to.equal('audio/deck_voiceover.wav')
+      expect(embeddedPlan.audioRef).to.equal('audio/deck_voiceover.wav')
+      expect(embeddedPlan.deck?.title).to.equal('视频 Agent 的正确架构')
       expect(plan.canvas).to.deep.equal({height: 1920, width: 1080})
       expect(plan.deck.title).to.equal('视频 Agent 的正确架构')
       expect(plan.duration).to.equal(18)

@@ -2,7 +2,8 @@ export function createDeckRuntimeScript(): string {
   return `const planElement = document.getElementById('deck-render-plan')
 const plan = planElement === null ? undefined : JSON.parse(planElement.textContent || '{}')
 const url = new URL(window.location.href)
-const requestedTime = Number(url.searchParams.get('time'))
+const requestedTimeParam = url.searchParams.get('time')
+const requestedTime = requestedTimeParam === null ? undefined : Number(requestedTimeParam)
 const requestedSlide = url.searchParams.get('slide')
 const slides = Array.from(document.querySelectorAll('[data-slide]'))
 const slideState = new Map((plan?.motion?.slides || []).map((slide) => [slide.slideId, slide]))
@@ -207,6 +208,54 @@ function easeOutExpo(value) {
   return value >= 1 ? 1 : 1 - Math.pow(2, -10 * value)
 }
 
+function previewTimeForSlide(slideId) {
+  const state = slideState.get(slideId)
+
+  if (state === undefined) {
+    return 0
+  }
+
+  const localDuration = Math.max(0.001, state.end - state.start)
+  const exitMargin = Math.min(0.32, localDuration * 0.12)
+  const minPreviewTime = state.start + Math.min(0.5, localDuration * 0.2)
+  const maxPreviewTime = Math.max(state.start, state.end - exitMargin - 0.05)
+  const latestMotionEnd = latestMotionEndForSlide(slideId)
+  const targetTime = latestMotionEnd === undefined
+    ? state.start + Math.max(0.35, localDuration * 0.35)
+    : latestMotionEnd + 0.2
+
+  if (maxPreviewTime < minPreviewTime) {
+    return state.start + localDuration * 0.5
+  }
+
+  return clamp(targetTime, minPreviewTime, maxPreviewTime)
+}
+
+function latestMotionEndForSlide(slideId) {
+  let latest
+  const marker = '[data-slide="' + slideId + '"]'
+
+  for (const step of plan?.motion?.steps || []) {
+    if (!step.selector.includes(marker)) {
+      continue
+    }
+
+    const count = Math.max(1, document.querySelectorAll(step.selector).length)
+    const stagger = step.stagger || 0
+    const stepEnd = step.at + step.duration + Math.max(0, count - 1) * stagger
+
+    latest = latest === undefined ? stepEnd : Math.max(latest, stepEnd)
+  }
+
+  return latest
+}
+
+function firstSlidePreviewTime() {
+  const firstSlideId = slides[0]?.getAttribute('data-slide')
+
+  return firstSlideId === undefined || firstSlideId === null ? 0 : previewTimeForSlide(firstSlideId)
+}
+
 window.vagent = {
   duration,
   pause,
@@ -219,8 +268,8 @@ await ready()
 const initialTime = Number.isFinite(requestedTime)
   ? requestedTime
   : requestedSlide === null
-    ? 0
-    : (slideState.get(requestedSlide)?.start || 0) + Math.min(0.75, ((slideState.get(requestedSlide)?.end || 0) - (slideState.get(requestedSlide)?.start || 0)) * 0.35)
+    ? firstSlidePreviewTime()
+    : previewTimeForSlide(requestedSlide)
 
 seek(initialTime)
 `
