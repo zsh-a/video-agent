@@ -45,24 +45,35 @@ export interface TuiManagerScreenProps {
 export interface TuiManagerActionDefinition {
   confirm: boolean
   description: string
+  group: 'Inspect' | 'Operate'
   id: TuiManagerActionId
   label: string
   projectScoped: boolean
 }
 
 const VIEW_ORDER: TuiManagerView[] = ['dashboard', 'projects', 'events', 'artifacts', 'quality', 'actions', 'commands', 'output']
+const NAV_ITEMS: Array<{key: string; label: string; view: TuiManagerView}> = [
+  {key: 'd', label: 'Dashboard', view: 'dashboard'},
+  {key: 'p', label: 'Projects', view: 'projects'},
+  {key: 'e', label: 'Events', view: 'events'},
+  {key: 'f', label: 'Artifacts', view: 'artifacts'},
+  {key: 'g', label: 'Quality', view: 'quality'},
+  {key: 'x', label: 'Actions', view: 'actions'},
+  {key: 'c', label: 'Commands', view: 'commands'},
+  {key: 'o', label: 'Output', view: 'output'},
+]
 const MANAGER_ACTIONS: TuiManagerActionDefinition[] = [
-  {confirm: false, description: 'Read focused project status.', id: 'status', label: 'Inspect status', projectScoped: true},
-  {confirm: false, description: 'Read focused project quality summary.', id: 'quality', label: 'Inspect quality', projectScoped: true},
-  {confirm: false, description: 'Read recent focused project events.', id: 'events', label: 'Read events', projectScoped: true},
-  {confirm: false, description: 'Verify artifact manifest and known schemas.', id: 'verify', label: 'Verify artifacts', projectScoped: true},
-  {confirm: false, description: 'Inspect render audio readiness.', id: 'audio', label: 'Inspect audio', projectScoped: true},
-  {confirm: false, description: 'Inspect visual frame samples.', id: 'visual', label: 'Inspect visual samples', projectScoped: true},
-  {confirm: false, description: 'Run provider smoke tests for the workspace.', id: 'provider-test', label: 'Test providers', projectScoped: false},
-  {confirm: false, description: 'Preview recoverable workspace jobs.', id: 'worker-dry-run', label: 'Worker dry-run', projectScoped: false},
-  {confirm: true, description: 'Rerun the focused project from the configured stage.', id: 'rerun', label: 'Rerun project', projectScoped: true},
-  {confirm: true, description: 'Render the focused project with configured render options.', id: 'render', label: 'Render project', projectScoped: true},
-  {confirm: true, description: 'Export the focused project with configured export options.', id: 'export', label: 'Export project', projectScoped: true},
+  {confirm: false, description: 'Current job state', group: 'Inspect', id: 'status', label: 'Status', projectScoped: true},
+  {confirm: false, description: 'Quality report', group: 'Inspect', id: 'quality', label: 'Quality', projectScoped: true},
+  {confirm: false, description: 'Recent runtime events', group: 'Inspect', id: 'events', label: 'Events', projectScoped: true},
+  {confirm: false, description: 'Manifest and schemas', group: 'Inspect', id: 'verify', label: 'Verify', projectScoped: true},
+  {confirm: false, description: 'Audio readiness', group: 'Inspect', id: 'audio', label: 'Audio', projectScoped: true},
+  {confirm: false, description: 'Frame samples', group: 'Inspect', id: 'visual', label: 'Visual', projectScoped: true},
+  {confirm: false, description: 'Provider smoke test', group: 'Inspect', id: 'provider-test', label: 'Providers', projectScoped: false},
+  {confirm: false, description: 'Recovery preview', group: 'Inspect', id: 'worker-dry-run', label: 'Worker dry-run', projectScoped: false},
+  {confirm: true, description: 'Run from configured stage', group: 'Operate', id: 'rerun', label: 'Rerun', projectScoped: true},
+  {confirm: true, description: 'Create render output', group: 'Operate', id: 'render', label: 'Render', projectScoped: true},
+  {confirm: true, description: 'Write export artifact', group: 'Operate', id: 'export', label: 'Export', projectScoped: true},
 ]
 
 export async function launchTuiManager(options: LaunchTuiManagerOptions): Promise<void> {
@@ -343,6 +354,7 @@ export function TuiManagerScreen({
 }: TuiManagerScreenProps): ReactElement {
   return h(Box, {flexDirection: 'column', gap: 1},
     h(Header, {activeView, loading, snapshot}),
+    h(Navigation, {activeView}),
     h(Box, {gap: 2},
       h(ProjectSidebar, {selectedProjectIndex, snapshot}),
       h(MainPanel, {
@@ -361,33 +373,56 @@ export function TuiManagerScreen({
 }
 
 function Header({activeView, loading, snapshot}: {activeView: TuiManagerView; loading: boolean; snapshot?: TuiSnapshot}) {
+  const selected = snapshot?.selected
+
   return h(Box, {flexDirection: 'column'},
-    h(Box, {gap: 1},
-      h(Text, {bold: true}, 'video-agent manager'),
-      h(Text, {dimColor: true}, 'view'),
-      h(Text, {color: 'cyan'}, activeView),
+    h(Box, {justifyContent: 'space-between'},
+      h(Box, {gap: 1},
+        h(Text, {bold: true}, 'video-agent'),
+        h(Text, {dimColor: true}, 'manager'),
+        selected === undefined ? null : h(Text, {color: 'cyan'}, selected.projectId),
+      ),
+      h(Box, {gap: 1},
+        loading ? h(Text, {color: 'yellow'}, 'syncing') : h(Text, {color: 'green'}, 'ready'),
+      ),
+    ),
+    h(Box, {gap: 2},
       h(Text, {dimColor: true}, 'projects'),
       h(Text, null, String(snapshot?.projects.length ?? 0)),
-      loading ? h(Text, {color: 'yellow'}, 'refreshing') : null,
-    ),
-    h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'view'),
+      h(Text, null, activeView),
       h(Text, {dimColor: true}, 'workspace'),
       h(Text, {wrap: 'truncate-end'}, snapshot?.workspaceDir ?? 'loading'),
     ),
   )
 }
 
+function Navigation({activeView}: {activeView: TuiManagerView}) {
+  return h(Box, {gap: 1},
+    ...NAV_ITEMS.map((item) => h(Text, {
+      color: item.view === activeView ? 'black' : 'cyan',
+      dimColor: item.view !== activeView,
+      inverse: item.view === activeView,
+      key: item.view,
+    }, ` ${item.label} `)),
+  )
+}
+
 function ProjectSidebar({selectedProjectIndex, snapshot}: {selectedProjectIndex: number; snapshot?: TuiSnapshot}) {
   const projects = snapshot?.projects ?? []
 
-  return h(Box, {borderColor: 'gray', borderStyle: 'round', flexDirection: 'column', paddingX: 1, width: 32},
-    h(Text, {bold: true}, 'Projects'),
+  return h(Box, {flexDirection: 'column', width: 30},
+    h(SectionTitle, {title: `Projects ${projects.length}`}),
     projects.length === 0
       ? h(Text, {dimColor: true}, 'No projects')
       : projects.slice(0, 12).map((project, index) => h(Box, {key: project.projectId, gap: 1},
         h(Text, {color: index === selectedProjectIndex ? 'cyan' : undefined}, index === selectedProjectIndex ? '>' : ' '),
-        h(Text, {bold: project.projectId === snapshot?.selected?.projectId, wrap: 'truncate-end'}, project.projectId),
-        h(Text, {dimColor: true}, project.status ?? 'unknown'),
+        h(Text, {
+          bold: project.projectId === snapshot?.selected?.projectId,
+          color: projectStatusColor(project.status),
+          wrap: 'truncate-end',
+        }, project.projectId),
+        h(Text, {dimColor: true}, compactStatus(project.status)),
       )),
   )
 }
@@ -403,7 +438,7 @@ function MainPanel(props: {
 }) {
   const {activeView, commands, loadingAction, output, selectedActionIndex, selectedArtifactIndex, snapshot} = props
 
-  return h(Box, {borderColor: 'gray', borderStyle: 'round', flexDirection: 'column', paddingX: 1, width: 92},
+  return h(Box, {flexDirection: 'column', width: 94},
     activeView === 'dashboard' ? h(DashboardView, {snapshot}) : null,
     activeView === 'projects' ? h(ProjectsView, {snapshot}) : null,
     activeView === 'events' ? h(EventsView, {snapshot}) : null,
@@ -423,14 +458,15 @@ function DashboardView({snapshot}: {snapshot?: TuiSnapshot}) {
   }
 
   return h(Fragment, null,
-    h(Text, {bold: true}, selected.projectId),
-    h(Text, null, `Job ${selected.job.status}  artifacts ${selected.artifacts.length}  events ${selected.summary.events.count}`),
-    h(Text, null, `Quality ${selected.summary.quality.issues} issues (${selected.summary.quality.errors} errors, ${selected.summary.quality.warnings} warnings)`),
-    h(Text, null, `Providers ${selected.summary.providers.total} calls (${selected.summary.providers.failed} failed)`),
-    h(Text, null, `Render ${formatRender(selected.summary.render)}`),
+    h(SectionTitle, {title: selected.projectId}),
+    h(SummaryBar, {snapshot}),
     h(Text, {dimColor: true, wrap: 'truncate-end'}, selected.job.inputPath),
-    h(Text, {bold: true}, 'Pipeline'),
-    ...selected.job.stages.slice(0, 10).map((stage) => h(Text, {key: stage.name}, `  ${stage.name.padEnd(12)} ${stage.status}${stage.attempt === undefined ? '' : ` attempt=${stage.attempt}`}${stage.message === undefined ? '' : ` ${stage.message}`}`)),
+    h(SectionTitle, {title: 'Pipeline'}),
+    ...selected.job.stages.slice(0, 10).map((stage) => h(Box, {gap: 1, key: stage.name},
+      h(Text, {color: stageStatusColor(stage.status)}, stageStatusMark(stage.status)),
+      h(Text, {bold: stage.status === 'running'}, stage.name.padEnd(18)),
+      h(Text, {dimColor: stage.status !== 'failed'}, `${stage.status}${stage.attempt === undefined ? '' : ` attempt ${stage.attempt}`}${stage.message === undefined ? '' : ` ${stage.message}`}`),
+    )),
   )
 }
 
@@ -442,7 +478,7 @@ function ProjectsView({snapshot}: {snapshot?: TuiSnapshot}) {
   }
 
   return h(Fragment, null,
-    h(Text, {bold: true}, 'Workspace Projects'),
+    h(SectionTitle, {title: 'Workspace Projects'}),
     ...projects.slice(0, 16).map((project) => h(Text, {
       color: project.projectId === snapshot?.selected?.projectId ? 'cyan' : undefined,
       key: project.projectId,
@@ -455,7 +491,7 @@ function EventsView({snapshot}: {snapshot?: TuiSnapshot}) {
   const events = snapshot?.events ?? []
 
   return h(Fragment, null,
-    h(Text, {bold: true}, 'Recent Events'),
+    h(SectionTitle, {title: 'Recent Events'}),
     events.length === 0 ? h(Text, {dimColor: true}, 'none') : events.slice(0, 14).map((event, index) => h(Text, {
       key: `${event.time}:${index}`,
       wrap: 'truncate-end',
@@ -467,7 +503,7 @@ function ArtifactsView({selectedArtifactIndex, snapshot}: {selectedArtifactIndex
   const artifacts = snapshot?.artifacts ?? []
 
   return h(Fragment, null,
-    h(Text, {bold: true}, 'Artifacts'),
+    h(SectionTitle, {title: 'Artifacts'}),
     artifacts.length === 0 ? h(Text, {dimColor: true}, 'none') : artifacts.slice(0, 14).map((artifact, index) => h(Text, {
       color: index === selectedArtifactIndex ? 'cyan' : undefined,
       key: artifact.name,
@@ -485,32 +521,47 @@ function QualityView({snapshot}: {snapshot?: TuiSnapshot}) {
   }
 
   return h(Fragment, null,
-    h(Text, {bold: true}, 'Quality'),
-    h(Text, {color: selected.summary.quality.errors > 0 ? 'red' : selected.summary.quality.warnings > 0 ? 'yellow' : 'green'}, `${selected.summary.quality.issues} issues (${selected.summary.quality.errors} errors, ${selected.summary.quality.warnings} warnings)`),
-    integrity === undefined ? null : h(Text, {color: integrity.ok ? 'green' : 'yellow'}, `Artifacts ${integrity.ok ? 'ok' : 'needs attention'}  checked ${integrity.summary.checked}  missing ${integrity.summary.missing}  changed ${integrity.summary.changed}  schema ${integrity.summary.schemaInvalid}`),
-    h(Text, null, `Render ${formatRender(selected.summary.render)}`),
+    h(SectionTitle, {title: 'Quality'}),
+    h(SummaryBar, {snapshot}),
+    integrity === undefined ? null : h(Box, {gap: 1},
+      h(Text, {color: integrity.ok ? 'green' : 'yellow'}, integrity.ok ? 'clean' : 'attention'),
+      h(Text, null, `checked ${integrity.summary.checked}`),
+      h(Text, {dimColor: integrity.summary.missing === 0}, `missing ${integrity.summary.missing}`),
+      h(Text, {dimColor: integrity.summary.changed === 0}, `changed ${integrity.summary.changed}`),
+      h(Text, {dimColor: integrity.summary.schemaInvalid === 0}, `schema ${integrity.summary.schemaInvalid}`),
+    ),
+    h(Text, null, `render ${formatRender(selected.summary.render)}`),
   )
 }
 
 function ActionsView({loadingAction, selectedActionIndex, snapshot}: {loadingAction?: string; selectedActionIndex: number; snapshot?: TuiSnapshot}) {
-  return h(Fragment, null,
-    h(Text, {bold: true}, 'Management Actions'),
-    ...MANAGER_ACTIONS.map((action, index) => {
-      const disabled = action.projectScoped && snapshot?.selected === undefined
-      const running = loadingAction === action.id
+  const inspectActions = MANAGER_ACTIONS.filter((action) => action.group === 'Inspect')
+  const operateActions = MANAGER_ACTIONS.filter((action) => action.group === 'Operate')
 
-      return h(Text, {
-        color: disabled ? 'gray' : index === selectedActionIndex ? 'cyan' : undefined,
-        key: action.id,
-        wrap: 'truncate-end',
-      }, `${index === selectedActionIndex ? '>' : ' '} ${action.label.padEnd(22)} ${running ? 'running ' : ''}${action.confirm ? 'confirm ' : ''}${action.description}`)
+  return h(Fragment, null,
+    h(SectionTitle, {title: 'Actions'}),
+    h(ActionGroup, {
+      actions: inspectActions,
+      loadingAction,
+      offset: 0,
+      selectedActionIndex,
+      snapshot,
+      title: 'Inspect',
+    }),
+    h(ActionGroup, {
+      actions: operateActions,
+      loadingAction,
+      offset: inspectActions.length,
+      selectedActionIndex,
+      snapshot,
+      title: 'Operate',
     }),
   )
 }
 
 function CommandsView({commands}: {commands: TuiCommandSuggestion[]}) {
   return h(Fragment, null,
-    h(Text, {bold: true}, 'Guided Commands'),
+    h(SectionTitle, {title: 'Guided Commands'}),
     commands.length === 0 ? h(Text, {dimColor: true}, 'none') : commands.slice(0, 14).map((command) => h(Text, {
       key: command.id ?? command.command,
       wrap: 'truncate-end',
@@ -520,7 +571,7 @@ function CommandsView({commands}: {commands: TuiCommandSuggestion[]}) {
 
 function OutputView({output}: {output?: string}) {
   return h(Fragment, null,
-    h(Text, {bold: true}, 'Action Output'),
+    h(SectionTitle, {title: 'Action Output'}),
     output === undefined || output === '' ? h(Text, {dimColor: true}, 'No action output yet.') : output.split('\n').slice(0, 18).map((line, index) => h(Text, {
       key: `${index}:${line}`,
       wrap: 'truncate-end',
@@ -528,9 +579,79 @@ function OutputView({output}: {output?: string}) {
   )
 }
 
+function SummaryBar({snapshot}: {snapshot?: TuiSnapshot}) {
+  const selected = snapshot?.selected
+
+  if (selected === undefined) {
+    return h(Text, {dimColor: true}, 'No project selected.')
+  }
+
+  return h(Box, {gap: 2},
+    h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'job'),
+      h(Text, {color: projectStatusColor(selected.job.status)}, selected.job.status),
+    ),
+    h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'quality'),
+      h(Text, {color: selected.summary.quality.errors > 0 ? 'red' : selected.summary.quality.warnings > 0 ? 'yellow' : 'green'}, `${selected.summary.quality.issues}/${selected.summary.quality.errors}e`),
+    ),
+    h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'providers'),
+      h(Text, {color: selected.summary.providers.failed > 0 ? 'red' : undefined}, `${selected.summary.providers.total}/${selected.summary.providers.failed}f`),
+    ),
+    h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'artifacts'),
+      h(Text, null, String(selected.artifacts.length)),
+    ),
+    h(Box, {gap: 1},
+      h(Text, {dimColor: true}, 'render'),
+      h(Text, null, formatRender(selected.summary.render)),
+    ),
+  )
+}
+
+function ActionGroup({
+  actions,
+  loadingAction,
+  offset,
+  selectedActionIndex,
+  snapshot,
+  title,
+}: {
+  actions: TuiManagerActionDefinition[]
+  loadingAction?: string
+  offset: number
+  selectedActionIndex: number
+  snapshot?: TuiSnapshot
+  title: string
+}) {
+  return h(Box, {flexDirection: 'column', marginTop: offset === 0 ? 0 : 1},
+    h(Text, {bold: true, dimColor: true}, title),
+    ...actions.map((action, index) => {
+      const globalIndex = offset + index
+      const disabled = action.projectScoped && snapshot?.selected === undefined
+      const running = loadingAction === action.id
+      const selected = globalIndex === selectedActionIndex
+
+      return h(Box, {gap: 1, key: action.id},
+        h(Text, {color: selected ? 'cyan' : undefined}, selected ? '>' : ' '),
+        h(Text, {
+          bold: selected,
+          color: disabled ? 'gray' : undefined,
+        }, action.label.padEnd(16)),
+        h(Text, {
+          color: action.confirm ? 'yellow' : undefined,
+          dimColor: !action.confirm,
+        }, running ? 'running' : action.confirm ? 'confirm' : 'read'),
+        h(Text, {dimColor: true, wrap: 'truncate-end'}, action.description),
+      )
+    }),
+  )
+}
+
 function StatusLine({confirmAction, error, loadingAction}: {confirmAction?: TuiManagerActionDefinition; error?: string; loadingAction?: string}) {
   if (confirmAction !== undefined) {
-    return h(Text, {color: 'yellow'}, `Confirm ${confirmAction.label}: press y or enter to run, n/esc to cancel.`)
+    return h(Text, {color: 'yellow'}, `${confirmAction.label} requires confirmation: y/enter to run, n/esc to cancel.`)
   }
 
   if (error !== undefined) {
@@ -545,11 +666,75 @@ function StatusLine({confirmAction, error, loadingAction}: {confirmAction?: TuiM
 }
 
 function Footer() {
-  return h(Text, {dimColor: true}, 'q quit  r refresh  tab view  p projects  d dashboard  e events  f artifacts  g quality  x actions  c commands  enter open/run  esc cancel')
+  return h(Text, {dimColor: true}, 'q quit  r refresh  tab next  enter open/run  esc cancel')
+}
+
+function SectionTitle({title}: {title: string}) {
+  return h(Text, {bold: true}, title)
 }
 
 function EmptyView({message}: {message: string}) {
   return h(Text, {dimColor: true}, message)
+}
+
+function projectStatusColor(status: string | undefined): string | undefined {
+  if (status === 'completed') {
+    return 'green'
+  }
+
+  if (status === 'failed') {
+    return 'red'
+  }
+
+  if (status === 'running') {
+    return 'cyan'
+  }
+
+  return undefined
+}
+
+function compactStatus(status: string | undefined): string {
+  if (status === undefined) {
+    return 'unknown'
+  }
+
+  if (status === 'completed') {
+    return 'done'
+  }
+
+  return status
+}
+
+function stageStatusColor(status: string): string | undefined {
+  if (status === 'completed') {
+    return 'green'
+  }
+
+  if (status === 'failed') {
+    return 'red'
+  }
+
+  if (status === 'running') {
+    return 'cyan'
+  }
+
+  return 'gray'
+}
+
+function stageStatusMark(status: string): string {
+  if (status === 'completed') {
+    return 'done'
+  }
+
+  if (status === 'failed') {
+    return 'fail'
+  }
+
+  if (status === 'running') {
+    return 'run '
+  }
+
+  return 'wait'
 }
 
 function formatRender(render: NonNullable<TuiSnapshot['selected']>['summary']['render']): string {

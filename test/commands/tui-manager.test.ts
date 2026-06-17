@@ -23,10 +23,10 @@ describe('interactive tui manager', () => {
     expect(output).to.include('/tmp/workspace')
     expect(output).to.include('Projects')
     expect(output).to.include('demo')
-    expect(output).to.include('Quality 1 issues')
+    expect(output).to.include('quality 1/0e')
     expect(output).to.include('Pipeline')
     expect(output).to.include('ingest')
-    expect(output).to.include('q quit')
+    expect(output).to.include('tab next')
   })
 
   it('renders actions, commands, and action output views', () => {
@@ -41,9 +41,10 @@ describe('interactive tui manager', () => {
       snapshot,
     }), {columns: 140})
 
-    expect(actionOutput).to.include('Management Actions')
-    expect(actionOutput).to.include('Inspect quality')
-    expect(actionOutput).to.include('Rerun project')
+    expect(actionOutput).to.include('Actions')
+    expect(actionOutput).to.include('Inspect')
+    expect(actionOutput).to.include('Quality')
+    expect(actionOutput).to.include('Rerun')
     expect(actionOutput).to.include('confirm')
 
     const commandOutput = renderToString(h(TuiManagerScreen, {
