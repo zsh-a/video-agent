@@ -41,6 +41,7 @@ bun run dev hello world
 - Put renderer-specific compilation boundaries in renderer packages, starting with `packages/renderer-ffmpeg` and `packages/renderer-hyperframes`.
 - Put validation and inspection logic in `packages/quality`.
 - Put persistence contracts and later Drizzle schema in `packages/db`.
+- When making intentional architecture changes, do not preserve backward compatibility by default. Remove obsolete APIs, compatibility facades, redundant files, and legacy code paths instead of layering new abstractions on top of old ones. Keep architecture simple, explicit, and forward-looking.
 
 Adapters should not directly call `ffmpeg`, mutate workspace files, or own provider-specific workflow decisions. Route those through package APIs.
 
