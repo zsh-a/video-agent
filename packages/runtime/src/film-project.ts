@@ -7,14 +7,14 @@ import type {QualityIssue} from '@video-agent/quality'
 import type {JobStore} from '@video-agent/db'
 import {ASRResultSchema, CharacterIndexSchema, ClipPlanSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, NarrationSchema, NarrativeBeatsSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, SilencePeriodsSchema, SourceManifestSchema, StoryIndexSchema, TimelineFusionSchema, VLMAnalysisSchema} from '@video-agent/ir'
 import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
-import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg, runProcess} from '@video-agent/media'
+import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkAudioLoudness, checkNarrationTiming, checkRenderedMedia, checkSrtSubtitles, checkTtsCoverage, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
-import {access, appendFile, mkdir, rename, unlink} from 'node:fs/promises'
-import {isAbsolute, join, relative, resolve, sep} from 'node:path'
+import {appendFile, mkdir, rename, unlink} from 'node:fs/promises'
+import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
@@ -25,6 +25,7 @@ import {createConfiguredJobStore} from './job-store.js'
 import {FILM_PIPELINE_DEFINITION, FILM_PIPELINE_STAGES, type FilmPipelineStage, assertPipelineStage} from './pipeline-definitions.js'
 import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecorder} from './provider-calls.js'
 import {createRuntimeProviders} from './runtime-providers.js'
+import {findCjkSubtitleFont, findCjkSubtitleFontPath} from './subtitle-fonts.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
 export interface CreateFilmIngestProjectOptions {
@@ -1346,28 +1347,6 @@ async function hasCjkSubtitleFont(): Promise<boolean> {
   return await findCjkSubtitleFontPath() !== undefined
 }
 
-async function findCjkSubtitleFontPath(): Promise<string | undefined> {
-  try {
-    const result = await runProcess(['fc-match', '-f', '%{file}', 'Noto Sans CJK SC'])
-
-    if (result.code !== 0) {
-      return undefined
-    }
-
-    const path = result.stdout.trim()
-
-    if (!/(Noto\s*Sans\s*CJK|NotoSansCJK|Source\s*Han|WenQuanYi|Microsoft\s*YaHei|SimHei|PingFang|Hiragino|Songti|Kaiti)/iu.test(path)) {
-      return undefined
-    }
-
-    await access(path)
-
-    return path
-  } catch {
-    return undefined
-  }
-}
-
 async function unlinkIfExists(path: string): Promise<void> {
   try {
     await unlink(path)
@@ -1387,7 +1366,7 @@ async function buildFinalFilmRenderArgs(options: {
   subtitlePath: string
 }, subtitleMode: false | 'drawtext' | 'subtitles'): Promise<string[]> {
   const videoFilter = subtitleMode === 'subtitles'
-    ? buildSubtitleBurnInFilter(options.subtitlePath)
+    ? await buildSubtitleBurnInFilter(options.subtitlePath)
     : subtitleMode === 'drawtext'
       ? await buildDrawtextSubtitleFilter(options.subtitlePath)
       : undefined
@@ -1426,9 +1405,10 @@ async function buildFinalFilmRenderArgs(options: {
   ]
 }
 
-function buildSubtitleBurnInFilter(subtitlePath: string): string {
+async function buildSubtitleBurnInFilter(subtitlePath: string): Promise<string> {
+  const font = await findCjkSubtitleFont()
   const style = [
-    'FontName=Noto Sans CJK SC',
+    `FontName=${font?.family ?? 'Noto Sans CJK SC'}`,
     'FontSize=18',
     'PrimaryColour=&H00FFFFFF',
     'OutlineColour=&H90000000',
@@ -1438,8 +1418,14 @@ function buildSubtitleBurnInFilter(subtitlePath: string): string {
     'Alignment=2',
     'MarginV=80',
   ].join(',')
+  const fontsDir = font === undefined ? undefined : dirname(font.path)
 
-  return `subtitles=filename='${escapeSubtitleFilterPath(subtitlePath)}':charenc=UTF-8:force_style='${escapeSubtitleFilterValue(style)}'`
+  return [
+    `subtitles=filename='${escapeSubtitleFilterPath(subtitlePath)}'`,
+    ...(fontsDir === undefined ? [] : [`fontsdir='${escapeSubtitleFilterPath(fontsDir)}'`]),
+    'charenc=UTF-8',
+    `force_style='${escapeSubtitleFilterValue(style)}'`,
+  ].join(':')
 }
 
 function isMissingSubtitleFilterError(error: unknown): boolean {
