@@ -636,7 +636,7 @@ describe('job runner', () => {
       })
 
       expect(vlmCalls).to.equal(0)
-      expect(sceneAnalysis).to.deep.equal(cachedSceneAnalysis)
+      expect(compactVlmScenes(sceneAnalysis)).to.deep.equal(cachedSceneAnalysis)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -762,7 +762,7 @@ describe('job runner', () => {
       })
 
       expect(vlmCalls).to.equal(1)
-      expect(sceneAnalysis).to.deep.equal(freshSceneAnalysis)
+      expect(compactVlmScenes(sceneAnalysis)).to.deep.equal(freshSceneAnalysis)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -926,7 +926,7 @@ describe('job runner', () => {
           unit: 'scenes',
         },
       ])
-      expect(sceneAnalysis).to.deep.equal([cachedFirstScene, freshSecondScene])
+      expect(compactVlmScenes(sceneAnalysis)).to.deep.equal([cachedFirstScene, freshSecondScene])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -1028,11 +1028,11 @@ describe('job runner', () => {
       },
     ]
 
-    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 5])).to.deep.equal([
+    expect(compactVlmScenes(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 5]))).to.deep.equal([
       sceneAnalysis[0],
       sceneAnalysis[1],
     ])
-    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 4])).to.deep.equal([
+    expect(compactVlmScenes(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 4]))).to.deep.equal([
       sceneAnalysis[0],
     ])
   })
@@ -1052,8 +1052,8 @@ describe('job runner', () => {
       },
     ]
 
-    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 5])).to.deep.equal(sceneAnalysis)
-    expect(createChunkVlmScenes(sceneAnalysis, sceneRanges, [5, 10])).to.deep.equal(sceneAnalysis)
+    expect(compactVlmScenes(createChunkVlmScenes(sceneAnalysis, sceneRanges, [0, 5]))).to.deep.equal(sceneAnalysis)
+    expect(compactVlmScenes(createChunkVlmScenes(sceneAnalysis, sceneRanges, [5, 10]))).to.deep.equal(sceneAnalysis)
   })
 
   it('rejects VLM scene analysis that does not match input batches', () => {
@@ -1427,6 +1427,20 @@ async function hasMediaTools(): Promise<boolean> {
   const [ffmpeg, ffprobe] = await Promise.all([runProcess(['ffmpeg', '-version']), runProcess(['ffprobe', '-version'])])
 
   return ffmpeg.code === 0 && ffprobe.code === 0
+}
+
+function compactVlmScenes(scenes: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return scenes.map((scene) => {
+    const compact = {...scene}
+
+    delete compact.actions
+    delete compact.characters
+    delete compact.emotions
+    delete compact.plotClues
+    delete compact.relationships
+
+    return compact
+  })
 }
 
 function createSequentialObjectModel(objects: object[]): LanguageModel {

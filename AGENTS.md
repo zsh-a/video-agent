@@ -66,6 +66,13 @@ remote provider APIs
 local provider services or binaries
 ```
 
+## Film Recap Semantic Intelligence
+
+- Do not add keyword lists, regex matching, n-gram overlap scoring, hard-coded narrative labels, or fixed position heuristics for Film Recap semantic work.
+- Film Recap scene semantics, VLM actions/characters/emotions/plot clues/relationships, narrative beat types, character relationships, recap script content, and semantic clip selection must come from LLM/VLM structured outputs validated by Zod schemas.
+- TypeScript runtime code may still orchestrate deterministic media and timeline operations such as ffmpeg scene-change detection, silence boundaries, sourceRange validation, duration clamping, artifact schema validation, and render/audio filter construction.
+- If no LLM is configured for Film Recap story indexing or recap script writing, fail clearly instead of falling back to deterministic semantic templates or text matching.
+
 ## Current CLI State
 
 The root oclif CLI is the first adapter and should continue to call shared runtime APIs rather than duplicating workflow logic. Keep commands focused on local operation and automation-friendly JSON output. Current command areas include:

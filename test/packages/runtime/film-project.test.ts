@@ -1,4 +1,5 @@
 import {expect} from '#test/expect'
+import type {GenerateObjectRequest, GenerateObjectResult, LLMClient} from '../../../packages/llm/src/index.js'
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -141,7 +142,7 @@ describe('film recap project', () => {
     }
   })
 
-  it('creates balanced film scenes when ASR returns more segments than the default scene count', async () => {
+  it('does not split film scenes by ASR segment count alone', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-balanced-scenes-'))
     const inputPath = join(root, 'episode.mp4')
     const asrProviderPath = join(root, 'asr-provider.ts')
@@ -183,12 +184,12 @@ describe('film recap project', () => {
       }
 
       expect(result.status).to.equal('understood')
-      expect(result.scenes).to.equal(12)
-      expect(scenes.scenes).to.have.length(12)
+      expect(result.scenes).to.equal(1)
+      expect(scenes.scenes).to.have.length(1)
       expect(scenes.scenes.every((scene) => scene.summary.trim() !== '')).to.equal(true)
       expect(scenes.scenes.every((scene) => scene.sourceRange[1] > scene.sourceRange[0])).to.equal(true)
-      expect(scenes.scenes[5]?.summary).to.equal('Segment 6 Segment 7')
-      expect(scenes.scenes[11]?.summary).to.equal('Segment 13 Segment 14')
+      expect(scenes.scenes[0]?.summary).to.contain('Segment 1')
+      expect(scenes.scenes[0]?.summary).to.contain('Segment 14')
 
       const verification = await verifyProjectArtifacts('film-balanced-scenes-demo', root)
 
@@ -216,6 +217,7 @@ describe('film recap project', () => {
       })
 
       const result = await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-story-demo',
         workspaceDir: root,
       })
@@ -259,16 +261,16 @@ describe('film recap project', () => {
         language: 'zh-CN',
         segments: [
           {
-            end: 10,
+            end: 0.5,
             id: 'asr-0001',
             start: 0,
             text: '主角发现钥匙，决定 confront 反派。',
             timestampConfidence: 'exact',
           },
           {
-            end: 20,
+            end: 1,
             id: 'asr-0002',
-            start: 10,
+            start: 0.5,
             text: '反派背叛朋友，真相揭露。',
             timestampConfidence: 'exact',
           },
@@ -288,7 +290,7 @@ describe('film recap project', () => {
             plotClues: ['key object'],
             relationships: ['enemy'],
             sceneId: 'scene-001',
-            sourceRange: [0, 10],
+            sourceRange: [0, 0.5],
             summary: '人物: 主角, 反派。动作: 对峙。情绪: 紧张。关系: 敌人。线索: 钥匙。',
           },
           {
@@ -300,7 +302,7 @@ describe('film recap project', () => {
             plotClues: ['truth reveal'],
             relationships: ['betrayal'],
             sceneId: 'scene-002',
-            sourceRange: [10, 20],
+            sourceRange: [0.5, 1],
             summary: '人物: 反派, 朋友。关系: 背叛。线索: 真相。',
           },
         ],
@@ -318,7 +320,7 @@ describe('film recap project', () => {
             id: 'fusion-001',
             sceneId: 'scene-001',
             silencePeriodIds: [],
-            sourceRange: [0, 10],
+            sourceRange: [0, 0.5],
             summary: '主角发现钥匙并做出决定。',
             vlmAnalysisIds: ['vlm-001'],
           },
@@ -331,7 +333,7 @@ describe('film recap project', () => {
             id: 'fusion-002',
             sceneId: 'scene-002',
             silencePeriodIds: [],
-            sourceRange: [10, 20],
+            sourceRange: [0.5, 1],
             summary: '反派背叛朋友，真相揭露。',
             vlmAnalysisIds: ['vlm-002'],
           },
@@ -341,6 +343,7 @@ describe('film recap project', () => {
       })
 
       const result = await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId,
         workspaceDir: root,
       })
@@ -467,6 +470,7 @@ describe('film recap project', () => {
       })
 
       const scriptResult = await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId,
         targetDurationSeconds: 1,
         workspaceDir: root,
@@ -542,10 +546,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-plan-demo',
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-plan-demo',
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -676,7 +682,7 @@ describe('film recap project', () => {
     }
   })
 
-  it('uses ASR semantic subsegments when a full beat does not fit the target duration', async () => {
+  it('uses LLM-selected script source ranges when a full beat does not fit the target duration', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-plan-semantic-'))
     const inputPath = join(root, 'episode.mp4')
     const projectId = 'film-plan-semantic-demo'
@@ -756,6 +762,7 @@ describe('film recap project', () => {
             emotionalTone: 'setup',
             id: 'recap-script-001',
             narrationText: '一开场，主角揭开关键背景。',
+            sourceRange: [0, 0.5],
             suggestedDuration: 0.5,
             targetBeatIds: ['beat-opening'],
             visualGuidance: '选择开场背景画面。',
@@ -764,6 +771,7 @@ describe('film recap project', () => {
             emotionalTone: 'climax',
             id: 'recap-script-002',
             narrationText: '高潮段落里，主角用证据解决问题。',
+            sourceRange: [0.5, 0.8],
             suggestedDuration: 0.3,
             targetBeatIds: ['beat-climax'],
             visualGuidance: '选择解决问题的关键画面。',
@@ -838,10 +846,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-cut-demo',
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-cut-demo',
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -868,8 +878,8 @@ describe('film recap project', () => {
         clipId: 'clip-001',
         outputEnd: 0.5,
         outputStart: 0,
-        sourceEnd: 0.75,
-        sourceStart: 0.25,
+        sourceEnd: 0.5,
+        sourceStart: 0,
       })
 
       const verification = await verifyProjectArtifacts('film-cut-demo', root)
@@ -897,10 +907,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-narrate-demo',
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-narrate-demo',
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -968,10 +980,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-voice-demo',
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-voice-demo',
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -1061,10 +1075,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId,
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId,
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -1116,10 +1132,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-mix-demo',
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-mix-demo',
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -1168,7 +1186,7 @@ describe('film recap project', () => {
       expect(audioMix.sourceAudioRetained).to.equal(true)
       expect(audioMix.sourcePath).to.equal('renders/edited_source.mp4')
       expect(audioMix.sourceVolume).to.equal(0.25)
-      expect(audioMix.sourceVolumeDuringVoiceover).to.equal(0)
+      expect(audioMix.sourceVolumeDuringVoiceover).to.equal(0.08)
       expect(audioMix.voiceoverVolume).to.equal(1)
       expect(audioMix.loudnessNormalization).to.deep.equal({
         loudnessRangeLufs: 11,
@@ -1214,10 +1232,12 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       await createFilmStoryIndexProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-final-demo',
         workspaceDir: root,
       })
       await createFilmRecapScriptProject({
+        llmClient: createFilmPlanningLLMClient(),
         projectId: 'film-final-demo',
         targetDurationSeconds: 0.5,
         workspaceDir: root,
@@ -1332,6 +1352,229 @@ describe('film recap project', () => {
     }
   })
 })
+
+interface TestLlmStoryIndexPayload {
+  asrResult?: {
+    language?: string
+  }
+  language?: string
+  sourceManifest?: {
+    duration?: number
+    sourcePath?: string
+  }
+  timelineFusion?: {
+    items?: TestLlmTimelineFusionItem[]
+  }
+  vlmAnalysis?: {
+    scenes?: TestLlmVlmScene[]
+  }
+}
+
+interface TestLlmTimelineFusionItem {
+  evidence?: TestLlmEvidence[]
+  id?: string
+  sourceRange?: [number, number]
+  summary?: string
+  vlmAnalysisIds?: string[]
+}
+
+interface TestLlmVlmScene {
+  characters?: string[]
+  evidence?: TestLlmEvidence[]
+  id?: string
+  sceneId?: string
+}
+
+interface TestLlmEvidence {
+  ref: string
+  text: string
+  type: 'asr' | 'vlm'
+}
+
+interface TestLlmRecapPayload {
+  asrResult?: {
+    language?: string
+  }
+  sourceManifest?: {
+    duration?: number
+    sourcePath?: string
+  }
+  storyIndex?: {
+    beats?: TestLlmStoryBeat[]
+    language?: string
+  }
+  targetDurationSeconds?: number
+}
+
+interface TestLlmStoryBeat {
+  characters?: string[]
+  evidence?: TestLlmEvidence[]
+  id: string
+  sourceRange: [number, number]
+  summary: string
+  type: 'setup' | 'inciting_incident' | 'conflict' | 'decision' | 'reversal' | 'climax' | 'resolution' | 'transition'
+}
+
+function createFilmPlanningLLMClient(): LLMClient {
+  return {
+    async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>> {
+      const content = request.messages[0]?.content
+      const text = typeof content === 'string' ? content : ''
+      const payload = JSON.parse(text) as {goal?: string; input?: unknown}
+      let object: unknown
+
+      if (payload.goal === 'Create Film Recap story-index semantic JSON. Return only data matching the schema.') {
+        object = createTestStoryIndexObject(payload as TestLlmStoryIndexPayload)
+      } else if (payload.goal === 'Write a Film Recap third-person narration script. Return only JSON matching RecapScriptSchema.') {
+        object = createTestRecapScriptObject(payload.input as TestLlmRecapPayload)
+      } else {
+        throw new Error(`Unexpected Film Recap LLM request: ${payload.goal ?? 'unknown'}`)
+      }
+
+      return {object: object as T}
+    },
+    async generateText() {
+      throw new Error('Not used by this test.')
+    },
+    streamText() {
+      throw new Error('Not used by this test.')
+    },
+  }
+}
+
+function createTestStoryIndexObject(payload: TestLlmStoryIndexPayload): {beats: TestLlmStoryBeat[]; characters: Array<{aliases: string[]; evidence: TestLlmEvidence[]; id: string; name: string}>} {
+  const items = payload.timelineFusion?.items ?? []
+  const vlmScenes = payload.vlmAnalysis?.scenes ?? []
+  const beats = items.map((item, index): TestLlmStoryBeat => {
+    const matchingVlmScenes = vlmScenes.filter((scene) => item.vlmAnalysisIds?.includes(scene.id ?? ''))
+    const characters = uniqueTestStrings(matchingVlmScenes.flatMap((scene) => scene.characters ?? []))
+
+    return {
+      characters,
+      evidence: item.evidence ?? [],
+      id: `beat-${String(index + 1).padStart(3, '0')}`,
+      sourceRange: item.sourceRange ?? [index, index + 1],
+      summary: item.summary ?? `Beat ${index + 1}`,
+      type: inferTestBeatType(index, items.length),
+    }
+  })
+  const characters = uniqueTestStrings(beats.flatMap((beat) => beat.characters ?? [])).map((name, index) => ({
+    aliases: [],
+    evidence: beats.flatMap((beat) => beat.characters?.includes(name) ? beat.evidence ?? [] : []),
+    id: `character-${String(index + 1).padStart(3, '0')}`,
+    name,
+  }))
+
+  return {beats, characters}
+}
+
+function createTestRecapScriptObject(input: TestLlmRecapPayload): {
+  hook: string
+  language: string
+  outro: string
+  segments: Array<{
+    emotionalTone: 'setup' | 'tension' | 'climax' | 'resolution'
+    id: string
+    narrationText: string
+    sourceRange: [number, number]
+    suggestedDuration: number
+    targetBeatIds: string[]
+    visualGuidance: string
+  }>
+  totalEstimatedDuration: number
+  version: 1
+} {
+  const beats = input.storyIndex?.beats ?? []
+  const language = input.storyIndex?.language ?? input.asrResult?.language ?? 'zh-CN'
+  const totalSourceDuration = beats.reduce((total, beat) => total + Math.max(0, beat.sourceRange[1] - beat.sourceRange[0]), 0)
+  const targetDuration = input.targetDurationSeconds ?? Math.min(totalSourceDuration, input.sourceManifest?.duration ?? totalSourceDuration)
+  const scale = totalSourceDuration > 0 ? targetDuration / totalSourceDuration : 1
+  let durationCursor = 0
+  const segments = beats.map((beat, index) => {
+    const sourceDuration = Math.max(0, beat.sourceRange[1] - beat.sourceRange[0])
+    const suggestedDuration = index === beats.length - 1
+      ? Math.max(0.001, roundTestSeconds(targetDuration - durationCursor))
+      : Math.max(0.001, roundTestSeconds(sourceDuration * scale))
+    const sourceEnd = roundTestSeconds(Math.min(beat.sourceRange[1], beat.sourceRange[0] + suggestedDuration))
+
+    durationCursor = roundTestSeconds(durationCursor + suggestedDuration)
+
+    return {
+      emotionalTone: createTestEmotionalTone(beat.type),
+      id: `recap-script-${String(index + 1).padStart(3, '0')}`,
+      narrationText: createTestNarrationText(beat, index, language),
+      sourceRange: [roundTestSeconds(beat.sourceRange[0]), sourceEnd] as [number, number],
+      suggestedDuration,
+      targetBeatIds: [beat.id],
+      visualGuidance: `Use source range ${beat.sourceRange[0]}-${sourceEnd}s for ${beat.summary}`,
+    }
+  })
+
+  return {
+    hook: segments[0]?.narrationText ?? '故事从关键变化开始。',
+    language,
+    outro: segments.at(-1)?.narrationText ?? '故事在关键结果中收束。',
+    segments,
+    totalEstimatedDuration: roundTestSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0)),
+    version: 1,
+  }
+}
+
+function inferTestBeatType(index: number, total: number): TestLlmStoryBeat['type'] {
+  if (total === 1) {
+    return 'setup'
+  }
+
+  if (index === 0) {
+    return 'decision'
+  }
+
+  if (index === 1) {
+    return 'reversal'
+  }
+
+  return index === total - 1 ? 'resolution' : 'conflict'
+}
+
+function createTestNarrationText(beat: TestLlmStoryBeat, index: number, language: string): string {
+  const summary = createTestNarrationSummary(beat.summary)
+
+  if (language.startsWith('zh')) {
+    const lead = index === 0 ? '一开场' : beat.type === 'climax' ? '关键时刻' : '随后'
+
+    return `${lead}，${summary}`
+  }
+
+  return index === 0 ? `At the start, ${summary}` : `Then, ${summary}`
+}
+
+function createTestNarrationSummary(summary: string): string {
+  if (summary.includes('人才结构优化') || summary.includes('长期健康发展')) {
+    return '公司宣布裁员。'
+  }
+
+  return summary
+}
+
+function createTestEmotionalTone(type: TestLlmStoryBeat['type']): 'setup' | 'tension' | 'climax' | 'resolution' {
+  if (type === 'setup' || type === 'inciting_incident') {
+    return 'setup'
+  }
+
+  if (type === 'climax' || type === 'reversal') {
+    return 'climax'
+  }
+
+  return type === 'resolution' ? 'resolution' : 'tension'
+}
+
+function uniqueTestStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+}
+
+function roundTestSeconds(value: number): number {
+  return Math.round(value * 1000) / 1000
+}
 
 async function createSampleVideo(inputPath: string): Promise<void> {
   const result = await runProcess([

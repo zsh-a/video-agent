@@ -174,6 +174,85 @@ describe('planning providers', () => {
     expect(narration.segments[0]?.text).to.equal('第 1 页：这里讲解第一个关键功能。')
   })
 
+  it('rejects deterministic Film Recap semantic planning', async () => {
+    let error: unknown
+
+    try {
+      await new DeterministicScriptProvider().createRecapScript(createRecapScriptProviderInput())
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(Error)
+    expect(error instanceof Error ? error.message : '').to.contain('requires an LLM provider')
+  })
+
+  it('creates Film Recap story indexes through the LLM provider', async () => {
+    let generateObjectCalls = 0
+    const provider = new LLMScriptProvider({
+      async generateObject() {
+        generateObjectCalls += 1
+
+        return {
+          object: {
+            beats: [
+              {
+                characters: ['protagonist'],
+                evidence: [{ref: 'timeline-fusion.json#fusion-001', text: 'The clue changes the plan.', type: 'asr'}],
+                id: 'beat-001',
+                sourceRange: [0, 3],
+                summary: 'The protagonist discovers the first clue and changes direction.',
+                type: 'inciting_incident',
+              },
+            ],
+            characters: [
+              {
+                aliases: [],
+                description: 'The lead character seen discovering the clue.',
+                evidence: [{ref: 'vlm-analysis.json#vlm-001', text: 'The protagonist studies a clue.', type: 'vlm'}],
+                id: 'character-001',
+                name: 'protagonist',
+              },
+            ],
+          },
+        }
+      },
+      async generateText() {
+        throw new Error('Not used by this test.')
+      },
+      streamText() {
+        throw new Error('Not used by this test.')
+      },
+    })
+
+    const output = await provider.createStoryIndex({
+      asrResult: createRecapScriptProviderInput().asrResult,
+      language: 'en',
+      sourceManifest: createRecapScriptProviderInput().sourceManifest,
+      timelineFusion: {
+        items: [
+          {
+            asrSegmentIds: ['asr-0001'],
+            evidence: [{ref: 'asr-result.json#asr-0001', text: 'The protagonist discovers the first clue.', type: 'asr'}],
+            id: 'fusion-001',
+            sceneId: 'scene-001',
+            silencePeriodIds: [],
+            sourceRange: [0, 3],
+            summary: 'The clue changes the plan.',
+            vlmAnalysisIds: ['vlm-001'],
+          },
+        ],
+        source: '/tmp/input.mp4',
+        version: 1,
+      },
+      vlmAnalysis: createRecapScriptProviderInput().vlmAnalysis,
+    })
+
+    expect(generateObjectCalls).to.equal(1)
+    expect(output.storyIndex.beats[0]?.type).to.equal('inciting_incident')
+    expect(output.storyIndex.characters[0]?.name).to.equal('protagonist')
+  })
+
   it('creates Film Recap scripts through the LLM provider', async () => {
     let generateObjectCalls = 0
     const provider = new LLMScriptProvider({
@@ -190,6 +269,7 @@ describe('planning providers', () => {
                 emotionalTone: 'setup',
                 id: 'recap-script-001',
                 narrationText: 'At the start, the protagonist discovers the first clue.',
+                sourceRange: [0, 3],
                 suggestedDuration: 3,
                 targetBeatIds: ['beat-001'],
                 visualGuidance: 'Use the shot where the clue is visible.',
@@ -259,9 +339,74 @@ describe('planning providers', () => {
 
     expect(generateObjectCalls).to.equal(1)
     expect(script.segments[0]?.targetBeatIds).to.deep.equal(['beat-001'])
+    expect(script.segments[0]?.sourceRange).to.deep.equal([0, 3])
     expect(script.segments[0]?.narrationText).to.contain('first clue')
   })
 })
+
+function createRecapScriptProviderInput() {
+  return {
+    asrResult: {
+      language: 'en',
+      segments: [
+        {
+          end: 3,
+          id: 'asr-0001',
+          start: 0,
+          text: 'The protagonist discovers the first clue.',
+          timestampConfidence: 'exact' as const,
+        },
+      ],
+      text: 'The protagonist discovers the first clue.',
+      timestampConfidence: 'exact' as const,
+      version: 1 as const,
+    },
+    sourceManifest: {
+      audioTracks: 1,
+      duration: 3,
+      orientation: 'landscape' as const,
+      sourceHash: 'hash',
+      sourcePath: '/tmp/input.mp4',
+      version: 1 as const,
+    },
+    storyIndex: {
+      beats: [
+        {
+          characters: ['protagonist'],
+          evidence: [],
+          id: 'beat-001',
+          sourceRange: [0, 3] as [number, number],
+          summary: 'The protagonist discovers the first clue.',
+          type: 'setup' as const,
+        },
+      ],
+      characters: [],
+      language: 'en',
+      source: '/tmp/input.mp4',
+      sourceDuration: 3,
+      version: 1 as const,
+    },
+    targetDurationSeconds: 3,
+    vlmAnalysis: {
+      scenes: [
+        {
+          actions: ['discovery'],
+          characters: ['protagonist'],
+          emotions: ['curiosity'],
+          evidence: [{ref: 'frames/film-scene-001.jpg', text: 'The protagonist studies a clue.', type: 'vlm' as const}],
+          id: 'vlm-001',
+          plotClues: ['first clue'],
+          relationships: [],
+          sceneId: 'scene-001',
+          sourceRange: [0, 3] as [number, number],
+          summary: 'The protagonist studies a clue.',
+        },
+      ],
+      source: '/tmp/input.mp4',
+      version: 1 as const,
+    },
+  }
+}
 
 function createNoopLlmClient(): LLMClient {
   return {

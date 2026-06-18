@@ -256,6 +256,15 @@ export interface VideoBlackSegment {
   start: number
 }
 
+export interface VideoSceneChangeInfo {
+  inputPath: string
+  inspectedAt: string
+  raw: string
+  threshold: number
+  timestamps: number[]
+  version: 1
+}
+
 export async function inspectAudioVolume(input: string, options?: RunProcessOptions): Promise<AudioVolumeInfo> {
   const command = ['ffmpeg', '-hide_banner', '-nostats', '-i', input, '-af', 'volumedetect', '-f', 'null', '-']
   const result = await runProcess(command, options)
@@ -286,6 +295,43 @@ export function parseAudioVolumeOutput(input: string, stderr: string): AudioVolu
     raw: stderr,
     version: 1,
   }
+}
+
+export async function detectVideoSceneChanges(input: string, threshold = 0.3, options?: RunProcessOptions): Promise<VideoSceneChangeInfo> {
+  const command = [
+    'ffmpeg',
+    '-hide_banner',
+    '-nostats',
+    '-i',
+    input,
+    '-an',
+    '-filter:v',
+    `select=gt(scene\\,${threshold}),showinfo`,
+    '-f',
+    'null',
+    '-',
+  ]
+  const result = await runProcess(command, options)
+
+  if (result.code !== 0) {
+    throw new MediaCommandError(`ffmpeg scene detection failed with exit code ${result.code}`, command, result.stderr)
+  }
+
+  return {
+    inputPath: input,
+    inspectedAt: new Date().toISOString(),
+    raw: result.stderr,
+    threshold,
+    timestamps: parseVideoSceneChangeTimestamps(result.stderr),
+    version: 1,
+  }
+}
+
+function parseVideoSceneChangeTimestamps(raw: string): number[] {
+  const timestamps = Array.from(raw.matchAll(/pts_time:([0-9.]+)/gu), (match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value) && value >= 0)
+
+  return [...new Set(timestamps)].sort((left, right) => left - right)
 }
 
 export function parseVideoBlackDetectOutput(input: string, stderr: string, duration?: number): VideoBlackDetectInfo {

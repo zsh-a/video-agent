@@ -142,6 +142,7 @@ export const RecapScriptSegmentSchema = z.object({
   emotionalTone: z.enum(['setup', 'tension', 'climax', 'resolution']),
   id: z.string().min(1),
   narrationText: z.string().min(1),
+  sourceRange: LongVideoTimeRangeSchema,
   suggestedDuration: z.number().finite().nonnegative(),
   targetBeatIds: z.array(z.string().min(1)).default([]),
   visualGuidance: z.string().min(1),

@@ -47,8 +47,13 @@ describe('command providers', () => {
 
     expect(scenes).to.deep.equal([
       {
+        actions: [],
+        characters: [],
         description: 'scene scene-1',
+        emotions: [],
         evidence: ['frame.jpg'],
+        plotClues: [],
+        relationships: [],
         sceneId: 'scene-1',
       },
     ])
@@ -105,8 +110,13 @@ describe('command providers', () => {
     expect(transcript.text).to.equal('Example transcript for /tmp/audio.wav')
     expect(readProviderMetadata(transcript)?.model).to.equal('example-command-provider')
     expect(scenes[0]).to.deep.equal({
+      actions: [],
+      characters: [],
       description: 'Example visual analysis for scene-1',
+      emotions: [],
       evidence: ['frame.jpg'],
+      plotClues: [],
+      relationships: [],
       sceneId: 'scene-1',
     })
     expect(segments[0]).to.deep.equal({

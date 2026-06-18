@@ -49,7 +49,7 @@ The simplified LLM path is resolved from the active profile or from explicit run
 }
 ```
 
-When `llm` is present, ASR/VLM/TTS plus `plan` and `script` can use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. When it is absent, planning uses deterministic local fallbacks and media roles must use `mock` or `command`.
+When `llm` is present, ASR/VLM/TTS plus `plan` and `script` can use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. Film Recap story indexing, recap script writing, and semantic clip selection require LLM/VLM structured outputs; when `llm` is absent those Film Recap semantic stages fail clearly instead of using deterministic text-matching fallbacks. Non-Film explainer planning may still use deterministic local fallbacks, and media roles must use `mock` or `command` when no hosted provider is configured.
 
 ## Mimo Profile
 

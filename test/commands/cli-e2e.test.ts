@@ -344,7 +344,7 @@ describe('cli end-to-end workflow', () => {
     }
   })
 
-  it('runs a complete Film Recap pipeline from video', async () => {
+  it('fails Film Recap semantic stages clearly when no LLM is configured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-film-'))
     const workspaceDir = join(root, 'workspace')
     const inputPath = join(root, 'episode.mp4')
@@ -353,175 +353,10 @@ describe('cli end-to-end workflow', () => {
     try {
       await createSampleVideoWithAudio(inputPath)
 
-      const film = await runCliJson<{
-        clipPlan: {clips: number; duration: number}
-        finalRender: {outputPath: string; status: string}
-        ingest: {
-          artifacts: {sourceManifest: string}
-          sourceManifest: {duration: number; orientation: string; sourceHash: string}
-        }
-        projectId: string
-        quality: {qualityReport: {summary: {errors: number}}}
-        status: string
-      }>(['film', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--target', '500ms', '--json'])
+      const film = await runCli(['film', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--target', '500ms', '--json'])
 
-      expect(film.projectId).to.equal(projectId)
-      expect(film.status).to.equal('completed')
-      expect(film.ingest.sourceManifest.duration).to.be.greaterThan(0)
-      expect(film.ingest.sourceManifest.orientation).to.equal('landscape')
-      expect(film.ingest.sourceManifest.sourceHash.length).to.equal(64)
-      expect(film.clipPlan.duration).to.equal(0.5)
-      expect(film.finalRender.status).to.equal('rendered')
-      expect(film.quality.qualityReport.summary.errors).to.equal(0)
-      expect(await fileSize(film.ingest.artifacts.sourceManifest)).to.be.greaterThan(0)
-      expect(await fileSize(film.finalRender.outputPath)).to.be.greaterThan(0)
-
-      const understand = await runCliJson<{
-        artifacts: {frames: string; timelineFusion: string}
-        projectId: string
-        scenes: number
-        status: string
-      }>(['film', 'understand', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(understand.projectId).to.equal(projectId)
-      expect(understand.status).to.equal('understood')
-      expect(understand.scenes).to.equal(1)
-      expect(await fileSize(understand.artifacts.timelineFusion)).to.be.greaterThan(0)
-
-      const storyIndex = await runCliJson<{
-        artifacts: {storyIndex: string}
-        beats: number
-        projectId: string
-        status: string
-      }>(['film', 'build-story-index', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(storyIndex.projectId).to.equal(projectId)
-      expect(storyIndex.status).to.equal('indexed')
-      expect(storyIndex.beats).to.equal(1)
-      expect(await fileSize(storyIndex.artifacts.storyIndex)).to.be.greaterThan(0)
-
-      const recapScript = await runCliJson<{
-        artifacts: {recapScript: string}
-        projectId: string
-        segments: number
-        status: string
-        totalEstimatedDuration: number
-      }>(['film', 'write-script', projectId, '--workspace', workspaceDir, '--target', '500ms', '--json'])
-
-      expect(recapScript.projectId).to.equal(projectId)
-      expect(recapScript.status).to.equal('scripted')
-      expect(recapScript.segments).to.equal(1)
-      expect(recapScript.totalEstimatedDuration).to.equal(0.5)
-      expect(await fileSize(recapScript.artifacts.recapScript)).to.be.greaterThan(0)
-
-      const clipPlan = await runCliJson<{
-        artifacts: {clipPlan: string}
-        clips: number
-        duration: number
-        projectId: string
-        status: string
-      }>(['film', 'plan-clips', projectId, '--workspace', workspaceDir, '--target', '500ms', '--json'])
-
-      expect(clipPlan.projectId).to.equal(projectId)
-      expect(clipPlan.status).to.equal('planned')
-      expect(clipPlan.clips).to.equal(1)
-      expect(clipPlan.duration).to.equal(0.5)
-      expect(await fileSize(clipPlan.artifacts.clipPlan)).to.be.greaterThan(0)
-
-      const cut = await runCliJson<{
-        artifacts: {outputTimelineMap: string}
-        outputPath: string
-        projectId: string
-        status: string
-      }>(['film', 'cut', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(cut.projectId).to.equal(projectId)
-      expect(cut.status).to.equal('cut')
-      expect(await fileSize(cut.outputPath)).to.be.greaterThan(0)
-      expect(await fileSize(cut.artifacts.outputTimelineMap)).to.be.greaterThan(0)
-
-      const narration = await runCliJson<{
-        artifacts: {narration: string; outputNarration: string}
-        projectId: string
-        segments: number
-        status: string
-      }>(['film', 'narrate', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(narration.projectId).to.equal(projectId)
-      expect(narration.status).to.equal('narrated')
-      expect(narration.segments).to.equal(1)
-      expect(await fileSize(narration.artifacts.outputNarration)).to.be.greaterThan(0)
-      expect(await fileSize(narration.artifacts.narration)).to.be.greaterThan(0)
-
-      const voice = await runCliJson<{
-        artifacts: {ttsSegments: string}
-        projectId: string
-        segments: number
-        status: string
-      }>(['film', 'synthesize-voice', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(voice.projectId).to.equal(projectId)
-      expect(voice.status).to.equal('voiced')
-      expect(voice.segments).to.equal(1)
-      expect(await fileSize(voice.artifacts.ttsSegments)).to.be.greaterThan(0)
-
-      const audioMix = await runCliJson<{
-        artifacts: {audioMix: string}
-        outputPath: string
-        projectId: string
-        status: string
-      }>(['film', 'mix-audio', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(audioMix.projectId).to.equal(projectId)
-      expect(audioMix.status).to.equal('mixed')
-      expect(await fileSize(audioMix.artifacts.audioMix)).to.be.greaterThan(0)
-      expect(await fileSize(audioMix.outputPath)).to.be.greaterThan(44)
-
-      const subtitle = await runCliJson<{
-        artifacts: {subtitles: string}
-        outputPath: string
-        projectId: string
-        status: string
-      }>(['film', 'subtitle', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(subtitle.projectId).to.equal(projectId)
-      expect(subtitle.status).to.equal('subtitled')
-      expect(await fileSize(subtitle.artifacts.subtitles)).to.be.greaterThan(0)
-      expect(await fileSize(subtitle.outputPath)).to.be.greaterThan(0)
-
-      const rendered = await runCliJson<{
-        artifactPath: string
-        outputPath: string
-        projectId: string
-        renderer: string
-        status: string
-      }>(['film', 'render', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(rendered.projectId).to.equal(projectId)
-      expect(rendered.status).to.equal('rendered')
-      expect(rendered.renderer).to.equal('ffmpeg')
-      expect(await fileSize(rendered.artifactPath)).to.be.greaterThan(0)
-      expect(await fileSize(rendered.outputPath)).to.be.greaterThan(0)
-
-      const quality = await runCliJson<{
-        artifactPath: string
-        projectId: string
-        qualityReport: {summary: {errors: number}}
-        status: string
-      }>(['film', 'quality-check', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(quality.projectId).to.equal(projectId)
-      expect(quality.status).to.equal('checked')
-      expect(quality.qualityReport.summary.errors).to.equal(0)
-      expect(await fileSize(quality.artifactPath)).to.be.greaterThan(0)
-
-      const manifest = await runCliJson<{
-        checked: number
-        ok: boolean
-      }>(['artifacts', projectId, '--workspace', workspaceDir, '--verify', '--json'])
-
-      expect(manifest.ok).to.equal(true)
-      expect(manifest.checked).to.be.greaterThan(0)
+      expect(film.code).to.equal(1)
+      expect(film.stderr).to.include('Film Recap story indexing requires an LLM provider')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

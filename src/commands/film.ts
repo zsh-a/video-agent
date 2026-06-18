@@ -11,7 +11,7 @@ export default class Film extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    'max-scenes': Flags.integer({description: 'Maximum source scenes to derive during film understanding'}),
+    'max-scenes': Flags.integer({description: 'Maximum visual/silence-backed source scenes to derive during film understanding'}),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
     target: Flags.string({description: 'Target duration hint for later clip planning'}),
     trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),

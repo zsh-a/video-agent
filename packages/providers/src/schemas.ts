@@ -18,8 +18,13 @@ export const TranscriptSchema = z.object({
 })
 
 export const VlmSceneSchema = z.object({
+  actions: z.array(z.string().min(1)).default([]),
+  characters: z.array(z.string().min(1)).default([]),
   description: z.string(),
+  emotions: z.array(z.string().min(1)).default([]),
   evidence: z.array(z.string()),
+  plotClues: z.array(z.string().min(1)).default([]),
+  relationships: z.array(z.string().min(1)).default([]),
   sceneId: z.string().min(1),
 })
 

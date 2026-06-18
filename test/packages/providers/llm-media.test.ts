@@ -61,8 +61,13 @@ describe('LLM media providers', () => {
 
       expect(scenes).to.deep.equal([
         {
+          actions: [],
+          characters: [],
           description: 'A generated visual scene.',
+          emotions: [],
           evidence: [framePath],
+          plotClues: [],
+          relationships: [],
           sceneId: 'scene-1',
         },
       ])

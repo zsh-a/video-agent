@@ -1,4 +1,4 @@
-import type {ASRResult, ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSummaries, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, NarrationSegment, RecapScript, SourceManifest, StoryIndex, Storyboard, VLMAnalysis} from '@video-agent/ir'
+import type {ASRResult, CharacterIndex, ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSummaries, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, NarrationSegment, NarrativeBeats, RecapScript, SourceManifest, StoryIndex, Storyboard, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
 
 export interface MediaInput {
   duration?: number
@@ -29,8 +29,13 @@ export interface SceneFrameBatch {
 }
 
 export interface VLMScene {
+  actions?: string[]
+  characters?: string[]
   description: string
+  emotions?: string[]
   evidence: string[]
+  plotClues?: string[]
+  relationships?: string[]
   sceneId: string
 }
 
@@ -47,6 +52,7 @@ export interface ASRProvider {
 export interface ScriptProvider {
   createNarration(input: ScriptProviderInput): Promise<Narration>
   createRecapScript(input: RecapScriptProviderInput): Promise<RecapScript>
+  createStoryIndex(input: StoryIndexProviderInput): Promise<StoryIndexProviderOutput>
 }
 
 export interface ScriptProviderInput {
@@ -61,6 +67,20 @@ export interface RecapScriptProviderInput {
   storyIndex: StoryIndex
   targetDurationSeconds?: number
   vlmAnalysis: VLMAnalysis
+}
+
+export interface StoryIndexProviderInput {
+  asrResult: ASRResult
+  language: string
+  sourceManifest: SourceManifest
+  timelineFusion: TimelineFusion
+  vlmAnalysis: VLMAnalysis
+}
+
+export interface StoryIndexProviderOutput {
+  characterIndex: CharacterIndex
+  narrativeBeats: NarrativeBeats
+  storyIndex: StoryIndex
 }
 
 export interface StoryboardProvider {

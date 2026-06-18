@@ -1,4 +1,4 @@
-import type {Narration, NarrationSegment, RecapScript} from '@video-agent/ir'
+import type {Narration, NarrationSegment, RecapScript, StoryIndex} from '@video-agent/ir'
 import type {MediaInput, ProviderCostMetadata, ProviderResponseMetadata, ProviderSet, ProviderUsageMetadata, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
 import {readProviderMetadata} from '@video-agent/providers'
@@ -101,6 +101,22 @@ export function instrumentProviders(providers: ProviderSet, selection: ProviderS
           },
           operation: 'createRecapScript',
           output: summarizeRecapScript,
+          provider: 'script',
+          recorder,
+          role: 'script',
+        })
+      },
+      async createStoryIndex(input) {
+        return recordProviderCall({
+          call: () => providers.script.createStoryIndex(input),
+          input: {
+            language: input.language,
+            sourceDuration: input.sourceManifest.duration,
+            timelineItems: input.timelineFusion.items.length,
+            vlmScenes: input.vlmAnalysis.scenes.length,
+          },
+          operation: 'createStoryIndex',
+          output: summarizeStoryIndex,
           provider: 'script',
           recorder,
           role: 'script',
@@ -251,6 +267,14 @@ function summarizeRecapScript(script: RecapScript): Record<string, unknown> {
     segments: script.segments.length,
     textLength: script.segments.reduce((count, segment) => count + segment.narrationText.length, 0),
     totalEstimatedDuration: script.totalEstimatedDuration,
+  }
+}
+
+function summarizeStoryIndex(output: {storyIndex: StoryIndex}): Record<string, unknown> {
+  return {
+    beats: output.storyIndex.beats.length,
+    characters: output.storyIndex.characters.length,
+    language: output.storyIndex.language,
   }
 }
 

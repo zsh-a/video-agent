@@ -39,6 +39,7 @@ import type {
   CreateFilmOutputNarrationProjectResult,
   CreateFilmQualityCheckProjectResult,
   CreateFilmRecapScriptProjectResult,
+  CreateFilmStoryIndexProjectOptions,
   CreateFilmStoryIndexProjectResult,
   CreateFilmSubtitleProjectResult,
   CreateFilmUnderstandingProjectOptions,
@@ -74,6 +75,7 @@ export type {
 } from '@video-agent/runtime'
 
 export interface RunFilmRecapPipelineOptions extends CreateFilmIngestProjectOptions {
+  llmClient?: CreateFilmStoryIndexProjectOptions['llmClient']
   maxScenes?: CreateFilmUnderstandingProjectOptions['maxScenes']
   targetDurationSeconds?: CreateFilmClipPlanProjectOptions['targetDurationSeconds']
 }
@@ -99,6 +101,7 @@ export interface RunFilmRecapPipelineResult {
 export async function runFilmRecapPipeline(options: RunFilmRecapPipelineOptions): Promise<RunFilmRecapPipelineResult> {
   const ingest = await createFilmIngestProject(options)
   const common = {
+    llmClient: options.llmClient,
     projectId: ingest.projectId,
     trace: options.trace,
     workspaceDir: options.workspaceDir,

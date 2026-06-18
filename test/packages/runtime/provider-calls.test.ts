@@ -131,6 +131,12 @@ function createProviderSet(providers: Pick<ProviderSet, 'asr' | 'tts' | 'vlm'>):
       async createNarration() {
         throw new Error('Script provider is not used by this test.')
       },
+      async createRecapScript() {
+        throw new Error('Script provider is not used by this test.')
+      },
+      async createStoryIndex() {
+        throw new Error('Script provider is not used by this test.')
+      },
     },
     storyboard: {
       async createStoryboard() {

@@ -61,8 +61,13 @@ export class MockTTSProvider implements TTSProvider {
 export class MockVLMProvider implements VLMProvider {
   async analyzeScenes(input: SceneFrameBatch[]): Promise<VLMScene[]> {
     return input.map((batch) => ({
+      actions: [],
+      characters: [],
       description: `Mock visual analysis for ${batch.sceneId}.`,
+      emotions: [],
       evidence: batch.frames,
+      plotClues: [],
+      relationships: [],
       sceneId: batch.sceneId,
     }))
   }

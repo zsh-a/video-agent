@@ -199,6 +199,8 @@ async function createVlmMessages(input: SceneFrameBatch[], context?: string): Pr
         instructions: [
           'Return one scene entry for each input batch.',
           'Preserve sceneId values exactly.',
+          'Fill actions, characters, emotions, plotClues, and relationships directly from the visible evidence and context.',
+          'Use concise canonical phrases for structured fields; leave a field empty only when the evidence does not support it.',
           'Use attached images and frame paths as evidence when they support the description.',
           'Use seconds for time ranges and do not invent scene ids.',
         ],

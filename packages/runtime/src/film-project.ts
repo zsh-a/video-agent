@@ -1,13 +1,13 @@
 import type {PipelineEvent} from '@video-agent/core'
-import type {ASRResult, ASRSegment, CharacterIndex, ClipPlan, ClipPlanItem, FilmScenes, LongVideoAnalysisFrames, MediaInfo, MediaStream, Narration, NarrativeBeat, NarrativeBeats, OutputNarration, OutputTimelineMap, RecapScript, RecapScriptSegment, SilencePeriods, SourceManifest, StoryIndex, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
-import type {LLMTraceRecorder} from '@video-agent/llm'
+import type {ASRResult, ASRSegment, CharacterIndex, ClipPlan, ClipPlanItem, FilmScenes, LongVideoAnalysisFrames, MediaInfo, MediaStream, Narration, NarrativeBeats, OutputNarration, OutputTimelineMap, RecapScript, RecapScriptSegment, SilencePeriods, SourceManifest, StoryIndex, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
+import type {LLMClient, LLMTraceRecorder} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
 
 import type {JobStore} from '@video-agent/db'
 import {ASRResultSchema, CharacterIndexSchema, ClipPlanSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, NarrationSchema, NarrativeBeatsSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, SilencePeriodsSchema, SourceManifestSchema, StoryIndexSchema, TimelineFusionSchema, VLMAnalysisSchema} from '@video-agent/ir'
 import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
-import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg} from '@video-agent/media'
+import {detectVideoSceneChanges, extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkAudioLoudness, checkNarrationTiming, checkRenderedMedia, checkSrtSubtitles, checkTtsCoverage, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
@@ -47,6 +47,7 @@ export interface CreateFilmIngestProjectResult {
 }
 
 export interface CreateFilmUnderstandingProjectOptions {
+  llmClient?: LLMClient
   maxScenes?: number
   projectId: string
   trace?: boolean
@@ -70,6 +71,7 @@ export interface CreateFilmUnderstandingProjectResult {
 
 export interface CreateFilmStoryIndexProjectOptions {
   language?: string
+  llmClient?: LLMClient
   projectId: string
   workspaceDir?: string
 }
@@ -87,6 +89,7 @@ export interface CreateFilmStoryIndexProjectResult {
 }
 
 export interface CreateFilmRecapScriptProjectOptions {
+  llmClient?: LLMClient
   projectId: string
   targetDurationSeconds?: number
   workspaceDir?: string
@@ -154,6 +157,7 @@ export interface CreateFilmOutputNarrationProjectResult {
 }
 
 export interface CreateFilmVoiceoverProjectOptions {
+  llmClient?: LLMClient
   projectId: string
   trace?: boolean
   workspaceDir?: string
@@ -287,6 +291,7 @@ export interface CreateFilmQualityCheckProjectResult {
 
 export interface RunFilmRecapProjectOptions extends CreateFilmIngestProjectOptions {
   fromStage?: FilmPipelineStage
+  llmClient?: LLMClient
   maxScenes?: CreateFilmUnderstandingProjectOptions['maxScenes']
   targetDurationSeconds?: CreateFilmClipPlanProjectOptions['targetDurationSeconds']
 }
@@ -334,6 +339,7 @@ export async function runFilmRecapProject(options: RunFilmRecapProjectOptions): 
   }
 
   const common = {
+    llmClient: options.llmClient,
     projectId: options.projectId,
     trace: options.trace,
     workspaceDir: options.workspaceDir,
@@ -538,6 +544,7 @@ export async function createFilmUnderstandingProject(options: CreateFilmUndersta
     const llmTrace = createFilmLLMTrace(workspace, options.trace)
     const providers = instrumentProviders(
       await createRuntimeProviders(config, workspace.workspaceDir, {
+        llmClient: options.llmClient,
         llmTrace: llmTrace.recorder,
       }),
       config.providers,
@@ -545,9 +552,10 @@ export async function createFilmUnderstandingProject(options: CreateFilmUndersta
     )
     const sourceManifest = SourceManifestSchema.parse(await workspace.store.readJson('source-manifest.json'))
     const asrResult = ASRResultSchema.parse(await createFilmAsrResult(workspace.audioDir, sourceManifest, providers))
-    const scenes = FilmScenesSchema.parse(createFilmScenesFromAsr(sourceManifest, asrResult, options.maxScenes ?? 12))
-    const frames = LongVideoAnalysisFramesSchema.parse(await createFilmFrameManifest(workspace.framesDir, sourceManifest, scenes))
     const silencePeriods = SilencePeriodsSchema.parse(createFilmSilencePeriods(sourceManifest, asrResult))
+    const visualSceneChanges = await detectVideoSceneChanges(sourceManifest.sourcePath)
+    const scenes = FilmScenesSchema.parse(createFilmScenesFromEvidence(sourceManifest, asrResult, silencePeriods, visualSceneChanges.timestamps, options.maxScenes ?? 12))
+    const frames = LongVideoAnalysisFramesSchema.parse(await createFilmFrameManifest(workspace.framesDir, sourceManifest, scenes))
     const vlmAnalysis = VLMAnalysisSchema.parse(await createFilmVlmAnalysis(sourceManifest, scenes, frames, providers))
     const timelineFusion = TimelineFusionSchema.parse(createTimelineFusion(sourceManifest, scenes, asrResult, silencePeriods, vlmAnalysis))
     const artifacts = {
@@ -588,15 +596,30 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
   await startFilmStage(jobStore, workspace, 'build-story-index')
 
   try {
+    const config = await readConfig(options.workspaceDir ?? '.video-agent')
+    const providers = instrumentProviders(
+      await createRuntimeProviders(config, options.workspaceDir ?? '.video-agent', {
+        llmClient: options.llmClient,
+      }),
+      config.providers,
+      createFilmProviderCallRecorder(workspace),
+    )
     const [sourceManifest, timelineFusion, asrResult, vlmAnalysis] = await Promise.all([
       SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
       TimelineFusionSchema.parseAsync(await workspace.store.readJson('timeline-fusion.json')),
       ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
       VLMAnalysisSchema.parseAsync(await workspace.store.readJson('vlm-analysis.json')),
     ])
-    const narrativeBeats = NarrativeBeatsSchema.parse(createNarrativeBeats(sourceManifest, timelineFusion, asrResult, vlmAnalysis))
-    const characterIndex = CharacterIndexSchema.parse(createCharacterIndex(sourceManifest, narrativeBeats, vlmAnalysis))
-    const storyIndex = StoryIndexSchema.parse(createStoryIndex(sourceManifest, narrativeBeats, characterIndex, options.language ?? 'zh-CN'))
+    const indexed = validateGeneratedStoryIndex(await providers.script.createStoryIndex({
+      asrResult,
+      language: options.language ?? asrResult.language ?? 'zh-CN',
+      sourceManifest,
+      timelineFusion,
+      vlmAnalysis,
+    }), sourceManifest)
+    const narrativeBeats = NarrativeBeatsSchema.parse(indexed.narrativeBeats)
+    const characterIndex = CharacterIndexSchema.parse(indexed.characterIndex)
+    const storyIndex = StoryIndexSchema.parse(indexed.storyIndex)
     const artifacts = {
       storyIndex: await workspace.store.writeJson('story-index.json', storyIndex),
       narrativeBeats: await workspace.store.writeJson('narrative-beats.json', narrativeBeats),
@@ -634,7 +657,9 @@ export async function createFilmRecapScriptProject(options: CreateFilmRecapScrip
   try {
     const config = await readConfig(options.workspaceDir ?? '.video-agent')
     const providers = instrumentProviders(
-      await createRuntimeProviders(config, options.workspaceDir ?? '.video-agent'),
+      await createRuntimeProviders(config, options.workspaceDir ?? '.video-agent', {
+        llmClient: options.llmClient,
+      }),
       config.providers,
       createFilmProviderCallRecorder(workspace),
     )
@@ -685,13 +710,12 @@ export async function createFilmClipPlanProject(options: CreateFilmClipPlanProje
   await startFilmStage(jobStore, workspace, 'plan-clips')
 
   try {
-    const [sourceManifest, storyIndex, asrResult, recapScript] = await Promise.all([
+    const [sourceManifest, storyIndex, recapScript] = await Promise.all([
       SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
       StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
-      ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
       RecapScriptSchema.parseAsync(await workspace.store.readJson('recap-script.json')),
     ])
-    const clipPlan = ClipPlanSchema.parse(createFilmClipPlan(sourceManifest, storyIndex, options.targetDurationSeconds, asrResult, recapScript))
+    const clipPlan = ClipPlanSchema.parse(createFilmClipPlan(sourceManifest, storyIndex, options.targetDurationSeconds, recapScript))
     const artifacts = {
       clipPlan: await workspace.store.writeJson('clip-plan.json', clipPlan),
     }
@@ -818,6 +842,7 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
     const llmTrace = createFilmLLMTrace(workspace, options.trace)
     const providers = instrumentProviders(
       await createRuntimeProviders(config, workspaceDir, {
+        llmClient: options.llmClient,
         llmTrace: llmTrace.recorder,
       }),
       config.providers,
@@ -877,9 +902,9 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
     const audioMix = {
       ...(mode === 'source-ducked' ? {
         ducking: {
-          attackMs: 5,
+          attackMs: 300,
           ratio: 8,
-          releaseMs: 250,
+          releaseMs: 450,
           threshold: 0.03,
         },
       } : {}),
@@ -891,7 +916,7 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
       sourceAudioRetained: sourceAudioPath !== undefined,
       sourcePath: toProjectReference(workspace.projectDir, editedSourcePath),
       sourceVolume: sourceAudioPath !== undefined && voiceoverSegments.length > 0 ? 0.25 : 0.35,
-      ...(sourceAudioPath !== undefined && voiceoverSegments.length > 0 ? {sourceVolumeDuringVoiceover: 0} : {}),
+      ...(sourceAudioPath !== undefined && voiceoverSegments.length > 0 ? {sourceVolumeDuringVoiceover: 0.08} : {}),
       version: 1 as const,
       voiceoverVolume: 1,
       voiceoverSegments: voiceoverSegments.map((segment) => ({
@@ -1343,7 +1368,7 @@ function buildAudioMixFilter(options: {
     ...allFilters,
     voiceBus,
     `[voicebus]apad,atrim=duration=${duration},asplit=2[duckkey][voicemix]`,
-    '[source][duckkey]sidechaincompress=threshold=0.03:ratio=8:attack=5:release=250[ducked]',
+    '[source][duckkey]sidechaincompress=threshold=0.03:ratio=8:attack=300:release=450[ducked]',
     `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`,
   ].join(';'))
 }
@@ -1740,42 +1765,44 @@ function defaultRecapTargetDuration(sourceDuration: number): number {
   return roundSeconds(clamp(sourceDuration * 0.6, 90, 300))
 }
 
-function allocateDurationsBySourceRange(beats: Array<Pick<NarrativeBeat, 'sourceRange'>>, targetDuration: number): number[] {
-  if (beats.length === 0) {
-    return []
+function validateGeneratedStoryIndex(indexed: {characterIndex: unknown; narrativeBeats: unknown; storyIndex: unknown}, sourceManifest: SourceManifest): {
+  characterIndex: CharacterIndex
+  narrativeBeats: NarrativeBeats
+  storyIndex: StoryIndex
+} {
+  const narrativeBeats = NarrativeBeatsSchema.parse(indexed.narrativeBeats)
+  const characterIndex = CharacterIndexSchema.parse(indexed.characterIndex)
+  const storyIndex = StoryIndexSchema.parse(indexed.storyIndex)
+  const beatIds = narrativeBeats.beats.map((beat) => beat.id)
+  const storyBeatIds = storyIndex.beats.map((beat) => beat.id)
+
+  if (beatIds.length === 0) {
+    throw new Error('Film Recap story-index provider returned no narrative beats.')
   }
 
-  const sourceDurations = beats.map((beat) => Math.max(0, beat.sourceRange[1] - beat.sourceRange[0]))
-  const totalSourceDuration = sourceDurations.reduce((total, duration) => total + duration, 0)
-
-  if (targetDuration <= 0 || totalSourceDuration <= 0) {
-    return beats.map(() => 0)
+  if (beatIds.join('\u0000') !== storyBeatIds.join('\u0000')) {
+    throw new Error('Film Recap story-index provider returned mismatched narrativeBeats and storyIndex beat ids.')
   }
 
-  if (targetDuration >= totalSourceDuration) {
-    return sourceDurations.map(roundSeconds)
+  for (const beat of storyIndex.beats) {
+    const sourceRange = normalizeSourceRange(beat.sourceRange, sourceManifest.duration)
+
+    if (sourceRange[1] <= sourceRange[0]) {
+      throw new Error(`Story-index beat ${beat.id} must have a positive sourceRange.`)
+    }
   }
 
-  const scale = targetDuration / totalSourceDuration
-  const durations = sourceDurations.map((duration) => roundSeconds(Math.min(duration, duration * scale)))
-  let difference = roundSeconds(targetDuration - durations.reduce((total, duration) => total + duration, 0))
-
-  for (let index = durations.length - 1; index >= 0 && Math.abs(difference) >= 0.001; index -= 1) {
-    const available = sourceDurations[index] - durations[index]
-    const delta = difference > 0
-      ? Math.min(available, difference)
-      : Math.max(-durations[index], difference)
-
-    durations[index] = roundSeconds(durations[index] + delta)
-    difference = roundSeconds(difference - delta)
+  if (storyIndex.source !== sourceManifest.sourcePath || storyIndex.sourceDuration !== sourceManifest.duration) {
+    throw new Error('Film Recap story-index provider returned source metadata that does not match source-manifest.json.')
   }
 
-  return durations
+  return {characterIndex, narrativeBeats, storyIndex}
 }
 
 function validateGeneratedRecapScript(recapScript: RecapScript, storyIndex: StoryIndex, sourceManifest: SourceManifest, targetDurationSeconds: number | undefined): RecapScript {
   const beatIds = new Set(storyIndex.beats.map((beat) => beat.id))
   const expectedDuration = clamp(targetDurationSeconds ?? defaultRecapTargetDuration(sourceManifest.duration), 0, sourceManifest.duration)
+  const normalizedSegments: RecapScriptSegment[] = []
 
   if (recapScript.segments.length === 0) {
     throw new Error('Film Recap script provider returned no segments.')
@@ -1795,15 +1822,23 @@ function validateGeneratedRecapScript(recapScript: RecapScript, storyIndex: Stor
     if (segment.suggestedDuration <= 0) {
       throw new Error(`Recap script segment ${segment.id} must have a positive suggestedDuration.`)
     }
+
+    const sourceRange = normalizeSourceRange(segment.sourceRange, sourceManifest.duration)
+
+    if (sourceRange[1] <= sourceRange[0]) {
+      throw new Error(`Recap script segment ${segment.id} must provide a positive sourceRange.`)
+    }
+
+    normalizedSegments.push({
+      ...segment,
+      sourceRange: [roundSeconds(sourceRange[0]), roundSeconds(sourceRange[1])],
+    })
   }
 
-  const repeatedText = findRepeatedNarrationText(recapScript.segments)
-
-  if (repeatedText !== undefined) {
-    throw new Error(`Recap script narration is too repetitive near "${repeatedText}".`)
-  }
-
-  return normalizeRecapScriptDurations(recapScript, expectedDuration)
+  return normalizeRecapScriptDurations({
+    ...recapScript,
+    segments: normalizedSegments,
+  }, expectedDuration)
 }
 
 function normalizeRecapScriptDurations(recapScript: RecapScript, targetDuration: number): RecapScript {
@@ -1833,45 +1868,6 @@ function normalizeRecapScriptDurations(recapScript: RecapScript, targetDuration:
     segments,
     totalEstimatedDuration: roundSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0)),
   }
-}
-
-function findRepeatedNarrationText(segments: RecapScriptSegment[]): string | undefined {
-  const seen = new Map<string, number>()
-
-  for (const segment of segments) {
-    for (const phrase of extractRepeatedPhraseCandidates(segment.narrationText)) {
-      const count = (seen.get(phrase) ?? 0) + 1
-
-      if (count >= 3) {
-        return phrase
-      }
-
-      seen.set(phrase, count)
-    }
-  }
-
-  return undefined
-}
-
-function extractRepeatedPhraseCandidates(text: string): string[] {
-  const normalized = text.replace(/\s+/gu, '')
-  const candidates = new Set<string>()
-
-  for (let size = 6; size <= 12; size += 2) {
-    for (let index = 0; index + size <= normalized.length; index += size) {
-      const phrase = normalized.slice(index, index + size)
-
-      if (!isLowValueRepeatedPhrase(phrase)) {
-        candidates.add(phrase)
-      }
-    }
-  }
-
-  return [...candidates]
-}
-
-function isLowValueRepeatedPhrase(phrase: string): boolean {
-  return phrase.length < 6 || /^(这段剧情|这个场景|故事继续|矛盾继续|关键时刻|随后|最后)/u.test(phrase)
 }
 
 function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, asrResult: ASRResult | undefined, language: string, recapScript: RecapScript): OutputNarration {
@@ -2112,8 +2108,8 @@ async function renderCutVideo(clipPlan: ClipPlan, outputPath: string, includeAud
   ])
 }
 
-function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryIndex, targetDuration: number | undefined, asrResult: ASRResult | undefined, recapScript: RecapScript): ClipPlan {
-  const scriptDrivenPlan = createScriptDrivenFilmClipPlan(sourceManifest, storyIndex, recapScript, targetDuration, asrResult)
+function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryIndex, targetDuration: number | undefined, recapScript: RecapScript): ClipPlan {
+  const scriptDrivenPlan = createScriptDrivenFilmClipPlan(sourceManifest, storyIndex, recapScript, targetDuration)
 
   if (scriptDrivenPlan.clips.length === 0) {
     throw new Error('Film Recap clip planning produced no script-driven clips.')
@@ -2122,12 +2118,10 @@ function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryInd
   return scriptDrivenPlan
 }
 
-function createScriptDrivenFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryIndex, recapScript: RecapScript, targetDuration: number | undefined, asrResult?: ASRResult): ClipPlan {
+function createScriptDrivenFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryIndex, recapScript: RecapScript, targetDuration: number | undefined): ClipPlan {
   const beatsById = new Map(storyIndex.beats.map((beat) => [beat.id, beat]))
   const scriptTarget = recapScript.totalEstimatedDuration > 0 ? recapScript.totalEstimatedDuration : defaultRecapTargetDuration(sourceManifest.duration)
   const effectiveTarget = clamp(targetDuration ?? scriptTarget, 0, sourceManifest.duration)
-  const scriptDurationTotal = recapScript.segments.reduce((total, segment) => total + Math.max(0, segment.suggestedDuration), 0)
-  const durationScale = scriptDurationTotal > 0 && effectiveTarget > 0 ? effectiveTarget / scriptDurationTotal : 1
   const clips: ClipPlanItem[] = []
   let outputCursor = 0
 
@@ -2147,45 +2141,33 @@ function createScriptDrivenFilmClipPlan(sourceManifest: SourceManifest, storyInd
       throw new Error(`Recap script segment ${segment.id} does not reference any story-index beat.`)
     }
 
-    const scaledSegmentDuration = roundSeconds(Math.max(0, segment.suggestedDuration * durationScale))
-    const remainingDuration = roundSeconds(effectiveTarget - outputCursor)
-    const segmentDuration = Math.min(remainingDuration, scaledSegmentDuration > 0 ? scaledSegmentDuration : remainingDuration)
-    const beatDurations = allocateDurationsBySourceRange(targetBeats, segmentDuration)
+    const beat = targetBeats[0]
+    const candidate = createScriptClipCandidate(segment, sourceManifest.duration, effectiveTarget - outputCursor)
 
-    for (const [beatIndex, beat] of targetBeats.entries()) {
-      if (outputCursor >= effectiveTarget - 0.001) {
-        break
-      }
-
-      const requestedDuration = Math.min(beatDurations[beatIndex] ?? 0, effectiveTarget - outputCursor)
-      const candidate = createScriptClipCandidate(segment, beat, sourceManifest.duration, requestedDuration, asrResult)
-
-      if (candidate === undefined) {
-        throw new Error(`Recap script segment ${segment.id} could not produce a clip for beat ${beat.id}.`)
-      }
-
-      if (clips.some((clip) => rangesOverlap(clip.sourceRange, candidate.sourceRange))) {
-        throw new Error(`Recap script segment ${segment.id} produced an overlapping clip for beat ${beat.id}.`)
-      }
-
-      const duration = roundSeconds(candidate.sourceRange[1] - candidate.sourceRange[0])
-
-      clips.push({
-        beatId: beat.id,
-        duration,
-        id: `clip-${String(clips.length + 1).padStart(3, '0')}`,
-        priorityScore: scoreNarrativeBeatForClipPlanning(beat),
-        reason: `Selected script segment ${segment.id} for ${beat.type} beat ${beat.id}: ${segment.visualGuidance}`,
-        sceneId: beat.id,
-        scriptSegmentId: segment.id,
-        selectionReason: 'script-driven',
-        selectionRank: segmentIndex + 1,
-        source: sourceManifest.sourcePath,
-        sourceRange: candidate.sourceRange,
-        start: roundSeconds(outputCursor),
-      })
-      outputCursor = roundSeconds(outputCursor + duration)
+    if (candidate === undefined) {
+      throw new Error(`Recap script segment ${segment.id} must provide a positive sourceRange for LLM-driven clip planning.`)
     }
+
+    if (clips.some((clip) => rangesOverlap(clip.sourceRange, candidate.sourceRange))) {
+      throw new Error(`Recap script segment ${segment.id} produced an overlapping LLM-selected clip.`)
+    }
+
+    const duration = roundSeconds(candidate.sourceRange[1] - candidate.sourceRange[0])
+
+    clips.push({
+      beatId: beat.id,
+      duration,
+      id: `clip-${String(clips.length + 1).padStart(3, '0')}`,
+      reason: `LLM-selected sourceRange from script segment ${segment.id}: ${segment.visualGuidance}`,
+      sceneId: beat.id,
+      scriptSegmentId: segment.id,
+      selectionReason: 'script-driven',
+      selectionRank: segmentIndex + 1,
+      source: sourceManifest.sourcePath,
+      sourceRange: candidate.sourceRange,
+      start: roundSeconds(outputCursor),
+    })
+    outputCursor = roundSeconds(outputCursor + duration)
   }
 
   return {
@@ -2199,149 +2181,20 @@ function createScriptDrivenFilmClipPlan(sourceManifest: SourceManifest, storyInd
 
 function createScriptClipCandidate(
   segment: RecapScriptSegment,
-  beat: NarrativeBeat,
   sourceDuration: number,
-  requestedDuration: number,
-  asrResult: ASRResult | undefined,
+  remainingDuration: number,
 ): {sourceRange: [number, number]} | undefined {
-  const beatRange = normalizeSourceRange(beat.sourceRange, sourceDuration)
-  const beatDuration = roundSeconds(beatRange[1] - beatRange[0])
-  const duration = roundSeconds(Math.min(beatDuration, Math.max(0, requestedDuration)))
+  const sourceRange = normalizeSourceRange(segment.sourceRange, sourceDuration)
+  const duration = roundSeconds(Math.min(sourceRange[1] - sourceRange[0], Math.max(0, segment.suggestedDuration), Math.max(0, remainingDuration)))
 
   if (duration <= 0) {
     return undefined
   }
 
-  if (duration >= beatDuration - 0.001) {
-    return {sourceRange: beatRange}
-  }
-
-  const asrCandidate = chooseScriptAsrCandidate(segment, beat, beatRange, duration, asrResult)
-
-  if (asrCandidate !== undefined) {
-    return asrCandidate
-  }
-
-  const sourceStart = chooseBeatFallbackStart(beat, beatRange, duration)
-  const sourceEnd = roundSeconds(Math.min(beatRange[1], sourceStart + duration))
+  const sourceStart = sourceRange[0]
+  const sourceEnd = roundSeconds(Math.min(sourceRange[1], sourceStart + duration))
 
   return sourceEnd <= sourceStart ? undefined : {sourceRange: [sourceStart, sourceEnd]}
-}
-
-function chooseScriptAsrCandidate(segment: RecapScriptSegment, beat: NarrativeBeat, beatRange: [number, number], duration: number, asrResult: ASRResult | undefined): {sourceRange: [number, number]} | undefined {
-  const candidates = collectAsrSegmentsForRange(asrResult, beatRange)
-    .map((asrSegment) => {
-      const sourceRange = normalizeSourceRange([asrSegment.start, asrSegment.end], beatRange[1])
-      const candidateDuration = roundSeconds(sourceRange[1] - sourceRange[0])
-
-      if (candidateDuration <= 0) {
-        return undefined
-      }
-
-      return {
-        keywordScore: scoreScriptAsrCandidate(segment, beat, asrSegment.text),
-        sourceRange: expandSourceRangeAroundEvidence(sourceRange, beatRange, duration),
-      }
-    })
-    .filter((candidate): candidate is {keywordScore: number; sourceRange: [number, number]} => candidate !== undefined)
-    .filter((candidate) => candidate.keywordScore > 0)
-    .sort((left, right) => right.keywordScore - left.keywordScore || (right.sourceRange[1] - right.sourceRange[0]) - (left.sourceRange[1] - left.sourceRange[0]) || left.sourceRange[0] - right.sourceRange[0])
-
-  return candidates[0] === undefined ? undefined : {sourceRange: candidates[0].sourceRange}
-}
-
-function scoreScriptAsrCandidate(segment: RecapScriptSegment, beat: NarrativeBeat, text: string): number {
-  const guidance = `${segment.narrationText} ${segment.visualGuidance} ${beat.summary} ${beat.characters.join(' ')}`
-  const keywords = ['证据', '录音', '数据', '系统', '真相', '反击', '对峙', '裁员', '绩效', 'VP', 'evidence', 'truth', 'data', 'showdown']
-  const scriptedKeywords = extractClipPlanningKeywords(guidance)
-
-  return [
-    ...keywords.filter((keyword) => guidance.includes(keyword)),
-    ...scriptedKeywords,
-  ].reduce((score, keyword) => score + (text.includes(keyword) ? 1 : 0), 0)
-}
-
-function extractClipPlanningKeywords(text: string): string[] {
-  const chineseTerms = Array.from(text.matchAll(/[\p{Script=Han}A-Za-z]{2,8}/gu), (match) => match[0])
-  const expandedTerms = [
-    ...chineseTerms,
-    ...chineseTerms.flatMap((term) => createTermNgrams(term, 2, 4)),
-  ]
-
-  return uniqueStrings(expandedTerms)
-    .filter((term) => !CLIP_PLANNING_STOPWORDS.has(term))
-    .slice(0, 40)
-}
-
-function createTermNgrams(term: string, minSize: number, maxSize: number): string[] {
-  const output: string[] = []
-
-  for (let size = minSize; size <= Math.min(maxSize, term.length); size += 1) {
-    for (let index = 0; index + size <= term.length; index += 1) {
-      output.push(term.slice(index, index + size))
-    }
-  }
-
-  return output
-}
-
-const CLIP_PLANNING_STOPWORDS = new Set([
-  '这段',
-  '剧情',
-  '这场',
-  '故事',
-  '继续',
-  '关键',
-  '问题',
-  '真正',
-  '开始',
-  '最后',
-  '系统',
-])
-
-function expandSourceRangeAroundEvidence(evidenceRange: [number, number], beatRange: [number, number], duration: number): [number, number] {
-  const beatDuration = roundSeconds(beatRange[1] - beatRange[0])
-
-  if (duration >= beatDuration - 0.001) {
-    return beatRange
-  }
-
-  const evidenceCenter = (evidenceRange[0] + evidenceRange[1]) / 2
-  const rawStart = evidenceCenter - duration / 2
-  const start = roundSeconds(clamp(rawStart, beatRange[0], beatRange[1] - duration))
-
-  return [start, roundSeconds(start + duration)]
-}
-
-function chooseBeatFallbackStart(beat: NarrativeBeat, beatRange: [number, number], duration: number): number {
-  const maxStart = beatRange[1] - duration
-
-  if (maxStart <= beatRange[0]) {
-    return beatRange[0]
-  }
-
-  const anchor = beat.type === 'climax' || beat.type === 'reversal'
-    ? 0.62
-    : beat.type === 'resolution'
-      ? 0.48
-      : beat.type === 'decision' || beat.type === 'inciting_incident'
-        ? 0.28
-        : 0.42
-  const beatDuration = beatRange[1] - beatRange[0]
-  const centeredStart = beatRange[0] + beatDuration * anchor - duration / 2
-
-  return roundSeconds(clamp(centeredStart, beatRange[0], maxStart))
-}
-
-const FILM_BEAT_TYPE_WEIGHTS: Record<NarrativeBeat['type'], number> = {
-  climax: 95,
-  conflict: 75,
-  decision: 90,
-  inciting_incident: 85,
-  resolution: 70,
-  reversal: 100,
-  setup: 55,
-  transition: 25,
 }
 
 function normalizeSourceRange(range: [number, number], sourceDuration: number): [number, number] {
@@ -2351,357 +2204,8 @@ function normalizeSourceRange(range: [number, number], sourceDuration: number): 
   return [start, end]
 }
 
-function scoreNarrativeBeatForClipPlanning(beat: NarrativeBeat): number {
-  const evidenceBonus = Math.min(24, beat.evidence.length * 4)
-  const characterBonus = Math.min(12, beat.characters.length * 3)
-  const summaryBonus = scoreFilmClipSummaryKeywords(beat.summary)
-
-  return roundSeconds(FILM_BEAT_TYPE_WEIGHTS[beat.type] + evidenceBonus + characterBonus + summaryBonus)
-}
-
-function scoreFilmClipSummaryKeywords(summary: string): number {
-  const normalized = summary.toLowerCase()
-  let score = 0
-
-  if (/(决定|选择|拒绝|答应|decision|choose|refuse|accept)/iu.test(normalized)) {
-    score += 8
-  }
-
-  if (/(反转|真相|揭露|背叛|reveal|twist|betray|turns out)/iu.test(normalized)) {
-    score += 10
-  }
-
-  if (/(线索|证据|钥匙|录音|照片|clue|evidence|key|recording|photo)/iu.test(normalized)) {
-    score += 6
-  }
-
-  if (/(高潮|决战|爆发|climax|showdown)/iu.test(normalized)) {
-    score += 8
-  }
-
-  return score
-}
-
-function createNarrativeBeats(sourceManifest: SourceManifest, timelineFusion: TimelineFusion, asrResult: ASRResult, vlmAnalysis: VLMAnalysis): NarrativeBeats {
-  const asrById = new Map(asrResult.segments.map((segment) => [segment.id, segment]))
-  const vlmById = new Map(vlmAnalysis.scenes.map((scene) => [scene.id, scene]))
-  const beats: NarrativeBeat[] = timelineFusion.items.map((item, index) => {
-    const asrSegments = item.asrSegmentIds.flatMap((id) => {
-      const segment = asrById.get(id)
-
-      return segment === undefined ? [] : [segment]
-    })
-    const vlmScenes = item.vlmAnalysisIds.flatMap((id) => {
-      const scene = vlmById.get(id)
-
-      return scene === undefined ? [] : [scene]
-    })
-    const evidenceText = [
-      item.summary,
-      ...asrSegments.map((segment) => segment.text),
-      ...vlmScenes.flatMap((scene) => [
-        scene.summary,
-        ...scene.actions,
-        ...scene.emotions,
-        ...scene.relationships,
-        ...scene.plotClues,
-      ]),
-    ].join(' ')
-    const characters = uniqueStrings([
-      ...vlmScenes.flatMap((scene) => scene.characters),
-      ...extractCharacterHints(evidenceText),
-    ])
-
-    return {
-      characters,
-      evidence: item.evidence,
-      id: `beat-${String(index + 1).padStart(3, '0')}`,
-      sourceRange: item.sourceRange,
-      summary: createBeatSummary(item.summary, asrSegments.map((segment) => segment.text), vlmScenes.map((scene) => scene.summary)),
-      type: inferBeatTypeFromEvidence(evidenceText, index, timelineFusion.items.length),
-    }
-  })
-
-  return {
-    beats,
-    source: sourceManifest.sourcePath,
-    version: 1,
-  }
-}
-
-function createCharacterIndex(sourceManifest: SourceManifest, narrativeBeats: NarrativeBeats, vlmAnalysis: VLMAnalysis): CharacterIndex {
-  const entries = new Map<string, {evidence: CharacterIndex['characters'][number]['evidence']; name: string; mentions: number}>()
-
-  for (const scene of vlmAnalysis.scenes) {
-    for (const name of [...scene.characters, ...extractCharacterHints(scene.summary)]) {
-      const entry = entries.get(name) ?? {evidence: [], mentions: 0, name}
-
-      entry.mentions += 1
-      entry.evidence.push(...scene.evidence.slice(0, 2))
-      entries.set(name, entry)
-    }
-  }
-
-  for (const beat of narrativeBeats.beats) {
-    for (const name of beat.characters) {
-      const entry = entries.get(name) ?? {evidence: [], mentions: 0, name}
-
-      entry.mentions += 1
-      entry.evidence.push(...beat.evidence.slice(0, 2))
-      entries.set(name, entry)
-    }
-  }
-
-  return {
-    characters: [...entries.values()]
-      .sort((left, right) => right.mentions - left.mentions || left.name.localeCompare(right.name))
-      .map((entry, index) => ({
-        aliases: [],
-        description: `${entry.name} appears in ${entry.mentions} evidence-backed beat(s).`,
-        evidence: dedupeEvidence(entry.evidence).slice(0, 6),
-        id: `character-${String(index + 1).padStart(3, '0')}`,
-        name: entry.name,
-      })),
-    source: sourceManifest.sourcePath,
-    version: 1,
-  }
-}
-
-function createStoryIndex(sourceManifest: SourceManifest, narrativeBeats: NarrativeBeats, characterIndex: CharacterIndex, language: string): StoryIndex {
-  return {
-    beats: narrativeBeats.beats,
-    characters: characterIndex.characters,
-    language,
-    source: sourceManifest.sourcePath,
-    sourceDuration: sourceManifest.duration,
-    version: 1,
-  }
-}
-
-function inferBeatTypeFromEvidence(text: string, index: number, total: number): NarrativeBeat['type'] {
-  const normalized = text.toLowerCase()
-
-  if (/(反转|真相|揭露|背叛|reveal|twist|betray|turns out)/iu.test(normalized)) {
-    return 'reversal'
-  }
-
-  if (/(决定|选择|答应|拒绝|decision|choose|chooses|refuse|accept)/iu.test(normalized)) {
-    return 'decision'
-  }
-
-  if (/(冲突|争吵|追逐|攻击|威胁|confront|fight|attack|chase|threat|conflict)/iu.test(normalized)) {
-    return 'conflict'
-  }
-
-  if (/(高潮|决战|爆发|climax|final|showdown)/iu.test(normalized)) {
-    return 'climax'
-  }
-
-  if (/(结局|解决|离开|获救|resolution|resolved|ending|escape)/iu.test(normalized)) {
-    return 'resolution'
-  }
-
-  if (total <= 1) {
-    return 'setup'
-  }
-
-  if (index === 0) {
-    return 'setup'
-  }
-
-  if (index === total - 1) {
-    return 'resolution'
-  }
-
-  if (index === 1) {
-    return 'inciting_incident'
-  }
-
-  if (index >= Math.floor(total * 0.75)) {
-    return 'climax'
-  }
-
-  return 'conflict'
-}
-
-function createBeatSummary(fusionSummary: string, asrTexts: string[], vlmSummaries: string[]): string {
-  const asrText = asrTexts.map((item) => item.trim()).filter(Boolean).join(' ')
-  const vlmText = vlmSummaries.map((item) => item.trim()).filter(Boolean).join(' ')
-  const text = asrText === '' ? vlmText === '' ? fusionSummary.trim() : vlmText : asrText
-
-  if (text === '') {
-    throw new Error('Narrative beat summary requires ASR, VLM, or timeline fusion text.')
-  }
-
-  return trimToSentenceBoundary(text, 260)
-}
-
-interface VlmSemanticHints {
-  actions: string[]
-  characters: string[]
-  emotions: string[]
-  plotClues: string[]
-  relationships: string[]
-}
-
-function extractVlmSemanticHints(description: string): VlmSemanticHints {
-  return {
-    actions: uniqueStrings([
-      ...extractLabeledList(description, ['动作', '行动', 'action', 'actions']),
-      ...extractKeywordHints(description, [
-        ['追逐', 'chase'],
-        ['争吵', 'argument'],
-        ['攻击', 'attack'],
-        ['发现线索', 'discovery'],
-        ['逃离', 'escape'],
-        ['对峙', 'confrontation'],
-      ]),
-    ]),
-    characters: uniqueStrings([
-      ...extractLabeledList(description, ['人物', '角色', 'characters', 'character']),
-      ...extractCharacterHints(description),
-    ]),
-    emotions: uniqueStrings([
-      ...extractLabeledList(description, ['情绪', 'emotion', 'emotions']),
-      ...extractKeywordHints(description, [
-        ['恐惧', 'fear'],
-        ['紧张', 'tension'],
-        ['愤怒', 'anger'],
-        ['悲伤', 'sadness'],
-        ['震惊', 'shock'],
-        ['怀疑', 'suspicion'],
-      ]),
-    ]),
-    plotClues: uniqueStrings([
-      ...extractLabeledList(description, ['线索', '关键道具', 'plot clue', 'plot clues', 'clues']),
-      ...extractKeywordHints(description, [
-        ['真相', 'truth reveal'],
-        ['秘密', 'secret'],
-        ['钥匙', 'key object'],
-        ['证据', 'evidence'],
-        ['录音', 'recording'],
-        ['照片', 'photo'],
-      ]),
-    ]),
-    relationships: uniqueStrings([
-      ...extractLabeledList(description, ['关系', 'relationship', 'relationships']),
-      ...extractKeywordHints(description, [
-        ['背叛', 'betrayal'],
-        ['合作', 'alliance'],
-        ['敌人', 'enemy'],
-        ['朋友', 'friend'],
-        ['家人', 'family'],
-        ['恋人', 'lover'],
-      ]),
-    ]),
-  }
-}
-
-function extractLabeledList(text: string, labels: string[]): string[] {
-  const escapedLabels = labels.map((label) => escapeRegExp(label)).join('|')
-  const pattern = new RegExp(`(?:${escapedLabels})\\s*[:：]\\s*([^。.;；\\n]+)`, 'giu')
-  const values: string[] = []
-
-  for (const match of text.matchAll(pattern)) {
-    values.push(...splitHintList(match[1] ?? ''))
-  }
-
-  return values
-}
-
-function splitHintList(value: string): string[] {
-  return value
-    .split(/[,，、/|]/u)
-    .map((item) => item.trim().replace(/^["'“”]+|["'“”]+$/gu, ''))
-    .filter((item) => item.length > 0)
-    .map((item) => item.slice(0, 48))
-}
-
-function extractKeywordHints(text: string, hints: Array<[string, string]>): string[] {
-  return hints.flatMap(([keyword, label]) => text.includes(keyword) ? [label] : [])
-}
-
-function extractCharacterHints(text: string): string[] {
-  const knownRoles = [
-    '主角',
-    '反派',
-    '男主',
-    '女主',
-    '警察',
-    '侦探',
-    '医生',
-    '老师',
-    '母亲',
-    '父亲',
-    '丈夫',
-    '妻子',
-    '女孩',
-    '男孩',
-    '朋友',
-  ]
-  const englishRoles = [
-    ['protagonist', 'protagonist'],
-    ['villain', 'villain'],
-    ['detective', 'detective'],
-    ['police', 'police'],
-    ['doctor', 'doctor'],
-  ] as const
-
-  return uniqueStrings([
-    ...extractChineseNamedCharacters(text),
-    ...knownRoles.filter((role) => text.includes(role)),
-    ...englishRoles.flatMap(([keyword, label]) => text.toLowerCase().includes(keyword) ? [label] : []),
-  ])
-}
-
-function extractChineseNamedCharacters(text: string): string[] {
-  const titledNames = Array.from(text.matchAll(/[\p{Script=Han}A-Za-z]{1,8}(?:总|经理|主任|主管|VP|CEO|CFO|CTO)/giu), (match) => match[0])
-  const actionSubjects = Array.from(text.matchAll(/(?<![\p{Script=Han}])([\p{Script=Han}]{2,3})(?=回到|回归|回来|宣布|拿出|指出|发现|决定|要求|质问|追问|证明|对比|离开|留下|接住|求助|改革|承诺|反击)/gu), (match) => match[1] ?? '')
-  const objectNames = Array.from(text.matchAll(/([\p{Script=Han}]{1,6}总)(?=被裁|被开除|被问责|被调查)/gu), (match) => match[1] ?? '')
-
-  return [...titledNames, ...actionSubjects, ...objectNames]
-    .map((name) => name.trim())
-    .filter((name) => name !== '' && !CHINESE_CHARACTER_STOPWORDS.has(name))
-}
-
-const CHINESE_CHARACTER_STOPWORDS = new Set([
-  '公司',
-  '部分',
-  '资深',
-  '同事',
-  '老员工',
-  '系统',
-  '记录',
-  '数据',
-  '故事',
-  '剧情',
-  '问题',
-  '真相',
-  '管理层',
-])
-
-function dedupeEvidence<T extends {ref: string; text?: string; type: string}>(items: T[]): T[] {
-  const seen = new Set<string>()
-  const output: T[] = []
-
-  for (const item of items) {
-    const key = `${item.type}:${item.ref}:${item.text ?? ''}`
-
-    if (!seen.has(key)) {
-      seen.add(key)
-      output.push(item)
-    }
-  }
-
-  return output
-}
-
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
 }
 
 async function createFilmFrameManifest(framesDir: string, sourceManifest: SourceManifest, scenes: FilmScenes): Promise<LongVideoAnalysisFrames> {
@@ -2784,7 +2288,7 @@ function inferTranscriptTimestampConfidence(transcript: Transcript): ASRResult['
   return transcript.segments.some((segment) => segment.end > segment.start) ? 'exact' : 'untimed'
 }
 
-function createFilmScenesFromAsr(sourceManifest: SourceManifest, asrResult: ASRResult, maxScenes: number): FilmScenes {
+function createFilmScenesFromEvidence(sourceManifest: SourceManifest, asrResult: ASRResult, silencePeriods: SilencePeriods, visualSceneChanges: number[], maxScenes: number): FilmScenes {
   const timedSegments = asrResult.segments
     .filter((segment) => segment.end > segment.start)
     .sort((left, right) => left.start - right.start || left.end - right.end)
@@ -2793,28 +2297,25 @@ function createFilmScenesFromAsr(sourceManifest: SourceManifest, asrResult: ASRR
     throw new Error('Film Recap production scene planning requires timed ASR segments.')
   }
 
-  const groupCount = normalizeFilmSceneGroupCount(maxScenes, timedSegments.length)
-  const scenes = Array.from({length: groupCount}, (_, index) => {
-    const startIndex = Math.floor(index * timedSegments.length / groupCount)
-    const endIndex = Math.floor((index + 1) * timedSegments.length / groupCount)
-    const group = timedSegments.slice(startIndex, endIndex)
-    const start = roundSeconds(clamp(group[0]?.start ?? 0, 0, sourceManifest.duration))
-    const end = roundSeconds(clamp(group.at(-1)?.end ?? start, start, sourceManifest.duration))
-    const summary = group.map((segment) => segment.text).join(' ').slice(0, 180)
-
-    if (summary.trim() === '') {
-      throw new Error(`ASR-backed film scene ${index + 1} has no transcript text.`)
-    }
+  const ranges = limitSceneRanges(createSceneRangesFromBoundaries(sourceManifest.duration, [
+    0,
+    ...visualSceneChanges,
+    ...silencePeriods.periods.flatMap((period) => silencePeriodBoundary(period, sourceManifest.duration)),
+    sourceManifest.duration,
+  ]), normalizeFilmSceneLimit(maxScenes))
+  const scenes = ranges.map((range, index) => {
+    const matchingAsr = timedSegments.filter((segment) => rangesOverlap([segment.start, segment.end], range))
+    const summary = matchingAsr.map((segment) => segment.text).join(' ').trim()
 
     return {
       id: `scene-${String(index + 1).padStart(3, '0')}`,
-      sourceRange: [start, end] as [number, number],
-      summary,
+      sourceRange: range,
+      ...(summary === '' ? {} : {summary}),
     }
   }).filter((scene) => scene.sourceRange[1] > scene.sourceRange[0])
 
   if (scenes.length === 0) {
-    throw new Error('Film Recap production scene planning produced no ASR-backed scenes.')
+    throw new Error('Film Recap production scene planning produced no evidence-backed scenes.')
   }
 
   return {
@@ -2824,10 +2325,84 @@ function createFilmScenesFromAsr(sourceManifest: SourceManifest, asrResult: ASRR
   }
 }
 
-function normalizeFilmSceneGroupCount(maxScenes: number, segmentCount: number): number {
-  const requested = Number.isFinite(maxScenes) ? Math.floor(maxScenes) : segmentCount
+function createSceneRangesFromBoundaries(sourceDuration: number, rawBoundaries: number[]): Array<[number, number]> {
+  const safeDuration = Math.max(sourceDuration, 0.001)
+  const boundaries = uniqueRoundedSeconds(rawBoundaries
+    .map((value) => clamp(value, 0, safeDuration))
+    .filter((value) => value >= 0 && value <= safeDuration))
+    .sort((left, right) => left - right)
+  const completeBoundaries = ensureBoundaryEdges(boundaries, safeDuration)
+  const ranges: Array<[number, number]> = []
 
-  return Math.max(1, Math.min(requested, segmentCount))
+  for (let index = 0; index < completeBoundaries.length - 1; index += 1) {
+    const start = completeBoundaries[index]
+    const end = completeBoundaries[index + 1]
+
+    if (end - start >= 0.05) {
+      ranges.push([start, end])
+    }
+  }
+
+  return ranges.length === 0 ? [[0, safeDuration]] : ranges
+}
+
+function silencePeriodBoundary(period: SilencePeriods['periods'][number], sourceDuration: number): number[] {
+  const duration = period.end - period.start
+
+  if (duration < 0.25 || period.start <= 0 || period.end >= sourceDuration) {
+    return []
+  }
+
+  return [roundSeconds((period.start + period.end) / 2)]
+}
+
+function limitSceneRanges(ranges: Array<[number, number]>, maxScenes: number): Array<[number, number]> {
+  const limited = [...ranges]
+  const target = Math.max(1, Math.floor(Number.isFinite(maxScenes) ? maxScenes : limited.length))
+
+  while (limited.length > target) {
+    const mergeIndex = findShortestAdjacentSceneMerge(limited)
+    const left = limited[mergeIndex]
+    const right = limited[mergeIndex + 1]
+
+    limited.splice(mergeIndex, 2, [left[0], right[1]])
+  }
+
+  return limited.map((range) => [roundSeconds(range[0]), roundSeconds(range[1])] as [number, number])
+}
+
+function findShortestAdjacentSceneMerge(ranges: Array<[number, number]>): number {
+  let bestIndex = 0
+  let bestDuration = Number.POSITIVE_INFINITY
+
+  for (let index = 0; index < ranges.length - 1; index += 1) {
+    const duration = ranges[index + 1][1] - ranges[index][0]
+
+    if (duration < bestDuration) {
+      bestDuration = duration
+      bestIndex = index
+    }
+  }
+
+  return bestIndex
+}
+
+function ensureBoundaryEdges(boundaries: number[], sourceDuration: number): number[] {
+  return uniqueRoundedSeconds([
+    0,
+    ...boundaries,
+    sourceDuration,
+  ])
+}
+
+function uniqueRoundedSeconds(values: number[]): number[] {
+  return [...new Set(values.map(roundSeconds))]
+}
+
+function normalizeFilmSceneLimit(maxScenes: number): number {
+  const requested = Number.isFinite(maxScenes) ? Math.floor(maxScenes) : 12
+
+  return Math.max(1, requested)
 }
 
 function createFilmSilencePeriods(sourceManifest: SourceManifest, asrResult: ASRResult): SilencePeriods {
@@ -2927,16 +2502,15 @@ function createFilmVlmAnalysisFromProvider(sourceManifest: SourceManifest, scene
       const scene = scenesById.get(providerScene.sceneId)
       const batch = batchesById.get(providerScene.sceneId)
       const sourceRange = scene?.sourceRange ?? batch?.timeRange ?? [0, sourceManifest.duration] as [number, number]
-      const hints = extractVlmSemanticHints(providerScene.description)
 
       return {
-        actions: hints.actions,
-        characters: hints.characters,
-        emotions: hints.emotions,
+        actions: uniqueStrings(providerScene.actions ?? []),
+        characters: uniqueStrings(providerScene.characters ?? []),
+        emotions: uniqueStrings(providerScene.emotions ?? []),
         evidence: providerScene.evidence.map((ref) => ({ref, text: providerScene.description, type: 'vlm' as const})),
         id: `vlm-${String(index + 1).padStart(3, '0')}`,
-        plotClues: hints.plotClues,
-        relationships: hints.relationships,
+        plotClues: uniqueStrings(providerScene.plotClues ?? []),
+        relationships: uniqueStrings(providerScene.relationships ?? []),
         sceneId: providerScene.sceneId,
         sourceRange,
         summary: providerScene.description,

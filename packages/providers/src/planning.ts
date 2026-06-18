@@ -1,9 +1,10 @@
 import type {LLMClient} from '@video-agent/llm'
 
 import {createNarrationFromClipPlan, createStoryboardFromProviderInsights} from '@video-agent/core'
-import {NarrationSchema, RecapScriptSchema, StoryboardSchema, type NarrativeBeat, type RecapScript, type RecapScriptSegment, type Storyboard, type StoryboardScene} from '@video-agent/ir'
+import {CharacterIndexEntrySchema, CharacterIndexSchema, NarrationSchema, NarrativeBeatSchema, NarrativeBeatsSchema, RecapScriptSchema, StoryIndexSchema, StoryboardSchema, type RecapScript, type Storyboard, type StoryboardScene} from '@video-agent/ir'
+import {z} from 'zod'
 
-import type {RecapScriptProviderInput, ScriptProvider, ScriptProviderInput, StoryboardProvider, StoryboardProviderInput} from './contracts.js'
+import type {RecapScriptProviderInput, ScriptProvider, ScriptProviderInput, StoryIndexProviderInput, StoryIndexProviderOutput, StoryboardProvider, StoryboardProviderInput} from './contracts.js'
 
 export class DeterministicStoryboardProvider implements StoryboardProvider {
   async createStoryboard(input: StoryboardProviderInput) {
@@ -33,8 +34,12 @@ export class DeterministicScriptProvider implements ScriptProvider {
     })
   }
 
-  async createRecapScript(input: RecapScriptProviderInput) {
-    return RecapScriptSchema.parse(createDeterministicRecapScript(input))
+  async createRecapScript(_input: RecapScriptProviderInput): Promise<RecapScript> {
+    throw new Error('Film Recap script writing requires an LLM provider. Configure an llm block or pass an injected LLM client.')
+  }
+
+  async createStoryIndex(_input: StoryIndexProviderInput): Promise<StoryIndexProviderOutput> {
+    throw new Error('Film Recap story indexing requires an LLM provider. Configure an llm block or pass an injected LLM client.')
   }
 }
 
@@ -107,6 +112,58 @@ export class LLMScriptProvider implements ScriptProvider {
     return NarrationSchema.parse(result.object)
   }
 
+  async createStoryIndex(input: StoryIndexProviderInput): Promise<StoryIndexProviderOutput> {
+    const result = await this.llm.generateObject({
+      messages: [
+        {
+          content: JSON.stringify({
+            asrResult: input.asrResult,
+            goal: 'Create Film Recap story-index semantic JSON. Return only data matching the schema.',
+            instructions: [
+              'Infer narrative beats from the full ASR transcript, visual scene analysis, silence-aware timeline fusion, and neighboring context.',
+              'Use the structured VLM actions, characters, emotions, plotClues, and relationships fields as primary visual semantics.',
+              'Do not classify beats, characters, relationships, or importance by keyword matching or fixed position heuristics.',
+              'Return beats in chronological order with stable ids like beat-001.',
+              'Every beat.sourceRange must stay within sourceManifest.duration and should align with the strongest evidence range.',
+              'Every beat.type must be one of the allowed schema values and should reflect the narrative function, not just the beat position.',
+              'Attach evidence refs from timelineFusion evidence, ASR segments, and VLM analysis whenever they support the beat.',
+              'Build characters only from supported ASR/VLM evidence; include aliases and concise evidence-backed descriptions when available.',
+            ],
+            language: input.language,
+            sourceManifest: summarizeFilmSourceManifest(input.sourceManifest),
+            timelineFusion: input.timelineFusion,
+            vlmAnalysis: input.vlmAnalysis,
+          }),
+          role: 'user',
+        },
+      ],
+      schema: FilmStoryIndexLLMOutputSchema,
+      temperature: 0.25,
+    })
+    const output = FilmStoryIndexLLMOutputSchema.parse(result.object)
+
+    return {
+      characterIndex: CharacterIndexSchema.parse({
+        characters: output.characters,
+        source: input.sourceManifest.sourcePath,
+        version: 1,
+      }),
+      narrativeBeats: NarrativeBeatsSchema.parse({
+        beats: output.beats,
+        source: input.sourceManifest.sourcePath,
+        version: 1,
+      }),
+      storyIndex: StoryIndexSchema.parse({
+        beats: output.beats,
+        characters: output.characters,
+        language: input.language,
+        source: input.sourceManifest.sourcePath,
+        sourceDuration: input.sourceManifest.duration,
+        version: 1,
+      }),
+    }
+  }
+
   async createRecapScript(input: RecapScriptProviderInput) {
     const result = await this.llm.generateObject({
       messages: [
@@ -119,7 +176,9 @@ export class LLMScriptProvider implements ScriptProvider {
               'Use ASR and VLM evidence to write scene-specific narration. Do not repeat generic phrases across segments.',
               'Do not paste raw dialogue wholesale. Rewrite into concise third-person recap commentary suitable for TTS.',
               'Make narrationText reflect the concrete event in that beat: who acts, what changes, and why it matters.',
-              'Use visualGuidance to describe what footage should be selected for that segment.',
+              'Set sourceRange to the exact source clip range that should be used for the segment; this is the only semantic clip-selection signal downstream.',
+              'Use visualGuidance to explain why that sourceRange visually supports the narration.',
+              'For climax, reversal, or decision beats, include enough ASR/VLM detail to preserve the concrete plot event.',
               'Keep suggestedDuration proportional to beat sourceRange and make totalEstimatedDuration close to targetDurationSeconds.',
               'Do not invent character names or plot events not supported by storyIndex, asrResult, or vlmAnalysis.',
               'Use the storyIndex.language for hook, narrationText, visualGuidance, and outro.',
@@ -137,192 +196,30 @@ export class LLMScriptProvider implements ScriptProvider {
   }
 }
 
-function createDeterministicRecapScript(input: RecapScriptProviderInput): RecapScript {
-  const beats = input.storyIndex.beats
-    .map((beat) => ({
-      ...beat,
-      sourceRange: normalizeSourceRange(beat.sourceRange, input.sourceManifest.duration),
-    }))
-    .filter((beat) => beat.sourceRange[1] > beat.sourceRange[0])
-  const targetDuration = Math.max(0, Math.min(input.targetDurationSeconds ?? defaultRecapDuration(input.sourceManifest.duration), input.sourceManifest.duration))
+const FilmStoryIndexLLMOutputSchema = z.object({
+  beats: z.array(NarrativeBeatSchema).min(1),
+  characters: z.array(CharacterIndexEntrySchema).default([]),
+})
 
-  if (beats.length === 0) {
-    throw new Error('Film Recap script writing requires at least one narrative beat.')
-  }
-
-  if (targetDuration <= 0) {
-    throw new Error('Film Recap script writing requires a positive target duration.')
-  }
-
-  const selectedBeats = selectRecapBeatsForTarget(beats, targetDuration)
-  const durations = allocateRecapDurations(selectedBeats, targetDuration)
-  const segments = selectedBeats.map((beat, index): RecapScriptSegment => {
-    const text = summarizeBeatForNarration(beat)
-
-    return {
-      emotionalTone: inferRecapTone(beat, index, beats.length),
-      id: `recap-script-${String(index + 1).padStart(3, '0')}`,
-      narrationText: `${createRecapLead(beat, index, beats.length, input.storyIndex.language)}${text}`,
-      suggestedDuration: durations[index] ?? 0,
-      targetBeatIds: [beat.id],
-      visualGuidance: `Select footage from ${formatSourceRange(beat.sourceRange)} that supports: ${text}`,
-    }
-  })
-
+function summarizeFilmSourceManifest(sourceManifest: StoryIndexProviderInput['sourceManifest']): Record<string, unknown> {
   return {
-    hook: beats[0]?.summary ?? 'The recap opens on the central conflict.',
-    language: input.storyIndex.language,
-    outro: beats.at(-1)?.summary ?? 'The recap ends with the final consequence.',
-    segments,
-    totalEstimatedDuration: roundSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0)),
-    version: 1,
+    duration: sourceManifest.duration,
+    fps: sourceManifest.fps,
+    height: sourceManifest.height,
+    orientation: sourceManifest.orientation,
+    sourcePath: sourceManifest.sourcePath,
+    width: sourceManifest.width,
   }
 }
 
 function summarizeFilmRecapScriptInput(input: RecapScriptProviderInput): Record<string, unknown> {
   return {
-    asrResult: {
-      language: input.asrResult.language,
-      segments: input.asrResult.segments.map((segment) => ({
-        end: segment.end,
-        id: segment.id,
-        speaker: segment.speaker,
-        start: segment.start,
-        text: segment.text,
-      })),
-      timestampConfidence: input.asrResult.timestampConfidence,
-    },
-    sourceManifest: {
-      duration: input.sourceManifest.duration,
-      fps: input.sourceManifest.fps,
-      height: input.sourceManifest.height,
-      orientation: input.sourceManifest.orientation,
-      sourceDuration: input.sourceManifest.duration,
-      width: input.sourceManifest.width,
-    },
+    asrResult: input.asrResult,
+    sourceManifest: summarizeFilmSourceManifest(input.sourceManifest),
     storyIndex: input.storyIndex,
     targetDurationSeconds: input.targetDurationSeconds,
-    vlmAnalysis: {
-      scenes: input.vlmAnalysis.scenes.map((scene) => ({
-        actions: scene.actions,
-        characters: scene.characters,
-        emotions: scene.emotions,
-        id: scene.id,
-        plotClues: scene.plotClues,
-        relationships: scene.relationships,
-        sceneId: scene.sceneId,
-        sourceRange: scene.sourceRange,
-        summary: scene.summary,
-      })),
-    },
+    vlmAnalysis: input.vlmAnalysis,
   }
-}
-
-function defaultRecapDuration(sourceDuration: number): number {
-  if (sourceDuration <= 0) {
-    return 0
-  }
-
-  return sourceDuration <= 90 ? sourceDuration : roundSeconds(Math.min(Math.max(sourceDuration * 0.6, 90), 300))
-}
-
-function allocateRecapDurations(beats: Array<Pick<NarrativeBeat, 'sourceRange'>>, targetDuration: number): number[] {
-  const sourceDurations = beats.map((beat) => Math.max(0, beat.sourceRange[1] - beat.sourceRange[0]))
-  const totalSourceDuration = sourceDurations.reduce((total, duration) => total + duration, 0)
-
-  if (totalSourceDuration <= 0 || targetDuration <= 0) {
-    return beats.map(() => 0)
-  }
-
-  const scale = Math.min(1, targetDuration / totalSourceDuration)
-
-  return sourceDurations.map((duration) => roundSeconds(duration * scale))
-}
-
-function selectRecapBeatsForTarget<T extends NarrativeBeat>(beats: T[], targetDuration: number): T[] {
-  if (beats.length === 0 || targetDuration / beats.length >= 0.3) {
-    return beats
-  }
-
-  const count = Math.max(1, Math.floor(targetDuration / 0.3))
-
-  if (count === 1) {
-    return [beats[0] as T]
-  }
-
-  return beats
-    .map((beat, index) => ({beat, index, score: scoreRecapBeat(beat, index, beats.length)}))
-    .sort((left, right) => right.score - left.score || left.index - right.index)
-    .slice(0, count)
-    .sort((left, right) => left.index - right.index)
-    .map((entry) => entry.beat)
-}
-
-function scoreRecapBeat(beat: NarrativeBeat, index: number, total: number): number {
-  const typeScore: Record<NarrativeBeat['type'], number> = {
-    climax: 90,
-    conflict: 70,
-    decision: 85,
-    inciting_incident: 80,
-    resolution: 75,
-    reversal: 95,
-    setup: 55,
-    transition: 35,
-  }
-
-  return typeScore[beat.type] + Math.min(12, beat.evidence.length * 3) + (index === 0 || index === total - 1 ? 4 : 0)
-}
-
-function summarizeBeatForNarration(beat: NarrativeBeat): string {
-  const summary = normalizeFallbackRecapText(beat.summary.replaceAll(/\s+/g, ' ').trim())
-
-  return trimSentence(summary === '' ? `${beat.type} beat ${beat.id}.` : summary, 180)
-}
-
-function normalizeFallbackRecapText(text: string): string {
-  return text
-    .replace(/为推动组织长期健康发展[，,]?/gu, '')
-    .replace(/人才结构优化/gu, '裁员')
-    .trim()
-}
-
-function createRecapLead(beat: NarrativeBeat, index: number, total: number, language: string): string {
-  const chinese = language.toLowerCase().startsWith('zh')
-
-  if (chinese) {
-    if (index === 0 || beat.type === 'setup') return '一开场，'
-    if (beat.type === 'resolution' || index === total - 1) return '最后，'
-    if (beat.type === 'climax' || beat.type === 'reversal') return '关键时刻，'
-    return '随后，'
-  }
-
-  if (index === 0 || beat.type === 'setup') return 'At the start, '
-  if (beat.type === 'resolution' || index === total - 1) return 'By the end, '
-  if (beat.type === 'climax' || beat.type === 'reversal') return 'At the turning point, '
-  return 'Then, '
-}
-
-function inferRecapTone(beat: NarrativeBeat, index: number, total: number): RecapScriptSegment['emotionalTone'] {
-  if (beat.type === 'resolution' || index === total - 1) return 'resolution'
-  if (beat.type === 'climax' || beat.type === 'reversal') return 'climax'
-  if (beat.type === 'setup' || beat.type === 'inciting_incident' || index === 0) return 'setup'
-  return 'tension'
-}
-
-function formatSourceRange(range: [number, number]): string {
-  return `${roundSeconds(range[0])}-${roundSeconds(range[1])}s`
-}
-
-function roundSeconds(value: number): number {
-  return Math.round(value * 1000) / 1000
-}
-
-function trimSentence(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text
-  }
-
-  return `${text.slice(0, maxLength).trim()}...`
 }
 
 function createStoryboardFromSelectedMoments(input: StoryboardProviderInput): Storyboard | undefined {
