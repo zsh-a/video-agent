@@ -5,7 +5,7 @@ import {createRequire} from 'node:module'
 import {dirname, resolve} from 'node:path'
 
 import {bunWrite} from '../bun-runtime.js'
-import {createDeckThemeCss} from './theme.js'
+import {createDeckThemeCss} from './themes/create-theme-css.js'
 
 const require = createRequire(import.meta.url)
 

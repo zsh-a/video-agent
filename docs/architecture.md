@@ -221,7 +221,7 @@ Template source is intentionally layered:
 deck/layout/       fixed-canvas primitives: stage, slide frame, safe area, grid, stack, split, center, card, background
 deck/components/   reusable visual blocks split by component, with an index export
 deck/templates/    define-template, registry, and one module per slide type selected by DeckIR slide.type
-deck/themes/       design tokens and theme CSS generation, with deck/theme.ts as a stable facade
+deck/themes/       design tokens and theme CSS generation
 deck/motion.ts     deterministic motion presets compiled into a seekable timeline
 ```
 
