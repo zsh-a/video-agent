@@ -178,13 +178,28 @@ describe('deck explainer project', () => {
         projectId: 'deck-llm-demo',
         workspaceDir: root,
       })
-      const prompt = JSON.parse(String(request?.messages?.[0]?.content)) as {instructions: string[]; target: {slideCount: number}}
+      const prompt = JSON.parse(String(request?.messages?.[0]?.content)) as {
+        instructions: string[]
+        target: {
+          slideCount: number
+          templateManifest: {
+            templates: Array<{
+              fields: string[]
+              limits: Record<string, number>
+              type: string
+              use_when: string
+            }>
+          }
+        }
+      }
       const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {slides: Array<{motion: string; points: string[]; speakerNote?: string; title: string; type: string}>; title: string}
       const document = JSON.parse(await readFile(result.artifacts.document, 'utf8')) as {text: string}
       const speakerScript = JSON.parse(await readFile(result.artifacts.speakerScript, 'utf8')) as {segments: Array<{text: string}>}
 
       expect(prompt.instructions.join(' ')).to.contain('Remove YAML frontmatter')
-      expect(prompt.instructions.join(' ')).to.contain('controlled templates')
+      expect(prompt.instructions.join(' ')).to.contain('target.templateManifest')
+      expect(prompt.target.templateManifest.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
+      expect(prompt.target.templateManifest.templates.find((template) => template.type === 'three-points')?.limits.points).to.equal(3)
       expect(prompt.target.slideCount).to.equal(8)
       expect(result.slides).to.equal(4)
       expect(deck.title).to.equal('Serenity Alpha')
@@ -279,13 +294,17 @@ describe('deck explainer project', () => {
 
       expect(deck.theme).to.equal('elegant-dark')
       expect(deck.slides[0]?.type).to.equal('hero')
-      expect(deck.slides[0]?.points).to.deep.equal(['A', 'B', 'C', 'D'])
+      expect(deck.slides[0]?.points).to.deep.equal(['A', 'B'])
       expect(deck.slides[0]?.motion).to.equal('cinematic-rise')
-      expect(deck.slides[1]?.type).to.equal('comparison')
-      expect(deck.slides[1]?.comparison?.left.points).to.deep.equal(['L1', 'L2', 'L3'])
-      expect(deck.slides[1]?.comparison?.right.points).to.deep.equal(['R1', 'R2', 'R3'])
-      expect(deck.slides[2]?.type).to.equal('one-big-idea')
-      expect(deck.slides[3]?.type).to.equal('one-big-idea')
+      expect(deck.slides[1]?.type).to.equal('three-points')
+      expect(deck.slides[1]?.points).to.deep.equal(['C', 'D'])
+      expect(deck.slides[2]?.type).to.equal('three-points')
+      expect(deck.slides[2]?.points).to.deep.equal(['E'])
+      expect(deck.slides[3]?.type).to.equal('comparison')
+      expect(deck.slides[3]?.comparison?.left.points).to.deep.equal(['L1', 'L2', 'L3'])
+      expect(deck.slides[3]?.comparison?.right.points).to.deep.equal(['R1', 'R2', 'R3'])
+      expect(deck.slides[4]?.type).to.equal('one-big-idea')
+      expect(deck.slides[5]?.type).to.equal('one-big-idea')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

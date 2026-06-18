@@ -6,8 +6,34 @@ import {join} from 'node:path'
 
 import {buildChromiumScreenshotArgs, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
 import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck/compiler.js'
+import {deckTemplateManifestForLLM, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-html/src/deck/template-manifest.js'
 
 describe('html deck compiler', () => {
+  it('exposes a template manifest for LLM slide-type selection', () => {
+    const threePoints = deckTemplateManifestForLLM.templates.find((template) => template.type === 'three-points')
+    const process = deckTemplateManifestForLLM.templates.find((template) => template.type === 'process')
+
+    expect(deckTemplateManifestForLLM.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
+    expect(threePoints?.fields).to.deep.equal(['title', 'points'])
+    expect(threePoints?.limits.points).to.equal(3)
+    expect(threePoints?.quality_rules.requiredVisibleElements).to.include('.point')
+    expect(process?.limits.steps).to.equal(5)
+  })
+
+  it('validates DeckIR slides against template manifest limits', () => {
+    const issues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'progressive-reveal',
+      points: ['A', 'B', 'C', 'D'],
+      slideId: 'slide-001',
+      title: '核心原则',
+      type: 'three-points',
+    })
+
+    expect(issues.some((issue) => issue.includes('point limit 3'))).to.equal(true)
+  })
+
   it('writes an HTML slide project directly from DeckIR', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-'))
 

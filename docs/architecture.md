@@ -92,7 +92,7 @@ packages/
   providers/          ASR / VLM / TTS plus storyboard/script business provider interfaces
   llm/                Internal LLMClient interface, AI SDK config factory, and AI SDK-backed default adapter
   renderer-ffmpeg/    Emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
-  renderer-html/      DeckIR to template/theme/motion HTML runtime compiler boundary
+  renderer-html/      DeckIR to React/Tailwind template/theme/motion HTML runtime compiler boundary
   renderer-hyperframes/ HyperFrames render plan and HTML project compiler boundary
   api/                Fetch API handler for runtime state, project operations, and audio preflight diagnostics
   mcp/                Stdio MCP adapter exposing runtime operations as agent-callable tools
@@ -200,17 +200,34 @@ Two modes:
 
 Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`. `Slide` is semantic: it chooses a controlled slide type (`hero`, `three-points`, `comparison`, `process`, `timeline`, `quote`, `stat`, `chart`, `code`, `summary`, `cta`) plus structured content and a motion preset. LLM providers generate DeckIR only; they do not generate HTML, CSS, absolute positions, fonts, colors, or animation curves.
 
-`packages/renderer-html` compiles DeckIR through four boundaries:
+Template selection is manifest-driven. `packages/renderer-html/src/deck/template-manifest.ts` is the source of truth for built-in template `type`, `use_when`, supported fields, content limits, allowed motion presets, repair strategy, and template quality rules. Runtime planning passes this manifest to the LLM as `target.templateManifest`; prompts require the LLM to choose only from that manifest, split over-limit content into multiple slides, and avoid mixing unrelated themes on one page. Runtime normalization still enforces the same limits before creating DeckIR, so overfilled slides are split or downgraded before rendering.
+
+`packages/renderer-html` compiles DeckIR through React/Tailwind static rendering boundaries:
 
 ```text
 DeckIR + TimedDeck
-  -> templates      semantic slide DOM
-  -> theme tokens   fixed canvas, safe area, typography, color system
-  -> motion plan    deterministic preset timeline
-  -> runtime.js     window.vagent.seek(t) / play() / pause()
+  -> template manifest        LLM-facing type catalog, limits, repair, quality rules
+  -> React templates          predefined semantic slide components
+  -> renderToStaticMarkup     static slide DOM, no hydration
+  -> Tailwind CSS             scanned utility CSS for generated markup
+  -> theme tokens             fixed canvas, safe area, typography, color system
+  -> motion plan              deterministic preset timeline
+  -> runtime.js               window.vagent.seek(t) / play() / pause()
 ```
 
-The primary renderer for this pipeline is HTML/Chromium plus ffmpeg for muxing, subtitles, loudness, and final delivery. HyperFrames remains an optional backend for compatible HTML project rendering.
+Template source is intentionally layered:
+
+```text
+deck/layout/       fixed-canvas primitives: stage, slide frame, safe area, grid, stack, split, center, card, background
+deck/components/   reusable visual blocks split by component, with an index export
+deck/templates/    define-template, registry, and one module per slide type selected by DeckIR slide.type
+deck/themes/       design tokens and theme CSS generation, with deck/theme.ts as a stable facade
+deck/motion.ts     deterministic motion presets compiled into a seekable timeline
+```
+
+Templates compose lower layers and declare semantic structure only. `deck/templates/registry.tsx` is the renderer-side catalog for template modules; `template-manifest.ts` remains the LLM-facing catalog of allowed choices, limits, repair behavior, and quality rules. Themes own style tokens, motion presets own animation behavior, and LLM output remains limited to DeckIR fields selected from the manifest.
+
+The primary renderer for this pipeline is static React HTML rendered through Chromium plus ffmpeg for muxing, subtitles, loudness, and final delivery. React is a template authoring layer only; exported Deck pages do not hydrate or depend on React client state. HyperFrames remains an optional backend for compatible HTML project rendering.
 
 Quality checks focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
 

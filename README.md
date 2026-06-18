@@ -31,7 +31,7 @@ packages/pipeline-deck/    Deck Explainer business pipeline boundary over runtim
 packages/pipeline-film/    Film Recap business pipeline boundary over runtime APIs
 packages/llm/              internal LLMClient and AI SDK-backed adapter
 packages/renderer-ffmpeg/  ffmpeg renderer boundary
-packages/renderer-html/    DeckIR to template/theme/motion HTML runtime boundary
+packages/renderer-html/    DeckIR to React/Tailwind template/theme/motion HTML runtime boundary
 packages/renderer-hyperframes/ HyperFrames project/compiler boundary
 packages/quality/          pipeline, render, and artifact quality checks
 packages/db/               JSON and Bun SQLite job stores
@@ -94,6 +94,8 @@ bun run dev export <projectId> --output ./output
 ```
 
 `run --progress` enables an Ink-rendered live progress view for interactive terminals. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
+
+The Deck HTML renderer uses a template manifest for LLM slide-type selection, React server rendering for predefined slide templates, Tailwind CSS for controlled utility styling, CSS variables for design tokens, manifest-driven repair/splitting, and a seekable runtime for deterministic capture. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
 
 Create a PPT-style explainer from text or Markdown:
 

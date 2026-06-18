@@ -12,7 +12,11 @@
   },
   "dependencies": {
     "@fontsource/noto-sans-sc": "^5.2.8",
+    "@tailwindcss/cli": "^4.3.1",
     "@video-agent/ir": "workspace:*",
-    "@video-agent/media": "workspace:*"
+    "@video-agent/media": "workspace:*",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.1"
   }
 }

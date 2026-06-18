@@ -10,7 +10,7 @@ import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
 import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkStoryboardConsistency, checkTimelineBounds, createRenderedMediaProbeFailure} from '@video-agent/quality'
-import {captureDeckHtmlFrames, type DeckHtmlFrame, writeDeckHtmlProject} from '@video-agent/renderer-html'
+import {captureDeckHtmlFrames, deckTemplateManifestForLLM, findDeckTemplateManifestEntry, isDeckTemplateType, maxPointsForDeckTemplate, type DeckHtmlFrame, writeDeckHtmlProject} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
 import {mkdir, rm} from 'node:fs/promises'
 import {extname, join, resolve} from 'node:path'
@@ -847,7 +847,6 @@ async function convertDeckSourceAudio(inputPath: string, outputPath: string): Pr
   ])
 }
 
-const LLM_DECK_SLIDE_TYPES = ['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta'] as const
 const LLM_DECK_MOTION_PRESETS = ['fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up', 'progressive-reveal', 'card-stack', 'line-draw', 'number-count', 'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise'] as const
 
 const LLMTextDeckPlanSchema = z.object({
@@ -939,8 +938,10 @@ async function createLLMTextDeckProjectPlan(
             'If the source is an agent skill or internal instruction document, explain what it does, when to use it, the workflow, output shape, and quality bar.',
             'Do not paste the raw source verbatim. Rewrite it into natural presentation language.',
             'Keep slide titles short and concrete.',
-            'Use 1-4 concise points per content slide.',
-            'Choose slide type from controlled templates only: hero, section, one-big-idea, three-points, comparison, process, timeline, quote, stat, chart, code, summary, cta.',
+            'Use concise visible text and respect each template field and limit in target.templateManifest.',
+            'Choose slide type only from target.templateManifest.templates. Do not invent, rename, or translate type values.',
+            'If content exceeds a template limit, split it into multiple slides instead of overfilling one slide.',
+            'Do not put multiple unrelated themes on one slide; split by topic before choosing a template.',
             'Only use comparison when the comparison field has left and right labels plus 2-3 concrete points on each side. Otherwise use three-points or one-big-idea.',
             'Only use stat when the stat field contains a meaningful value, label, and supporting caption or points. Avoid decorative single-number slides.',
             'For process or timeline slides, include every major step needed to make the title true. Do not title a slide "seven steps" unless the visible points contain all seven steps.',
@@ -973,6 +974,7 @@ async function createLLMTextDeckProjectPlan(
             requestedTitle: options.title,
             slideCount: targetSlideCount,
             speakerNoteCharactersPerSlide: estimateNarrationCharactersPerSlide(options.durationTargetSeconds, targetSlideCount),
+            templateManifest: deckTemplateManifestForLLM,
           },
         }),
         role: 'user',
@@ -1137,7 +1139,7 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
     const points = slide.points
       .map((point) => cleanGeneratedText(point, ''))
       .filter((point) => point !== '' && point !== title)
-      .slice(0, 4)
+      .slice(0, 16)
     const comparison = normalizeLLMComparison(rawComparison)
     const speakerNote = cleanGeneratedText(slide.speakerNote, [title, ...points].join('。'))
     const subtitle = cleanGeneratedText(rawSubtitle, '')
@@ -1160,7 +1162,9 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
     }
   }).filter((slide) => slide.title !== '' && slide.speakerNote !== '')
 
-  return slides.length === 0
+  const repairedSlides = repairLLMTextDeckSlides(slides)
+
+  return repairedSlides.length === 0
     ? [{
         motion: 'cinematic-rise',
         points: [],
@@ -1168,7 +1172,59 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
         title: cleanGeneratedText(plan.title, 'Deck Explainer'),
         type: 'hero',
       }]
-    : slides
+    : repairedSlides
+}
+
+function repairLLMTextDeckSlides(slides: NormalizedLLMTextDeckSlide[]): NormalizedLLMTextDeckSlide[] {
+  return slides.flatMap((slide) => repairLLMTextDeckSlide(slide))
+}
+
+function repairLLMTextDeckSlide(slide: NormalizedLLMTextDeckSlide): NormalizedLLMTextDeckSlide[] {
+  if (slide.type === 'comparison' && slide.comparison !== undefined) {
+    return [{
+      ...slide,
+      comparison: {
+        left: {
+          ...slide.comparison.left,
+          points: slide.comparison.left.points.slice(0, findDeckTemplateManifestEntry('comparison').limits.left_points),
+        },
+        right: {
+          ...slide.comparison.right,
+          points: slide.comparison.right.points.slice(0, findDeckTemplateManifestEntry('comparison').limits.right_points),
+        },
+      },
+    }]
+  }
+
+  const maxPoints = maxPointsForDeckTemplate(slide.type)
+
+  if (maxPoints === undefined || slide.points.length <= maxPoints) {
+    return [slide]
+  }
+
+  if (findDeckTemplateManifestEntry(slide.type).repair !== 'split-points') {
+    return [{
+      ...slide,
+      points: slide.points.slice(0, maxPoints),
+    }]
+  }
+
+  const chunks = chunk(slide.points, maxPoints)
+
+  return chunks.map((points, index) => ({
+    ...slide,
+    points,
+    title: index === 0 ? slide.title : `${slide.title}（续）`,
+    type: index === 0 ? slide.type : continuationTemplateType(slide.type),
+  }))
+}
+
+function continuationTemplateType(type: DeckSlideType): DeckSlideType {
+  if (type === 'hero' || type === 'stat' || type === 'chart') {
+    return 'three-points'
+  }
+
+  return type
 }
 
 function normalizeLLMComparison(comparison: LLMTextDeckSlide['comparison']): NormalizedLLMTextDeckSlide['comparison'] {
@@ -1205,7 +1261,7 @@ function cleanGeneratedPoints(points: string[], limit: number): string[] {
 }
 
 function normalizeLLMSlideType(type: string | undefined, index: number): DeckSlideType {
-  return isLLMDeckSlideType(type) ? type : index === 0 ? 'hero' : 'three-points'
+  return isDeckTemplateType(type) ? type : index === 0 ? 'hero' : 'three-points'
 }
 
 function normalizeLLMSlideTypeForContent(
@@ -1246,10 +1302,6 @@ function normalizeLLMSlideTypeForContent(
 
 function normalizeLLMMotion(motion: string | undefined): Slide['motion'] | undefined {
   return isLLMDeckMotionPreset(motion) ? motion : undefined
-}
-
-function isLLMDeckSlideType(value: unknown): value is DeckSlideType {
-  return typeof value === 'string' && (LLM_DECK_SLIDE_TYPES as readonly string[]).includes(value)
 }
 
 function isLLMDeckMotionPreset(value: unknown): value is Slide['motion'] {
@@ -1472,6 +1524,17 @@ function estimateNarrationDuration(text: string): number {
 
 function clampInteger(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const safeSize = Math.max(1, size)
+  const chunks: T[][] = []
+
+  for (let index = 0; index < items.length; index += safeSize) {
+    chunks.push(items.slice(index, index + safeSize))
+  }
+
+  return chunks
 }
 
 function truncateForLLM(text: string, maxCharacters: number): string {
@@ -1974,7 +2037,7 @@ function createDeckSlideQualityMetrics(slide: Slide, duration: number): DeckSlid
 }
 
 function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetrics, format: DeckFormat): DeckQualityIssue[] {
-  const issues: DeckQualityIssue[] = []
+  const issues: DeckQualityIssue[] = [...createDeckTemplateQualityIssues(slide)]
   const maxTitleCharacters = format === 'portrait_1080x1920' ? 34 : 48
   const maxTextCharacters = format === 'portrait_1080x1920' ? 180 : 240
 
@@ -2058,6 +2121,33 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.stat_missing_context',
       message: `Slide ${slide.slideId} is a stat slide without supporting points or caption.`,
+      severity: 'warning',
+      slideId: slide.slideId,
+    })
+  }
+
+  return issues
+}
+
+function createDeckTemplateQualityIssues(slide: Slide): DeckQualityIssue[] {
+  const template = findDeckTemplateManifestEntry(slide.type)
+  const issues: DeckQualityIssue[] = []
+  const maxPoints = maxPointsForDeckTemplate(slide.type)
+  const titleLimit = template.limits.title_chars
+
+  if (maxPoints !== undefined && slide.points.length > maxPoints) {
+    issues.push({
+      code: 'deck.template.too_many_points',
+      message: `Slide ${slide.slideId} uses ${slide.type} with ${slide.points.length} points; template limit is ${maxPoints}.`,
+      severity: 'error',
+      slideId: slide.slideId,
+    })
+  }
+
+  if (titleLimit !== undefined && slide.title.length > titleLimit) {
+    issues.push({
+      code: 'deck.template.title_too_long',
+      message: `Slide ${slide.slideId} title has ${slide.title.length} characters; ${slide.type} template limit is ${titleLimit}.`,
       severity: 'warning',
       slideId: slide.slideId,
     })

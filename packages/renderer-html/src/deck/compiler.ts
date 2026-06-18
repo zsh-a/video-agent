@@ -8,8 +8,8 @@ import {bunWrite} from '../bun-runtime.js'
 import {deckCanvasSize} from './format.js'
 import {compileDeckMotionPlan, type DeckMotionPlan} from './motion.js'
 import {createDeckRuntimeScript} from './runtime.js'
+import {compileDeckTailwindCss} from './tailwind.js'
 import {renderDeckStage} from './templates.js'
-import {createDeckThemeCss} from './theme.js'
 
 const require = createRequire(import.meta.url)
 const DECK_FONT_FILES = [
@@ -61,6 +61,7 @@ export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Pr
   const planPath = resolve(outputDir, 'deck-render-plan.json')
   const runtimePath = resolve(outputDir, 'runtime.js')
   const stylesPath = resolve(outputDir, 'styles.css')
+  const tailwindInputPath = resolve(outputDir, 'tailwind.css')
   const plan = createDeckHtmlRenderPlan({
     entryHtml,
     outputDir,
@@ -72,12 +73,17 @@ export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Pr
   await mkdir(outputDir, {recursive: true})
   await writeDeckFontAssets(outputDir)
   await bunWrite(planPath, `${JSON.stringify(plan, null, 2)}\n`)
-  await bunWrite(stylesPath, createDeckThemeCss(input.timedDeck.deck))
   await bunWrite(runtimePath, createDeckRuntimeScript())
   await bunWrite(entryHtml, createDeckHtml(plan, {
     runtimeHref: './runtime.js',
     stylesheetHref: './styles.css',
   }))
+  await compileDeckTailwindCss({
+    deck: input.timedDeck.deck,
+    inputPath: tailwindInputPath,
+    outputPath: stylesPath,
+    sourceHtmlPath: entryHtml,
+  })
 
   return {
     entryHtml,
