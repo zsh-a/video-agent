@@ -21,8 +21,10 @@ ${slides}
 function renderSlide(slide: Slide, index: number, timing: SlideTiming | undefined): string {
   const start = timing?.start ?? 0
   const end = timing?.end ?? start + (slide.duration ?? 1)
+  const densityClass = slideDensityClass(slide)
+  const pointCountClass = ` slide--points-${Math.min(slide.points.length, 4)}`
 
-  return `    <section class="slide slide--${escapeHtml(slide.type)}" data-slide="${escapeHtml(slide.slideId)}" data-start="${round(start)}" data-end="${round(end)}" aria-label="${escapeHtml(slide.title)}">
+  return `    <section class="slide slide--${escapeHtml(slide.type)}${densityClass}${pointCountClass}" data-slide="${escapeHtml(slide.slideId)}" data-start="${round(start)}" data-end="${round(end)}" aria-label="${escapeHtml(slide.title)}">
       <div class="slide__chrome">
         <span>${String(index + 1).padStart(2, '0')}</span>
         <span>${escapeHtml(formatSlideType(slide.type))}</span>
@@ -124,9 +126,13 @@ ${items.map((point, index) => `          <div class="point">
 
 function renderBigIdea(slide: Slide): string {
   const idea = slide.points[0] ?? slide.subtitle ?? slide.speakerNote ?? slide.title
+  const support = slide.points.slice(1, 3)
 
   return `<div class="idea-card">
-          <p>${escapeHtml(idea)}</p>
+          <p class="idea-card__headline">${escapeHtml(idea)}</p>
+${support.length === 0 ? '' : `          <div class="idea-card__support">
+${support.map((point) => `            <span>${escapeHtml(point)}</span>`).join('\n')}
+          </div>`}
         </div>`
 }
 
@@ -156,7 +162,7 @@ ${side.points.slice(0, 3).map((point) => `              <li>${escapeHtml(point)}
 
 function renderProcess(points: string[]): string {
   const items = points.slice(0, 7)
-  const densityClass = items.length > 4 ? ' process-list--dense' : ''
+  const densityClass = items.length > 4 ? ' process-list--dense' : items.length >= 3 ? ' process-list--grid' : ''
 
   if (items.length === 0) {
     return ''
@@ -230,7 +236,23 @@ ${bars.map((point, index) => `          <div class="chart-bar point" style="--ba
 }
 
 function renderCode(code: DeckCodeBlock): string {
-  return `<pre class="code-block"><code data-language="${escapeHtml(code.language)}">${escapeHtml(code.text)}</code></pre>`
+  const lines = code.text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+  return `<div class="code-block" data-language="${escapeHtml(code.language)}">
+          <div class="code-block__header">
+            <span>Template</span>
+            <span>${escapeHtml(code.language)}</span>
+          </div>
+          <div class="code-block__body">
+${(lines.length === 0 ? [code.text] : lines).slice(0, 12).map((line, index) => `            <div class="code-line">
+              <span class="code-line__index">${String(index + 1).padStart(2, '0')}</span>
+              <code>${escapeHtml(normalizeCodeLine(line))}</code>
+            </div>`).join('\n')}
+          </div>
+        </div>`
 }
 
 function renderCta(slide: Slide): string {
@@ -276,6 +298,33 @@ function formatSlideType(type: Slide['type']): string {
 
 function round(value: number): number {
   return Math.round(value * 1000) / 1000
+}
+
+function slideDensityClass(slide: Slide): string {
+  const textLength = [
+    slide.title,
+    slide.subtitle ?? '',
+    ...slide.points,
+    slide.code?.text ?? '',
+    slide.comparison?.left.label ?? '',
+    ...(slide.comparison?.left.points ?? []),
+    slide.comparison?.right.label ?? '',
+    ...(slide.comparison?.right.points ?? []),
+  ].join('').length
+
+  if (textLength >= 180) {
+    return ' slide--dense'
+  }
+
+  if (textLength <= 72) {
+    return ' slide--quiet'
+  }
+
+  return ''
+}
+
+function normalizeCodeLine(value: string): string {
+  return value.replace(/^#+\s*/, '')
 }
 
 function escapeHtml(value: string): string {

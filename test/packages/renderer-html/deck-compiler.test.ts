@@ -87,7 +87,7 @@ describe('html deck compiler', () => {
       expect(html).to.contain('Film 是 media-first')
       expect(html).not.include('class="slide__evidence"')
       expect(styles).to.contain('--canvas-w: 1080px')
-      expect(styles).to.contain('--safe-bottom: 160px')
+      expect(styles).to.contain('--safe-bottom: 132px')
       expect(styles).to.contain('@font-face')
       expect(styles).to.contain('Noto Sans SC')
       expect(styles).to.contain('body[data-capture="slide"]')
