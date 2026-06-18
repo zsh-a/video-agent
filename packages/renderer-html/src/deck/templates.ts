@@ -50,8 +50,10 @@ function renderSlideBody(slide: Slide): string {
   }
 
   if (slide.type === 'comparison') {
+    const comparison = comparisonForSlide(slide)
+
     return `${renderHeader(slide)}
-        ${renderComparison(comparisonForSlide(slide))}`
+        ${comparison === undefined ? renderReadableFallback(slide) : renderComparison(comparison)}`
   }
 
   if (slide.type === 'process') {
@@ -71,7 +73,7 @@ function renderSlideBody(slide: Slide): string {
 
   if (slide.type === 'stat') {
     return `${renderHeader(slide)}
-        ${renderStat(statForSlide(slide))}`
+        ${renderStatSlide(slide)}`
   }
 
   if (slide.type === 'chart') {
@@ -128,6 +130,14 @@ function renderBigIdea(slide: Slide): string {
         </div>`
 }
 
+function renderReadableFallback(slide: Slide): string {
+  if (slide.points.length > 0) {
+    return renderPoints(slide.points, {className: 'points', max: 4})
+  }
+
+  return renderBigIdea(slide)
+}
+
 function renderComparison(comparison: DeckComparison): string {
   return `<div class="comparison">
           ${renderComparisonSide(comparison.left, 'left')}
@@ -145,8 +155,15 @@ ${side.points.slice(0, 3).map((point) => `              <li>${escapeHtml(point)}
 }
 
 function renderProcess(points: string[]): string {
-  return `<ol class="process-list">
-${points.slice(0, 5).map((point, index) => `          <li class="point">
+  const items = points.slice(0, 7)
+  const densityClass = items.length > 4 ? ' process-list--dense' : ''
+
+  if (items.length === 0) {
+    return ''
+  }
+
+  return `<ol class="process-list${densityClass}">
+${items.map((point, index) => `          <li class="point">
             <span>${String(index + 1).padStart(2, '0')}</span>
             <p>${escapeHtml(point)}</p>
           </li>`).join('\n')}
@@ -178,6 +195,29 @@ ${stat.caption === undefined ? '' : `          <p>${escapeHtml(stat.caption)}</p
         </div>`
 }
 
+function renderStatSlide(slide: Slide): string {
+  if (slide.stat === undefined) {
+    return renderReadableFallback(slide)
+  }
+
+  const stat = slide.stat
+  const points = slide.points.slice(0, 4)
+
+  if (points.length === 0) {
+    return renderStat(stat)
+  }
+
+  return `<div class="stat-layout">
+          ${renderStat(stat)}
+          <div class="stat-points">
+${points.map((point, index) => `            <div class="point">
+              <span class="point__index">${String(index + 1).padStart(2, '0')}</span>
+              <p>${escapeHtml(point)}</p>
+            </div>`).join('\n')}
+          </div>
+        </div>`
+}
+
 function renderChart(points: string[]): string {
   const bars = (points.length === 0 ? ['核心指标', '执行成本', '质量风险'] : points).slice(0, 4)
 
@@ -205,35 +245,21 @@ function renderDivider(className: string): string {
   return `<div class="${className}"></div>`
 }
 
-function comparisonForSlide(slide: Slide): DeckComparison {
-  if (slide.comparison !== undefined) {
+function comparisonForSlide(slide: Slide): DeckComparison | undefined {
+  if (
+    slide.comparison !== undefined &&
+    slide.comparison.left.points.length > 0 &&
+    slide.comparison.right.points.length > 0
+  ) {
     return slide.comparison
   }
 
-  const midpoint = Math.ceil(slide.points.length / 2)
-
-  return {
-    left: {
-      label: 'Option A',
-      points: slide.points.slice(0, midpoint),
-    },
-    right: {
-      label: 'Option B',
-      points: slide.points.slice(midpoint),
-    },
-  }
+  return undefined
 }
 
 function quoteForSlide(slide: Slide): DeckQuote {
   return slide.quote ?? {
     text: slide.points[0] ?? slide.speakerNote ?? slide.title,
-  }
-}
-
-function statForSlide(slide: Slide): DeckStat {
-  return slide.stat ?? {
-    label: slide.points[0] ?? slide.subtitle ?? slide.title,
-    value: slide.title,
   }
 }
 

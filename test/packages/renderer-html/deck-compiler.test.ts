@@ -4,7 +4,7 @@ import {mkdtemp, rm, stat} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {buildChromiumScreenshotArgs} from '../../../packages/renderer-html/src/chromium.js'
+import {buildChromiumScreenshotArgs, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
 import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck/compiler.js'
 
 describe('html deck compiler', () => {
@@ -130,6 +130,77 @@ describe('html deck compiler', () => {
     expect(url).to.contain('capture=slide')
     expect(url).to.contain('slide=slide-001')
     expect(url).to.contain('time=1.25')
+  })
+
+  it('renders incomplete comparison slides without placeholder option labels', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-fallback-'))
+
+    try {
+      const result = await writeDeckHtmlProject({
+        outputDir: root,
+        timedDeck: {
+          deck: {
+            format: 'landscape_1920x1080',
+            inputMode: 'script-generated',
+            language: 'zh-CN',
+            slides: [
+              {
+                blockIds: [],
+                evidence: [],
+                motion: 'card-stack',
+                points: [],
+                slideId: 'slide-001',
+                speakerNote: '市场误分类需要比较旧认知和新事实。',
+                subtitle: '市场以为它是什么 vs 它正在变成什么',
+                title: '测试市场误分类',
+                type: 'comparison',
+                visual: {assetRefs: [], kind: 'text'},
+              },
+              {
+                blockIds: [],
+                evidence: [],
+                motion: 'number-count',
+                points: ['需求确定性', '传导清晰度', '业务纯度'],
+                slideId: 'slide-002',
+                stat: {
+                  caption: '七个维度共同决定候选标的优先级',
+                  label: '评分维度',
+                  value: '7',
+                },
+                title: 'Alpha 评分',
+                type: 'stat',
+                visual: {assetRefs: [], kind: 'chart'},
+              },
+            ],
+            theme: 'finance-terminal',
+            title: 'Serenity Alpha',
+            version: 1,
+          },
+          timings: [
+            {end: 8, slideId: 'slide-001', start: 0},
+            {end: 16, slideId: 'slide-002', start: 8},
+          ],
+          version: 1,
+        },
+      })
+      const html = await readText(result.entryHtml)
+      const styles = await readText(result.stylesPath)
+
+      expect(html).not.include('Option A')
+      expect(html).not.include('Option B')
+      expect(html).to.contain('市场误分类需要比较旧认知和新事实')
+      expect(html).to.contain('class="stat-layout"')
+      expect(html).to.contain('需求确定性')
+      expect(styles).to.contain('.process-list--dense')
+      expect(styles).to.contain('.stat-layout')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('chooses completed slide states for static frame capture', () => {
+    expect(deckFramePreviewTime(26.88, 9.76)).to.equal(34.883)
+    expect(deckFramePreviewTime(50.72, 12.32)).to.equal(60.822)
   })
 })
 

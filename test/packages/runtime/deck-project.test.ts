@@ -238,6 +238,18 @@ describe('deck explainer project', () => {
                     title: 'Loose comparison',
                     type: 'comparison',
                   },
+                  {
+                    points: ['Only one side was generated'],
+                    speakerNote: 'This slide should not stay a comparison.',
+                    title: 'Incomplete comparison',
+                    type: 'comparison',
+                  },
+                  {
+                    points: ['Supporting reason'],
+                    speakerNote: 'This slide should not stay a stat without stat data.',
+                    title: 'Missing stat',
+                    type: 'stat',
+                  },
                 ],
               }),
             }
@@ -272,6 +284,8 @@ describe('deck explainer project', () => {
       expect(deck.slides[1]?.type).to.equal('comparison')
       expect(deck.slides[1]?.comparison?.left.points).to.deep.equal(['L1', 'L2', 'L3'])
       expect(deck.slides[1]?.comparison?.right.points).to.deep.equal(['R1', 'R2', 'R3'])
+      expect(deck.slides[2]?.type).to.equal('one-big-idea')
+      expect(deck.slides[3]?.type).to.equal('one-big-idea')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

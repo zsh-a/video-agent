@@ -58,7 +58,7 @@ export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOption
       duration,
       path: resolve(outputDir, `slide-${String(index + 1).padStart(3, '0')}.png`),
       slideId: slide.slideId,
-      time: round(start + Math.min(duration * 0.5, Math.max(0.5, duration * 0.22))),
+      time: deckFramePreviewTime(start, duration),
     }
   })
 
@@ -151,8 +151,26 @@ export function buildChromiumScreenshotArgs(input: {
   ]
 }
 
+export function deckFramePreviewTime(start: number, duration: number): number {
+  const safeDuration = Math.max(0.001, duration)
+  const exitMargin = Math.min(0.32, safeDuration * 0.12)
+  const minPreviewTime = start + Math.min(0.75, safeDuration * 0.45)
+  const maxPreviewTime = start + Math.max(0.001, safeDuration - exitMargin - 0.05)
+  const targetTime = start + safeDuration * 0.82
+
+  if (maxPreviewTime < minPreviewTime) {
+    return round(start + safeDuration * 0.5)
+  }
+
+  return round(clamp(targetTime, minPreviewTime, maxPreviewTime))
+}
+
 function resolveChromiumCommand(command: string[] | undefined): string[] {
   return command === undefined ? ['chromium'] : command
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 
 function round(value: number): number {

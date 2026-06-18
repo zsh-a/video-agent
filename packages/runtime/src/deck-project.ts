@@ -941,6 +941,11 @@ async function createLLMTextDeckProjectPlan(
             'Keep slide titles short and concrete.',
             'Use 1-4 concise points per content slide.',
             'Choose slide type from controlled templates only: hero, section, one-big-idea, three-points, comparison, process, timeline, quote, stat, chart, code, summary, cta.',
+            'Only use comparison when the comparison field has left and right labels plus 2-3 concrete points on each side. Otherwise use three-points or one-big-idea.',
+            'Only use stat when the stat field contains a meaningful value, label, and supporting caption or points. Avoid decorative single-number slides.',
+            'For process or timeline slides, include every major step needed to make the title true. Do not title a slide "seven steps" unless the visible points contain all seven steps.',
+            'When explaining a method or framework, include at least one concrete application example, evidence workflow, validation path, or output shape unless the source forbids examples.',
+            'For finance or research frameworks, preserve evidence sources, validation or kill criteria, freshness caveats, and non-advice disclaimers when present.',
             'Choose motion only from controlled presets; do not describe CSS, colors, fonts, or absolute positions.',
             'Write one natural speakerNote per slide for TTS. It should sound like a presenter, not a file reader.',
             'Avoid page-number prefixes such as "第 1 页" in speakerNote.',
@@ -1131,6 +1136,11 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
     const speakerNote = cleanGeneratedText(slide.speakerNote, [title, ...points].join('。'))
     const subtitle = cleanGeneratedText(rawSubtitle, '')
     const motion = normalizeLLMMotion(rawMotion)
+    const type = normalizeLLMSlideTypeForContent(normalizeLLMSlideType(rawType, index), {
+      comparison,
+      points,
+      slide,
+    }, index)
 
     return {
       ...rest,
@@ -1140,7 +1150,7 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
       speakerNote,
       ...(subtitle === '' ? {} : {subtitle}),
       title,
-      type: normalizeLLMSlideType(rawType, index),
+      type,
     }
   }).filter((slide) => slide.title !== '' && slide.speakerNote !== '')
 
@@ -1162,19 +1172,21 @@ function normalizeLLMComparison(comparison: LLMTextDeckSlide['comparison']): Nor
 
   const leftLabel = cleanGeneratedText(comparison.left.label, '')
   const rightLabel = cleanGeneratedText(comparison.right.label, '')
+  const leftPoints = cleanGeneratedPoints(comparison.left.points, 3)
+  const rightPoints = cleanGeneratedPoints(comparison.right.points, 3)
 
-  if (leftLabel === '' || rightLabel === '') {
+  if (leftLabel === '' || rightLabel === '' || leftPoints.length === 0 || rightPoints.length === 0) {
     return undefined
   }
 
   return {
     left: {
       label: leftLabel,
-      points: cleanGeneratedPoints(comparison.left.points, 3),
+      points: leftPoints,
     },
     right: {
       label: rightLabel,
-      points: cleanGeneratedPoints(comparison.right.points, 3),
+      points: rightPoints,
     },
   }
 }
@@ -1188,6 +1200,42 @@ function cleanGeneratedPoints(points: string[], limit: number): string[] {
 
 function normalizeLLMSlideType(type: string | undefined, index: number): DeckSlideType {
   return isLLMDeckSlideType(type) ? type : index === 0 ? 'hero' : 'three-points'
+}
+
+function normalizeLLMSlideTypeForContent(
+  type: DeckSlideType,
+  input: {
+    comparison: NormalizedLLMTextDeckSlide['comparison']
+    points: string[]
+    slide: LLMTextDeckSlide
+  },
+  index: number,
+): DeckSlideType {
+  if (index === 0) {
+    return 'hero'
+  }
+
+  if (type === 'comparison' && input.comparison === undefined) {
+    return input.points.length >= 2 ? 'three-points' : 'one-big-idea'
+  }
+
+  if (type === 'stat' && input.slide.stat === undefined) {
+    return input.points.length >= 2 ? 'three-points' : 'one-big-idea'
+  }
+
+  if (type === 'quote' && input.slide.quote === undefined) {
+    return 'one-big-idea'
+  }
+
+  if (type === 'code' && input.slide.code === undefined) {
+    return input.points.length >= 2 ? 'three-points' : 'one-big-idea'
+  }
+
+  if ((type === 'chart' || type === 'process' || type === 'timeline' || type === 'summary' || type === 'three-points') && input.points.length === 0) {
+    return 'one-big-idea'
+  }
+
+  return type
 }
 
 function normalizeLLMMotion(motion: string | undefined): Slide['motion'] | undefined {
@@ -1973,6 +2021,37 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.chart_missing_source',
       message: `Slide ${slide.slideId} is a chart slide without chartDataRef or evidence.`,
+      severity: 'warning',
+      slideId: slide.slideId,
+    })
+  }
+
+  if (slide.type === 'comparison' && (
+    slide.comparison === undefined ||
+    slide.comparison.left.points.length === 0 ||
+    slide.comparison.right.points.length === 0
+  )) {
+    issues.push({
+      code: 'deck.comparison_incomplete',
+      message: `Slide ${slide.slideId} is a comparison slide without complete left and right comparison points.`,
+      severity: 'error',
+      slideId: slide.slideId,
+    })
+  }
+
+  if (slide.type === 'stat' && slide.stat === undefined) {
+    issues.push({
+      code: 'deck.stat_missing_data',
+      message: `Slide ${slide.slideId} is a stat slide without stat data.`,
+      severity: 'error',
+      slideId: slide.slideId,
+    })
+  }
+
+  if (slide.type === 'stat' && slide.stat !== undefined && slide.points.length === 0 && slide.stat.caption === undefined) {
+    issues.push({
+      code: 'deck.stat_missing_context',
+      message: `Slide ${slide.slideId} is a stat slide without supporting points or caption.`,
       severity: 'warning',
       slideId: slide.slideId,
     })
