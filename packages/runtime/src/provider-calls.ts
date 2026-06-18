@@ -1,4 +1,4 @@
-import type {NarrationSegment} from '@video-agent/ir'
+import type {Narration, NarrationSegment, RecapScript} from '@video-agent/ir'
 import type {MediaInput, ProviderCostMetadata, ProviderResponseMetadata, ProviderSet, ProviderUsageMetadata, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
 import {readProviderMetadata} from '@video-agent/providers'
@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto'
 import {appendFile, mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
-export type ProviderCallRole = 'asr' | 'tts' | 'vlm'
+export type ProviderCallRole = 'asr' | 'script' | 'tts' | 'vlm'
 export type ProviderCallStatus = 'failed' | 'succeeded'
 
 export interface ProviderCallRecord {
@@ -76,7 +76,37 @@ export function instrumentProviders(providers: ProviderSet, selection: ProviderS
         })
       },
     },
-    script: providers.script,
+    script: {
+      async createNarration(input) {
+        return recordProviderCall({
+          call: () => providers.script.createNarration(input),
+          input: {
+            clips: input.clipPlan.clips.length,
+            scenes: input.storyboard.scenes.length,
+          },
+          operation: 'createNarration',
+          output: summarizeNarration,
+          provider: 'script',
+          recorder,
+          role: 'script',
+        })
+      },
+      async createRecapScript(input) {
+        return recordProviderCall({
+          call: () => providers.script.createRecapScript(input),
+          input: {
+            beats: input.storyIndex.beats.length,
+            sourceDuration: input.sourceManifest.duration,
+            targetDurationSeconds: input.targetDurationSeconds,
+          },
+          operation: 'createRecapScript',
+          output: summarizeRecapScript,
+          provider: 'script',
+          recorder,
+          role: 'script',
+        })
+      },
+    },
     storyboard: providers.storyboard,
     tts: {
       async synthesize(segments, options) {
@@ -206,6 +236,21 @@ function summarizeNarrationSegments(segments: NarrationSegment[]): Record<string
   return {
     segments: segments.length,
     textLength: segments.reduce((count, segment) => count + segment.text.length, 0),
+  }
+}
+
+function summarizeNarration(narration: Narration): Record<string, unknown> {
+  return {
+    segments: narration.segments.length,
+    textLength: narration.segments.reduce((count, segment) => count + segment.text.length, 0),
+  }
+}
+
+function summarizeRecapScript(script: RecapScript): Record<string, unknown> {
+  return {
+    segments: script.segments.length,
+    textLength: script.segments.reduce((count, segment) => count + segment.narrationText.length, 0),
+    totalEstimatedDuration: script.totalEstimatedDuration,
   }
 }
 

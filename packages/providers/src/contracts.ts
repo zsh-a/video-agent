@@ -1,4 +1,4 @@
-import type {ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSummaries, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, NarrationSegment, Storyboard} from '@video-agent/ir'
+import type {ASRResult, ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSummaries, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, NarrationSegment, RecapScript, SourceManifest, StoryIndex, Storyboard, VLMAnalysis} from '@video-agent/ir'
 
 export interface MediaInput {
   duration?: number
@@ -46,12 +46,21 @@ export interface ASRProvider {
 
 export interface ScriptProvider {
   createNarration(input: ScriptProviderInput): Promise<Narration>
+  createRecapScript(input: RecapScriptProviderInput): Promise<RecapScript>
 }
 
 export interface ScriptProviderInput {
   clipPlan: ClipPlan
   longVideo?: LongVideoPlanningContext
   storyboard: Storyboard
+}
+
+export interface RecapScriptProviderInput {
+  asrResult: ASRResult
+  sourceManifest: SourceManifest
+  storyIndex: StoryIndex
+  targetDurationSeconds?: number
+  vlmAnalysis: VLMAnalysis
 }
 
 export interface StoryboardProvider {

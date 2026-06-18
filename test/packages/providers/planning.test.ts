@@ -173,6 +173,94 @@ describe('planning providers', () => {
 
     expect(narration.segments[0]?.text).to.equal('第 1 页：这里讲解第一个关键功能。')
   })
+
+  it('creates Film Recap scripts through the LLM provider', async () => {
+    let generateObjectCalls = 0
+    const provider = new LLMScriptProvider({
+      async generateObject() {
+        generateObjectCalls += 1
+
+        return {
+          object: {
+            hook: 'A concrete hook.',
+            language: 'en',
+            outro: 'A concrete outro.',
+            segments: [
+              {
+                emotionalTone: 'setup',
+                id: 'recap-script-001',
+                narrationText: 'At the start, the protagonist discovers the first clue.',
+                suggestedDuration: 3,
+                targetBeatIds: ['beat-001'],
+                visualGuidance: 'Use the shot where the clue is visible.',
+              },
+            ],
+            totalEstimatedDuration: 3,
+            version: 1,
+          },
+        }
+      },
+      async generateText() {
+        throw new Error('Not used by this test.')
+      },
+      streamText() {
+        throw new Error('Not used by this test.')
+      },
+    })
+
+    const script = await provider.createRecapScript({
+      asrResult: {
+        language: 'en',
+        segments: [
+          {
+            end: 3,
+            id: 'asr-0001',
+            start: 0,
+            text: 'The protagonist discovers the first clue.',
+            timestampConfidence: 'exact',
+          },
+        ],
+        text: 'The protagonist discovers the first clue.',
+        timestampConfidence: 'exact',
+        version: 1,
+      },
+      sourceManifest: {
+        audioTracks: 1,
+        duration: 3,
+        orientation: 'landscape',
+        sourceHash: 'hash',
+        sourcePath: '/tmp/input.mp4',
+        version: 1,
+      },
+      storyIndex: {
+        beats: [
+          {
+            characters: ['protagonist'],
+            evidence: [],
+            id: 'beat-001',
+            sourceRange: [0, 3],
+            summary: 'The protagonist discovers the first clue.',
+            type: 'setup',
+          },
+        ],
+        characters: [],
+        language: 'en',
+        source: '/tmp/input.mp4',
+        sourceDuration: 3,
+        version: 1,
+      },
+      targetDurationSeconds: 3,
+      vlmAnalysis: {
+        scenes: [],
+        source: '/tmp/input.mp4',
+        version: 1,
+      },
+    })
+
+    expect(generateObjectCalls).to.equal(1)
+    expect(script.segments[0]?.targetBeatIds).to.deep.equal(['beat-001'])
+    expect(script.segments[0]?.narrationText).to.contain('first clue')
+  })
 })
 
 function createNoopLlmClient(): LLMClient {

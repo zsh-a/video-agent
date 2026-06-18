@@ -147,6 +147,7 @@ function summarizeEvents(events: PipelineEventLike[]): ProjectRuntimeSummary['ev
 function summarizeProviderCalls(calls: ProviderCallRecord[]): ProjectRuntimeSummary['providers'] {
   const byRole: Record<ProviderCallRole, ProviderRoleSummary> = {
     asr: createEmptyProviderRoleSummary(),
+    script: createEmptyProviderRoleSummary(),
     tts: createEmptyProviderRoleSummary(),
     vlm: createEmptyProviderRoleSummary(),
   }

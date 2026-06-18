@@ -13,7 +13,7 @@ import {checkAudioLoudness, checkNarrationTiming, checkRenderedMedia, checkSrtSu
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
-import {appendFile, mkdir, rename, unlink} from 'node:fs/promises'
+import {access, appendFile, mkdir, rename, unlink} from 'node:fs/promises'
 import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import {refreshArtifactManifest} from './artifact-store.js'
@@ -620,17 +620,25 @@ export async function createFilmRecapScriptProject(options: CreateFilmRecapScrip
   await startFilmStage(jobStore, workspace, 'write-script')
 
   try {
+    const config = await readConfig(options.workspaceDir ?? '.video-agent')
+    const providers = instrumentProviders(
+      await createRuntimeProviders(config, options.workspaceDir ?? '.video-agent'),
+      config.providers,
+      createFilmProviderCallRecorder(workspace),
+    )
     const [sourceManifest, storyIndex, asrResult, vlmAnalysis] = await Promise.all([
       SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
       StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
       ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
       VLMAnalysisSchema.parseAsync(await workspace.store.readJson('vlm-analysis.json')),
     ])
-    const recapScript = RecapScriptSchema.parse(createRecapScript(sourceManifest, storyIndex, {
+    const recapScript = validateGeneratedRecapScript(RecapScriptSchema.parse(await providers.script.createRecapScript({
       asrResult,
+      sourceManifest,
+      storyIndex,
       targetDurationSeconds: options.targetDurationSeconds,
       vlmAnalysis,
-    }))
+    })), storyIndex, sourceManifest, options.targetDurationSeconds)
     const artifacts = {
       recapScript: await workspace.store.writeJson('recap-script.json', recapScript),
     }
@@ -1264,7 +1272,7 @@ async function renderFinalFilmVideo(options: {
   }
 
   try {
-    await renderFinalFilmVideoAttempt(options, true)
+    await renderFinalFilmVideoAttempt(options, 'subtitles')
 
     return {subtitlesBurned: true}
   } catch (error) {
@@ -1272,12 +1280,22 @@ async function renderFinalFilmVideo(options: {
       throw error
     }
 
+    try {
+      await renderFinalFilmVideoAttempt(options, 'drawtext')
+
+      return {subtitlesBurned: true}
+    } catch (drawtextError) {
+      if (!isMissingDrawtextFilterError(drawtextError)) {
+        throw drawtextError
+      }
+    }
+
     await renderFinalFilmVideoAttempt(options, false)
 
     return {
       subtitleBurnInIssue: {
-        code: 'subtitle.render.filter_unavailable',
-        message: 'The ffmpeg subtitles filter is unavailable; subtitles were written as a sidecar file but not burned into final.mp4.',
+        code: 'subtitle.render.filters_unavailable',
+        message: 'The ffmpeg subtitles and drawtext filters are unavailable; subtitles were written as a sidecar file but not burned into final.mp4.',
         severity: 'warning',
       },
       subtitlesBurned: false,
@@ -1290,7 +1308,7 @@ async function renderFinalFilmVideoAttempt(options: {
   editedSourcePath: string
   outputPath: string
   subtitlePath: string
-}, burnSubtitles: boolean): Promise<void> {
+}, subtitleMode: false | 'drawtext' | 'subtitles'): Promise<void> {
   const tempOutputPath = `${options.outputPath}.tmp-${process.pid}-${Date.now()}.mp4`
   const renderOptions = {
     ...options,
@@ -1298,7 +1316,7 @@ async function renderFinalFilmVideoAttempt(options: {
   }
 
   try {
-    await runFfmpeg(buildFinalFilmRenderArgs(renderOptions, burnSubtitles))
+    await runFfmpeg(await buildFinalFilmRenderArgs(renderOptions, subtitleMode))
     await rename(tempOutputPath, options.outputPath)
   } catch (error) {
     await unlinkIfExists(tempOutputPath)
@@ -1325,16 +1343,28 @@ async function getSubtitleBurnInReadinessIssue(subtitlePath: string): Promise<Qu
 }
 
 async function hasCjkSubtitleFont(): Promise<boolean> {
+  return await findCjkSubtitleFontPath() !== undefined
+}
+
+async function findCjkSubtitleFontPath(): Promise<string | undefined> {
   try {
-    const result = await runProcess(['fc-match', 'Noto Sans CJK SC'])
+    const result = await runProcess(['fc-match', '-f', '%{file}', 'Noto Sans CJK SC'])
 
     if (result.code !== 0) {
-      return false
+      return undefined
     }
 
-    return /(Noto\s*Sans\s*CJK|NotoSansCJK|Source\s*Han|WenQuanYi|Microsoft\s*YaHei|SimHei|PingFang|Hiragino|Songti|Kaiti)/iu.test(result.stdout)
+    const path = result.stdout.trim()
+
+    if (!/(Noto\s*Sans\s*CJK|NotoSansCJK|Source\s*Han|WenQuanYi|Microsoft\s*YaHei|SimHei|PingFang|Hiragino|Songti|Kaiti)/iu.test(path)) {
+      return undefined
+    }
+
+    await access(path)
+
+    return path
   } catch {
-    return false
+    return undefined
   }
 }
 
@@ -1350,13 +1380,18 @@ async function unlinkIfExists(path: string): Promise<void> {
   }
 }
 
-function buildFinalFilmRenderArgs(options: {
+async function buildFinalFilmRenderArgs(options: {
   audioMixPath: string
   editedSourcePath: string
   outputPath: string
   subtitlePath: string
-}, burnSubtitles: boolean): string[] {
-  const videoCodecArgs = burnSubtitles
+}, subtitleMode: false | 'drawtext' | 'subtitles'): Promise<string[]> {
+  const videoFilter = subtitleMode === 'subtitles'
+    ? buildSubtitleBurnInFilter(options.subtitlePath)
+    : subtitleMode === 'drawtext'
+      ? await buildDrawtextSubtitleFilter(options.subtitlePath)
+      : undefined
+  const videoCodecArgs = videoFilter !== undefined
     ? [
         '-c:v',
         'libx264',
@@ -1378,7 +1413,7 @@ function buildFinalFilmRenderArgs(options: {
     options.editedSourcePath,
     '-i',
     options.audioMixPath,
-    ...(burnSubtitles ? ['-vf', buildSubtitleBurnInFilter(options.subtitlePath)] : []),
+    ...(videoFilter === undefined ? [] : ['-vf', videoFilter]),
     '-map',
     '0:v:0',
     '-map',
@@ -1409,6 +1444,81 @@ function buildSubtitleBurnInFilter(subtitlePath: string): string {
 
 function isMissingSubtitleFilterError(error: unknown): boolean {
   return error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' && error.stderr.includes("No such filter: 'subtitles'")
+}
+
+function isMissingDrawtextFilterError(error: unknown): boolean {
+  return error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' && error.stderr.includes("No such filter: 'drawtext'")
+}
+
+async function buildDrawtextSubtitleFilter(subtitlePath: string): Promise<string> {
+  const fontPath = await findCjkSubtitleFontPath()
+  const cues = parseSrtSubtitleCues(await bunFile(subtitlePath).text())
+
+  if (cues.length === 0) {
+    return 'null'
+  }
+
+  return cues.map((cue) => {
+    const options = [
+      ...(fontPath === undefined ? [] : [`fontfile='${escapeDrawtextValue(fontPath)}'`]),
+      `text='${escapeDrawtextValue(cue.text)}'`,
+      'x=(w-text_w)/2',
+      'y=h-160',
+      'fontsize=36',
+      'fontcolor=white',
+      'borderw=3',
+      'bordercolor=black',
+      `enable='between(t,${roundSeconds(cue.start)},${roundSeconds(cue.end)})'`,
+    ]
+
+    return `drawtext=${options.join(':')}`
+  }).join(',')
+}
+
+function parseSrtSubtitleCues(content: string): Array<{end: number; start: number; text: string}> {
+  return content
+    .split(/\n\s*\n/u)
+    .flatMap((block) => {
+      const lines = block.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean)
+      const timing = lines.find((line) => line.includes('-->'))
+
+      if (timing === undefined) {
+        return []
+      }
+
+      const [startText, endText] = timing.split('-->').map((value) => value.trim())
+      const start = parseSrtTime(startText)
+      const end = parseSrtTime(endText)
+      const text = lines.slice(lines.indexOf(timing) + 1).join('\n').trim()
+
+      if (start === undefined || end === undefined || end <= start || text === '') {
+        return []
+      }
+
+      return [{end, start, text}]
+    })
+}
+
+function parseSrtTime(value: string | undefined): number | undefined {
+  const match = value?.match(/^(\d{2}):(\d{2}):(\d{2}),(\d{3})$/u)
+
+  if (match === undefined || match === null) {
+    return undefined
+  }
+
+  const [, hours, minutes, seconds, milliseconds] = match
+
+  return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds) + Number(milliseconds) / 1000
+}
+
+function escapeDrawtextValue(value: string): string {
+  return value
+    .replaceAll('\\', String.raw`\\`)
+    .replaceAll("'", String.raw`\'`)
+    .replaceAll(':', String.raw`\:`)
+    .replaceAll(',', String.raw`\,`)
+    .replaceAll('%', String.raw`\%`)
+    .replaceAll('\n', String.raw`\n`)
 }
 
 function withSubtitleBurnInWarning<T extends {errors: number; issues: QualityIssue[]; warnings: number}>(quality: T, issue: QualityIssue | undefined): T {
@@ -1534,61 +1644,6 @@ function createSourceManifest(mediaInfo: MediaInfo, sourceHash: string): SourceM
   }
 }
 
-function createRecapScript(
-  sourceManifest: SourceManifest,
-  storyIndex: StoryIndex,
-  options: {
-    asrResult?: ASRResult
-    targetDurationSeconds?: number
-    vlmAnalysis?: VLMAnalysis
-  } = {},
-): RecapScript {
-  const beats = storyIndex.beats
-    .map((beat) => ({
-      ...beat,
-      sourceRange: normalizeSourceRange(beat.sourceRange, sourceManifest.duration),
-    }))
-    .filter((beat) => beat.sourceRange[1] > beat.sourceRange[0])
-  const language = storyIndex.language
-  const targetDuration = clamp(options.targetDurationSeconds ?? defaultRecapTargetDuration(sourceManifest.duration), 0, sourceManifest.duration)
-
-  if (beats.length === 0) {
-    throw new Error('Film Recap script writing requires at least one narrative beat.')
-  }
-
-  if (targetDuration <= 0) {
-    throw new Error('Film Recap script writing requires a positive target duration.')
-  }
-
-  const segmentDurations = allocateDurationsBySourceRange(beats, targetDuration)
-  const segments = beats.map((beat, index): RecapScriptSegment => {
-    const contextText = createBeatContextText(beat, options.asrResult, options.vlmAnalysis)
-    const suggestedDuration = segmentDurations[index] ?? 0
-
-    if (suggestedDuration <= 0) {
-      throw new Error(`Film Recap script segment for beat ${beat.id} has no positive duration.`)
-    }
-
-    return {
-      emotionalTone: createScriptEmotionalTone(beat, index, beats.length),
-      id: `recap-script-${String(index + 1).padStart(3, '0')}`,
-      narrationText: createThirdPersonRecapNarration(beat, contextText, index, beats.length, language),
-      suggestedDuration,
-      targetBeatIds: [beat.id],
-      visualGuidance: createScriptVisualGuidance(beat, contextText, language),
-    }
-  })
-
-  return {
-    hook: createRecapHook(beats, language),
-    language,
-    outro: createRecapOutro(beats, language),
-    segments,
-    totalEstimatedDuration: roundSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0)),
-    version: 1,
-  }
-}
-
 function defaultRecapTargetDuration(sourceDuration: number): number {
   if (sourceDuration <= 0) {
     return 0
@@ -1634,222 +1689,105 @@ function allocateDurationsBySourceRange(beats: Array<Pick<NarrativeBeat, 'source
   return durations
 }
 
-function createBeatContextText(beat: NarrativeBeat, asrResult: ASRResult | undefined, vlmAnalysis: VLMAnalysis | undefined): string {
-  const asrText = collectAsrSegmentsForRange(asrResult, beat.sourceRange)
-    .map((segment) => segment.text)
-    .join(' ')
-  const vlmText = (vlmAnalysis?.scenes ?? [])
-    .filter((scene) => rangeOverlapSeconds(scene.sourceRange, beat.sourceRange) > 0)
-    .flatMap((scene) => [
-      scene.summary,
-      ...scene.actions,
-      ...scene.characters,
-      ...scene.emotions,
-      ...scene.plotClues,
-      ...scene.relationships,
-    ])
-    .join(' ')
+function validateGeneratedRecapScript(recapScript: RecapScript, storyIndex: StoryIndex, sourceManifest: SourceManifest, targetDurationSeconds: number | undefined): RecapScript {
+  const beatIds = new Set(storyIndex.beats.map((beat) => beat.id))
+  const expectedDuration = clamp(targetDurationSeconds ?? defaultRecapTargetDuration(sourceManifest.duration), 0, sourceManifest.duration)
 
-  return [beat.summary, asrText, vlmText].map((item) => item.trim()).filter(Boolean).join(' ')
-}
-
-function createScriptEmotionalTone(beat: NarrativeBeat, index: number, total: number): RecapScriptSegment['emotionalTone'] {
-  if (beat.type === 'resolution' || index === total - 1) {
-    return 'resolution'
+  if (recapScript.segments.length === 0) {
+    throw new Error('Film Recap script provider returned no segments.')
   }
 
-  if (beat.type === 'climax' || beat.type === 'reversal') {
-    return 'climax'
-  }
-
-  if (beat.type === 'setup' || beat.type === 'inciting_incident' || index === 0) {
-    return 'setup'
-  }
-
-  return 'tension'
-}
-
-function createThirdPersonRecapNarration(beat: NarrativeBeat, contextText: string, index: number, total: number, language: string): string {
-  if (isChineseLanguage(language)) {
-    const cue = createChinesePlotCue(beat, contextText)
-    const lead = createChineseNarrationLead(beat, index, total)
-
-    return `${lead}${cue.subject}${cue.predicate}。`
-  }
-
-  const cue = createEnglishPlotCue(beat, contextText)
-  const lead = createEnglishNarrationLead(beat, index, total)
-
-  return `${lead}${cue.subject} ${cue.predicate}.`
-}
-
-function createChineseNarrationLead(beat: NarrativeBeat, index: number, total: number): string {
-  if (index === 0 || beat.type === 'setup') {
-    return '一开场，'
-  }
-
-  if (beat.type === 'inciting_incident') {
-    return '转折很快出现，'
-  }
-
-  if (beat.type === 'resolution' || index === total - 1) {
-    return '最后，'
-  }
-
-  if (beat.type === 'climax' || beat.type === 'reversal' || index >= Math.max(1, total - 2)) {
-    return '高潮段落里，'
-  }
-
-  return '矛盾继续升级，'
-}
-
-function createEnglishNarrationLead(beat: NarrativeBeat, index: number, total: number): string {
-  if (index === 0 || beat.type === 'setup') {
-    return 'At the start, '
-  }
-
-  if (beat.type === 'inciting_incident') {
-    return 'The turn comes quickly as '
-  }
-
-  if (beat.type === 'resolution' || index === total - 1) {
-    return 'By the end, '
-  }
-
-  if (beat.type === 'climax' || beat.type === 'reversal' || index >= Math.max(1, total - 2)) {
-    return 'In the climactic stretch, '
-  }
-
-  return 'The conflict escalates as '
-}
-
-function createChinesePlotCue(beat: NarrativeBeat, contextText: string): {predicate: string; subject: string} {
-  if (/(心怡).{0,24}(回归|回来|回到|三年)/u.test(contextText) || /(回归|回来|回到).{0,24}(心怡)/u.test(contextText)) {
-    return {predicate: '回到公司，准备兑现三年前留下的承诺', subject: '心怡'}
-  }
-
-  if (/(裁员|结构优化|绩效|资深同事|老员工)/u.test(contextText)) {
-    return {predicate: '把裁员和绩效打压的矛盾摆到台前', subject: '这场戏'}
-  }
-
-  if (/(求助|帮|出头|被欺负|委屈)/u.test(contextText)) {
-    return {predicate: '接住老员工的求助，把被压下去的委屈重新翻出来', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (/(录音|证据|照片|线索)/u.test(contextText)) {
-    return {predicate: '抓住关键证据，让管理层的遮掩开始失效', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (/(数据|HR|系统|记录|邮件|事故|用户)/iu.test(contextText)) {
-    return {predicate: '用系统记录和数据追出真正的问题源头', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (/(VP|总裁|高层|统筹|协调|把控|对齐)/iu.test(contextText)) {
-    return {predicate: '把矛头指向更高层，拆穿空洞管理背后的责任', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (/(赵总|张总|老板|经理)/u.test(contextText)) {
-    return {predicate: '继续追问管理层，把责任链条一层层逼出来', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (/(真相|揭露|背叛|反转)/u.test(contextText)) {
-    return {predicate: '揭开被藏起来的真相，让局面彻底反转', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (/(改革|改变|留下|继续|解决)/u.test(contextText) || beat.type === 'resolution') {
-    return {predicate: '把结果落到真正的改变上，说明这场反击还没有结束', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (beat.type === 'decision') {
-    return {predicate: '做出关键选择，让故事进入反击阶段', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (beat.type === 'conflict') {
-    return {predicate: '把正面对抗推向更紧张的位置', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  if (beat.type === 'climax') {
-    return {predicate: '把所有矛盾集中爆发，逼出最终答案', subject: selectChineseSubject(beat, contextText)}
-  }
-
-  return {predicate: '交代关键关系和处境，为后面的冲突埋下伏笔', subject: selectChineseSubject(beat, contextText)}
-}
-
-function selectChineseSubject(beat: NarrativeBeat, contextText: string): string {
-  if (contextText.includes('心怡') || beat.characters.includes('心怡')) {
-    return '心怡'
-  }
-
-  const namedCharacter = beat.characters.find((character) => !['主角', '反派', '朋友', '老员工', '同事'].includes(character))
-
-  return namedCharacter ?? (beat.characters[0] ?? '这段剧情')
-}
-
-function createEnglishPlotCue(beat: NarrativeBeat, contextText: string): {predicate: string; subject: string} {
-  const normalized = contextText.toLowerCase()
-  const subject = beat.characters[0] ?? 'the story'
-
-  if (/(return|comes back|three years)/iu.test(normalized)) {
-    return {predicate: 'returns with an old promise still hanging over the room', subject}
-  }
-
-  if (/(layoff|performance|restructure|old employee|senior)/iu.test(normalized)) {
-    return {predicate: 'puts the pressure campaign against veteran employees in plain sight', subject: 'the opening scene'}
-  }
-
-  if (/(recording|evidence|data|system|mail|truth|reveal)/iu.test(normalized)) {
-    return {predicate: 'uses the evidence to turn suspicion into a direct accusation', subject}
-  }
-
-  if (beat.type === 'resolution') {
-    return {predicate: 'shows what changes after the confrontation', subject}
-  }
-
-  if (beat.type === 'climax' || beat.type === 'reversal') {
-    return {predicate: 'forces the hidden conflict into the open', subject}
-  }
-
-  return {predicate: 'moves the central conflict forward', subject}
-}
-
-function createScriptVisualGuidance(beat: NarrativeBeat, contextText: string, language: string): string {
-  const characters = beat.characters.length > 0 ? beat.characters.slice(0, 3).join(isChineseLanguage(language) ? '、' : ', ') : undefined
-
-  if (isChineseLanguage(language)) {
-    const focus = characters === undefined ? '关键人物' : characters
-    const clue = createChinesePlotCue(beat, contextText)
-
-    return `优先选择展示${focus}的${beat.type}画面，保留能体现“${clue.predicate}”的视觉信息。`
-  }
-
-  const focus = characters === undefined ? 'key characters' : characters
-
-  return `Prefer ${beat.type} shots featuring ${focus}, with visuals that support the segment narration.`
-}
-
-function createRecapHook(beats: NarrativeBeat[], language: string): string {
-  if (isChineseLanguage(language)) {
-    const firstBeat = beats[0]
-    const subject = firstBeat === undefined ? '主角' : selectChineseSubject(firstBeat, firstBeat.summary)
-
-    return `${subject}一出场，故事就把真正的矛盾摆到台前。`
-  }
-
-  return 'The recap opens by putting the central conflict in front of the audience.'
-}
-
-function createRecapOutro(beats: NarrativeBeat[], language: string): string {
-  if (isChineseLanguage(language)) {
-    const finalBeat = beats.at(-1)
-
-    if (finalBeat?.type === 'resolution') {
-      return '事情表面告一段落，但真正的改变才刚刚开始。'
+  for (const segment of recapScript.segments) {
+    if (segment.targetBeatIds.length === 0) {
+      throw new Error(`Recap script segment ${segment.id} must reference at least one story-index beat.`)
     }
 
-    return '这场对抗没有停在情绪上，而是把问题推向了答案。'
+    for (const beatId of segment.targetBeatIds) {
+      if (!beatIds.has(beatId)) {
+        throw new Error(`Recap script segment ${segment.id} references unknown story-index beat ${beatId}.`)
+      }
+    }
+
+    if (segment.suggestedDuration <= 0) {
+      throw new Error(`Recap script segment ${segment.id} must have a positive suggestedDuration.`)
+    }
   }
 
-  return 'The confrontation resolves the immediate crisis while leaving the larger change in motion.'
+  const repeatedText = findRepeatedNarrationText(recapScript.segments)
+
+  if (repeatedText !== undefined) {
+    throw new Error(`Recap script narration is too repetitive near "${repeatedText}".`)
+  }
+
+  return normalizeRecapScriptDurations(recapScript, expectedDuration)
+}
+
+function normalizeRecapScriptDurations(recapScript: RecapScript, targetDuration: number): RecapScript {
+  const currentDuration = recapScript.segments.reduce((total, segment) => total + Math.max(0, segment.suggestedDuration), 0)
+
+  if (targetDuration <= 0 || currentDuration <= 0) {
+    return {
+      ...recapScript,
+      totalEstimatedDuration: roundSeconds(currentDuration),
+    }
+  }
+
+  const scale = targetDuration / currentDuration
+  const segments = recapScript.segments.map((segment) => ({
+    ...segment,
+    suggestedDuration: roundSeconds(segment.suggestedDuration * scale),
+  }))
+  const durationDelta = roundSeconds(targetDuration - segments.reduce((total, segment) => total + segment.suggestedDuration, 0))
+  const lastSegment = segments.at(-1)
+
+  if (lastSegment !== undefined && Math.abs(durationDelta) >= 0.001) {
+    lastSegment.suggestedDuration = roundSeconds(Math.max(0.001, lastSegment.suggestedDuration + durationDelta))
+  }
+
+  return {
+    ...recapScript,
+    segments,
+    totalEstimatedDuration: roundSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0)),
+  }
+}
+
+function findRepeatedNarrationText(segments: RecapScriptSegment[]): string | undefined {
+  const seen = new Map<string, number>()
+
+  for (const segment of segments) {
+    for (const phrase of extractRepeatedPhraseCandidates(segment.narrationText)) {
+      const count = (seen.get(phrase) ?? 0) + 1
+
+      if (count >= 3) {
+        return phrase
+      }
+
+      seen.set(phrase, count)
+    }
+  }
+
+  return undefined
+}
+
+function extractRepeatedPhraseCandidates(text: string): string[] {
+  const normalized = text.replace(/\s+/gu, '')
+  const candidates = new Set<string>()
+
+  for (let size = 6; size <= 12; size += 2) {
+    for (let index = 0; index + size <= normalized.length; index += size) {
+      const phrase = normalized.slice(index, index + size)
+
+      if (!isLowValueRepeatedPhrase(phrase)) {
+        candidates.add(phrase)
+      }
+    }
+  }
+
+  return [...candidates]
+}
+
+function isLowValueRepeatedPhrase(phrase: string): boolean {
+  return phrase.length < 6 || /^(这段剧情|这个场景|故事继续|矛盾继续|关键时刻|随后|最后)/u.test(phrase)
 }
 
 function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, asrResult: ASRResult | undefined, language: string, recapScript: RecapScript): OutputNarration {
@@ -2050,7 +1988,9 @@ async function renderCutVideo(clipPlan: ClipPlan, outputPath: string, includeAud
       '[outv]',
       '-an',
       '-c:v',
-      'mpeg4',
+      'libx264',
+      '-preset',
+      'veryfast',
       '-pix_fmt',
       'yuv420p',
       outputPath,
@@ -2077,7 +2017,9 @@ async function renderCutVideo(clipPlan: ClipPlan, outputPath: string, includeAud
     '-map',
     '[outa]',
     '-c:v',
-    'mpeg4',
+    'libx264',
+    '-preset',
+    'veryfast',
     '-pix_fmt',
     'yuv420p',
     '-c:a',
@@ -2190,44 +2132,121 @@ function createScriptClipCandidate(
     return {sourceRange: beatRange}
   }
 
-  const asrCandidate = chooseScriptAsrCandidate(segment, beatRange, duration, asrResult)
+  const asrCandidate = chooseScriptAsrCandidate(segment, beat, beatRange, duration, asrResult)
 
   if (asrCandidate !== undefined) {
     return asrCandidate
   }
 
-  const sourceStart = beatRange[0]
+  const sourceStart = chooseBeatFallbackStart(beat, beatRange, duration)
   const sourceEnd = roundSeconds(Math.min(beatRange[1], sourceStart + duration))
 
   return sourceEnd <= sourceStart ? undefined : {sourceRange: [sourceStart, sourceEnd]}
 }
 
-function chooseScriptAsrCandidate(segment: RecapScriptSegment, beatRange: [number, number], duration: number, asrResult: ASRResult | undefined): {sourceRange: [number, number]} | undefined {
+function chooseScriptAsrCandidate(segment: RecapScriptSegment, beat: NarrativeBeat, beatRange: [number, number], duration: number, asrResult: ASRResult | undefined): {sourceRange: [number, number]} | undefined {
   const candidates = collectAsrSegmentsForRange(asrResult, beatRange)
     .map((asrSegment) => {
       const sourceRange = normalizeSourceRange([asrSegment.start, asrSegment.end], beatRange[1])
       const candidateDuration = roundSeconds(sourceRange[1] - sourceRange[0])
 
-      if (candidateDuration <= 0 || candidateDuration > duration + 0.001 || candidateDuration < duration * 0.75) {
+      if (candidateDuration <= 0) {
         return undefined
       }
 
       return {
-        keywordScore: scoreScriptAsrCandidate(segment, asrSegment.text),
-        sourceRange,
+        keywordScore: scoreScriptAsrCandidate(segment, beat, asrSegment.text),
+        sourceRange: expandSourceRangeAroundEvidence(sourceRange, beatRange, duration),
       }
     })
     .filter((candidate): candidate is {keywordScore: number; sourceRange: [number, number]} => candidate !== undefined)
+    .filter((candidate) => candidate.keywordScore > 0)
     .sort((left, right) => right.keywordScore - left.keywordScore || (right.sourceRange[1] - right.sourceRange[0]) - (left.sourceRange[1] - left.sourceRange[0]) || left.sourceRange[0] - right.sourceRange[0])
 
   return candidates[0] === undefined ? undefined : {sourceRange: candidates[0].sourceRange}
 }
 
-function scoreScriptAsrCandidate(segment: RecapScriptSegment, text: string): number {
-  const guidance = `${segment.narrationText} ${segment.visualGuidance}`
+function scoreScriptAsrCandidate(segment: RecapScriptSegment, beat: NarrativeBeat, text: string): number {
+  const guidance = `${segment.narrationText} ${segment.visualGuidance} ${beat.summary} ${beat.characters.join(' ')}`
   const keywords = ['证据', '录音', '数据', '系统', '真相', '反击', '对峙', '裁员', '绩效', 'VP', 'evidence', 'truth', 'data', 'showdown']
+  const scriptedKeywords = extractClipPlanningKeywords(guidance)
 
-  return keywords.reduce((score, keyword) => score + (guidance.includes(keyword) && text.includes(keyword) ? 1 : 0), 0)
+  return [
+    ...keywords.filter((keyword) => guidance.includes(keyword)),
+    ...scriptedKeywords,
+  ].reduce((score, keyword) => score + (text.includes(keyword) ? 1 : 0), 0)
+}
+
+function extractClipPlanningKeywords(text: string): string[] {
+  const chineseTerms = Array.from(text.matchAll(/[\p{Script=Han}A-Za-z]{2,8}/gu), (match) => match[0])
+  const expandedTerms = [
+    ...chineseTerms,
+    ...chineseTerms.flatMap((term) => createTermNgrams(term, 2, 4)),
+  ]
+
+  return uniqueStrings(expandedTerms)
+    .filter((term) => !CLIP_PLANNING_STOPWORDS.has(term))
+    .slice(0, 40)
+}
+
+function createTermNgrams(term: string, minSize: number, maxSize: number): string[] {
+  const output: string[] = []
+
+  for (let size = minSize; size <= Math.min(maxSize, term.length); size += 1) {
+    for (let index = 0; index + size <= term.length; index += 1) {
+      output.push(term.slice(index, index + size))
+    }
+  }
+
+  return output
+}
+
+const CLIP_PLANNING_STOPWORDS = new Set([
+  '这段',
+  '剧情',
+  '这场',
+  '故事',
+  '继续',
+  '关键',
+  '问题',
+  '真正',
+  '开始',
+  '最后',
+  '系统',
+])
+
+function expandSourceRangeAroundEvidence(evidenceRange: [number, number], beatRange: [number, number], duration: number): [number, number] {
+  const beatDuration = roundSeconds(beatRange[1] - beatRange[0])
+
+  if (duration >= beatDuration - 0.001) {
+    return beatRange
+  }
+
+  const evidenceCenter = (evidenceRange[0] + evidenceRange[1]) / 2
+  const rawStart = evidenceCenter - duration / 2
+  const start = roundSeconds(clamp(rawStart, beatRange[0], beatRange[1] - duration))
+
+  return [start, roundSeconds(start + duration)]
+}
+
+function chooseBeatFallbackStart(beat: NarrativeBeat, beatRange: [number, number], duration: number): number {
+  const maxStart = beatRange[1] - duration
+
+  if (maxStart <= beatRange[0]) {
+    return beatRange[0]
+  }
+
+  const anchor = beat.type === 'climax' || beat.type === 'reversal'
+    ? 0.62
+    : beat.type === 'resolution'
+      ? 0.48
+      : beat.type === 'decision' || beat.type === 'inciting_incident'
+        ? 0.28
+        : 0.42
+  const beatDuration = beatRange[1] - beatRange[0]
+  const centeredStart = beatRange[0] + beatDuration * anchor - duration / 2
+
+  return roundSeconds(clamp(centeredStart, beatRange[0], maxStart))
 }
 
 const FILM_BEAT_TYPE_WEIGHTS: Record<NarrativeBeat['type'], number> = {
@@ -2545,10 +2564,37 @@ function extractCharacterHints(text: string): string[] {
   ] as const
 
   return uniqueStrings([
+    ...extractChineseNamedCharacters(text),
     ...knownRoles.filter((role) => text.includes(role)),
     ...englishRoles.flatMap(([keyword, label]) => text.toLowerCase().includes(keyword) ? [label] : []),
   ])
 }
+
+function extractChineseNamedCharacters(text: string): string[] {
+  const titledNames = Array.from(text.matchAll(/[\p{Script=Han}A-Za-z]{1,8}(?:总|经理|主任|主管|VP|CEO|CFO|CTO)/giu), (match) => match[0])
+  const actionSubjects = Array.from(text.matchAll(/(?<![\p{Script=Han}])([\p{Script=Han}]{2,3})(?=回到|回归|回来|宣布|拿出|指出|发现|决定|要求|质问|追问|证明|对比|离开|留下|接住|求助|改革|承诺|反击)/gu), (match) => match[1] ?? '')
+  const objectNames = Array.from(text.matchAll(/([\p{Script=Han}]{1,6}总)(?=被裁|被开除|被问责|被调查)/gu), (match) => match[1] ?? '')
+
+  return [...titledNames, ...actionSubjects, ...objectNames]
+    .map((name) => name.trim())
+    .filter((name) => name !== '' && !CHINESE_CHARACTER_STOPWORDS.has(name))
+}
+
+const CHINESE_CHARACTER_STOPWORDS = new Set([
+  '公司',
+  '部分',
+  '资深',
+  '同事',
+  '老员工',
+  '系统',
+  '记录',
+  '数据',
+  '故事',
+  '剧情',
+  '问题',
+  '真相',
+  '管理层',
+])
 
 function dedupeEvidence<T extends {ref: string; text?: string; type: string}>(items: T[]): T[] {
   const seen = new Set<string>()

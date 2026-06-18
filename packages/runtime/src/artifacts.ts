@@ -259,7 +259,7 @@ const ProviderCallLogLineSchema = z.object({
   output: z.record(z.string(), z.unknown()).optional(),
   provider: z.string().min(1),
   requestId: z.string().min(1),
-  role: z.enum(['asr', 'tts', 'vlm']),
+  role: z.enum(['asr', 'script', 'tts', 'vlm']),
   startedAt: z.string().min(1),
   status: z.enum(['failed', 'succeeded']),
   usage: ProviderUsageMetadataSchema.optional(),

@@ -1175,8 +1175,8 @@ describe('job runner', () => {
       const progressEvents = pipelineEvents.filter((event) => event.type === 'stage:progress')
       const artifactEvents = pipelineEvents.filter((event) => event.type === 'artifact')
 
-      expect(providerCalls.map((call) => call.role)).to.include.members(['asr', 'tts', 'vlm'])
-      expect(providerCalls.every((call) => call.provider === 'mock')).to.equal(true)
+      expect(providerCalls.map((call) => call.role)).to.include.members(['asr', 'script', 'tts', 'vlm'])
+      expect(providerCalls.every((call) => call.role === 'script' ? call.provider === 'script' : call.provider === 'mock')).to.equal(true)
       expect(providerCalls.every((call) => call.status === 'succeeded')).to.equal(true)
       expect(events).to.include.members(['stage:start:ingest', 'stage:complete:ingest', 'stage:start:understand', 'stage:complete:quality'])
       expect(progressEvents.map((event) => `${event.stage}:${event.step}`)).to.include.members(['understand:asr', 'understand:vlm', 'voiceover:tts', 'quality:checks'])
