@@ -1014,6 +1014,92 @@ describe('film recap project', () => {
     }
   })
 
+  it('compresses overlong TTS audio to the narration segment duration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-film-voice-align-'))
+    const inputPath = join(root, 'episode.mp4')
+    const projectId = 'film-voice-align-demo'
+    const ttsProviderPath = join(root, 'tts-provider.ts')
+    const ttsOutputPath = join(root, 'projects', projectId, 'audio', 'tts', '0001-output-narration-001.wav')
+
+    try {
+      await createSampleVideoWithAudio(inputPath)
+      await writeFile(ttsProviderPath, [
+        'import {mkdirSync} from "node:fs"',
+        'import {dirname} from "node:path"',
+        `const outputPath = ${JSON.stringify(ttsOutputPath)}`,
+        'mkdirSync(dirname(outputPath), {recursive: true})',
+        'const proc = Bun.spawnSync([',
+        '  "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",',
+        '  "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000",',
+        '  "-t", "1.5", "-c:a", "pcm_s16le", outputPath,',
+        '])',
+        'if (proc.exitCode !== 0) {',
+        '  console.error(proc.stderr.toString())',
+        '  process.exit(proc.exitCode ?? 1)',
+        '}',
+        'console.log(JSON.stringify([{narrationId: "output-narration-001", path: "audio/tts/0001-output-narration-001.wav", duration: 1.5}]))',
+        '',
+      ].join('\n'))
+      await writeJson(join(root, 'config.json'), {
+        providerSettings: {
+          tts: {
+            command: ['bun', ttsProviderPath],
+          },
+        },
+        providers: {
+          tts: 'command',
+        },
+        version: 1,
+      })
+      await createFilmIngestProject({
+        inputPath,
+        projectId,
+        workspaceDir: root,
+      })
+      await createFilmUnderstandingProject({
+        projectId,
+        workspaceDir: root,
+      })
+      await createFilmStoryIndexProject({
+        projectId,
+        workspaceDir: root,
+      })
+      await createFilmRecapScriptProject({
+        projectId,
+        targetDurationSeconds: 0.5,
+        workspaceDir: root,
+      })
+      await createFilmClipPlanProject({
+        projectId,
+        targetDurationSeconds: 0.5,
+        workspaceDir: root,
+      })
+      await createFilmCutProject({
+        projectId,
+        workspaceDir: root,
+      })
+      await createFilmOutputNarrationProject({
+        projectId,
+        workspaceDir: root,
+      })
+
+      const result = await createFilmVoiceoverProject({
+        projectId,
+        workspaceDir: root,
+      })
+      const ttsSegments = JSON.parse(await readFile(result.artifacts.ttsSegments, 'utf8')) as Array<{duration: number; narrationId: string; path: string}>
+      const mediaInfo = await probeMedia(ttsOutputPath)
+
+      expect(ttsSegments[0]).to.deep.include({
+        duration: 0.5,
+        narrationId: 'output-narration-001',
+      })
+      expect(mediaInfo.duration ?? 0).to.be.lessThan(0.56)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('mixes voiceover audio against the edited output timeline', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-mix-'))
     const inputPath = join(root, 'episode.mp4')
@@ -1063,6 +1149,7 @@ describe('film recap project', () => {
       const audioMix = JSON.parse(await readFile(result.artifacts.audioMix, 'utf8')) as {
         ducking?: {ratio: number; threshold: number}
         duration: number
+        loudnessNormalization: {loudnessRangeLufs: number; targetIntegratedLufs: number; truePeakDb: number}
         mode: string
         outputPath: string
         sourceAudioRetained: boolean
@@ -1083,6 +1170,11 @@ describe('film recap project', () => {
       expect(audioMix.sourceVolume).to.equal(0.25)
       expect(audioMix.sourceVolumeDuringVoiceover).to.equal(0)
       expect(audioMix.voiceoverVolume).to.equal(1)
+      expect(audioMix.loudnessNormalization).to.deep.equal({
+        loudnessRangeLufs: 11,
+        targetIntegratedLufs: -18,
+        truePeakDb: -1.5,
+      })
       expect(audioMix.ducking).to.deep.include({
         ratio: 8,
         threshold: 0.03,

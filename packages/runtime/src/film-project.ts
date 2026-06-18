@@ -193,6 +193,11 @@ export interface FilmAudioMix {
     threshold: number
   }
   generatedAt: string
+  loudnessNormalization: {
+    loudnessRangeLufs: number
+    targetIntegratedLufs: number
+    truePeakDb: number
+  }
   mode: 'silence' | 'source-ducked' | 'source-only' | 'voiceover-only'
   outputPath: string
   sourceAudioRetained: boolean
@@ -309,6 +314,12 @@ export interface RunFilmRecapProjectResult {
 
 const FILM_STAGES = FILM_PIPELINE_STAGES
 const LLM_TRACE_ARTIFACT_NAME = 'llm-traces.jsonl'
+const FILM_AUDIO_LOUDNESS_NORMALIZATION = {
+  loudnessRangeLufs: 11,
+  targetIntegratedLufs: -18,
+  truePeakDb: -1.5,
+}
+const FILM_TTS_DURATION_TOLERANCE_SECONDS = 0.05
 
 export async function runFilmRecapProject(options: RunFilmRecapProjectOptions): Promise<RunFilmRecapProjectResult> {
   const fromStage = options.fromStage ?? FILM_PIPELINE_DEFINITION.defaultRerunStage
@@ -813,10 +824,10 @@ export async function createFilmVoiceoverProject(options: CreateFilmVoiceoverPro
       createFilmProviderCallRecorder(workspace),
     )
     const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
-    const ttsSegments = TtsSegmentsSchema.parse(await providers.tts.synthesize(narration.segments, {
+    const ttsSegments = await alignFilmTtsSegmentsToNarration(workspace.projectDir, narration, TtsSegmentsSchema.parse(await providers.tts.synthesize(narration.segments, {
       outputDir: join(workspace.audioDir, 'tts'),
       pathPrefix: 'audio/tts',
-    }))
+    })))
     const artifacts = {
       ttsSegments: await workspace.store.writeJson('tts-segments.json', ttsSegments),
     }
@@ -874,6 +885,7 @@ export async function createFilmAudioMixProject(options: CreateFilmAudioMixProje
       } : {}),
       duration: outputTimelineMap.outputDuration,
       generatedAt: new Date().toISOString(),
+      loudnessNormalization: FILM_AUDIO_LOUDNESS_NORMALIZATION,
       mode,
       outputPath: toProjectReference(workspace.projectDir, outputPath),
       sourceAudioRetained: sourceAudioPath !== undefined,
@@ -1104,6 +1116,88 @@ export async function createFilmQualityCheckProject(options: CreateFilmQualityCh
   }
 }
 
+async function alignFilmTtsSegmentsToNarration(projectDir: string, narration: Narration, ttsSegments: TTSSegment[]): Promise<TTSSegment[]> {
+  const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
+
+  return Promise.all(ttsSegments.map(async (ttsSegment, index) => {
+    const narrationSegment = narrationById.get(ttsSegment.narrationId) ?? narration.segments[index]
+    const targetDuration = narrationSegment?.duration
+
+    if (targetDuration === undefined || targetDuration <= 0 || ttsSegment.duration <= targetDuration + FILM_TTS_DURATION_TOLERANCE_SECONDS) {
+      return ttsSegment
+    }
+
+    const path = resolveProjectPath(projectDir, ttsSegment.path)
+
+    await assertFileExists(path)
+    await conformAudioDuration(path, ttsSegment.duration, targetDuration)
+
+    return {
+      ...ttsSegment,
+      duration: roundSeconds(targetDuration),
+    }
+  }))
+}
+
+async function conformAudioDuration(path: string, sourceDuration: number, targetDuration: number): Promise<void> {
+  const tempOutputPath = `${path}.tmp-${process.pid}-${Date.now()}.wav`
+  const tempo = sourceDuration / targetDuration
+  const filter = [
+    buildAtempoFilterChain(tempo),
+    'apad',
+    `atrim=duration=${roundSeconds(targetDuration)}`,
+    'asetpts=PTS-STARTPTS',
+  ].join(',')
+
+  try {
+    await runFfmpeg([
+      '-y',
+      '-i',
+      path,
+      '-filter:a',
+      filter,
+      '-ar',
+      '48000',
+      '-ac',
+      '2',
+      '-c:a',
+      'pcm_s16le',
+      tempOutputPath,
+    ])
+    await rename(tempOutputPath, path)
+  } catch (error) {
+    await unlinkIfExists(tempOutputPath)
+    throw error
+  }
+}
+
+function buildAtempoFilterChain(tempo: number): string {
+  if (!Number.isFinite(tempo) || tempo <= 0) {
+    return 'anull'
+  }
+
+  const tempos: number[] = []
+  let remaining = tempo
+
+  while (remaining > 2) {
+    tempos.push(2)
+    remaining /= 2
+  }
+
+  while (remaining < 0.5) {
+    tempos.push(0.5)
+    remaining /= 0.5
+  }
+
+  tempos.push(remaining)
+
+  return tempos.map((value) => `atempo=${formatFilterNumber(value)}`).join(',')
+}
+
+function formatFilterNumber(value: number): string {
+  return String(Math.round(value * 1_000_000) / 1_000_000)
+}
+
 async function createAudioMixVoiceovers(projectDir: string, narration: Narration, ttsSegments: TTSSegment[]): Promise<FilmAudioMixVoiceover[]> {
   const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
   const voiceovers = ttsSegments.map((ttsSegment, index) => {
@@ -1232,26 +1326,30 @@ function buildAudioMixFilter(options: {
   const allFilters = [...options.sourceFilters, ...options.voiceoverFilters]
 
   if (options.hasSourceAudio && options.voiceoverCount === 0) {
-    return `${allFilters.join(';')};[source]apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
+    return normalizeFilmAudioMix(`${allFilters.join(';')};[source]apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`)
   }
 
   const voiceLabels = Array.from({length: options.voiceoverCount}, (_, index) => `[voice${index}]`)
 
   if (!options.hasSourceAudio) {
-    return `${allFilters.join(';')};${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
+    return normalizeFilmAudioMix(`${allFilters.join(';')};${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`)
   }
 
   const voiceBus = options.voiceoverCount === 1
     ? `${voiceLabels[0]}anull[voicebus]`
     : `${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0[voicebus]`
 
-  return [
+  return normalizeFilmAudioMix([
     ...allFilters,
     voiceBus,
     `[voicebus]apad,atrim=duration=${duration},asplit=2[duckkey][voicemix]`,
     '[source][duckkey]sidechaincompress=threshold=0.03:ratio=8:attack=5:release=250[ducked]',
-    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`,
-  ].join(';')
+    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`,
+  ].join(';'))
+}
+
+function normalizeFilmAudioMix(filter: string): string {
+  return `${filter};[premix]loudnorm=I=${FILM_AUDIO_LOUDNESS_NORMALIZATION.targetIntegratedLufs}:TP=${FILM_AUDIO_LOUDNESS_NORMALIZATION.truePeakDb}:LRA=${FILM_AUDIO_LOUDNESS_NORMALIZATION.loudnessRangeLufs},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
 }
 
 async function renderFinalFilmVideo(options: {

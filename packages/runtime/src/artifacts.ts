@@ -147,6 +147,11 @@ const AudioMixSchema = z.object({
     threshold: z.number().nonnegative(),
   }).strict().optional(),
   generatedAt: z.string().min(1),
+  loudnessNormalization: z.object({
+    loudnessRangeLufs: z.number(),
+    targetIntegratedLufs: z.number(),
+    truePeakDb: z.number(),
+  }).strict(),
   mode: z.enum(['silence', 'source-ducked', 'source-only', 'voiceover-only']),
   outputPath: z.string().min(1),
   sourceAudioRetained: z.boolean(),
