@@ -1,37 +1,19 @@
 import type {LLMClient} from '@video-agent/llm'
 
-import {createNarrationFromClipPlan, createStoryboardFromProviderInsights} from '@video-agent/core'
-import {CharacterIndexEntrySchema, CharacterIndexSchema, NarrationSchema, NarrativeBeatSchema, NarrativeBeatsSchema, RecapScriptSchema, StoryIndexSchema, StoryboardSchema, type RecapScript, type Storyboard, type StoryboardScene} from '@video-agent/ir'
+import {CharacterIndexEntrySchema, CharacterIndexSchema, NarrationSchema, NarrativeBeatSchema, NarrativeBeatsSchema, RecapScriptSchema, StoryIndexSchema, StoryboardSchema, type Narration, type RecapScript, type Storyboard} from '@video-agent/ir'
 import {z} from 'zod'
 
 import type {RecapScriptProviderInput, ScriptProvider, ScriptProviderInput, StoryIndexProviderInput, StoryIndexProviderOutput, StoryboardProvider, StoryboardProviderInput} from './contracts.js'
 
-export class DeterministicStoryboardProvider implements StoryboardProvider {
-  async createStoryboard(input: StoryboardProviderInput) {
-    const selectedMomentsStoryboard = createStoryboardFromSelectedMoments(input)
-
-    if (selectedMomentsStoryboard !== undefined) {
-      return StoryboardSchema.parse(selectedMomentsStoryboard)
-    }
-
-    return StoryboardSchema.parse(createStoryboardFromProviderInsights(input.mediaInfo, {
-      sceneAnalysis: input.sceneAnalysis,
-      transcript: input.transcript,
-    }))
+export class LLMRequiredStoryboardProvider implements StoryboardProvider {
+  async createStoryboard(_input: StoryboardProviderInput): Promise<Storyboard> {
+    throw new Error('Storyboard generation requires an LLM provider. Configure an llm block or pass an injected LLM client.')
   }
 }
 
-export class DeterministicScriptProvider implements ScriptProvider {
-  async createNarration(input: ScriptProviderInput) {
-    const narration = createNarrationFromClipPlan(input.storyboard, input.clipPlan)
-
-    return NarrationSchema.parse({
-      ...narration,
-      segments: narration.segments.map((segment, index) => ({
-        ...segment,
-        text: createExplainerNarrationText(segment.text, index),
-      })),
-    })
+export class LLMRequiredScriptProvider implements ScriptProvider {
+  async createNarration(_input: ScriptProviderInput): Promise<Narration> {
+    throw new Error('Narration generation requires an LLM provider. Configure an llm block or pass an injected LLM client.')
   }
 
   async createRecapScript(_input: RecapScriptProviderInput): Promise<RecapScript> {
@@ -220,69 +202,6 @@ function summarizeFilmRecapScriptInput(input: RecapScriptProviderInput): Record<
     targetDurationSeconds: input.targetDurationSeconds,
     vlmAnalysis: input.vlmAnalysis,
   }
-}
-
-function createStoryboardFromSelectedMoments(input: StoryboardProviderInput): Storyboard | undefined {
-  const moments = input.longVideo?.selectedMoments?.moments ?? []
-
-  if (moments.length === 0) {
-    return undefined
-  }
-
-  let timelineStart = 0
-  const sourceDuration = input.mediaInfo.duration
-  const scenes = moments.map((moment, index): StoryboardScene => {
-    const sourceRange = normalizeSourceRange(moment.sourceRange, sourceDuration)
-    const duration = Math.max(sourceRange[1] - sourceRange[0], 0.001)
-    const scene: StoryboardScene = {
-      duration,
-      evidence: moment.evidence,
-      id: `scene-${index + 1}`,
-      narration: moment.summary,
-      sourceRange,
-      start: timelineStart,
-      visualStyle: 'slide_explainer',
-    }
-
-    timelineStart += duration
-
-    return scene
-  })
-
-  return {
-    language: input.longVideo?.globalOutline?.language ?? input.transcript.language ?? 'zh-CN',
-    scenes,
-    targetPlatform: 'generic',
-    version: 1,
-  }
-}
-
-function createExplainerNarrationText(value: string, index: number): string {
-  const text = value.replaceAll(/\s+/g, ' ').trim()
-
-  if (/^第\s*\d+\s*页[：:]/.test(text)) {
-    return text
-  }
-
-  return `第 ${index + 1} 页：${text}`
-}
-
-function normalizeSourceRange(range: [number, number], sourceDuration: number | undefined): [number, number] {
-  let start = Math.max(0, range[0])
-  let end = Math.max(start, range[1])
-
-  if (sourceDuration !== undefined && Number.isFinite(sourceDuration) && sourceDuration > 0) {
-    start = Math.min(start, sourceDuration)
-    end = Math.min(Math.max(end, start), sourceDuration)
-  }
-
-  if (end <= start) {
-    end = sourceDuration !== undefined && Number.isFinite(sourceDuration) && sourceDuration > start
-      ? Math.min(sourceDuration, start + 1)
-      : start + 1
-  }
-
-  return [start, end]
 }
 
 function summarizeMediaInfo(mediaInfo: StoryboardProviderInput['mediaInfo']): Record<string, unknown> {

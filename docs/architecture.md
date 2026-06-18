@@ -303,7 +303,7 @@ ScriptProvider
 AssetProvider
 ```
 
-Concrete providers can wrap local command adapters, deterministic fallback logic, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. Deterministic fallback logic must not be used for Film Recap semantic understanding, narrative beat classification, recap script writing, or semantic clip selection; those decisions come from LLM/VLM structured outputs.
+Concrete providers can wrap local command adapters, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. Semantic understanding and generation must not use deterministic fallback logic: Film Recap, Deck Explainer, and initial explainer story summaries, selected moments, storyboard content, script/narration, narrative beat classification, and semantic clip selection come from LLM/VLM structured outputs. Deterministic TypeScript logic is limited to media, evidence, validation, and timeline orchestration.
 
 If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/storyboard/script providers that select `llm`. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms when possible. Binary media endpoints such as MiMo TTS stay behind provider interfaces when they need to write artifacts directly.
 

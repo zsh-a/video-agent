@@ -7,7 +7,7 @@ import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './comm
 import {providerEnvName, type ProviderRole} from './descriptors.js'
 import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MIMO_TTS_BASE_URL, MIMO_TTS_DEFAULT_VOICE, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from './llm-media.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
-import {DeterministicScriptProvider, DeterministicStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
+import {LLMRequiredScriptProvider, LLMRequiredStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
 
 export {
   BUILTIN_PROVIDER_NAMES,
@@ -96,13 +96,13 @@ export function createAsrProvider(name: string, options: ProviderRegistryOptions
 export function createScriptProvider(options: ProviderRegistryOptions = {}): ScriptProvider {
   const llmClient = resolveOptionalLLMClient(options)
 
-  return llmClient === undefined ? new DeterministicScriptProvider() : new LLMScriptProvider(llmClient)
+  return llmClient === undefined ? new LLMRequiredScriptProvider() : new LLMScriptProvider(llmClient)
 }
 
 export function createStoryboardProvider(options: ProviderRegistryOptions = {}): StoryboardProvider {
   const llmClient = resolveOptionalLLMClient(options)
 
-  return llmClient === undefined ? new DeterministicStoryboardProvider() : new LLMStoryboardProvider(llmClient)
+  return llmClient === undefined ? new LLMRequiredStoryboardProvider() : new LLMStoryboardProvider(llmClient)
 }
 
 export function createTtsProvider(name: string, options: ProviderRegistryOptions = {}): TTSProvider {

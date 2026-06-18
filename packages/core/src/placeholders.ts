@@ -25,24 +25,8 @@ export interface SceneBoundaryInsight {
   text?: string
 }
 
-export function createPlaceholderStoryboard(mediaInfo: MediaInfo): Storyboard {
-  const duration = inferMediaDuration(mediaInfo)
-
-  return {
-    language: 'zh-CN',
-    scenes: [
-      {
-        duration,
-        evidence: [],
-        id: 'scene-1',
-        narration: 'Placeholder narration. Replace this with generated script after provider integration.',
-        start: 0,
-        visualStyle: 'documentary',
-      },
-    ],
-    targetPlatform: 'generic',
-    version: 1,
-  }
+export function createPlaceholderStoryboard(_mediaInfo: MediaInfo): Storyboard {
+  throw new Error('Storyboard generation requires an LLM provider. Deterministic placeholder storyboard generation is disabled.')
 }
 
 export function createSceneBoundariesFromTranscript(transcript: TranscriptInsight | undefined, mediaDuration: number): SceneBoundaryInsight[] {
@@ -79,55 +63,14 @@ export function createSceneBoundariesFromTranscript(transcript: TranscriptInsigh
 }
 
 export function createStoryboardFromProviderInsights(
-  mediaInfo: MediaInfo,
-  options: {
+  _mediaInfo: MediaInfo,
+  _options: {
     sceneAnalysis?: SceneAnalysisInsight[]
     targetPlatform?: Storyboard['targetPlatform']
     transcript?: TranscriptInsight
   },
 ): Storyboard {
-  const boundaries = createSceneBoundariesFromTranscript(options.transcript, inferMediaDuration(mediaInfo))
-  const scenes = boundaries.map((boundary, index) => {
-    const analysis = findSceneAnalysis(options.sceneAnalysis ?? [], boundary.id, index)
-    const transcriptText = normalizeText(boundary.text) ?? normalizeText(options.transcript?.text)
-    const visualText = normalizeText(analysis?.description)
-
-    return {
-      duration: boundary.end - boundary.start,
-      evidence: [
-        ...(transcriptText === undefined
-          ? []
-          : [
-              {
-                ref: 'transcript.json',
-                text: transcriptText,
-                type: 'asr' as const,
-              },
-            ]),
-        ...(visualText === undefined
-          ? []
-          : [
-              {
-                ref: 'scene-analysis.json',
-                text: visualText,
-                type: 'vlm' as const,
-              },
-            ]),
-      ],
-      id: boundary.id,
-      narration: transcriptText ?? visualText ?? `Placeholder narration for ${boundary.id}.`,
-      sourceRange: [boundary.start, boundary.end] as [number, number],
-      start: boundary.start,
-      visualStyle: 'documentary',
-    }
-  })
-
-  return {
-    language: options.transcript?.language ?? 'zh-CN',
-    scenes,
-    targetPlatform: options.targetPlatform ?? 'generic',
-    version: 1,
-  }
+  throw new Error('Storyboard generation requires an LLM provider. Deterministic provider-insight storyboard generation is disabled.')
 }
 
 export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
@@ -183,42 +126,16 @@ export function createTimelineFromClipPlan(mediaInfo: MediaInfo, clipPlan: ClipP
   }
 }
 
-export function createPlaceholderTimeline(mediaInfo: MediaInfo): Timeline {
-  return createTimelineFromClipPlan(mediaInfo, createClipPlan(createPlaceholderStoryboard(mediaInfo), mediaInfo))
+export function createPlaceholderTimeline(_mediaInfo: MediaInfo): Timeline {
+  throw new Error('Timeline placeholder generation requires an LLM-generated storyboard. Deterministic placeholder timeline generation is disabled.')
 }
 
-export function createNarrationFromClipPlan(storyboard: Storyboard, clipPlan: ClipPlan): Narration {
-  const clipsBySceneId = new Map(clipPlan.clips.map((clip) => [clip.sceneId, clip]))
-
-  return {
-    language: storyboard.language,
-    segments: storyboard.scenes.map((scene, index) => {
-      const clip = clipsBySceneId.get(scene.id)
-
-      return {
-        duration: clip?.duration ?? scene.duration,
-        id: `narration-${index + 1}`,
-        sceneId: scene.id,
-        start: clip?.start ?? scene.start,
-        text: scene.narration ?? `Placeholder narration for ${scene.id}.`,
-      }
-    }),
-    version: 1,
-  }
+export function createNarrationFromClipPlan(_storyboard: Storyboard, _clipPlan: ClipPlan): Narration {
+  throw new Error('Narration generation requires an LLM provider. Deterministic clip-plan narration generation is disabled.')
 }
 
-export function createPlaceholderNarration(storyboard: Storyboard): Narration {
-  return {
-    language: storyboard.language,
-    segments: storyboard.scenes.map((scene, index) => ({
-      duration: scene.duration,
-      id: `narration-${index + 1}`,
-      sceneId: scene.id,
-      start: scene.start,
-      text: scene.narration ?? `Placeholder narration for ${scene.id}.`,
-    })),
-    version: 1,
-  }
+export function createPlaceholderNarration(_storyboard: Storyboard): Narration {
+  throw new Error('Narration generation requires an LLM provider. Deterministic placeholder narration generation is disabled.')
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -227,10 +144,6 @@ function clamp(value: number, min: number, max: number): number {
 
 function formatSeconds(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-}
-
-function findSceneAnalysis(sceneAnalysis: SceneAnalysisInsight[], sceneId: string, index: number): SceneAnalysisInsight | undefined {
-  return sceneAnalysis.find((scene) => scene.sceneId === sceneId) ?? sceneAnalysis[index]
 }
 
 function inferTranscriptDuration(transcript: TranscriptInsight | undefined): number {
@@ -249,10 +162,4 @@ function inferMediaDuration(mediaInfo: MediaInfo): number {
     .filter((duration): duration is number => duration !== undefined)
 
   return streamDurations.length === 0 ? 0 : Math.max(...streamDurations)
-}
-
-function normalizeText(value: string | undefined): string | undefined {
-  const text = value?.trim()
-
-  return text === undefined || text.length === 0 ? undefined : text
 }

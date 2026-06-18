@@ -66,12 +66,12 @@ remote provider APIs
 local provider services or binaries
 ```
 
-## Film Recap Semantic Intelligence
+## LLM Semantic Intelligence
 
-- Do not add keyword lists, regex matching, n-gram overlap scoring, hard-coded narrative labels, or fixed position heuristics for Film Recap semantic work.
-- Film Recap scene semantics, VLM actions/characters/emotions/plot clues/relationships, narrative beat types, character relationships, recap script content, and semantic clip selection must come from LLM/VLM structured outputs validated by Zod schemas.
-- TypeScript runtime code may still orchestrate deterministic media and timeline operations such as ffmpeg scene-change detection, silence boundaries, sourceRange validation, duration clamping, artifact schema validation, and render/audio filter construction.
-- If no LLM is configured for Film Recap story indexing or recap script writing, fail clearly instead of falling back to deterministic semantic templates or text matching.
+- Do not add keyword lists, regex matching, n-gram overlap scoring, hard-coded semantic labels, fixed position heuristics, rule-based scoring, template narration, or deterministic text splitting for semantic understanding or generation.
+- Film Recap, Deck Explainer, and the initial explainer pipeline must get scene semantics, story/chapter summaries, selected moments, storyboard content, slide/deck content, narration/script content, narrative beat types, character relationships, and semantic clip selection from LLM/VLM structured outputs validated by Zod schemas.
+- TypeScript runtime code may still orchestrate deterministic media, evidence, and timeline operations such as ffmpeg scene-change detection, silence boundaries, transcript/sourceRange clipping, sourceRange validation, duration clamping, artifact schema validation, provider-call tracing, and render/audio filter construction.
+- If no LLM is configured for semantic understanding or generation, fail clearly instead of falling back to rule-based logic, text matching, deterministic semantic templates, or placeholder generation.
 
 ## Current CLI State
 

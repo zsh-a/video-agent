@@ -41,7 +41,7 @@ export const PROVIDER_DESCRIPTORS: Record<ProviderName, ProviderDescriptor> = {
     requirements: () => [],
   },
   mock: {
-    description: 'Deterministic local development provider.',
+    description: 'Fixed-output local development provider for media roles.',
     name: 'mock',
     requirements: () => [],
   },

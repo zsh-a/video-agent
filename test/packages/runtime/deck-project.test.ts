@@ -82,6 +82,7 @@ describe('deck explainer project', () => {
 
       const result = await createDeckExplainerProject({
         inputPath,
+        llmClient: createDeckPlanningLLMClient(),
         maxSlideCharacters: 60,
         projectId: 'deck-demo',
         slideSeconds: 12,
@@ -113,7 +114,7 @@ describe('deck explainer project', () => {
       expect(sourceQuotes.quotes.every((quote) => quote.text.length > 0)).to.equal(true)
       expect(storyboard.scenes.every((scene) => scene.visualStyle === 'slide_explainer')).to.equal(true)
       expect(timedDeck.timings.map((timing) => timing.slideId)).to.deep.equal(deck.slides.map((slide) => slide.slideId))
-      expect(narration.segments.every((segment) => segment.text.startsWith('第 '))).to.equal(true)
+      expect(narration.segments.every((segment) => segment.text.length > 0)).to.equal(true)
       expect(quality.ok).to.equal(true)
       expect(quality.content).to.deep.equal({errors: 0, issues: 0, warnings: 0})
 
@@ -291,6 +292,7 @@ describe('deck explainer project', () => {
       )
       await createDeckExplainerProject({
         inputPath,
+        llmClient: createDeckPlanningLLMClient(),
         maxSlideCharacters: 30,
         projectId: 'deck-voice-demo',
         slideSeconds: 12,
@@ -496,6 +498,7 @@ describe('deck explainer project', () => {
 
       const result = await createDeckAudioAnchoredProject({
         inputPath,
+        llmClient: createDeckPlanningLLMClient(),
         maxSlideCharacters: 45,
         projectId: 'deck-audio-demo',
         slideSeconds: 1,
@@ -561,6 +564,7 @@ describe('deck explainer project', () => {
       const result = await createDeckSummarizeProject({
         durationTargetSeconds: 2,
         inputPath,
+        llmClient: createDeckPlanningLLMClient(),
         maxSlideCharacters: 45,
         projectId: 'deck-summary-demo',
         slideSeconds: 1,

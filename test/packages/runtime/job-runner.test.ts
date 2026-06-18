@@ -5,7 +5,7 @@ import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
+import {AISDKLLMClient, type GenerateObjectRequest, type LLMClient} from '../../../packages/llm/src/index.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {analyzeSceneBatches, createChunkTranscript, createChunkVlmScenes, createSceneFrameBatchesFromTranscript, createSilenceRanges, mergeChunkTranscripts, offsetChunkTranscript, runInitialPipeline, transcribeSourceAudio, validateVlmSceneAnalysis} from '../../../packages/runtime/src/job-runner.js'
@@ -1121,6 +1121,7 @@ describe('job runner', () => {
       const providerCallSummaries: string[] = []
       const result = await runInitialPipeline({
         inputPath,
+        llmClient: createInitialPipelineLLMClient(),
         onEvent(event) {
           events.push(`${event.type}:${event.stage ?? ''}`)
         },
@@ -1198,6 +1199,7 @@ describe('job runner', () => {
       const resumed = await runInitialPipeline({
         fromStage: 'plan',
         inputPath,
+        llmClient: createInitialPipelineLLMClient(),
         projectId: 'demo',
         workspaceDir: root,
       })
@@ -1252,6 +1254,31 @@ describe('job runner', () => {
 
       const result = await runInitialPipeline({
         inputPath,
+        llmClient: createInitialPipelineLLMClient({
+          duration: 70,
+          moments: [
+            {
+              sourceRange: [0, 18],
+              summary: 'LLM selects the downloader explanation.',
+              title: 'Downloader',
+            },
+            {
+              sourceRange: [18, 36],
+              summary: 'LLM selects the music player explanation.',
+              title: 'Music Player',
+            },
+            {
+              sourceRange: [36, 54],
+              summary: 'LLM selects the live-stream explanation.',
+              title: 'Live Streaming',
+            },
+            {
+              sourceRange: [54, 70],
+              summary: 'LLM selects the utility tools explanation.',
+              title: 'Utilities',
+            },
+          ],
+        }),
         projectId: 'explainer',
         workspaceDir: root,
       })
@@ -1262,11 +1289,11 @@ describe('job runner', () => {
 
       expect(selectedMoments.moments.length).to.be.greaterThan(1)
       expect(selectedMoments.moments[0]?.sourceRange).to.deep.equal([0, 18])
-      expect(selectedMoments.moments.every((moment) => moment.summary.startsWith('第 '))).to.equal(true)
+      expect(selectedMoments.moments.every((moment) => moment.summary.length > 0)).to.equal(true)
       expect(storyboard.scenes).to.have.length(selectedMoments.moments.length)
       expect(storyboard.scenes.every((scene) => scene.visualStyle === 'slide_explainer')).to.equal(true)
       expect(narration.segments).to.have.length(storyboard.scenes.length)
-      expect(narration.segments.every((segment) => segment.text.startsWith('第 '))).to.equal(true)
+      expect(narration.segments.every((segment) => segment.text.length > 0)).to.equal(true)
       expect(quality.summary).to.deep.equal({errors: 0, warnings: 0})
       expect(quality.issues.map((issue) => issue.code).filter((code) => code.startsWith('explainer.'))).to.deep.equal([])
 
@@ -1355,6 +1382,16 @@ describe('job runner', () => {
 
       const llmClient = new AISDKLLMClient({
         model: createSequentialObjectModel([
+          createLongVideoUnderstandingObject({
+            duration: 1,
+            moments: [
+              {
+                sourceRange: [0, 1],
+                summary: 'LLM selected the only moment.',
+                title: 'Only Moment',
+              },
+            ],
+          }),
           {
             language: 'zh-CN',
             scenes: [
@@ -1441,6 +1478,186 @@ function compactVlmScenes(scenes: Array<Record<string, unknown>>): Array<Record<
 
     return compact
   })
+}
+
+interface InitialPipelineLLMOptions {
+  duration?: number
+  moments?: Array<{
+    sourceRange: [number, number]
+    summary: string
+    title: string
+  }>
+  source?: string
+}
+
+function createInitialPipelineLLMClient(options: InitialPipelineLLMOptions = {}): LLMClient {
+  return {
+    async generateObject<T>(request: GenerateObjectRequest<T>) {
+      const prompt = String(request.messages[0]?.content ?? '')
+      const object = prompt.includes('long-video explainer understanding')
+        ? createLongVideoUnderstandingObject(options)
+        : prompt.includes('Create concise video storyboard JSON')
+          ? createStoryboardObject(options)
+          : prompt.includes('Create narration JSON')
+            ? createNarrationObject(options)
+            : undefined
+
+      if (object === undefined) {
+        throw new Error(`Unexpected LLM request: ${prompt.slice(0, 120)}`)
+      }
+
+      return {
+        object: request.schema.parse(object),
+      }
+    },
+    async generateText() {
+      throw new Error('Text generation is not used by this test.')
+    },
+    streamText() {
+      throw new Error('Streaming is not used by this test.')
+    },
+  }
+}
+
+function createLongVideoUnderstandingObject(options: InitialPipelineLLMOptions = {}): object {
+  const source = options.source ?? '/tmp/input.mp4'
+  const duration = options.duration ?? 1
+  const moments = (options.moments ?? [
+    {
+      sourceRange: [0, duration] as [number, number],
+      summary: 'LLM selected the key explainer moment.',
+      title: 'Key Moment',
+    },
+  ]).map((moment, index) => ({
+    chunkId: 'chunk-000',
+    evidence: [{ref: 'chunks/000/vlm.json', text: `${moment.title} evidence.`, type: 'vlm' as const}],
+    id: `moment-${String(index + 1).padStart(3, '0')}`,
+    score: 0.9,
+    sourceRange: moment.sourceRange,
+    summary: moment.summary,
+    title: moment.title,
+  }))
+  const chapter = {
+    chunkIds: ['chunk-000'],
+    evidence: moments.flatMap((moment) => moment.evidence),
+    id: 'chapter-001',
+    index: 0,
+    keyMoments: moments,
+    sourceRange: [0, duration] as [number, number],
+    summary: 'LLM chapter summary.',
+    title: 'LLM Chapter',
+  }
+
+  return {
+    chapters: {
+      chapters: [chapter],
+      source,
+      version: 1,
+    },
+    chunkSummaries: {
+      chunks: [
+        {
+          chunkId: 'chunk-000',
+          contentRange: [0, duration],
+          keyMoments: moments,
+          silenceRanges: [],
+          summary: 'LLM chunk summary.',
+        },
+      ],
+      source,
+      version: 1,
+    },
+    globalOutline: {
+      chapters: [chapter],
+      language: 'zh-CN',
+      source,
+      sourceDuration: duration,
+      storyBeats: [
+        {
+          chapterIds: ['chapter-001'],
+          evidence: moments.flatMap((moment) => moment.evidence),
+          id: 'beat-001',
+          sourceRange: [0, duration],
+          summary: 'LLM story beat summary.',
+          title: 'LLM Beat',
+        },
+      ],
+      version: 1,
+    },
+    selectedMoments: {
+      moments: moments.map((moment) => ({
+        ...moment,
+        reason: 'LLM selected this moment from transcript and visual evidence.',
+      })),
+      source,
+      version: 1,
+    },
+  }
+}
+
+function createStoryboardObject(options: InitialPipelineLLMOptions = {}): object {
+  const duration = options.duration ?? 1
+  const moments = options.moments ?? [
+    {
+      sourceRange: [0, duration] as [number, number],
+      summary: 'LLM storyboard narration.',
+      title: 'Key Moment',
+    },
+  ]
+  let cursor = 0
+
+  return {
+    language: 'zh-CN',
+    scenes: moments.map((moment, index) => {
+      const sceneDuration = moment.sourceRange[1] - moment.sourceRange[0]
+      const start = cursor
+
+      cursor += sceneDuration
+
+      return {
+        duration: sceneDuration,
+        evidence: [{ref: 'chunks/000/vlm.json', text: `${moment.title} evidence.`, type: 'vlm' as const}],
+        id: `scene-${index + 1}`,
+        narration: moment.summary,
+        sourceRange: moment.sourceRange,
+        start,
+        visualStyle: 'slide_explainer',
+      }
+    }),
+    targetPlatform: 'generic',
+    version: 1,
+  }
+}
+
+function createNarrationObject(options: InitialPipelineLLMOptions = {}): object {
+  const duration = options.duration ?? 1
+  const moments = options.moments ?? [
+    {
+      sourceRange: [0, duration] as [number, number],
+      summary: 'LLM final narration.',
+      title: 'Key Moment',
+    },
+  ]
+  let cursor = 0
+
+  return {
+    language: 'zh-CN',
+    segments: moments.map((moment, index) => {
+      const segmentDuration = moment.sourceRange[1] - moment.sourceRange[0]
+      const start = cursor
+
+      cursor += segmentDuration
+
+      return {
+        duration: segmentDuration,
+        id: `narration-${index + 1}`,
+        sceneId: `scene-${index + 1}`,
+        start,
+        text: `LLM final narration ${index + 1}: ${moment.summary}`,
+      }
+    }),
+    version: 1,
+  }
 }
 
 function createSequentialObjectModel(objects: object[]): LanguageModel {

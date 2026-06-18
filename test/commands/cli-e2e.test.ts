@@ -1,5 +1,5 @@
 import {expect} from '#test/expect'
-import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
+import {mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -258,7 +258,7 @@ describe('cli end-to-end workflow', () => {
     }
   })
 
-  it('inspects, runs, renders, and exports a local media file from CLI commands', async () => {
+  it('inspects media and fails the initial pipeline clearly when no LLM is configured', async () => {
     if (!(await hasMediaTools())) {
       return
     }
@@ -266,7 +266,6 @@ describe('cli end-to-end workflow', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-e2e-'))
     const workspaceDir = join(root, 'workspace')
     const inputPath = join(root, 'input.mp4')
-    const outputPath = join(root, 'exported.mp4')
     const projectId = 'cli-e2e'
 
     try {
@@ -282,63 +281,13 @@ describe('cli end-to-end workflow', () => {
       expect(inspect.streams).to.be.greaterThan(0)
       expect(inspect.duration).to.be.greaterThan(0)
 
-      const run = await expectCommand(['bun', './bin/dev.js', 'run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--verbose'])
+      const run = await runCli(['run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--verbose'])
 
+      expect(run.code).to.equal(1)
       expect(run.stdout).to.include('[pipeline] ingest started')
-      expect(run.stdout).to.include('[pipeline] quality completed')
       expect(run.stdout).to.include('[provider] asr mock transcribe succeeded')
       expect(run.stdout).to.include('[provider] vlm mock analyzeScenes succeeded')
-      expect(run.stdout).to.include('[provider] tts mock synthesize succeeded')
-      expect(run.stdout).to.include(`Project: ${projectId}`)
-      expect(run.stdout).to.include('Status: completed')
-
-      const progressFallback = await expectCommand(['bun', './bin/dev.js', 'run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--from-stage', 'quality', '--progress'])
-
-      expect(progressFallback.stdout).to.include('[pipeline] quality started')
-      expect(progressFallback.stdout).to.include('[pipeline] quality completed')
-      expect(progressFallback.stdout).to.include(`Project: ${projectId}`)
-      expect(progressFallback.stdout).to.include('Status: completed')
-
-      const render = await runCliJson<{
-        artifactPath: string
-        outputPath: string
-        projectId: string
-        renderer: string
-      }>(['render', projectId, '--workspace', workspaceDir, '--renderer', 'ffmpeg', '--no-audio', '--no-subtitles', '--json'])
-
-      expect(render.projectId).to.equal(projectId)
-      expect(render.renderer).to.equal('ffmpeg')
-      expect(await fileSize(render.outputPath)).to.be.greaterThan(0)
-      expect(await fileSize(render.artifactPath)).to.be.greaterThan(0)
-
-      const exported = await runCliJson<{
-        artifactPath: string
-        format: string
-        outputPath: string
-        projectId: string
-      }>(['export', projectId, '--workspace', workspaceDir, '--output', outputPath, '--json'])
-
-      expect(exported.projectId).to.equal(projectId)
-      expect(exported.format).to.equal('video')
-      expect(exported.outputPath).to.equal(outputPath)
-      expect(await fileSize(outputPath)).to.be.greaterThan(0)
-      expect(await fileSize(exported.artifactPath)).to.be.greaterThan(0)
-
-      const manifest = await runCliJson<{
-        checked: number
-        ok: boolean
-      }>(['artifacts', projectId, '--workspace', workspaceDir, '--verify', '--json'])
-
-      expect(manifest.ok).to.equal(true)
-      expect(manifest.checked).to.be.greaterThan(0)
-
-      const status = await runCliJson<{
-        job: {status: string}
-        summary: {render: {rendered: boolean}}
-      }>(['status', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(status.job.status).to.equal('completed')
-      expect(status.summary.render.rendered).to.equal(true)
+      expect(run.stderr).to.include('Initial explainer understanding requires an LLM provider')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -362,7 +311,7 @@ describe('cli end-to-end workflow', () => {
     }
   })
 
-  it('creates a Deck Explainer project from text with DeckIR artifacts', async () => {
+  it('fails Deck Explainer text planning clearly when no LLM is configured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-deck-'))
     const workspaceDir = join(root, 'workspace')
     const inputPath = join(root, 'deck.md')
@@ -377,19 +326,7 @@ describe('cli end-to-end workflow', () => {
           '两条 pipeline 共用 runtime、provider、media、renderer 和 quality 层。',
         ].join('\n'),
       )
-      const chromiumCommand = await createFakeChromiumCommand(root)
-
-      const deckProject = await runCliJson<{
-        deck: {
-          artifacts: {deck: string; document: string; timedDeck: string}
-          slides: number
-          status: string
-        }
-        finalRender: {htmlEntryPath: string; outputPath: string; status: string}
-        projectId: string
-        status: string
-        voiceover?: {duration: number; outputPath: string; status: string}
-      }>([
+      const deckProject = await runCli([
         'deck',
         inputPath,
         '--project-id',
@@ -404,146 +341,17 @@ describe('cli end-to-end workflow', () => {
         'tech-gradient',
         '--max-slide-characters',
         '45',
-        '--chromium-command',
-        JSON.stringify(chromiumCommand),
         '--json',
       ])
 
-      expect(deckProject.projectId).to.equal(projectId)
-      expect(deckProject.deck.slides).to.be.greaterThan(1)
-      expect(deckProject.status).to.equal('completed')
-      expect(deckProject.deck.status).to.equal('completed')
-      expect(deckProject.voiceover?.status).to.equal('voiced')
-      expect(deckProject.finalRender.status).to.equal('rendered')
-      expect(await fileSize(deckProject.finalRender.htmlEntryPath)).to.be.greaterThan(0)
-      expect(await fileSize(deckProject.finalRender.outputPath)).to.be.greaterThan(0)
-
-      const deck = JSON.parse(await readFile(deckProject.deck.artifacts.deck, 'utf8')) as {
-        format: string
-        slides: Array<{slideId: string}>
-        theme: string
-      }
-      const timedDeck = JSON.parse(await readFile(deckProject.deck.artifacts.timedDeck, 'utf8')) as {
-        timings: Array<{end: number; slideId: string; start: number}>
-      }
-
-      expect(deck.format).to.equal('landscape_1920x1080')
-      expect(deck.theme).to.equal('tech-gradient')
-      expect(timedDeck.timings.length).to.equal(deck.slides.length)
-      expect(timedDeck.timings[0]?.start).to.equal(0)
-      expect(timedDeck.timings.at(-1)?.end).to.equal(deckProject.voiceover?.duration)
-
-      const deckVoice = await runCliJson<{
-        artifacts: {deckVoiceover: string; timedDeck: string; ttsSegments: string}
-        duration: number
-        outputPath: string
-        projectId: string
-        slides: number
-        status: string
-      }>(['deck', 'synthesize-voice', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(deckVoice.projectId).to.equal(projectId)
-      expect(deckVoice.status).to.equal('voiced')
-      expect(deckVoice.slides).to.equal(deck.slides.length)
-      expect(deckVoice.duration).to.be.greaterThan(0)
-      expect(await fileSize(deckVoice.artifacts.deckVoiceover)).to.be.greaterThan(0)
-      expect(await fileSize(deckVoice.artifacts.ttsSegments)).to.be.greaterThan(0)
-      expect(await fileSize(deckVoice.outputPath)).to.be.greaterThan(44)
-
-      const voicedTimedDeck = JSON.parse(await readFile(deckVoice.artifacts.timedDeck, 'utf8')) as {
-        audioRef?: string
-        timings: Array<{end: number; slideId: string; start: number}>
-      }
-
-      expect(voicedTimedDeck.audioRef).to.equal('audio/deck_voiceover.wav')
-      expect(voicedTimedDeck.timings[0]?.start).to.equal(0)
-      expect(voicedTimedDeck.timings.at(-1)?.end).to.equal(deckVoice.duration)
-
-      const htmlRendererScript = join(root, 'fake-html-renderer.ts')
-      const htmlCapturePath = join(root, 'html-capture.mp4')
-
-      await writeFile(
-        htmlRendererScript,
-        [
-          "const args = Bun.argv.slice(2)",
-          "if (args[0] === 'validate') {",
-          "  await Bun.file(`${args[1]}/index.html`).text()",
-          "  console.log('validated')",
-          "  process.exit(0)",
-          "}",
-          "if (args[0] === 'render') {",
-          "  const outputPath = args[args.indexOf('--output') + 1]",
-          "  await Bun.write(outputPath, 'fake html capture')",
-          "  console.log('rendered')",
-          "  process.exit(0)",
-          "}",
-          "process.exit(2)",
-          '',
-        ].join('\n'),
-      )
-      const deckRender = await runCliJson<{
-        artifactPath: string
-        frameRenderer: string
-        frameCount: number
-        htmlEntryPath: string
-        outputPath: string
-        projectId: string
-        rendered?: {stdout: string}
-        renderer: string
-        status: string
-        validation?: {stdout: string}
-        videoRenderer: string
-      }>([
-        'deck',
-        'render',
-        projectId,
-        '--workspace',
-        workspaceDir,
-        '--chromium-command',
-        JSON.stringify(chromiumCommand),
-        '--html-render-command',
-        JSON.stringify(['bun', htmlRendererScript]),
-        '--html-output',
-        htmlCapturePath,
-        '--html-render',
-        '--html-validate',
-        '--json',
-      ])
-
-      expect(deckRender.projectId).to.equal(projectId)
-      expect(deckRender.status).to.equal('rendered')
-      expect(deckRender.renderer).to.equal('html')
-      expect(deckRender.frameRenderer).to.equal('chromium')
-      expect(deckRender.videoRenderer).to.equal('chromium+ffmpeg')
-      expect(deckRender.rendered?.stdout).to.contain('rendered')
-      expect(deckRender.validation?.stdout).to.contain('validated')
-      expect(deckRender.frameCount).to.equal(deck.slides.length)
-      expect(await fileSize(deckRender.artifactPath)).to.be.greaterThan(0)
-      expect(await fileSize(deckRender.htmlEntryPath)).to.be.greaterThan(0)
-      expect(await fileSize(htmlCapturePath)).to.be.greaterThan(0)
-      expect(await fileSize(deckRender.outputPath)).to.be.greaterThan(0)
-
-      const deckExport = await runCliJson<{
-        format: string
-        outputPath: string
-      }>(['export', projectId, '--workspace', workspaceDir, '--output', join(root, 'deck-final.mp4'), '--json'])
-
-      expect(deckExport.format).to.equal('video')
-      expect(await fileSize(deckExport.outputPath)).to.be.greaterThan(0)
-
-      const manifest = await runCliJson<{
-        checked: number
-        ok: boolean
-      }>(['artifacts', projectId, '--workspace', workspaceDir, '--verify', '--json'])
-
-      expect(manifest.ok).to.equal(true)
-      expect(manifest.checked).to.be.greaterThan(0)
+      expect(deckProject.code).to.equal(1)
+      expect(deckProject.stderr).to.include('Deck explainer planning requires an LLM provider')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('creates an audio-anchored Deck Explainer project and renders final video', async () => {
+  it('fails audio-anchored Deck planning clearly when no LLM is configured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-deck-audio-'))
     const workspaceDir = join(root, 'workspace')
     const inputPath = join(root, 'podcast.wav')
@@ -551,20 +359,8 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleAudio(inputPath)
-      const chromiumCommand = await createFakeChromiumCommand(root)
 
-      const deckProject = await runCliJson<{
-        deck: {
-          artifacts: {deck: string; timedDeck: string; transcript: string}
-          duration: number
-          outputPath: string
-          slides: number
-          status: string
-        }
-        finalRender: {outputPath: string; status: string}
-        projectId: string
-        status: string
-      }>([
+      const deckProject = await runCli([
         'deck',
         inputPath,
         '--mode',
@@ -577,74 +373,17 @@ describe('cli end-to-end workflow', () => {
         'square',
         '--style',
         'tech-gradient',
-        '--chromium-command',
-        JSON.stringify(chromiumCommand),
         '--json',
       ])
 
-      expect(deckProject.projectId).to.equal(projectId)
-      expect(deckProject.status).to.equal('completed')
-      expect(deckProject.deck.status).to.equal('completed')
-      expect(deckProject.finalRender.status).to.equal('rendered')
-      expect(deckProject.deck.duration).to.be.greaterThan(0)
-      expect(deckProject.deck.slides).to.be.greaterThan(0)
-      expect(await fileSize(deckProject.deck.outputPath)).to.be.greaterThan(44)
-      expect(await fileSize(deckProject.finalRender.outputPath)).to.be.greaterThan(0)
-
-      const deck = JSON.parse(await readFile(deckProject.deck.artifacts.deck, 'utf8')) as {
-        format: string
-        inputMode: string
-      }
-      const timedDeck = JSON.parse(await readFile(deckProject.deck.artifacts.timedDeck, 'utf8')) as {
-        audioRef?: string
-        timings: Array<{end: number; start: number}>
-      }
-
-      expect(deck.format).to.equal('square_1080x1080')
-      expect(deck.inputMode).to.equal('audio-anchored')
-      expect(timedDeck.audioRef).to.equal('audio/deck_voiceover.wav')
-      expect(timedDeck.timings[0]?.start).to.equal(0)
-      expect(timedDeck.timings.at(-1)?.end).to.equal(deckProject.deck.duration)
-
-      const deckRender = await runCliJson<{
-        artifactPath: string
-        htmlEntryPath: string
-        outputPath: string
-        projectId: string
-        renderer: string
-        status: string
-        videoRenderer: string
-      }>(['deck', 'render', projectId, '--workspace', workspaceDir, '--chromium-command', JSON.stringify(await createFakeChromiumCommand(root)), '--json'])
-
-      expect(deckRender.projectId).to.equal(projectId)
-      expect(deckRender.status).to.equal('rendered')
-      expect(deckRender.renderer).to.equal('html')
-      expect(deckRender.videoRenderer).to.equal('chromium+ffmpeg')
-      expect(await fileSize(deckRender.artifactPath)).to.be.greaterThan(0)
-      expect(await fileSize(deckRender.htmlEntryPath)).to.be.greaterThan(0)
-      expect(await fileSize(deckRender.outputPath)).to.be.greaterThan(0)
-
-      const exported = await runCliJson<{
-        format: string
-        outputPath: string
-      }>(['export', projectId, '--workspace', workspaceDir, '--output', join(root, 'audio-deck.mp4'), '--json'])
-
-      expect(exported.format).to.equal('video')
-      expect(await fileSize(exported.outputPath)).to.be.greaterThan(0)
-
-      const manifest = await runCliJson<{
-        checked: number
-        ok: boolean
-      }>(['artifacts', projectId, '--workspace', workspaceDir, '--verify', '--json'])
-
-      expect(manifest.ok).to.equal(true)
-      expect(manifest.checked).to.be.greaterThan(0)
+      expect(deckProject.code).to.equal(1)
+      expect(deckProject.stderr).to.include('Deck audio-anchored planning requires an LLM provider')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('creates a summarized Deck Explainer from audio and renders with new narration', async () => {
+  it('fails summarized Deck planning clearly when no LLM is configured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-deck-summary-'))
     const workspaceDir = join(root, 'workspace')
     const inputPath = join(root, 'podcast.wav')
@@ -652,20 +391,8 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleAudio(inputPath)
-      const chromiumCommand = await createFakeChromiumCommand(root)
 
-      const deckProject = await runCliJson<{
-        deck: {
-          artifacts: {deck: string; speakerScript: string; transcript: string}
-          slides: number
-          sourceMode: string
-          status: string
-        }
-        finalRender: {outputPath: string; status: string}
-        projectId: string
-        status: string
-        voiceover?: {outputPath: string; status: string}
-      }>([
+      const deckProject = await runCli([
         'deck',
         inputPath,
         '--mode',
@@ -676,58 +403,11 @@ describe('cli end-to-end workflow', () => {
         projectId,
         '--workspace',
         workspaceDir,
-        '--chromium-command',
-        JSON.stringify(chromiumCommand),
         '--json',
       ])
 
-      expect(deckProject.projectId).to.equal(projectId)
-      expect(deckProject.status).to.equal('completed')
-      expect(deckProject.deck.status).to.equal('completed')
-      expect(deckProject.deck.sourceMode).to.equal('audio-summary')
-      expect(deckProject.deck.slides).to.be.greaterThan(0)
-      expect(deckProject.voiceover?.status).to.equal('voiced')
-      expect(deckProject.finalRender.status).to.equal('rendered')
-      expect(await fileSize(deckProject.voiceover?.outputPath ?? '')).to.be.greaterThan(44)
-      expect(await fileSize(deckProject.finalRender.outputPath)).to.be.greaterThan(0)
-
-      const deck = JSON.parse(await readFile(deckProject.deck.artifacts.deck, 'utf8')) as {inputMode: string}
-      const speakerScript = JSON.parse(await readFile(deckProject.deck.artifacts.speakerScript, 'utf8')) as {mode: string}
-      const transcript = JSON.parse(await readFile(deckProject.deck.artifacts.transcript, 'utf8')) as {text: string}
-
-      expect(deck.inputMode).to.equal('script-generated')
-      expect(speakerScript.mode).to.equal('script-generated')
-      expect(transcript.text).to.contain('Mock transcript')
-
-      const voice = await runCliJson<{
-        outputPath: string
-        status: string
-      }>(['deck', 'synthesize-voice', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(voice.status).to.equal('voiced')
-      expect(await fileSize(voice.outputPath)).to.be.greaterThan(44)
-
-      const render = await runCliJson<{
-        htmlEntryPath: string
-        outputPath: string
-        renderer: string
-        status: string
-        videoRenderer: string
-      }>(['deck', 'render', projectId, '--workspace', workspaceDir, '--chromium-command', JSON.stringify(await createFakeChromiumCommand(root)), '--json'])
-
-      expect(render.status).to.equal('rendered')
-      expect(render.renderer).to.equal('html')
-      expect(render.videoRenderer).to.equal('chromium+ffmpeg')
-      expect(await fileSize(render.htmlEntryPath)).to.be.greaterThan(0)
-      expect(await fileSize(render.outputPath)).to.be.greaterThan(0)
-
-      const manifest = await runCliJson<{
-        checked: number
-        ok: boolean
-      }>(['artifacts', projectId, '--workspace', workspaceDir, '--verify', '--json'])
-
-      expect(manifest.ok).to.equal(true)
-      expect(manifest.checked).to.be.greaterThan(0)
+      expect(deckProject.code).to.equal(1)
+      expect(deckProject.stderr).to.include('Deck audio summary planning requires an LLM provider')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -802,34 +482,6 @@ async function createSampleAudio(inputPath: string): Promise<void> {
   ])
 }
 
-async function createFakeChromiumCommand(root: string): Promise<string[]> {
-  const scriptPath = join(root, `fake-chromium-${cryptoRandomLabel()}.ts`)
-
-  await writeFile(
-    scriptPath,
-    [
-      'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
-      'if (screenshotArg === undefined) {',
-      '  console.error("missing screenshot output")',
-      '  process.exit(2)',
-      '}',
-      'const outputPath = screenshotArg.slice("--screenshot=".length)',
-      'const ppm = new Uint8Array([',
-      '  80, 54, 10, 50, 32, 50, 10, 50, 53, 53, 10,',
-      '  255, 255, 255, 37, 99, 235, 15, 23, 42, 249, 115, 22,',
-      '])',
-      'await Bun.write(outputPath, ppm)',
-      '',
-    ].join('\n'),
-  )
-
-  return ['bun', scriptPath]
-}
-
-function cryptoRandomLabel(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`
-}
-
 async function runCliJson<T>(args: string[], env?: Record<string, string>): Promise<T> {
   const result = await expectCommand(['bun', './bin/dev.js', ...args], env)
 
@@ -860,10 +512,6 @@ async function expectCommand(command: string[], env?: Record<string, string>): P
     stderr: result.stderr,
     stdout: result.stdout,
   }
-}
-
-async function fileSize(path: string): Promise<number> {
-  return (await stat(path)).size
 }
 
 async function hasMediaTools(): Promise<boolean> {

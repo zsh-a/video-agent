@@ -1,11 +1,11 @@
 import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, DeckSlideType, DeckVisual, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {LLMClient, LLMTraceRecorder} from '@video-agent/llm'
-import type {Transcript, TTSSegment} from '@video-agent/providers'
+import type {TTSSegment} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 
 import {JsonJobStore} from '@video-agent/db'
-import {ClaimsSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
+import {ClaimsSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, MediaInfoSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
 import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
@@ -138,11 +138,13 @@ export interface CreateDeckAudioAnchoredProjectOptions {
   deckFormat?: DeckFormat
   inputPath: string
   language?: string
+  llmClient?: LLMClient
   maxSlideCharacters?: number
   projectId?: string
   slideSeconds?: number
   theme?: string
   title?: string
+  trace?: boolean
   workspaceDir?: string
 }
 
@@ -153,6 +155,7 @@ export interface CreateDeckAudioAnchoredProjectResult {
     deck: string
     deckVoiceover: string
     document: string
+    llmTrace?: string
     mediaInfo: string
     narration: string
     outline: string
@@ -276,26 +279,20 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
   let plan: TextDeckProjectPlan
 
   try {
-    plan = llmClient === undefined
-      ? createFallbackTextDeckProjectPlan(inputPath, text, {
-          deckFormat: options.deckFormat,
-          durationTargetSeconds: options.durationTargetSeconds,
-          language,
-          maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-          slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-          theme: options.theme,
-          title: options.title,
-        })
-      : await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
-          deckFormat: options.deckFormat,
-          durationTargetSeconds: options.durationTargetSeconds,
-          language,
-          maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-          slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-          sourceType: inferDocumentSourceType(inputPath),
-          theme: options.theme,
-          title: options.title,
-        })
+    if (llmClient === undefined) {
+      throw new Error('Deck explainer planning requires an LLM provider. Configure an llm block or pass an injected LLM client.')
+    }
+
+    plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+      deckFormat: options.deckFormat,
+      durationTargetSeconds: options.durationTargetSeconds,
+      language,
+      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+      slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+      sourceType: inferDocumentSourceType(inputPath),
+      theme: options.theme,
+      title: options.title,
+    })
   } catch (error) {
     throw withLLMTracePath(error, llmTrace.path)
   }
@@ -362,6 +359,7 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     workspaceDir: options.workspaceDir,
   })
   const workspaceDir = workspace.workspaceDir
+  const llmTrace = createProjectLLMTrace(workspace, options.trace)
   const jobStore = new JsonJobStore(resolve(workspace.projectDir, 'job-state.json'))
 
   await jobStore.initialize({
@@ -375,7 +373,19 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     const sourceMediaInfo = await probeMedia(inputPath)
     const sourceDuration = sourceMediaInfo.duration ?? DEFAULT_SLIDE_SECONDS
     const config = await readConfig(workspaceDir)
-    const providers = await createRuntimeProviders(config, workspaceDir)
+    const llmClient = await createRuntimeLLMClient(config, workspaceDir, {
+      llmClient: options.llmClient,
+      llmTrace: llmTrace.recorder,
+    })
+
+    if (llmClient === undefined) {
+      throw new Error('Deck audio summary planning requires an LLM provider. Configure an llm block or pass an injected LLM client.')
+    }
+
+    const providers = await createRuntimeProviders(config, workspaceDir, {
+      llmClient,
+      llmTrace: llmTrace.recorder,
+    })
 
     await jobStore.updateStage('ingest', 'completed', undefined, 1)
     await jobStore.updateStage('transcribe', 'running', undefined, 1)
@@ -394,68 +404,37 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     await jobStore.updateStage('understand', 'running', undefined, 1)
 
     const language = options.language ?? transcript.language ?? 'zh-CN'
-    const slideSeconds = options.slideSeconds ?? DEFAULT_SLIDE_SECONDS
-    const slides = createTextSlides(text, {
+    const plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+      deckFormat: options.deckFormat,
+      durationTargetSeconds: options.durationTargetSeconds,
+      language,
       maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+      slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+      sourceType: 'audio',
+      theme: options.theme,
       title: options.title,
     })
-    const title = options.title ?? slides[0]?.title ?? 'Audio Summary Deck'
-    const deckSlideSeconds = options.durationTargetSeconds === undefined ? slideSeconds : Math.max(1, options.durationTargetSeconds / Math.max(1, slides.length))
-    const mediaInfo = createTextMediaInfo(inputPath, slides.length * deckSlideSeconds)
-    const selectedMoments = createTextSelectedMoments(inputPath, slides, deckSlideSeconds)
-    const document = DocumentSchema.parse(createSummarizedAudioDocument(inputPath, transcript, text, slides, language, title))
-    const contentBlocks = ContentBlocksSchema.parse({
-      blocks: document.blocks,
-      version: 1,
-    })
-    const claims = ClaimsSchema.parse(createClaimsFromDocument(document))
-    const sourceQuotes = SourceQuotesSchema.parse(createSourceQuotesFromDocument(document))
 
     await jobStore.updateStage('understand', 'completed', undefined, 1)
     await jobStore.updateStage('plan', 'running', undefined, 1)
 
-    const outline = OutlineSchema.parse(createTextOutline(slides, language, title, options.durationTargetSeconds))
-    const deck = DeckSchema.parse(createTextDeck(slides, language, title, {
-      format: options.deckFormat,
-      theme: options.theme,
-    }))
-    const speakerScript = SpeakerScriptSchema.parse(createTextSpeakerScript(slides, language))
-    const timings = createSlideTimings(slides, deckSlideSeconds)
-    const timedDeck = TimedDeckSchema.parse(createTimedDeck(deck, timings))
-    const storyboard = StoryboardSchema.parse(createTextStoryboard(slides, deckSlideSeconds, language))
-    const timeline = TimelineSchema.parse(createTextTimeline(slides.length * deckSlideSeconds))
-    const narration = NarrationSchema.parse(createTextNarration(storyboard, slides, language))
-    const issues = createTextQualityIssues({
-      mediaInfo,
-      narration,
-      selectedMoments,
-      storyboard,
-      timeline,
-    })
-    const qualityReport = {
-      checkedAt: new Date().toISOString(),
-      issues,
-      narrationSegments: narration.segments.length,
-      summary: summarizeQualityIssues(issues),
-      ttsSegments: 0,
-      version: 1 as const,
-    }
     const artifacts = {
       transcript: await workspace.store.writeJson('transcript.json', transcript),
-      document: await workspace.store.writeJson('document.json', document),
-      contentBlocks: await workspace.store.writeJson('content-blocks.json', contentBlocks),
-      claims: await workspace.store.writeJson('claims.json', claims),
-      sourceQuotes: await workspace.store.writeJson('source-quotes.json', sourceQuotes),
-      outline: await workspace.store.writeJson('outline.json', outline),
-      deck: await workspace.store.writeJson('deck.json', deck),
-      speakerScript: await workspace.store.writeJson('speaker-script.json', speakerScript),
-      timedDeck: await workspace.store.writeJson('timed-deck.json', timedDeck),
-      mediaInfo: await workspace.store.writeJson('media-info.json', mediaInfo),
-      selectedMoments: await workspace.store.writeJson('selected-moments.json', selectedMoments),
-      storyboard: await workspace.store.writeJson('storyboard.json', storyboard),
-      timeline: await workspace.store.writeJson('timeline.json', timeline),
-      narration: await workspace.store.writeJson('narration.json', narration),
-      qualityReport: await workspace.store.writeJson('quality-report.json', qualityReport),
+      document: await workspace.store.writeJson('document.json', plan.document),
+      contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),
+      claims: await workspace.store.writeJson('claims.json', plan.claims),
+      sourceQuotes: await workspace.store.writeJson('source-quotes.json', plan.sourceQuotes),
+      outline: await workspace.store.writeJson('outline.json', plan.outline),
+      deck: await workspace.store.writeJson('deck.json', plan.deck),
+      speakerScript: await workspace.store.writeJson('speaker-script.json', plan.speakerScript),
+      timedDeck: await workspace.store.writeJson('timed-deck.json', plan.timedDeck),
+      mediaInfo: await workspace.store.writeJson('media-info.json', plan.mediaInfo),
+      selectedMoments: await workspace.store.writeJson('selected-moments.json', plan.selectedMoments),
+      storyboard: await workspace.store.writeJson('storyboard.json', plan.storyboard),
+      timeline: await workspace.store.writeJson('timeline.json', plan.timeline),
+      narration: await workspace.store.writeJson('narration.json', plan.narration),
+      qualityReport: await workspace.store.writeJson('quality-report.json', plan.qualityReport),
+      ...(llmTrace.path === undefined ? {} : {llmTrace: llmTrace.path}),
     }
 
     await jobStore.updateStage('plan', 'completed', undefined, 1)
@@ -468,13 +447,14 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
       artifacts,
       projectDir: workspace.projectDir,
       projectId: workspace.projectId,
-      slides: slides.length,
+      slides: plan.deck.slides.length,
       sourceMode: 'audio-summary',
       status: 'completed',
     }
   } catch (error) {
-    await jobStore.updateStage('transcribe', 'failed', error instanceof Error ? error.message : String(error), 1)
-    throw error
+    const tracedError = withLLMTracePath(error, llmTrace.path)
+    await jobStore.updateStage('transcribe', 'failed', tracedError.message, 1)
+    throw tracedError
   }
 }
 
@@ -488,6 +468,7 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     workspaceDir: options.workspaceDir,
   })
   const workspaceDir = workspace.workspaceDir
+  const llmTrace = createProjectLLMTrace(workspace, options.trace)
   const jobStore = new JsonJobStore(resolve(workspace.projectDir, 'job-state.json'))
 
   await jobStore.initialize({
@@ -505,7 +486,19 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     const mediaInfo = await probeMedia(outputPath)
     const duration = mediaInfo.duration ?? DEFAULT_SLIDE_SECONDS
     const config = await readConfig(workspaceDir)
-    const providers = await createRuntimeProviders(config, workspaceDir)
+    const llmClient = await createRuntimeLLMClient(config, workspaceDir, {
+      llmClient: options.llmClient,
+      llmTrace: llmTrace.recorder,
+    })
+
+    if (llmClient === undefined) {
+      throw new Error('Deck audio-anchored planning requires an LLM provider. Configure an llm block or pass an injected LLM client.')
+    }
+
+    const providers = await createRuntimeProviders(config, workspaceDir, {
+      llmClient,
+      llmTrace: llmTrace.recorder,
+    })
 
     await jobStore.updateStage('ingest', 'completed', undefined, 1)
     await jobStore.updateStage('transcribe', 'running', undefined, 1)
@@ -515,85 +508,57 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
       path: inputPath,
     }))
     const language = options.language ?? transcript.language ?? 'zh-CN'
-    const slides = createAudioAnchoredSlides(transcript, duration, {
-      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-      slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-      title: options.title,
-    })
-    const title = options.title ?? slides[0]?.title ?? 'Audio Deck Explainer'
+    const text = normalizeText(transcript.text || transcript.segments.map((segment) => segment.text).join('\n\n'))
+
+    if (text === '') {
+      throw new Error('Deck audio-anchored transcript must not be empty.')
+    }
 
     await jobStore.updateStage('transcribe', 'completed', undefined, 1)
     await jobStore.updateStage('plan', 'running', undefined, 1)
 
-    const document = DocumentSchema.parse(createAudioDocument(inputPath, transcript, slides, language, title))
-    const contentBlocks = ContentBlocksSchema.parse({
-      blocks: document.blocks,
-      version: 1,
-    })
-    const claims = ClaimsSchema.parse(createClaimsFromDocument(document))
-    const sourceQuotes = SourceQuotesSchema.parse(createSourceQuotesFromDocument(document))
-    const outline = OutlineSchema.parse(createAudioOutline(slides, language, title, duration))
-    const deck = DeckSchema.parse(createAudioDeck(slides, language, title, {
-      format: options.deckFormat,
+    const generatedPlan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+      deckFormat: options.deckFormat,
+      durationTargetSeconds: duration,
+      language,
+      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+      slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
+      sourceType: 'audio',
       theme: options.theme,
-    }))
-    const speakerScript = SpeakerScriptSchema.parse(createAudioSpeakerScript(slides, language))
-    const timings = createAudioSlideTimings(slides, duration)
-    const timedDeck = TimedDeckSchema.parse({
-      audioRef: 'audio/deck_voiceover.wav',
-      deck,
-      timings,
-      version: 1,
+      title: options.title,
     })
-    const storyboard = StoryboardSchema.parse(createAudioStoryboard(slides, language))
-    const timeline = TimelineSchema.parse(createTextTimeline(duration))
-    const narration = NarrationSchema.parse(createAudioNarration(slides, language))
-    const selectedMoments = createAudioSelectedMoments(inputPath, slides)
+    const plan = createAudioAnchoredDeckProjectPlan(generatedPlan, inputPath, mediaInfo, duration, language, options.slideSeconds ?? DEFAULT_SLIDE_SECONDS)
     const deckVoiceover = {
       duration,
       generatedAt: new Date().toISOString(),
       outputPath: 'audio/deck_voiceover.wav',
-      segments: slides.map((slide, index) => ({
-        duration: roundSeconds(slide.end - slide.start),
+      segments: plan.timedDeck.timings.map((timing, index) => ({
+        duration: roundSeconds(timing.end - timing.start),
         narrationId: `narration-${index + 1}`,
         path: 'audio/deck_voiceover.wav',
-        slideId: `slide-${String(index + 1).padStart(3, '0')}`,
-        start: slide.start,
+        slideId: timing.slideId,
+        start: timing.start,
       })),
-      version: 1 as const,
-    }
-    const issues = createTextQualityIssues({
-      mediaInfo,
-      narration,
-      selectedMoments,
-      storyboard,
-      timeline,
-    })
-    const qualityReport = {
-      checkedAt: new Date().toISOString(),
-      issues,
-      narrationSegments: narration.segments.length,
-      summary: summarizeQualityIssues(issues),
-      ttsSegments: 0,
       version: 1 as const,
     }
     const artifacts = {
       transcript: await workspace.store.writeJson('transcript.json', transcript),
-      document: await workspace.store.writeJson('document.json', document),
-      contentBlocks: await workspace.store.writeJson('content-blocks.json', contentBlocks),
-      claims: await workspace.store.writeJson('claims.json', claims),
-      sourceQuotes: await workspace.store.writeJson('source-quotes.json', sourceQuotes),
-      outline: await workspace.store.writeJson('outline.json', outline),
-      deck: await workspace.store.writeJson('deck.json', deck),
-      speakerScript: await workspace.store.writeJson('speaker-script.json', speakerScript),
-      timedDeck: await workspace.store.writeJson('timed-deck.json', timedDeck),
+      document: await workspace.store.writeJson('document.json', plan.document),
+      contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),
+      claims: await workspace.store.writeJson('claims.json', plan.claims),
+      sourceQuotes: await workspace.store.writeJson('source-quotes.json', plan.sourceQuotes),
+      outline: await workspace.store.writeJson('outline.json', plan.outline),
+      deck: await workspace.store.writeJson('deck.json', plan.deck),
+      speakerScript: await workspace.store.writeJson('speaker-script.json', plan.speakerScript),
+      timedDeck: await workspace.store.writeJson('timed-deck.json', plan.timedDeck),
       deckVoiceover: await workspace.store.writeJson('deck-voiceover.json', deckVoiceover),
-      mediaInfo: await workspace.store.writeJson('media-info.json', mediaInfo),
-      selectedMoments: await workspace.store.writeJson('selected-moments.json', selectedMoments),
-      storyboard: await workspace.store.writeJson('storyboard.json', storyboard),
-      timeline: await workspace.store.writeJson('timeline.json', timeline),
-      narration: await workspace.store.writeJson('narration.json', narration),
-      qualityReport: await workspace.store.writeJson('quality-report.json', qualityReport),
+      mediaInfo: await workspace.store.writeJson('media-info.json', plan.mediaInfo),
+      selectedMoments: await workspace.store.writeJson('selected-moments.json', plan.selectedMoments),
+      storyboard: await workspace.store.writeJson('storyboard.json', plan.storyboard),
+      timeline: await workspace.store.writeJson('timeline.json', plan.timeline),
+      narration: await workspace.store.writeJson('narration.json', plan.narration),
+      qualityReport: await workspace.store.writeJson('quality-report.json', plan.qualityReport),
+      ...(llmTrace.path === undefined ? {} : {llmTrace: llmTrace.path}),
     }
 
     await jobStore.updateStage('plan', 'completed', undefined, 1)
@@ -608,12 +573,13 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
       outputPath,
       projectDir: workspace.projectDir,
       projectId: workspace.projectId,
-      slides: slides.length,
+      slides: plan.deck.slides.length,
       status: 'completed',
     }
   } catch (error) {
-    await jobStore.updateStage('transcribe', 'failed', error instanceof Error ? error.message : String(error), 1)
-    throw error
+    const tracedError = withLLMTracePath(error, llmTrace.path)
+    await jobStore.updateStage('transcribe', 'failed', tracedError.message, 1)
+    throw tracedError
   }
 }
 
@@ -865,185 +831,6 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
   }
 }
 
-interface TextSlide {
-  body: string
-  index: number
-  title: string
-}
-
-interface AudioSlide extends TextSlide {
-  end: number
-  start: number
-}
-
-function createAudioAnchoredSlides(transcript: Transcript, duration: number, options: {maxSlideCharacters: number; slideSeconds: number; title?: string}): AudioSlide[] {
-  const timedSegments = transcript.segments.filter((segment) => segment.end > segment.start && segment.text.trim() !== '')
-
-  if (timedSegments.length > 0 && transcript.timestampConfidence !== 'untimed') {
-    return timedSegments.map((segment, index) => ({
-      body: normalizeText(segment.text),
-      end: roundSeconds(Math.min(duration, segment.end)),
-      index,
-      start: roundSeconds(Math.min(duration, segment.start)),
-      title: index === 0 && options.title !== undefined ? options.title : createSlideTitle(segment.text, index),
-    })).filter((slide) => slide.end > slide.start)
-  }
-
-  const text = normalizeText(transcript.text || transcript.segments.map((segment) => segment.text).join(' '))
-  const bodies = splitTextSections(text === '' ? 'Audio transcript unavailable.' : text, options.maxSlideCharacters)
-  const slideCount = Math.max(1, Math.ceil(duration / options.slideSeconds), bodies.length)
-  const slideDuration = duration / slideCount
-
-  return Array.from({length: slideCount}, (_, index) => {
-    const body = bodies[index % bodies.length] ?? 'Audio transcript unavailable.'
-    const start = roundSeconds(index * slideDuration)
-    const end = roundSeconds(index === slideCount - 1 ? duration : (index + 1) * slideDuration)
-
-    return {
-      body,
-      end,
-      index,
-      start,
-      title: index === 0 && options.title !== undefined ? options.title : createSlideTitle(body, index),
-    }
-  })
-}
-
-function createAudioDocument(inputPath: string, transcript: Transcript, slides: AudioSlide[], language: string, title: string): Document {
-  return {
-    blocks: slides.map((slide) => createAudioContentBlock(slide)),
-    source: {
-      language,
-      path: inputPath,
-      sourceType: 'audio',
-      title,
-    },
-    text: transcript.text || slides.map((slide) => slide.body).join('\n\n'),
-    version: 1,
-  }
-}
-
-function createAudioContentBlock(slide: AudioSlide): ContentBlock {
-  return {
-    evidence: [{ref: 'transcript.json', text: slide.body, type: 'asr'}],
-    id: `block-${String(slide.index + 1).padStart(3, '0')}`,
-    sourceRange: [Math.round(slide.start * 1000), Math.round(slide.end * 1000)],
-    text: slide.body,
-    type: slide.index === 0 ? 'context' : 'claim',
-  }
-}
-
-function createAudioOutline(slides: AudioSlide[], language: string, title: string, durationTarget: number): Outline {
-  return {
-    durationTarget,
-    language,
-    sections: slides.map((slide) => ({
-      blockIds: [`block-${String(slide.index + 1).padStart(3, '0')}`],
-      duration: roundSeconds(slide.end - slide.start),
-      goal: 'Visualize one audio segment as a slide.',
-      id: `section-${String(slide.index + 1).padStart(3, '0')}`,
-      title: slide.title,
-    })),
-    title,
-    version: 1,
-  }
-}
-
-function createAudioDeck(slides: AudioSlide[], language: string, title: string, options: {format?: DeckFormat; theme?: string}): Deck {
-  return {
-    format: options.format ?? 'portrait_1080x1920',
-    inputMode: 'audio-anchored',
-    language,
-    slides: slides.map((slide) => ({
-      blockIds: [`block-${String(slide.index + 1).padStart(3, '0')}`],
-      duration: roundSeconds(slide.end - slide.start),
-      evidence: [{ref: `transcript.json#${slide.index}`, text: slide.body, type: 'asr'}],
-      motion: slide.index === 0 ? 'cinematic-rise' : 'progressive-reveal',
-      points: splitSlidePoints(slide.body),
-      slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
-      speakerNote: slide.body,
-      title: slide.index === 0 ? title : slide.title,
-      type: slide.index === 0 ? 'hero' : 'three-points',
-      visual: {
-        assetRefs: [],
-        kind: slide.index === 0 ? 'title-card' : 'text',
-      },
-    })),
-    theme: normalizeDeckTheme(options.theme),
-    title,
-    version: 1,
-  }
-}
-
-function createAudioSpeakerScript(slides: AudioSlide[], language: string): SpeakerScript {
-  return {
-    language,
-    mode: 'audio-anchored',
-    segments: slides.map((slide) => ({
-      estimatedDuration: roundSeconds(slide.end - slide.start),
-      slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
-      text: slide.body,
-    })),
-    version: 1,
-  }
-}
-
-function createAudioSlideTimings(slides: AudioSlide[], duration: number): SlideTiming[] {
-  return slides.map((slide, index) => ({
-    end: index === slides.length - 1 ? roundSeconds(duration) : slide.end,
-    slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
-    start: slide.start,
-  }))
-}
-
-function createAudioStoryboard(slides: AudioSlide[], language: string): Storyboard {
-  return {
-    language,
-    scenes: slides.map((slide) => ({
-      duration: roundSeconds(slide.end - slide.start),
-      evidence: [{ref: 'transcript.json', text: slide.body, type: 'asr'}],
-      id: `scene-${slide.index + 1}`,
-      narration: slide.body,
-      sourceRange: [slide.start, slide.end],
-      start: slide.start,
-      visualStyle: 'slide_explainer',
-    })),
-    targetPlatform: 'generic',
-    version: 1,
-  }
-}
-
-function createAudioNarration(slides: AudioSlide[], language: string): Narration {
-  return {
-    language,
-    segments: slides.map((slide, index) => ({
-      duration: roundSeconds(slide.end - slide.start),
-      id: `narration-${index + 1}`,
-      sceneId: `scene-${index + 1}`,
-      start: slide.start,
-      text: slide.body,
-    })),
-    version: 1,
-  }
-}
-
-function createAudioSelectedMoments(inputPath: string, slides: AudioSlide[]): LongVideoSelectedMoments {
-  return {
-    moments: slides.map((slide) => ({
-      chunkId: 'audio-000',
-      evidence: [{ref: 'transcript.json', text: slide.body, type: 'asr' as const}],
-      id: `audio-slide-${String(slide.index + 1).padStart(3, '0')}`,
-      reason: 'Audio transcript segment converted into a synchronized slide.',
-      score: 0.8,
-      sourceRange: [slide.start, slide.end],
-      summary: slide.body,
-      title: slide.title,
-    })),
-    source: inputPath,
-    version: 1,
-  }
-}
-
 async function convertDeckSourceAudio(inputPath: string, outputPath: string): Promise<void> {
   await runFfmpeg([
     '-y',
@@ -1278,33 +1065,38 @@ function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string,
   }
 }
 
-function createFallbackTextDeckProjectPlan(inputPath: string, text: string, options: TextDeckProjectPlanOptions): TextDeckProjectPlan {
-  const slides = createTextSlides(text, {
-    maxSlideCharacters: options.maxSlideCharacters,
-    title: options.title,
+function createAudioAnchoredDeckProjectPlan(plan: TextDeckProjectPlan, inputPath: string, sourceMediaInfo: MediaInfo, duration: number, language: string, fallbackSlideSeconds: number): TextDeckProjectPlan {
+  const deck = DeckSchema.parse({
+    ...plan.deck,
+    inputMode: 'audio-anchored',
+    language,
   })
-  const title = options.title ?? slides[0]?.title ?? 'Deck Explainer'
-  const deckSlideSeconds = options.durationTargetSeconds === undefined ? options.slideSeconds : Math.max(1, options.durationTargetSeconds / Math.max(1, slides.length))
-  const mediaInfo = createTextMediaInfo(inputPath, slides.length * deckSlideSeconds)
-  const selectedMoments = createTextSelectedMoments(inputPath, slides, deckSlideSeconds)
-  const document = DocumentSchema.parse(createTextDocument(inputPath, text, slides, options.language, title))
-  const contentBlocks = ContentBlocksSchema.parse({
-    blocks: document.blocks,
+  const speakerScript = SpeakerScriptSchema.parse({
+    ...plan.speakerScript,
+    language,
+    mode: 'audio-anchored',
+  })
+  const timings = createSlideTimingsWithinDuration(speakerScript, duration, fallbackSlideSeconds)
+  const timedDeck = TimedDeckSchema.parse({
+    audioRef: 'audio/deck_voiceover.wav',
+    deck,
+    timings,
     version: 1,
   })
-  const claims = ClaimsSchema.parse(createClaimsFromDocument(document))
-  const sourceQuotes = SourceQuotesSchema.parse(createSourceQuotesFromDocument(document))
-  const outline = OutlineSchema.parse(createTextOutline(slides, options.language, title, options.durationTargetSeconds))
-  const deck = DeckSchema.parse(createTextDeck(slides, options.language, title, {
-    format: options.deckFormat,
-    theme: options.theme,
-  }))
-  const speakerScript = SpeakerScriptSchema.parse(createTextSpeakerScript(slides, options.language))
-  const timings = createSlideTimings(slides, deckSlideSeconds)
-  const timedDeck = TimedDeckSchema.parse(createTimedDeck(deck, timings))
-  const storyboard = StoryboardSchema.parse(createTextStoryboard(slides, deckSlideSeconds, options.language))
-  const timeline = TimelineSchema.parse(createTextTimeline(slides.length * deckSlideSeconds))
-  const narration = NarrationSchema.parse(createTextNarration(storyboard, slides, options.language))
+  const narration = NarrationSchema.parse(createDeckNarrationFromTimings(speakerScript, timings))
+  const storyboard = StoryboardSchema.parse(createDeckStoryboard(deck, speakerScript, timings, language))
+  const timeline = TimelineSchema.parse(createTextTimeline(duration))
+  const selectedMoments = createDeckSelectedMoments(inputPath, deck, speakerScript, timings, {
+    chunkId: 'audio-000',
+    idPrefix: 'audio-slide',
+    reason: 'LLM-planned audio transcript section aligned to the source audio.',
+  })
+  const mediaInfo = MediaInfoSchema.parse({
+    ...sourceMediaInfo,
+    duration,
+    probedAt: new Date().toISOString(),
+    version: 1,
+  })
   const qualityReport = createTextPlanQualityReport({
     mediaInfo,
     narration,
@@ -1314,16 +1106,12 @@ function createFallbackTextDeckProjectPlan(inputPath: string, text: string, opti
   })
 
   return {
-    claims,
-    contentBlocks,
+    ...plan,
     deck,
-    document,
     mediaInfo,
     narration,
-    outline,
     qualityReport,
     selectedMoments,
-    sourceQuotes,
     speakerScript,
     storyboard,
     timedDeck,
@@ -1486,17 +1274,31 @@ function createDeckOutlineFromSlides(deck: Deck, language: string, title: string
   }
 }
 
-function createDeckSelectedMoments(inputPath: string, deck: Deck, speakerScript: SpeakerScript, timings: SlideTiming[]): LongVideoSelectedMoments {
+function createDeckSelectedMoments(
+  inputPath: string,
+  deck: Deck,
+  speakerScript: SpeakerScript,
+  timings: SlideTiming[],
+  options: {
+    chunkId?: string
+    idPrefix?: string
+    reason?: string
+  } = {},
+): LongVideoSelectedMoments {
+  const chunkId = options.chunkId ?? 'text-000'
+  const idPrefix = options.idPrefix ?? 'text-slide'
+  const reason = options.reason ?? 'LLM-planned text section converted into a slide explainer page.'
+
   return {
     moments: deck.slides.map((slide, index) => {
       const timing = timings[index] ?? {end: index + 1, slideId: slide.slideId, start: index}
       const script = speakerScript.segments[index]
 
       return {
-        chunkId: 'text-000',
+        chunkId,
         evidence: slide.evidence,
-        id: `text-slide-${String(index + 1).padStart(3, '0')}`,
-        reason: 'LLM-planned text section converted into a slide explainer page.',
+        id: `${idPrefix}-${String(index + 1).padStart(3, '0')}`,
+        reason,
         score: 0.85,
         sourceRange: [timing.start, timing.end] as [number, number],
         summary: script?.text ?? slide.speakerNote ?? slide.title,
@@ -1546,6 +1348,29 @@ function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript, durat
 
     return {
       end,
+      slideId: segment.slideId,
+      start,
+    }
+  })
+}
+
+function createSlideTimingsWithinDuration(speakerScript: SpeakerScript, duration: number, fallbackSlideSeconds: number): SlideTiming[] {
+  const segmentCount = Math.max(1, speakerScript.segments.length)
+  const totalDuration = roundSeconds(Math.max(0.1, duration))
+  const weights = speakerScript.segments.map((segment) => Math.max(0.1, segment.estimatedDuration ?? fallbackSlideSeconds))
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
+  let cursor = 0
+
+  return speakerScript.segments.map((segment, index) => {
+    const start = roundSeconds(cursor)
+    const end = index === segmentCount - 1
+      ? totalDuration
+      : roundSeconds(Math.min(totalDuration, cursor + totalDuration * weights[index] / totalWeight))
+
+    cursor = end
+
+    return {
+      end: Math.max(start + 0.001, end),
       slideId: segment.slideId,
       start,
     }
@@ -1630,75 +1455,6 @@ function stripMarkdownControlText(value: string): string {
     .trim()
 }
 
-function createTextSlides(text: string, options: {maxSlideCharacters: number; title?: string}): TextSlide[] {
-  const sections = splitTextSections(text, options.maxSlideCharacters)
-
-  return sections.map((body, index) => ({
-    body,
-    index,
-    title: index === 0 && options.title !== undefined ? options.title : createSlideTitle(body, index),
-  }))
-}
-
-function splitTextSections(text: string, maxSlideCharacters: number): string[] {
-  const paragraphs = text
-    .split(/\n{2,}/g)
-    .map((paragraph) => normalizeText(paragraph))
-    .filter(Boolean)
-  const sections = (paragraphs.length === 0 ? [text] : paragraphs).flatMap((paragraph) => splitLongSection(paragraph, maxSlideCharacters))
-
-  return sections.length === 0 ? [text] : sections
-}
-
-function splitLongSection(text: string, maxSlideCharacters: number): string[] {
-  if (text.length <= maxSlideCharacters) {
-    return [text]
-  }
-
-  const sentences = text
-    .split(/(?<=[。！？.!?；;])\s*/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-  const sections: string[] = []
-  let current = ''
-
-  for (const sentence of sentences.length === 0 ? [text] : sentences) {
-    if (current !== '' && current.length + sentence.length > maxSlideCharacters) {
-      sections.push(current)
-      current = ''
-    }
-
-    if (sentence.length > maxSlideCharacters) {
-      sections.push(...chunkByLength(sentence, maxSlideCharacters))
-      continue
-    }
-
-    current = current === '' ? sentence : `${current} ${sentence}`
-  }
-
-  if (current !== '') {
-    sections.push(current)
-  }
-
-  return sections
-}
-
-function chunkByLength(value: string, maxLength: number): string[] {
-  const chunks: string[] = []
-
-  for (let offset = 0; offset < value.length; offset += maxLength) {
-    chunks.push(value.slice(offset, offset + maxLength))
-  }
-
-  return chunks
-}
-
-function createSlideTitle(body: string, index: number): string {
-  const firstSentence = body.split(/[。.!！？?；;]/u)[0]?.trim()
-
-  return firstSentence === undefined || firstSentence === '' ? `第 ${index + 1} 页` : firstSentence.slice(0, 36)
-}
-
 function createTextMediaInfo(inputPath: string, duration: number): MediaInfo {
   return {
     duration,
@@ -1707,46 +1463,6 @@ function createTextMediaInfo(inputPath: string, duration: number): MediaInfo {
     probedAt: new Date().toISOString(),
     streams: [],
     version: 1,
-  }
-}
-
-function createTextDocument(inputPath: string, text: string, slides: TextSlide[], language: string, title: string): Document {
-  return {
-    blocks: slides.map((slide) => createContentBlock(slide)),
-    source: {
-      language,
-      path: inputPath,
-      sourceType: inferDocumentSourceType(inputPath),
-      title,
-    },
-    text,
-    version: 1,
-  }
-}
-
-function createSummarizedAudioDocument(inputPath: string, transcript: Transcript, text: string, slides: TextSlide[], language: string, title: string): Document {
-  return {
-    blocks: slides.map((slide) => ({
-      ...createContentBlock(slide),
-      evidence: [{ref: 'transcript.json', text: slide.body, type: 'asr' as const}],
-    })),
-    source: {
-      language,
-      path: inputPath,
-      sourceType: 'audio',
-      title,
-    },
-    text: text || transcript.text || slides.map((slide) => slide.body).join('\n\n'),
-    version: 1,
-  }
-}
-
-function createContentBlock(slide: TextSlide): ContentBlock {
-  return {
-    evidence: [{ref: 'text-input', text: slide.body, type: 'asr'}],
-    id: `block-${String(slide.index + 1).padStart(3, '0')}`,
-    text: slide.body,
-    type: slide.index === 0 ? 'context' : 'claim',
   }
 }
 
@@ -1770,55 +1486,6 @@ function inferDocumentSourceType(inputPath: string): Document['source']['sourceT
 
 function isAudioInputPath(inputPath: string): boolean {
   return ['.aac', '.aiff', '.flac', '.m4a', '.mp3', '.ogg', '.opus', '.wav', '.weba'].includes(extname(inputPath).toLowerCase())
-}
-
-function createTextOutline(slides: TextSlide[], language: string, title: string, durationTarget: number | undefined): Outline {
-  return {
-    durationTarget,
-    language,
-    sections: slides.map((slide) => ({
-      blockIds: [`block-${String(slide.index + 1).padStart(3, '0')}`],
-      goal: slide.index === 0 ? 'Introduce the topic and frame the explanation.' : 'Explain one content block clearly.',
-      id: `section-${String(slide.index + 1).padStart(3, '0')}`,
-      title: slide.title,
-    })),
-    title,
-    version: 1,
-  }
-}
-
-function createTextDeck(slides: TextSlide[], language: string, title: string, options: {format?: DeckFormat; theme?: string}): Deck {
-  return {
-    format: options.format ?? 'portrait_1080x1920',
-    inputMode: 'script-generated',
-    language,
-    slides: slides.map((slide) => ({
-      blockIds: [`block-${String(slide.index + 1).padStart(3, '0')}`],
-      evidence: [{ref: `block-${String(slide.index + 1).padStart(3, '0')}`, text: slide.body, type: 'research'}],
-      motion: slide.index === 0 ? 'cinematic-rise' : 'progressive-reveal',
-      points: splitSlidePoints(slide.body),
-      slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
-      speakerNote: `第 ${slide.index + 1} 页：${slide.body}`,
-      title: slide.title,
-      type: slide.index === 0 ? 'hero' : 'three-points',
-      visual: {
-        assetRefs: [],
-        kind: slide.index === 0 ? 'title-card' : 'text',
-      },
-    })),
-    theme: normalizeDeckTheme(options.theme),
-    title,
-    version: 1,
-  }
-}
-
-function splitSlidePoints(body: string): string[] {
-  const sentences = body
-    .split(/(?<=[。！？.!?；;])\s*/u)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean)
-
-  return (sentences.length === 0 ? [body] : sentences).slice(0, 4)
 }
 
 function normalizeDeckTheme(theme: string | undefined): Deck['theme'] {
@@ -1885,65 +1552,10 @@ function visualKindForSlideType(type: DeckSlideType): DeckVisual['kind'] {
   return 'text'
 }
 
-function createTextSpeakerScript(slides: TextSlide[], language: string): SpeakerScript {
-  return {
-    language,
-    mode: 'script-generated',
-    segments: slides.map((slide) => ({
-      estimatedDuration: Math.max(4, Math.ceil(slide.body.length / 12)),
-      slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
-      text: `第 ${slide.index + 1} 页：${slide.body}`,
-    })),
-    version: 1,
-  }
-}
-
-function createSlideTimings(slides: TextSlide[], slideSeconds: number): SlideTiming[] {
-  return slides.map((slide) => ({
-    end: (slide.index + 1) * slideSeconds,
-    slideId: `slide-${String(slide.index + 1).padStart(3, '0')}`,
-    start: slide.index * slideSeconds,
-  }))
-}
-
 function createTimedDeck(deck: Deck, timings: SlideTiming[]): TimedDeck {
   return {
     deck,
     timings,
-    version: 1,
-  }
-}
-
-function createTextSelectedMoments(inputPath: string, slides: TextSlide[], slideSeconds: number): LongVideoSelectedMoments {
-  return {
-    moments: slides.map((slide) => ({
-      chunkId: 'text-000',
-      evidence: [{ref: 'text-input', text: slide.body, type: 'asr' as const}],
-      id: `text-slide-${String(slide.index + 1).padStart(3, '0')}`,
-      reason: 'Text section converted into a slide explainer page.',
-      score: 0.8,
-      sourceRange: [slide.index * slideSeconds, (slide.index + 1) * slideSeconds],
-      summary: `第 ${slide.index + 1} 页：${slide.body}`,
-      title: slide.title,
-    })),
-    source: inputPath,
-    version: 1,
-  }
-}
-
-function createTextStoryboard(slides: TextSlide[], slideSeconds: number, language: string): Storyboard {
-  return {
-    language,
-    scenes: slides.map((slide) => ({
-      duration: slideSeconds,
-      evidence: [{ref: 'text-input', text: slide.body, type: 'asr'}],
-      id: `scene-${slide.index + 1}`,
-      narration: `第 ${slide.index + 1} 页：${slide.body}`,
-      sourceRange: [slide.index * slideSeconds, (slide.index + 1) * slideSeconds],
-      start: slide.index * slideSeconds,
-      visualStyle: 'slide_explainer',
-    })),
-    targetPlatform: 'generic',
     version: 1,
   }
 }
@@ -1953,20 +1565,6 @@ function createTextTimeline(duration: number): Timeline {
     duration,
     fps: 30,
     items: [],
-    version: 1,
-  }
-}
-
-function createTextNarration(storyboard: Storyboard, slides: TextSlide[], language: string): Narration {
-  return {
-    language,
-    segments: storyboard.scenes.map((scene, index) => ({
-      duration: scene.duration,
-      id: `narration-${index + 1}`,
-      sceneId: scene.id,
-      start: scene.start,
-      text: `第 ${index + 1} 页：${slides[index]?.body ?? scene.narration ?? scene.id}`,
-    })),
     version: 1,
   }
 }

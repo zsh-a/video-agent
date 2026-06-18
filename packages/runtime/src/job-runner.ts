@@ -1,6 +1,6 @@
 import type {PipelineContext, PipelineEvent, Stage} from '@video-agent/core'
 import type {JobStore} from '@video-agent/db'
-import type {ArtifactRef, ClipPlan, LongVideoChapterSummaries, LongVideoChunk, LongVideoChunkPlan, LongVideoChunkSilence, LongVideoChunkSummaries, LongVideoChunkSummary, LongVideoGlobalOutline, LongVideoMoment, LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {ArtifactRef, ClipPlan, LongVideoChapterSummaries, LongVideoChunk, LongVideoChunkPlan, LongVideoChunkSilence, LongVideoChunkSummaries, LongVideoChunkSummary, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
@@ -12,6 +12,7 @@ import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesS
 import {checkClipPlanConsistency, checkExplainerStructure, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, checkTtsCoverage, type QualityIssue} from '@video-agent/quality'
 import {appendFile, mkdir, readdir} from 'node:fs/promises'
 import {basename, dirname, isAbsolute, join, resolve} from 'node:path'
+import {z} from 'zod'
 
 import {ARTIFACT_MANIFEST_NAME, refreshArtifactManifest} from './artifact-store.js'
 import {verifyProjectArtifacts} from './artifacts.js'
@@ -21,7 +22,7 @@ import {assertFileExists} from './file-io.js'
 import {createConfiguredJobStore} from './job-store.js'
 import {INITIAL_PIPELINE_DEFINITION, INITIAL_PIPELINE_STAGES, type InitialPipelineStage, type PipelineDefinition, type PipelineStage} from './pipeline-definitions.js'
 import {createJsonlProviderCallRecorder, instrumentProviders, type ProviderCallRecord, type ProviderCallRecorder, type ProviderCallStartRecord} from './provider-calls.js'
-import {createRuntimeProviders} from './runtime-providers.js'
+import {createRuntimeLLMClient, createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
 export interface RunInitialPipelineOptions {
@@ -110,6 +111,7 @@ interface QualityOutput extends VoiceoverOutput {
 
 interface PipelineProviders {
   asr: ProviderSet['asr']
+  llm?: LLMClient
   script: ProviderSet['script']
   storyboard: ProviderSet['storyboard']
   tts: ProviderSet['tts']
@@ -188,11 +190,20 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
     ttsSegments: workspace.store.resolve('tts-segments.json'),
   }
   const config = await readConfig(workspace.workspaceDir)
-  const providerSet = await createRuntimeProviders(config, workspace.workspaceDir, {
+  const llmTrace = options.trace === true ? createJsonlLLMTraceRecorder(llmTracePath) : undefined
+  const llmClient = await createRuntimeLLMClient(config, workspace.workspaceDir, {
     llmClient: options.llmClient,
-    ...(options.trace === true ? {llmTrace: createJsonlLLMTraceRecorder(llmTracePath)} : {}),
+    ...(llmTrace === undefined ? {} : {llmTrace}),
+  })
+  const providerSet = await createRuntimeProviders(config, workspace.workspaceDir, {
+    llmClient,
+    ...(llmTrace === undefined ? {} : {llmTrace}),
   })
   const providers = instrumentProviders(providerSet, config.providers, createRuntimeProviderCallRecorder(providerCallsPath, options.onProviderCall, options.onProviderCallStart))
+  const pipelineProviders = {
+    ...providers,
+    ...(llmClient === undefined ? {} : {llm: llmClient}),
+  }
   const ctx = {
     artifactsDir: workspace.artifactsDir,
     emit: async (event: PipelineEvent) => appendEvent(pipelineEventsPath, event),
@@ -222,7 +233,7 @@ export async function runInitialPipeline(options: RunInitialPipelineOptions): Pr
       artifacts,
       fromStage,
       inputPath,
-      providers,
+      providers: pipelineProviders,
       workspace,
     }),
     createStageChain(fromStage, artifacts),
@@ -412,7 +423,7 @@ function createUnderstandStage(): Stage<InitialStageInput, InitialStageOutput> {
       const sceneAnalysis = await analyzeSceneBatches(ingest, sceneBatches, ctx)
       await emitStep(ctx, {data: summarizeVlmScenesForLog(sceneAnalysis), message: 'Visual scene analysis completed.', stage: 'understand', step: 'vlm'})
 
-      const longVideoArtifacts = createLongVideoUnderstandingArtifacts(ingest.chunkPlan, transcript, sceneAnalysis, sceneBatches)
+	      const longVideoArtifacts = await createLongVideoUnderstandingArtifacts(ingest.chunkPlan, transcript, sceneAnalysis, sceneBatches, ingest.providers.llm)
 
       await ingest.workspace.store.writeJson('transcript.json', transcript)
       await emitArtifact(ctx, 'understand', ingest.artifacts.transcript, 'json')
@@ -942,40 +953,100 @@ interface LongVideoChunkArtifact {
   vlm: VLMScene[]
 }
 
-function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, transcript: Transcript, sceneAnalysis: VLMScene[], sceneBatches: SceneFrameBatch[]): LongVideoUnderstandingArtifacts {
+const LongVideoUnderstandingLLMOutputSchema = z.object({
+  chapters: LongVideoChapterSummariesSchema,
+  chunkSummaries: LongVideoChunkSummariesSchema,
+  globalOutline: LongVideoGlobalOutlineSchema,
+  selectedMoments: LongVideoSelectedMomentsSchema,
+})
+
+async function createLongVideoUnderstandingArtifacts(
+  chunkPlan: LongVideoChunkPlan,
+  transcript: Transcript,
+  sceneAnalysis: VLMScene[],
+  sceneBatches: SceneFrameBatch[],
+  llm: LLMClient | undefined,
+): Promise<LongVideoUnderstandingArtifacts> {
+  if (llm === undefined) {
+    throw new Error('Initial explainer understanding requires an LLM provider. Configure an llm block or pass an injected LLM client.')
+  }
+
   const sceneRanges = sceneBatches.map((batch) => ({
     end: batch.timeRange[1],
     start: batch.timeRange[0],
   }))
-  const chunkArtifacts = chunkPlan.chunks.map((chunk): LongVideoChunkArtifact => {
+  const chunkEvidence = chunkPlan.chunks.map((chunk) => {
     const chunkTranscript = createChunkTranscript(transcript, chunk.contentRange)
     const chunkVlm = createChunkVlmScenes(sceneAnalysis, sceneRanges, chunk.analysisRange)
-    const transcriptSummary = summarizeTranscript(chunkTranscript)
-    const visualSummary = summarizeVisualScenes(chunkVlm)
-    const keyMoments = createChunkMoments(chunk.id, chunk.contentRange, chunk.artifactPrefix, chunkTranscript, sceneAnalysis, sceneRanges, transcriptSummary, visualSummary)
     const silenceRanges = createSilenceRanges(chunkTranscript, chunk.contentRange)
-    const silence = LongVideoChunkSilenceSchema.parse({
-      chunkId: chunk.id,
-      contentRange: chunk.contentRange,
-      silenceRanges,
-      version: 1,
-    })
-    const summary = LongVideoChunkSummarySchema.parse({
-      chunkId: chunk.id,
-      contentRange: chunk.contentRange,
-      keyMoments,
-      silenceRanges,
-      summary: summarizeChunk(chunk.id, chunk.contentRange, transcriptSummary, visualSummary),
-      ...(transcriptSummary === undefined ? {} : {transcriptSummary}),
-      ...(visualSummary === undefined ? {} : {visualSummary}),
-    })
 
     return {
-      prefix: chunk.artifactPrefix,
-      silence,
-      summary,
+      chunk,
+      silenceRanges,
       transcript: chunkTranscript,
       vlm: chunkVlm,
+    }
+  })
+  const generated = LongVideoUnderstandingLLMOutputSchema.parse((await llm.generateObject({
+    messages: [
+      {
+        content: JSON.stringify({
+          chunkPlan,
+          goal: 'Create long-video explainer understanding JSON. Return only data matching the schema.',
+          instructions: [
+            'Generate chunkSummaries, chapters, globalOutline, and selectedMoments from the transcript and VLM scene evidence.',
+            'Do not use keyword lists, regex matching, fixed-position chapter labels, fixed scores, or deterministic transcript slicing.',
+            'Select moments semantically: each moment should explain one meaningful idea, event, decision, or visual change supported by evidence.',
+            'Keep every sourceRange within the related chunk contentRange and sourceDuration.',
+            'Use evidence refs from the supplied transcript and VLM artifacts whenever possible.',
+            'Return stable ids for generated chunks, chapters, beats, and moments.',
+            'Use the transcript language when available.',
+          ],
+          source: {
+            duration: chunkPlan.sourceDuration,
+            language: transcript.language,
+            path: chunkPlan.source,
+          },
+          chunks: chunkEvidence.map((item) => ({
+            analysisRange: item.chunk.analysisRange,
+            artifactPrefix: item.chunk.artifactPrefix,
+            chunkId: item.chunk.id,
+            contentRange: item.chunk.contentRange,
+            silenceRanges: item.silenceRanges,
+            transcript: item.transcript,
+            vlm: item.vlm,
+          })),
+        }),
+        role: 'user',
+      },
+    ],
+    schema: LongVideoUnderstandingLLMOutputSchema,
+    temperature: 0.25,
+  })).object)
+  const chunkSummariesById = new Map(generated.chunkSummaries.chunks.map((summary) => [summary.chunkId, summary]))
+  const chunkArtifacts = chunkEvidence.map((item): LongVideoChunkArtifact => {
+    const summary = chunkSummariesById.get(item.chunk.id)
+
+    if (summary === undefined) {
+      throw new Error(`LLM long-video understanding did not return a summary for ${item.chunk.id}.`)
+    }
+
+    return {
+      prefix: item.chunk.artifactPrefix,
+      silence: LongVideoChunkSilenceSchema.parse({
+        chunkId: item.chunk.id,
+        contentRange: item.chunk.contentRange,
+        silenceRanges: item.silenceRanges,
+        version: 1,
+      }),
+      summary: LongVideoChunkSummarySchema.parse({
+        ...summary,
+        chunkId: item.chunk.id,
+        contentRange: item.chunk.contentRange,
+        silenceRanges: item.silenceRanges,
+      }),
+      transcript: item.transcript,
+      vlm: item.vlm,
     }
   })
   const chunkSummaries = LongVideoChunkSummariesSchema.parse({
@@ -984,43 +1055,27 @@ function createLongVideoUnderstandingArtifacts(chunkPlan: LongVideoChunkPlan, tr
     version: 1,
   })
   const chapters = LongVideoChapterSummariesSchema.parse({
-    chapters: chunkSummaries.chunks.map((chunkSummary, index) => ({
-      chunkIds: [chunkSummary.chunkId],
-      evidence: chunkSummary.keyMoments.flatMap((moment) => moment.evidence),
-      id: `chapter-${String(index + 1).padStart(3, '0')}`,
-      index,
-      keyMoments: chunkSummary.keyMoments,
-      sourceRange: chunkSummary.contentRange,
-      summary: chunkSummary.summary,
-      title: `Chapter ${index + 1}`,
-    })),
+    ...generated.chapters,
     source: chunkPlan.source,
     version: 1,
   })
   const globalOutline = LongVideoGlobalOutlineSchema.parse({
+    ...generated.globalOutline,
     chapters: chapters.chapters,
-    language: transcript.language ?? 'zh-CN',
+    language: generated.globalOutline.language ?? transcript.language ?? 'zh-CN',
     source: chunkPlan.source,
     sourceDuration: chunkPlan.sourceDuration,
-    storyBeats: chapters.chapters.map((chapter, index) => ({
-      chapterIds: [chapter.id],
-      evidence: chapter.evidence,
-      id: `beat-${String(index + 1).padStart(3, '0')}`,
-      sourceRange: chapter.sourceRange,
-      summary: chapter.summary,
-      title: chapter.title,
-    })),
     version: 1,
   })
   const selectedMoments = LongVideoSelectedMomentsSchema.parse({
-    moments: chunkSummaries.chunks.flatMap((chunkSummary) => chunkSummary.keyMoments.map((moment) => ({
-      ...moment,
-      chunkId: chunkSummary.chunkId,
-      reason: 'Deterministic initial selection from chunk summary.',
-    }))),
+    ...generated.selectedMoments,
     source: chunkPlan.source,
     version: 1,
   })
+
+  if (chunkSummaries.chunks.length === 0 || chapters.chapters.length === 0 || selectedMoments.moments.length === 0) {
+    throw new Error('LLM long-video understanding must return chunk summaries, chapters, and selected moments.')
+  }
 
   return {
     chapters,
@@ -1087,182 +1142,8 @@ export function createChunkVlmScenes(sceneAnalysis: VLMScene[], sceneRanges: Arr
   return VlmScenesSchema.parse(scenes)
 }
 
-function summarizeTranscript(transcript: Transcript): string | undefined {
-  return normalizeText(transcript.text)
-}
-
-function summarizeVisualScenes(sceneAnalysis: VLMScene[]): string | undefined {
-  const descriptions = sceneAnalysis.map((scene) => scene.description.trim()).filter(Boolean)
-
-  return descriptions.length === 0 ? undefined : descriptions.slice(0, 3).join(' ')
-}
-
-const LONG_VIDEO_MOMENT_TARGET_SECONDS = 30
-const LONG_VIDEO_MOMENT_MIN_SECONDS = 12
-const LONG_VIDEO_MOMENT_MAX_SECONDS = 45
-const LONG_VIDEO_MOMENT_SUMMARY_LIMIT = 180
-
-function createChunkMoments(
-  chunkId: string,
-  range: [number, number],
-  artifactPrefix: string,
-  transcript: Transcript,
-  sceneAnalysis: VLMScene[],
-  sceneRanges: Array<{end: number; start: number}>,
-  transcriptSummary: string | undefined,
-  visualSummary: string | undefined,
-): LongVideoMoment[] {
-  const momentRanges = createMomentRanges(transcript, sceneRanges, range)
-
-  return momentRanges.map((momentRange, index) => {
-    const momentTranscript = summarizeTranscriptForRange(transcript, momentRange)
-    const momentVisual = summarizeVisualScenesForRange(sceneAnalysis, sceneRanges, momentRange)
-
-    return createChunkMoment(
-      chunkId,
-      momentRange,
-      artifactPrefix,
-      momentTranscript ?? transcriptSummary,
-      momentVisual ?? visualSummary,
-      index,
-    )
-  })
-}
-
-function createMomentRanges(transcript: Transcript, sceneRanges: Array<{end: number; start: number}>, chunkRange: [number, number]): Array<[number, number]> {
-  const transcriptRanges = createTranscriptMomentRanges(transcript, chunkRange)
-
-  if (transcriptRanges.length > 0) {
-    return transcriptRanges
-  }
-
-  const visualRanges = sceneRanges
-    .filter((range) => rangesOverlap([range.start, range.end], chunkRange))
-    .map((range): [number, number] => [
-      clampTime(range.start, chunkRange[0], chunkRange[1]),
-      clampTime(range.end, chunkRange[0], chunkRange[1]),
-    ])
-    .filter((range) => range[1] > range[0])
-
-  return visualRanges.length > 0 ? visualRanges : [chunkRange]
-}
-
-function createTranscriptMomentRanges(transcript: Transcript, chunkRange: [number, number]): Array<[number, number]> {
-  const segments = transcript.segments
-    .map((segment) => ({
-      end: clampTime(segment.end, chunkRange[0], chunkRange[1]),
-      start: clampTime(segment.start, chunkRange[0], chunkRange[1]),
-    }))
-    .filter((segment) => segment.end > segment.start)
-    .sort((left, right) => left.start - right.start || left.end - right.end)
-
-  if (segments.length === 0) {
-    return []
-  }
-
-  const chunkDuration = chunkRange[1] - chunkRange[0]
-  const desiredMoments = Math.max(1, Math.ceil(chunkDuration / LONG_VIDEO_MOMENT_TARGET_SECONDS))
-  const targetDuration = clampTime(chunkDuration / desiredMoments, LONG_VIDEO_MOMENT_MIN_SECONDS, LONG_VIDEO_MOMENT_MAX_SECONDS)
-  const ranges: Array<[number, number]> = []
-  let currentStart = chunkRange[0]
-  let currentEnd = currentStart
-
-  for (const segment of segments) {
-    const wouldExceedTarget = currentEnd > currentStart && segment.end - currentStart > targetDuration
-
-    if (wouldExceedTarget) {
-      ranges.push([currentStart, currentEnd])
-      currentStart = currentEnd
-    }
-
-    currentEnd = Math.max(currentEnd, segment.end)
-  }
-
-  if (currentEnd > currentStart) {
-    ranges.push([currentStart, currentEnd])
-  }
-
-  return ranges
-}
-
-function createChunkMoment(chunkId: string, range: [number, number], artifactPrefix: string, transcriptSummary: string | undefined, visualSummary: string | undefined, index: number): LongVideoMoment {
-  const summary = createExplainerMomentSummary(index, transcriptSummary, visualSummary, range)
-
-  return {
-    chunkId,
-    evidence: [
-      ...(transcriptSummary === undefined ? [] : [{ref: `${artifactPrefix}/transcript.json`, text: transcriptSummary, type: 'asr' as const}]),
-      ...(visualSummary === undefined ? [] : [{ref: `${artifactPrefix}/vlm.json`, text: visualSummary, type: 'vlm' as const}]),
-    ],
-    id: `${chunkId}-moment-${String(index + 1).padStart(3, '0')}`,
-    score: 0.65,
-    sourceRange: range,
-    summary,
-    title: `讲解 ${index + 1}`,
-  }
-}
-
-function summarizeTranscriptForRange(transcript: Transcript, range: [number, number]): string | undefined {
-  const text = transcript.segments
-    .filter((segment) => rangesOverlap([segment.start, segment.end], range))
-    .map((segment) => segment.text.trim())
-    .filter(Boolean)
-    .join(' ')
-
-  return normalizeText(text)
-}
-
-function summarizeVisualScenesForRange(sceneAnalysis: VLMScene[], sceneRanges: Array<{end: number; start: number}>, range: [number, number]): string | undefined {
-  const descriptions = sceneAnalysis
-    .filter((_, index) => {
-      const sceneRange = sceneRanges[index]
-
-      return sceneRange === undefined ? sceneAnalysis.length === 1 : rangesOverlap([sceneRange.start, sceneRange.end], range)
-    })
-    .map((scene) => scene.description.trim())
-    .filter(Boolean)
-
-  return descriptions.length === 0 ? undefined : descriptions.slice(0, 2).join(' ')
-}
-
-function createExplainerMomentSummary(index: number, transcriptSummary: string | undefined, visualSummary: string | undefined, range: [number, number]): string {
-  const body = truncateText(transcriptSummary ?? visualSummary ?? `这一页覆盖 ${formatRange(range)} 的内容。`, LONG_VIDEO_MOMENT_SUMMARY_LIMIT)
-
-  return `第 ${index + 1} 页：${body}`
-}
-
-function truncateText(value: string, maxLength: number): string {
-  const normalized = value.replaceAll(/\s+/g, ' ').trim()
-
-  if (normalized.length <= maxLength) {
-    return normalized
-  }
-
-  return `${normalized.slice(0, maxLength).replaceAll(/[，。；、,.!?！？：:\s]+$/g, '')}。`
-}
-
-function summarizeChunk(chunkId: string, range: [number, number], transcriptSummary: string | undefined, visualSummary: string | undefined): string {
-  const details = [transcriptSummary, visualSummary].filter((value): value is string => value !== undefined)
-
-  return details.length === 0 ? `${chunkId} covers ${formatRange(range)}.` : `${chunkId} covers ${formatRange(range)}. ${details.join(' ')}`
-}
-
 function rangesOverlap(left: [number, number], right: [number, number]): boolean {
   return left[0] < right[1] && right[0] < left[1]
-}
-
-function normalizeText(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-
-  return trimmed === undefined || trimmed === '' ? undefined : trimmed
-}
-
-function formatRange(range: [number, number]): string {
-  return `${formatSecond(range[0])}-${formatSecond(range[1])}s`
-}
-
-function formatSecond(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
 }
 
 function createLongVideoPlanningContext(understood: UnderstandOutput) {

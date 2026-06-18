@@ -106,7 +106,7 @@ async function promptProviderChoice(label: string, current: string): Promise<Pro
       initialValue: normalizeProviderKind(current),
       message: label,
       options: [
-        {hint: 'deterministic local development provider', label: 'mock', value: 'mock'},
+        {hint: 'fixed-output local development provider for media roles', label: 'mock', value: 'mock'},
         {hint: 'configured LLM client for structured outputs', label: 'llm', value: 'llm'},
         {hint: 'external process adapter over JSON stdin/stdout', label: 'command', value: 'command'},
       ],
