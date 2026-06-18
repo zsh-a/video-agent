@@ -455,6 +455,125 @@ describe('film recap project', () => {
     }
   })
 
+  it('uses ASR semantic subsegments when a full beat does not fit the target duration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-film-plan-semantic-'))
+    const inputPath = join(root, 'episode.mp4')
+    const projectId = 'film-plan-semantic-demo'
+    const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+    try {
+      await createSampleVideo(inputPath)
+      await createFilmIngestProject({
+        inputPath,
+        projectId,
+        workspaceDir: root,
+      })
+      await mkdir(artifactsDir, {recursive: true})
+      await writeJson(join(artifactsDir, 'asr-result.json'), {
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 0.5,
+            id: 'asr-0001',
+            start: 0,
+            text: '开场交代完整背景。',
+            timestampConfidence: 'exact',
+          },
+          {
+            end: 0.8,
+            id: 'asr-0002',
+            start: 0.5,
+            text: '前半段解决问题。',
+            timestampConfidence: 'exact',
+          },
+          {
+            end: 1,
+            id: 'asr-0003',
+            start: 0.8,
+            text: '后半段不能出现在解说里。',
+            timestampConfidence: 'exact',
+          },
+        ],
+        text: '开场交代完整背景。前半段解决问题。后半段不能出现在解说里。',
+        timestampConfidence: 'exact',
+        version: 1,
+      })
+      await writeJson(join(artifactsDir, 'story-index.json'), {
+        beats: [
+          {
+            characters: ['主角'],
+            evidence: [{ref: 'asr-result.json#asr-0001', text: '开场交代完整背景。', type: 'asr'}],
+            id: 'beat-opening',
+            sourceRange: [0, 0.5],
+            summary: '开场交代完整背景，真相揭露。',
+            type: 'reversal',
+          },
+          {
+            characters: ['主角'],
+            evidence: [
+              {ref: 'asr-result.json#asr-0002', text: '前半段解决问题。', type: 'asr'},
+              {ref: 'asr-result.json#asr-0003', text: '后半段不能出现在解说里。', type: 'asr'},
+            ],
+            id: 'beat-climax',
+            sourceRange: [0.5, 1],
+            summary: '前半段解决问题。后半段不能出现在解说里。',
+            type: 'climax',
+          },
+        ],
+        characters: [],
+        language: 'zh-CN',
+        source: inputPath,
+        sourceDuration: 1,
+        version: 1,
+      })
+
+      const result = await createFilmClipPlanProject({
+        projectId,
+        targetDurationSeconds: 0.8,
+        workspaceDir: root,
+      })
+      const clipPlan = JSON.parse(await readFile(result.artifacts.clipPlan, 'utf8')) as {
+        clips: Array<{id: string; reason?: string; sourceRange: [number, number]; start: number}>
+        duration: number
+      }
+
+      expect(result.status).to.equal('planned')
+      expect(result.clips).to.equal(2)
+      expect(clipPlan.duration).to.equal(0.8)
+      expect(clipPlan.clips.map((clip) => clip.sourceRange)).to.deep.equal([[0, 0.5], [0.5, 0.8]])
+      expect(clipPlan.clips[1]?.reason).to.contain('ASR moment asr-0002')
+
+      await writeJson(join(artifactsDir, 'clip-plan-validated.json'), clipPlan)
+      await writeJson(join(artifactsDir, 'output-timeline-map.json'), {
+        clips: clipPlan.clips.map((clip) => ({
+          clipId: clip.id,
+          outputEnd: clip.start + (clip.sourceRange[1] - clip.sourceRange[0]),
+          outputStart: clip.start,
+          sourceEnd: clip.sourceRange[1],
+          sourceStart: clip.sourceRange[0],
+        })),
+        outputDuration: clipPlan.duration,
+        source: inputPath,
+        version: 1,
+      })
+
+      const narrationResult = await createFilmOutputNarrationProject({
+        projectId,
+        workspaceDir: root,
+      })
+      const outputNarration = JSON.parse(await readFile(narrationResult.artifacts.outputNarration, 'utf8')) as {
+        segments: Array<{evidence: string[]; text: string}>
+      }
+
+      expect(outputNarration.segments[1]?.text).to.contain('前半段解决问题')
+      expect(outputNarration.segments[1]?.text).not.include('后半段不能出现在解说里')
+      expect(outputNarration.segments[1]?.evidence).to.include('asr-result.json#asr-0002')
+      expect(outputNarration.segments[1]?.evidence).not.include('asr-result.json#asr-0003')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('renders a cut-first edited source and output timeline map', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-cut-'))
     const inputPath = join(root, 'episode.mp4')

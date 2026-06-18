@@ -1,5 +1,5 @@
 import type {PipelineEvent} from '@video-agent/core'
-import type {ASRResult, CharacterIndex, ClipPlan, ClipPlanItem, FilmScenes, LongVideoAnalysisFrames, MediaInfo, MediaStream, Narration, NarrativeBeat, NarrativeBeats, OutputNarration, OutputTimelineMap, SilencePeriods, SourceManifest, StoryIndex, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
+import type {ASRResult, ASRSegment, CharacterIndex, ClipPlan, ClipPlanItem, FilmScenes, LongVideoAnalysisFrames, MediaInfo, MediaStream, Narration, NarrativeBeat, NarrativeBeats, OutputNarration, OutputTimelineMap, SilencePeriods, SourceManifest, StoryIndex, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
 import type {LLMTraceRecorder} from '@video-agent/llm'
 import type {ProviderSet, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
@@ -9,7 +9,7 @@ import {ASRResultSchema, CharacterIndexSchema, ClipPlanSchema, FilmScenesSchema,
 import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg, runProcess} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
-import {checkAudioLoudness, checkRenderedMedia, checkSrtSubtitles, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
+import {checkAudioLoudness, checkNarrationTiming, checkRenderedMedia, checkSrtSubtitles, checkTtsCoverage, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
@@ -19,7 +19,7 @@ import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
-import {assertFileExists} from './file-io.js'
+import {assertFileExists, readOptionalJson} from './file-io.js'
 import {assertPipelineCheckpointArtifacts} from './job-runner.js'
 import {createConfiguredJobStore} from './job-store.js'
 import {FILM_PIPELINE_DEFINITION, FILM_PIPELINE_STAGES, type FilmPipelineStage, assertPipelineStage} from './pipeline-definitions.js'
@@ -597,9 +597,12 @@ export async function createFilmClipPlanProject(options: CreateFilmClipPlanProje
   await startFilmStage(jobStore, workspace, 'plan-clips')
 
   try {
-    const sourceManifest = SourceManifestSchema.parse(await workspace.store.readJson('source-manifest.json'))
-    const storyIndex = StoryIndexSchema.parse(await workspace.store.readJson('story-index.json'))
-    const clipPlan = ClipPlanSchema.parse(createFilmClipPlan(sourceManifest, storyIndex, options.targetDurationSeconds))
+    const [sourceManifest, storyIndex, asrResult] = await Promise.all([
+      SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
+      StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
+      readOptionalFilmAsrResult(workspace),
+    ])
+    const clipPlan = ClipPlanSchema.parse(createFilmClipPlan(sourceManifest, storyIndex, options.targetDurationSeconds, asrResult))
     const artifacts = {
       clipPlan: await workspace.store.writeJson('clip-plan.json', clipPlan),
     }
@@ -678,10 +681,13 @@ export async function createFilmOutputNarrationProject(options: CreateFilmOutput
   await startFilmStage(jobStore, workspace, 'narrate-output')
 
   try {
-    const clipPlan = ClipPlanSchema.parse(await workspace.store.readJson('clip-plan-validated.json'))
-    const outputTimelineMap = OutputTimelineMapSchema.parse(await workspace.store.readJson('output-timeline-map.json'))
-    const storyIndex = StoryIndexSchema.parse(await workspace.store.readJson('story-index.json'))
-    const outputNarration = OutputNarrationSchema.parse(createOutputNarration(clipPlan, outputTimelineMap, storyIndex, options.language ?? storyIndex.language))
+    const [clipPlan, outputTimelineMap, storyIndex, asrResult] = await Promise.all([
+      ClipPlanSchema.parseAsync(await workspace.store.readJson('clip-plan-validated.json')),
+      OutputTimelineMapSchema.parseAsync(await workspace.store.readJson('output-timeline-map.json')),
+      StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
+      readOptionalFilmAsrResult(workspace),
+    ])
+    const outputNarration = OutputNarrationSchema.parse(createOutputNarration(clipPlan, outputTimelineMap, storyIndex, asrResult, options.language ?? storyIndex.language))
     const narration = NarrationSchema.parse(createCompatibleNarration(outputNarration))
     const artifacts = {
       outputNarration: await workspace.store.writeJson('output-narration.json', outputNarration),
@@ -970,12 +976,24 @@ export async function createFilmQualityCheckProject(options: CreateFilmQualityCh
   await startFilmStage(jobStore, workspace, 'quality-check')
 
   try {
-    const [renderOutput, narration, ttsSegments] = await Promise.all([
+    const [renderOutput, narration, ttsSegments, outputTimelineMap] = await Promise.all([
       workspace.store.readJson('render-output.json') as Promise<FilmRenderOutputArtifact>,
       NarrationSchema.parseAsync(await workspace.store.readJson('narration.json')),
       TtsSegmentsSchema.parseAsync(await workspace.store.readJson('tts-segments.json')),
+      OutputTimelineMapSchema.parseAsync(await workspace.store.readJson('output-timeline-map.json')),
     ])
-    const issues = collectFilmRenderIssues(renderOutput)
+    const timeline = {
+      duration: outputTimelineMap.outputDuration,
+      fps: 30,
+      items: [],
+      version: 1 as const,
+    }
+    const issues = [
+      ...collectFilmRenderIssues(renderOutput),
+      ...checkNarrationTiming(narration, timeline),
+      ...checkTtsCoverage(narration, ttsSegments).filter((issue) => issue.code !== 'tts.duration.mismatch'),
+      ...checkFilmTtsDurationBounds(narration, ttsSegments, outputTimelineMap.outputDuration),
+    ]
     const qualityReport = {
       checkedAt: new Date().toISOString(),
       issues,
@@ -1331,6 +1349,43 @@ function collectFilmRenderIssues(renderOutput: FilmRenderOutputArtifact): Qualit
   ]
 }
 
+function checkFilmTtsDurationBounds(narration: Narration, ttsSegments: TTSSegment[], outputDuration: number, tolerance = 0.05): QualityIssue[] {
+  const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
+  const durationsByNarrationId = new Map<string, number>()
+
+  for (const ttsSegment of ttsSegments) {
+    durationsByNarrationId.set(ttsSegment.narrationId, (durationsByNarrationId.get(ttsSegment.narrationId) ?? 0) + Math.max(0, ttsSegment.duration))
+  }
+
+  return [...durationsByNarrationId.entries()].flatMap(([narrationId, ttsDuration]): QualityIssue[] => {
+    const segment = narrationById.get(narrationId)
+
+    if (segment?.start === undefined) {
+      return []
+    }
+
+    const issues: QualityIssue[] = []
+
+    if (segment.duration !== undefined && ttsDuration > segment.duration + tolerance) {
+      issues.push({
+        code: 'tts.segment.exceeds_narration',
+        message: `TTS audio for narration ${narrationId} exceeds the narration segment duration.`,
+        severity: 'warning',
+      })
+    }
+
+    if (segment.start + ttsDuration > outputDuration + tolerance) {
+      issues.push({
+        code: 'tts.segment.out_of_bounds',
+        message: `TTS audio for narration ${narrationId} exceeds the rendered output duration.`,
+        severity: 'warning',
+      })
+    }
+
+    return issues
+  })
+}
+
 async function readFilmAudioMix(valuePromise: Promise<unknown>): Promise<FilmAudioMix> {
   const value = await valuePromise
 
@@ -1341,6 +1396,12 @@ async function readFilmSubtitles(valuePromise: Promise<unknown>): Promise<FilmSu
   const value = await valuePromise
 
   return value as FilmSubtitleOutput & {path: string}
+}
+
+async function readOptionalFilmAsrResult(workspace: ProjectWorkspace): Promise<ASRResult | undefined> {
+  const value = await readOptionalJson<unknown>(workspace.store.resolve('asr-result.json'))
+
+  return value === undefined ? undefined : ASRResultSchema.parse(value)
 }
 
 async function inspectRenderedOutput(outputPath: string, options: {expectAudio: boolean; expectedDuration: number}) {
@@ -1384,7 +1445,7 @@ function createSourceManifest(mediaInfo: MediaInfo, sourceHash: string): SourceM
   }
 }
 
-function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, language: string): OutputNarration {
+function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, asrResult: ASRResult | undefined, language: string): OutputNarration {
   const beatsById = new Map(storyIndex.beats.map((beat) => [beat.id, beat]))
   const clipsById = new Map(clipPlan.clips.map((clip) => [clip.id, clip]))
 
@@ -1396,15 +1457,17 @@ function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTime
       const start = roundSeconds(mappedClip.outputStart)
       const end = roundSeconds(mappedClip.outputEnd)
       const beatRef = beat?.id ?? clip?.sceneId ?? mappedClip.clipId
+      const clipSourceRange = [mappedClip.sourceStart, mappedClip.sourceEnd] as [number, number]
+      const asrSegments = collectAsrSegmentsForRange(asrResult, clipSourceRange)
 
       return {
         end,
-        evidence: [beatRef, mappedClip.clipId],
+        evidence: [beatRef, mappedClip.clipId, ...asrSegments.map((segment) => `asr-result.json#${segment.id}`)],
         id: `output-narration-${String(index + 1).padStart(3, '0')}`,
         overlapsSpeech: false,
         pauseAfterMs: index === outputTimelineMap.clips.length - 1 ? 0 : 250,
         start,
-        text: createNarrationText(beat, index, language),
+        text: createNarrationText(beat, clipSourceRange, asrSegments, index, language, end - start),
       }
     }),
     timeline: 'output',
@@ -1426,12 +1489,23 @@ function createCompatibleNarration(outputNarration: OutputNarration): Narration 
   }
 }
 
-function createNarrationText(beat: NarrativeBeat | undefined, index: number, language: string): string {
+function createNarrationText(beat: NarrativeBeat | undefined, clipSourceRange: [number, number], asrSegments: ASRSegment[], index: number, language: string, duration: number): string {
+  const maxLength = maxNarrationCharactersForDuration(duration, language)
+  const asrText = cleanNarrationText(asrSegments.map((segment) => segment.text).join(' '), language, maxLength)
+
+  if (asrText !== '') {
+    return asrText
+  }
+
   if (beat === undefined) {
     return createFallbackNarrationText(index, language)
   }
 
-  const text = cleanNarrationText(beat.summary, language)
+  if (!rangeCoversRange(clipSourceRange, beat.sourceRange, 0.05)) {
+    return createFallbackNarrationText(index, language)
+  }
+
+  const text = cleanNarrationText(beat.summary, language, maxLength)
 
   return text === '' ? createFallbackNarrationText(index, language) : text
 }
@@ -1444,7 +1518,7 @@ function createFallbackNarrationText(index: number, language: string): string {
   return index === 0 ? 'This segment keeps the key opening moment and sets up the story.' : 'This segment keeps a key moment that moves the story forward.'
 }
 
-function cleanNarrationText(text: string, language: string): string {
+function cleanNarrationText(text: string, language: string, maxLength = 260): string {
   const withoutSegmentLabel = text
     .replace(/^第\s*\d+\s*段\s*[，,.:：、-]?\s*/u, '')
     .replace(/\s+/gu, ' ')
@@ -1454,7 +1528,29 @@ function cleanNarrationText(text: string, language: string): string {
     return ''
   }
 
-  return trimToSentenceBoundary(withoutSegmentLabel, 260)
+  return trimToSentenceBoundary(withoutSegmentLabel, maxLength)
+}
+
+function maxNarrationCharactersForDuration(duration: number, language: string): number {
+  if (isChineseLanguage(language)) {
+    return Math.max(28, Math.min(260, Math.floor(duration * 5)))
+  }
+
+  return Math.max(48, Math.min(520, Math.floor(duration * 11)))
+}
+
+function collectAsrSegmentsForRange(asrResult: ASRResult | undefined, sourceRange: [number, number]): ASRSegment[] {
+  if (asrResult === undefined || asrResult.timestampConfidence === 'untimed') {
+    return []
+  }
+
+  return asrResult.segments
+    .filter((segment) => {
+      const overlap = rangeOverlapSeconds([segment.start, segment.end], sourceRange)
+
+      return overlap > 0.05 && overlap >= Math.min(segment.end - segment.start, sourceRange[1] - sourceRange[0]) * 0.5
+    })
+    .sort((left, right) => left.start - right.start || left.end - right.end)
 }
 
 function isChineseLanguage(language: string): boolean {
@@ -1586,49 +1682,44 @@ async function renderCutVideo(clipPlan: ClipPlan, outputPath: string, includeAud
   ])
 }
 
-function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryIndex, targetDuration: number | undefined): ClipPlan {
+function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryIndex, targetDuration: number | undefined, asrResult?: ASRResult): ClipPlan {
   const effectiveTarget = clamp(targetDuration ?? sourceManifest.duration, 0, sourceManifest.duration)
   const candidates = storyIndex.beats
-    .map((beat) => createClipCandidate(beat, sourceManifest.duration))
-    .filter((candidate): candidate is FilmClipCandidate => candidate !== undefined)
-    .sort((left, right) => right.priorityScore - left.priorityScore || left.sourceStart - right.sourceStart)
-  const selected: Array<FilmClipCandidate & {duration: number; selectionRank: number}> = []
+    .flatMap((beat) => createClipCandidates(beat, sourceManifest.duration, asrResult))
+    .sort((left, right) => right.priorityScore - left.priorityScore || left.granularityRank - right.granularityRank || left.sourceStart - right.sourceStart)
+  const selected: Array<FilmClipCandidate & {selectionRank: number}> = []
   let selectedDuration = 0
 
   for (const [index, candidate] of candidates.entries()) {
-    if (selectedDuration >= effectiveTarget) {
+    if (selectedDuration >= effectiveTarget - 0.001) {
       break
     }
 
-    const duration = roundSeconds(Math.min(candidate.availableDuration, effectiveTarget - selectedDuration))
-
-    if (duration <= 0) {
+    if (candidate.duration > effectiveTarget - selectedDuration + 0.001 || selected.some((selectedCandidate) => rangesOverlap(selectedCandidate.sourceRange, candidate.sourceRange))) {
       continue
     }
 
     selected.push({
       ...candidate,
-      duration,
       selectionRank: index + 1,
     })
-    selectedDuration = roundSeconds(selectedDuration + duration)
+    selectedDuration = roundSeconds(selectedDuration + candidate.duration)
   }
 
   const clips: ClipPlanItem[] = []
   let outputCursor = 0
 
   for (const candidate of selected.sort((left, right) => left.sourceStart - right.sourceStart)) {
-    const sourceEnd = roundSeconds(candidate.sourceStart + candidate.duration)
     clips.push({
       beatId: candidate.beat.id,
       duration: candidate.duration,
       id: `clip-${String(clips.length + 1).padStart(3, '0')}`,
       priorityScore: candidate.priorityScore,
-      reason: `Selected ${candidate.beat.type} beat ${candidate.beat.id} with score ${candidate.priorityScore}: ${candidate.beat.summary}`,
+      reason: createClipReason(candidate),
       sceneId: candidate.beat.id,
       selectionRank: candidate.selectionRank,
       source: sourceManifest.sourcePath,
-      sourceRange: [roundSeconds(candidate.sourceStart), sourceEnd],
+      sourceRange: candidate.sourceRange,
       start: roundSeconds(outputCursor),
     })
     outputCursor = roundSeconds(outputCursor + candidate.duration)
@@ -1636,17 +1727,26 @@ function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryInd
 
   if (clips.length === 0 && sourceManifest.duration > 0 && effectiveTarget > 0) {
     const duration = roundSeconds(effectiveTarget)
+    const firstBeat = storyIndex.beats
+      .map((beat) => createClipCandidate(beat, sourceManifest.duration, 'fallback-partial'))
+      .find((candidate): candidate is FilmClipCandidate => candidate !== undefined)
+    const sourceStart = firstBeat?.sourceStart ?? 0
+    const sourceEnd = roundSeconds(Math.min(sourceManifest.duration, sourceStart + duration))
 
     clips.push({
-      duration,
+      beatId: firstBeat?.beat.id,
+      duration: roundSeconds(sourceEnd - sourceStart),
       id: 'clip-001',
-      reason: 'Fallback full-source clip because no narrative beats were available.',
-      sceneId: 'source',
+      priorityScore: firstBeat?.priorityScore,
+      reason: firstBeat === undefined
+        ? 'Fallback source clip because no semantic clip candidates were available.'
+        : `Fallback partial clip from ${firstBeat.beat.id} because no complete semantic candidate fit the target duration.`,
+      sceneId: firstBeat?.beat.id ?? 'source',
       source: sourceManifest.sourcePath,
-      sourceRange: [0, duration],
+      sourceRange: [sourceStart, sourceEnd],
       start: 0,
     })
-    outputCursor = duration
+    outputCursor = roundSeconds(sourceEnd - sourceStart)
   }
 
   return {
@@ -1659,10 +1759,15 @@ function createFilmClipPlan(sourceManifest: SourceManifest, storyIndex: StoryInd
 }
 
 interface FilmClipCandidate {
-  availableDuration: number
+  asrSegmentIds: string[]
   beat: NarrativeBeat
+  duration: number
+  granularity: 'beat' | 'asr' | 'fallback-partial'
+  granularityRank: number
   priorityScore: number
+  sourceRange: [number, number]
   sourceStart: number
+  summary: string
 }
 
 const FILM_BEAT_TYPE_WEIGHTS: Record<NarrativeBeat['type'], number> = {
@@ -1676,21 +1781,97 @@ const FILM_BEAT_TYPE_WEIGHTS: Record<NarrativeBeat['type'], number> = {
   transition: 25,
 }
 
-function createClipCandidate(beat: NarrativeBeat, sourceDuration: number): FilmClipCandidate | undefined {
+function createClipCandidates(beat: NarrativeBeat, sourceDuration: number, asrResult: ASRResult | undefined): FilmClipCandidate[] {
+  const beatCandidate = createClipCandidate(beat, sourceDuration, 'beat')
+  const asrCandidates = collectAsrSegmentsForRange(asrResult, normalizeSourceRange(beat.sourceRange, sourceDuration))
+    .map((segment) => createAsrClipCandidate(beat, segment, sourceDuration))
+    .filter((candidate): candidate is FilmClipCandidate => candidate !== undefined)
+
+  return [
+    ...(beatCandidate === undefined ? [] : [beatCandidate]),
+    ...asrCandidates,
+  ]
+}
+
+function createClipCandidate(beat: NarrativeBeat, sourceDuration: number, granularity: FilmClipCandidate['granularity']): FilmClipCandidate | undefined {
   const sourceStart = clamp(beat.sourceRange[0], 0, sourceDuration)
   const beatEnd = clamp(beat.sourceRange[1], sourceStart, sourceDuration)
-  const availableDuration = beatEnd - sourceStart
+  const duration = roundSeconds(beatEnd - sourceStart)
 
-  if (availableDuration <= 0) {
+  if (duration <= 0) {
     return undefined
   }
 
   return {
-    availableDuration,
+    asrSegmentIds: [],
     beat,
-    priorityScore: scoreNarrativeBeatForClipPlanning(beat),
+    duration,
+    granularity,
+    granularityRank: granularityRank(granularity),
+    priorityScore: scoreNarrativeBeatForClipPlanning(beat) + granularityScore(granularity),
+    sourceRange: [roundSeconds(sourceStart), roundSeconds(beatEnd)],
     sourceStart,
+    summary: beat.summary,
   }
+}
+
+function createAsrClipCandidate(beat: NarrativeBeat, segment: ASRSegment, sourceDuration: number): FilmClipCandidate | undefined {
+  const sourceStart = clamp(segment.start, beat.sourceRange[0], Math.min(beat.sourceRange[1], sourceDuration))
+  const sourceEnd = clamp(segment.end, sourceStart, Math.min(beat.sourceRange[1], sourceDuration))
+  const duration = roundSeconds(sourceEnd - sourceStart)
+
+  if (duration < 0.25) {
+    return undefined
+  }
+
+  return {
+    asrSegmentIds: [segment.id],
+    beat,
+    duration,
+    granularity: 'asr',
+    granularityRank: granularityRank('asr'),
+    priorityScore: scoreNarrativeBeatForClipPlanning(beat) + granularityScore('asr'),
+    sourceRange: [roundSeconds(sourceStart), roundSeconds(sourceEnd)],
+    sourceStart,
+    summary: segment.text,
+  }
+}
+
+function normalizeSourceRange(range: [number, number], sourceDuration: number): [number, number] {
+  const start = clamp(range[0], 0, sourceDuration)
+  const end = clamp(range[1], start, sourceDuration)
+
+  return [start, end]
+}
+
+function granularityRank(granularity: FilmClipCandidate['granularity']): number {
+  switch (granularity) {
+    case 'beat':
+      return 0
+    case 'asr':
+      return 1
+    case 'fallback-partial':
+      return 2
+  }
+}
+
+function granularityScore(granularity: FilmClipCandidate['granularity']): number {
+  switch (granularity) {
+    case 'beat':
+      return 0
+    case 'asr':
+      return -4
+    case 'fallback-partial':
+      return -16
+  }
+}
+
+function createClipReason(candidate: FilmClipCandidate): string {
+  const source = candidate.granularity === 'asr' && candidate.asrSegmentIds.length > 0
+    ? `ASR moment ${candidate.asrSegmentIds.join(', ')}`
+    : `${candidate.beat.type} beat ${candidate.beat.id}`
+
+  return `Selected ${source} with score ${candidate.priorityScore}: ${candidate.summary}`
 }
 
 function scoreNarrativeBeatForClipPlanning(beat: NarrativeBeat): number {
@@ -2325,6 +2506,14 @@ function createTimelineFusion(
 
 function rangesOverlap(left: [number, number], right: [number, number]): boolean {
   return left[0] < right[1] && right[0] < left[1]
+}
+
+function rangeOverlapSeconds(left: [number, number], right: [number, number]): number {
+  return Math.max(0, Math.min(left[1], right[1]) - Math.max(left[0], right[0]))
+}
+
+function rangeCoversRange(outer: [number, number], inner: [number, number], tolerance = 0): boolean {
+  return outer[0] <= inner[0] + tolerance && outer[1] >= inner[1] - tolerance
 }
 
 function clamp(value: number, min: number, max: number): number {
