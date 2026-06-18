@@ -351,7 +351,7 @@ describe('cli end-to-end workflow', () => {
     const projectId = 'cli-film'
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
 
       const film = await runCliJson<{
         clipPlan: {clips: number; duration: number}
@@ -399,6 +399,20 @@ describe('cli end-to-end workflow', () => {
       expect(storyIndex.status).to.equal('indexed')
       expect(storyIndex.beats).to.equal(1)
       expect(await fileSize(storyIndex.artifacts.storyIndex)).to.be.greaterThan(0)
+
+      const recapScript = await runCliJson<{
+        artifacts: {recapScript: string}
+        projectId: string
+        segments: number
+        status: string
+        totalEstimatedDuration: number
+      }>(['film', 'write-script', projectId, '--workspace', workspaceDir, '--target', '500ms', '--json'])
+
+      expect(recapScript.projectId).to.equal(projectId)
+      expect(recapScript.status).to.equal('scripted')
+      expect(recapScript.segments).to.equal(1)
+      expect(recapScript.totalEstimatedDuration).to.equal(0.5)
+      expect(await fileSize(recapScript.artifacts.recapScript)).to.be.greaterThan(0)
 
       const clipPlan = await runCliJson<{
         artifacts: {clipPlan: string}
@@ -901,6 +915,36 @@ async function createSampleVideo(inputPath: string): Promise<void> {
     'yuv420p',
     '-c:v',
     'mpeg4',
+    inputPath,
+  ])
+}
+
+async function createSampleVideoWithAudio(inputPath: string): Promise<void> {
+  await expectCommand([
+    'ffmpeg',
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc=size=160x90:rate=10',
+    '-f',
+    'lavfi',
+    '-i',
+    'sine=frequency=440:sample_rate=48000',
+    '-t',
+    '1',
+    '-map',
+    '0:v:0',
+    '-map',
+    '1:a:0',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:v',
+    'mpeg4',
+    '-c:a',
+    'aac',
     inputPath,
   ])
 }

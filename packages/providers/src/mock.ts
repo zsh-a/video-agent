@@ -8,16 +8,19 @@ import {join, posix} from 'node:path'
 
 export class MockASRProvider implements ASRProvider {
   async transcribe(input: MediaInput): Promise<Transcript> {
+    const duration = input.duration !== undefined && Number.isFinite(input.duration) && input.duration > 0 ? input.duration : 1
+
     return {
       language: 'zh-CN',
       segments: [
         {
-          end: 0,
+          end: duration,
           start: 0,
           text: `Mock transcript for ${input.path}.`,
         },
       ],
       text: `Mock transcript for ${input.path}.`,
+      timestampConfidence: 'exact',
     }
   }
 }

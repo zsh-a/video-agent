@@ -1,6 +1,6 @@
 import {z, type ZodType} from 'zod'
 
-import {ASRResultSchema, ArtifactRefSchema, CharacterIndexSchema, ClaimsSchema, ClipPlanSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, NarrativeBeatsSchema, OutlineSchema, OutputNarrationSchema, OutputTimelineMapSchema, SilencePeriodsSchema, SourceManifestSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryIndexSchema, StoryboardSchema, TimedDeckSchema, TimelineFusionSchema, TimelineSchema, VLMAnalysisSchema} from '@video-agent/ir'
+import {ASRResultSchema, ArtifactRefSchema, CharacterIndexSchema, ClaimsSchema, ClipPlanSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, NarrativeBeatsSchema, OutlineSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, SilencePeriodsSchema, SourceManifestSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryIndexSchema, StoryboardSchema, TimedDeckSchema, TimelineFusionSchema, TimelineSchema, VLMAnalysisSchema} from '@video-agent/ir'
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {createHash} from 'node:crypto'
 import {readdir, stat} from 'node:fs/promises'
@@ -152,6 +152,7 @@ const AudioMixSchema = z.object({
   sourceAudioRetained: z.boolean(),
   sourcePath: z.string().min(1),
   sourceVolume: z.number().nonnegative(),
+  sourceVolumeDuringVoiceover: z.number().nonnegative().optional(),
   version: z.literal(1),
   voiceoverVolume: z.number().nonnegative(),
   voiceoverSegments: z.array(z.object({
@@ -340,6 +341,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'output-narration.json': OutputNarrationSchema,
   'output-timeline-map.json': OutputTimelineMapSchema,
   'quality-report.json': QualityReportSchema,
+  'recap-script.json': RecapScriptSchema,
   'render-output.json': RenderOutputSchema,
   'scene-analysis.json': VlmScenesSchema,
   'scene-batches.json': SceneFrameBatchesSchema,

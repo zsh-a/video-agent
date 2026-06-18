@@ -6,7 +6,7 @@ import {join} from 'node:path'
 import {probeMedia} from '../../../packages/media/src/ffmpeg.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
-import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/runtime/src/film-project.js'
+import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmRecapScriptProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/runtime/src/film-project.js'
 
 describe('film recap project', () => {
   it('creates an ingest checkpoint with source manifest evidence', async () => {
@@ -52,7 +52,7 @@ describe('film recap project', () => {
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-understand-demo',
@@ -122,15 +122,12 @@ describe('film recap project', () => {
       expect(result.status).to.equal('understood')
       expect(asr.text).to.contain('Mock transcript')
       expect(asr.segments[0]?.id).to.equal('asr-0001')
-      expect(silence.periods[0]).to.deep.include({
-        reason: 'placeholder',
-        start: 0,
-      })
-      expect(silence.periods[0]?.end).to.be.greaterThan(0)
+      expect(silence.periods).to.deep.equal([])
       expect(vlm.scenes[0]?.summary).to.equal('Mock visual analysis for scene-001.')
       expect(vlm.scenes[0]?.evidence[0]?.ref).to.contain('film-scene-001.jpg')
-      expect(fusion.items[0]?.asrSegmentIds).to.deep.equal([])
+      expect(fusion.items[0]?.asrSegmentIds).to.deep.equal(['asr-0001'])
       expect(fusion.items[0]?.vlmAnalysisIds).to.deep.equal(['vlm-001'])
+      expect(fusion.items[0]?.evidence.map((item) => item.type)).to.include('asr')
       expect(fusion.items[0]?.evidence.map((item) => item.type)).to.include('vlm')
       expect(providerCalls).to.contain('"role":"asr"')
       expect(providerCalls).to.contain('"role":"vlm"')
@@ -149,7 +146,7 @@ describe('film recap project', () => {
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-story-demo',
@@ -193,7 +190,7 @@ describe('film recap project', () => {
     const artifactsDir = join(root, 'projects', projectId, 'artifacts')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId,
@@ -316,12 +313,167 @@ describe('film recap project', () => {
     }
   })
 
+  it('writes a script-driven recap plan and narration without copying raw dialogue', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-film-script-'))
+    const inputPath = join(root, 'episode.mp4')
+    const projectId = 'film-script-demo'
+    const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+    try {
+      await createSampleVideoWithAudio(inputPath)
+      await createFilmIngestProject({
+        inputPath,
+        projectId,
+        workspaceDir: root,
+      })
+      await mkdir(artifactsDir, {recursive: true})
+      await writeJson(join(artifactsDir, 'asr-result.json'), {
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 0.3,
+            id: 'asr-layoff',
+            start: 0,
+            text: '为推动组织长期健康发展，公司决定对部分资深同事进行人才结构优化。',
+            timestampConfidence: 'exact',
+          },
+          {
+            end: 0.6,
+            id: 'asr-return',
+            start: 0.3,
+            text: '心怡三年后回到公司，她说这次一定会帮老员工出头。',
+            timestampConfidence: 'exact',
+          },
+          {
+            end: 1,
+            id: 'asr-evidence',
+            start: 0.6,
+            text: '录音和HR系统记录都证明赵总在伪造绩效。',
+            timestampConfidence: 'exact',
+          },
+        ],
+        text: '为推动组织长期健康发展，公司决定对部分资深同事进行人才结构优化。心怡三年后回到公司，她说这次一定会帮老员工出头。录音和HR系统记录都证明赵总在伪造绩效。',
+        timestampConfidence: 'exact',
+        version: 1,
+      })
+      await writeJson(join(artifactsDir, 'vlm-analysis.json'), {
+        scenes: [
+          {
+            actions: ['裁员会议'],
+            characters: ['心怡', '赵总', '老员工'],
+            emotions: ['紧张'],
+            evidence: [{ref: 'frames/film-scene-001.jpg', text: '人物: 心怡, 赵总, 老员工。动作: 对峙。线索: 绩效。', type: 'vlm'}],
+            id: 'vlm-001',
+            plotClues: ['绩效'],
+            relationships: ['对抗'],
+            sceneId: 'scene-001',
+            sourceRange: [0, 1],
+            summary: '人物: 心怡, 赵总, 老员工。动作: 对峙。线索: 绩效。',
+          },
+        ],
+        source: inputPath,
+        version: 1,
+      })
+      await writeJson(join(artifactsDir, 'story-index.json'), {
+        beats: [
+          {
+            characters: ['赵总', '老员工'],
+            evidence: [{ref: 'asr-result.json#asr-layoff', text: '裁员通知。', type: 'asr'}],
+            id: 'beat-layoff',
+            sourceRange: [0, 0.3],
+            summary: '为推动组织长期健康发展，公司决定对部分资深同事进行人才结构优化。',
+            type: 'decision',
+          },
+          {
+            characters: ['心怡', '老员工'],
+            evidence: [{ref: 'asr-result.json#asr-return', text: '心怡回归。', type: 'asr'}],
+            id: 'beat-return',
+            sourceRange: [0.3, 0.6],
+            summary: '心怡三年后回到公司，她说这次一定会帮老员工出头。',
+            type: 'inciting_incident',
+          },
+          {
+            characters: ['心怡', '赵总'],
+            evidence: [{ref: 'asr-result.json#asr-evidence', text: '录音和HR系统记录。', type: 'asr'}],
+            id: 'beat-evidence',
+            sourceRange: [0.6, 1],
+            summary: '录音和HR系统记录都证明赵总在伪造绩效。',
+            type: 'climax',
+          },
+        ],
+        characters: [],
+        language: 'zh-CN',
+        source: inputPath,
+        sourceDuration: 1,
+        version: 1,
+      })
+
+      const scriptResult = await createFilmRecapScriptProject({
+        projectId,
+        targetDurationSeconds: 1,
+        workspaceDir: root,
+      })
+      const recapScript = JSON.parse(await readFile(scriptResult.artifacts.recapScript, 'utf8')) as {
+        segments: Array<{narrationText: string; targetBeatIds: string[]}>
+        totalEstimatedDuration: number
+      }
+
+      expect(scriptResult.status).to.equal('scripted')
+      expect(scriptResult.segments).to.equal(3)
+      expect(recapScript.totalEstimatedDuration).to.equal(1)
+      expect(recapScript.segments.map((segment) => segment.targetBeatIds[0])).to.deep.equal(['beat-layoff', 'beat-return', 'beat-evidence'])
+      expect(recapScript.segments[0]?.narrationText).to.contain('裁员和绩效打压')
+      expect(recapScript.segments[0]?.narrationText).not.include('为推动组织长期健康发展')
+
+      const planResult = await createFilmClipPlanProject({
+        projectId,
+        targetDurationSeconds: 1,
+        workspaceDir: root,
+      })
+      const clipPlan = JSON.parse(await readFile(planResult.artifacts.clipPlan, 'utf8')) as {
+        clips: Array<{beatId?: string; scriptSegmentId?: string; selectionReason?: string; sourceRange: [number, number]}>
+      }
+
+      expect(planResult.status).to.equal('planned')
+      expect(clipPlan.clips.map((clip) => clip.beatId)).to.deep.equal(['beat-layoff', 'beat-return', 'beat-evidence'])
+      expect(clipPlan.clips.map((clip) => clip.selectionReason)).to.deep.equal(['script-driven', 'script-driven', 'script-driven'])
+      expect(clipPlan.clips.map((clip) => clip.scriptSegmentId)).to.deep.equal(['recap-script-001', 'recap-script-002', 'recap-script-003'])
+
+      await createFilmCutProject({
+        projectId,
+        workspaceDir: root,
+      })
+      const narrationResult = await createFilmOutputNarrationProject({
+        projectId,
+        workspaceDir: root,
+      })
+      const outputNarration = JSON.parse(await readFile(narrationResult.artifacts.outputNarration, 'utf8')) as {
+        segments: Array<{evidence: string[]; scriptSegmentId?: string; source: string; text: string}>
+      }
+
+      expect(outputNarration.segments[0]).to.deep.include({
+        scriptSegmentId: 'recap-script-001',
+        source: 'script',
+      })
+      expect(outputNarration.segments[0]?.evidence).to.include('recap-script.json#recap-script-001')
+      expect(outputNarration.segments[0]?.text).to.contain('裁员和绩效打压')
+      expect(outputNarration.segments[0]?.text).not.include('为推动组织长期健康发展')
+
+      const verification = await verifyProjectArtifacts(projectId, root)
+
+      expect(verification.ok).to.equal(true)
+      expect(verification.checked).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('plans clips from story beats with a target duration', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-plan-'))
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-plan-demo',
@@ -333,6 +485,11 @@ describe('film recap project', () => {
       })
       await createFilmStoryIndexProject({
         projectId: 'film-plan-demo',
+        workspaceDir: root,
+      })
+      await createFilmRecapScriptProject({
+        projectId: 'film-plan-demo',
+        targetDurationSeconds: 0.5,
         workspaceDir: root,
       })
 
@@ -366,20 +523,35 @@ describe('film recap project', () => {
     }
   })
 
-  it('prioritizes evidence-backed story beats while preserving source chronology', async () => {
+  it('fails clip planning when recap script is missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-plan-priority-'))
     const inputPath = join(root, 'episode.mp4')
     const projectId = 'film-plan-priority-demo'
     const artifactsDir = join(root, 'projects', projectId, 'artifacts')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId,
         workspaceDir: root,
       })
       await mkdir(artifactsDir, {recursive: true})
+      await writeJson(join(artifactsDir, 'asr-result.json'), {
+        language: 'zh-CN',
+        segments: [
+          {
+            end: 1,
+            id: 'asr-0001',
+            start: 0,
+            text: '主角发现线索，反派背叛，主角决定反击。',
+            timestampConfidence: 'exact',
+          },
+        ],
+        text: '主角发现线索，反派背叛，主角决定反击。',
+        timestampConfidence: 'exact',
+        version: 1,
+      })
       await writeJson(join(artifactsDir, 'story-index.json'), {
         beats: [
           {
@@ -425,31 +597,20 @@ describe('film recap project', () => {
         version: 1,
       })
 
-      const result = await createFilmClipPlanProject({
-        projectId,
-        targetDurationSeconds: 0.8,
-        workspaceDir: root,
-      })
-      const clipPlan = JSON.parse(await readFile(result.artifacts.clipPlan, 'utf8')) as {
-        clips: Array<{beatId?: string; priorityScore?: number; reason?: string; selectionRank?: number; sourceRange: [number, number]; start: number}>
-        duration: number
+      let error: unknown
+
+      try {
+        await createFilmClipPlanProject({
+          projectId,
+          targetDurationSeconds: 0.8,
+          workspaceDir: root,
+        })
+      } catch (error_) {
+        error = error_
       }
 
-      expect(result.status).to.equal('planned')
-      expect(result.clips).to.equal(3)
-      expect(clipPlan.duration).to.equal(0.8)
-      expect(clipPlan.clips.map((clip) => clip.beatId)).to.deep.equal(['beat-setup', 'beat-reversal', 'beat-decision'])
-      expect(clipPlan.clips.map((clip) => clip.sourceRange)).to.deep.equal([[0, 0.2], [0.4, 0.7], [0.7, 1]])
-      expect(clipPlan.clips.map((clip) => clip.start)).to.deep.equal([0, 0.2, 0.5])
-      expect(clipPlan.clips.map((clip) => clip.selectionRank)).to.deep.equal([3, 1, 2])
-      expect(clipPlan.clips[1]?.priorityScore ?? 0).to.be.greaterThan(clipPlan.clips[2]?.priorityScore ?? 0)
-      expect(clipPlan.clips[2]?.priorityScore ?? 0).to.be.greaterThan(clipPlan.clips[0]?.priorityScore ?? 0)
-      expect(clipPlan.clips[1]?.reason).to.contain('score')
-
-      const verification = await verifyProjectArtifacts(projectId, root)
-
-      expect(verification.ok).to.equal(true)
-      expect(verification.checked).to.be.greaterThan(0)
+      expect(error).to.be.instanceOf(Error)
+      expect(error instanceof Error ? error.message : '').to.contain('recap-script.json')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -526,6 +687,31 @@ describe('film recap project', () => {
         sourceDuration: 1,
         version: 1,
       })
+      await writeJson(join(artifactsDir, 'recap-script.json'), {
+        hook: '主角一出场，故事就把真正的矛盾摆到台前。',
+        language: 'zh-CN',
+        outro: '这场对抗把问题推向了答案。',
+        segments: [
+          {
+            emotionalTone: 'setup',
+            id: 'recap-script-001',
+            narrationText: '一开场，主角揭开关键背景。',
+            suggestedDuration: 0.5,
+            targetBeatIds: ['beat-opening'],
+            visualGuidance: '选择开场背景画面。',
+          },
+          {
+            emotionalTone: 'climax',
+            id: 'recap-script-002',
+            narrationText: '高潮段落里，主角用证据解决问题。',
+            suggestedDuration: 0.3,
+            targetBeatIds: ['beat-climax'],
+            visualGuidance: '选择解决问题的关键画面。',
+          },
+        ],
+        totalEstimatedDuration: 0.8,
+        version: 1,
+      })
 
       const result = await createFilmClipPlanProject({
         projectId,
@@ -541,7 +727,7 @@ describe('film recap project', () => {
       expect(result.clips).to.equal(2)
       expect(clipPlan.duration).to.equal(0.8)
       expect(clipPlan.clips.map((clip) => clip.sourceRange)).to.deep.equal([[0, 0.5], [0.5, 0.8]])
-      expect(clipPlan.clips[1]?.reason).to.contain('ASR moment asr-0002')
+      expect(clipPlan.clips[1]?.reason).to.contain('recap-script-002')
 
       await writeJson(join(artifactsDir, 'clip-plan-validated.json'), clipPlan)
       await writeJson(join(artifactsDir, 'output-timeline-map.json'), {
@@ -565,8 +751,9 @@ describe('film recap project', () => {
         segments: Array<{evidence: string[]; text: string}>
       }
 
-      expect(outputNarration.segments[1]?.text).to.contain('前半段解决问题')
+      expect(outputNarration.segments[1]?.text).to.equal('高潮段落里，主角用证据解决问题。')
       expect(outputNarration.segments[1]?.text).not.include('后半段不能出现在解说里')
+      expect(outputNarration.segments[1]?.evidence).to.include('recap-script.json#recap-script-002')
       expect(outputNarration.segments[1]?.evidence).to.include('asr-result.json#asr-0002')
       expect(outputNarration.segments[1]?.evidence).not.include('asr-result.json#asr-0003')
     } finally {
@@ -579,7 +766,7 @@ describe('film recap project', () => {
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-cut-demo',
@@ -591,6 +778,11 @@ describe('film recap project', () => {
       })
       await createFilmStoryIndexProject({
         projectId: 'film-cut-demo',
+        workspaceDir: root,
+      })
+      await createFilmRecapScriptProject({
+        projectId: 'film-cut-demo',
+        targetDurationSeconds: 0.5,
         workspaceDir: root,
       })
       await createFilmClipPlanProject({
@@ -633,7 +825,7 @@ describe('film recap project', () => {
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-narrate-demo',
@@ -645,6 +837,11 @@ describe('film recap project', () => {
       })
       await createFilmStoryIndexProject({
         projectId: 'film-narrate-demo',
+        workspaceDir: root,
+      })
+      await createFilmRecapScriptProject({
+        projectId: 'film-narrate-demo',
+        targetDurationSeconds: 0.5,
         workspaceDir: root,
       })
       await createFilmClipPlanProject({
@@ -674,10 +871,10 @@ describe('film recap project', () => {
       expect(outputNarration.timeline).to.equal('output')
       expect(outputNarration.segments[0]).to.deep.include({
         end: 0.5,
-        evidence: ['beat-001', 'clip-001'],
         start: 0,
       })
-      expect(outputNarration.segments[0]?.text).to.equal('这一段保留开场关键画面，交代故事背景。')
+      expect(outputNarration.segments[0]?.evidence).to.include('recap-script.json#recap-script-001')
+      expect(outputNarration.segments[0]?.text).to.contain('一开场')
       expect(outputNarration.segments[0]?.text).not.include('第 1 段')
       expect(outputNarration.segments[0]?.text).not.include('Mock visual analysis')
       expect(narration.segments[0]).to.deep.include({
@@ -699,7 +896,7 @@ describe('film recap project', () => {
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-voice-demo',
@@ -711,6 +908,11 @@ describe('film recap project', () => {
       })
       await createFilmStoryIndexProject({
         projectId: 'film-voice-demo',
+        workspaceDir: root,
+      })
+      await createFilmRecapScriptProject({
+        projectId: 'film-voice-demo',
+        targetDurationSeconds: 0.5,
         workspaceDir: root,
       })
       await createFilmClipPlanProject({
@@ -770,6 +972,11 @@ describe('film recap project', () => {
         projectId: 'film-mix-demo',
         workspaceDir: root,
       })
+      await createFilmRecapScriptProject({
+        projectId: 'film-mix-demo',
+        targetDurationSeconds: 0.5,
+        workspaceDir: root,
+      })
       await createFilmClipPlanProject({
         projectId: 'film-mix-demo',
         targetDurationSeconds: 0.5,
@@ -800,6 +1007,7 @@ describe('film recap project', () => {
         sourceAudioRetained: boolean
         sourcePath: string
         sourceVolume: number
+        sourceVolumeDuringVoiceover?: number
         voiceoverVolume: number
         voiceoverSegments: Array<{delayMs: number; duration: number; narrationId: string; resolvedPath: string; start: number}>
       }
@@ -811,7 +1019,8 @@ describe('film recap project', () => {
       expect(audioMix.outputPath).to.equal('audio/audio_mix.wav')
       expect(audioMix.sourceAudioRetained).to.equal(true)
       expect(audioMix.sourcePath).to.equal('renders/edited_source.mp4')
-      expect(audioMix.sourceVolume).to.equal(0.35)
+      expect(audioMix.sourceVolume).to.equal(0.25)
+      expect(audioMix.sourceVolumeDuringVoiceover).to.equal(0)
       expect(audioMix.voiceoverVolume).to.equal(1)
       expect(audioMix.ducking).to.deep.include({
         ratio: 8,
@@ -841,7 +1050,7 @@ describe('film recap project', () => {
     const inputPath = join(root, 'episode.mp4')
 
     try {
-      await createSampleVideo(inputPath)
+      await createSampleVideoWithAudio(inputPath)
       await createFilmIngestProject({
         inputPath,
         projectId: 'film-final-demo',
@@ -853,6 +1062,11 @@ describe('film recap project', () => {
       })
       await createFilmStoryIndexProject({
         projectId: 'film-final-demo',
+        workspaceDir: root,
+      })
+      await createFilmRecapScriptProject({
+        projectId: 'film-final-demo',
+        targetDurationSeconds: 0.5,
         workspaceDir: root,
       })
       await createFilmClipPlanProject({

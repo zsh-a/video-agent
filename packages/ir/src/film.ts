@@ -138,6 +138,24 @@ export const StoryIndexSchema = z.object({
   version: z.literal(1),
 })
 
+export const RecapScriptSegmentSchema = z.object({
+  emotionalTone: z.enum(['setup', 'tension', 'climax', 'resolution']),
+  id: z.string().min(1),
+  narrationText: z.string().min(1),
+  suggestedDuration: z.number().finite().nonnegative(),
+  targetBeatIds: z.array(z.string().min(1)).default([]),
+  visualGuidance: z.string().min(1),
+})
+
+export const RecapScriptSchema = z.object({
+  hook: z.string().min(1),
+  language: z.string().default('zh-CN'),
+  outro: z.string().min(1),
+  segments: z.array(RecapScriptSegmentSchema),
+  totalEstimatedDuration: z.number().finite().nonnegative(),
+  version: z.literal(1),
+})
+
 export const NarrativeBeatsSchema = z.object({
   beats: z.array(NarrativeBeatSchema),
   source: z.string().min(1),
@@ -197,6 +215,8 @@ export const OutputNarrationSegmentSchema = z.object({
   id: z.string().min(1),
   overlapsSpeech: z.boolean().default(false),
   pauseAfterMs: z.number().int().nonnegative().default(0),
+  scriptSegmentId: z.string().min(1).optional(),
+  source: z.literal('script'),
   start: z.number().finite().nonnegative(),
   text: z.string().min(1),
 }).refine((segment) => segment.end >= segment.start, {
@@ -224,6 +244,8 @@ export type OutputNarration = z.infer<typeof OutputNarrationSchema>
 export type OutputNarrationSegment = z.infer<typeof OutputNarrationSegmentSchema>
 export type OutputTimelineMap = z.infer<typeof OutputTimelineMapSchema>
 export type OutputTimelineMapClip = z.infer<typeof OutputTimelineMapClipSchema>
+export type RecapScript = z.infer<typeof RecapScriptSchema>
+export type RecapScriptSegment = z.infer<typeof RecapScriptSegmentSchema>
 export type SilencePeriod = z.infer<typeof SilencePeriodSchema>
 export type SilencePeriods = z.infer<typeof SilencePeriodsSchema>
 export type SourceManifest = z.infer<typeof SourceManifestSchema>

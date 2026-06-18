@@ -32,6 +32,6 @@ export default class FilmBuildStoryIndex extends Command {
     this.log(`Status: ${output.status}`)
     this.log(`Beats: ${output.beats}`)
     this.log(`Story index: ${output.artifacts.storyIndex}`)
-    this.log(`Next: vagent film plan-clips ${output.projectId} --workspace ${flags.workspace}`)
+    this.log(`Next: vagent film write-script ${output.projectId} --workspace ${flags.workspace}`)
   }
 }

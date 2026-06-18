@@ -103,7 +103,7 @@ bun run dev deck synthesize-voice notes-demo
 bun run dev deck render notes-demo
 ```
 
-Run Film Recap from video to final render:
+Run Film Recap from a video with an audio track to final render:
 
 ```sh
 bun run dev film ./episode.mp4 --project-id episode-demo --target 10m
@@ -115,6 +115,7 @@ Or use staged subcommands for checkpoints and reruns:
 bun run dev film ingest ./episode.mp4 --project-id episode-demo
 bun run dev film understand episode-demo
 bun run dev film build-story-index episode-demo
+bun run dev film write-script episode-demo --target 10m
 bun run dev film plan-clips episode-demo --target 10m
 bun run dev film cut episode-demo
 bun run dev film narrate episode-demo

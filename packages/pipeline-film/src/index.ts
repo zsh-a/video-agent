@@ -6,6 +6,7 @@ import {
   createFilmIngestProject,
   createFilmOutputNarrationProject,
   createFilmQualityCheckProject,
+  createFilmRecapScriptProject,
   createFilmStoryIndexProject,
   createFilmSubtitleProject,
   createFilmUnderstandingProject,
@@ -20,6 +21,7 @@ export {
   createFilmIngestProject,
   createFilmOutputNarrationProject,
   createFilmQualityCheckProject,
+  createFilmRecapScriptProject,
   createFilmStoryIndexProject,
   createFilmSubtitleProject,
   createFilmUnderstandingProject,
@@ -36,6 +38,7 @@ import type {
   CreateFilmIngestProjectResult,
   CreateFilmOutputNarrationProjectResult,
   CreateFilmQualityCheckProjectResult,
+  CreateFilmRecapScriptProjectResult,
   CreateFilmStoryIndexProjectResult,
   CreateFilmSubtitleProjectResult,
   CreateFilmUnderstandingProjectOptions,
@@ -58,6 +61,8 @@ export type {
   CreateFilmOutputNarrationProjectResult,
   CreateFilmQualityCheckProjectOptions,
   CreateFilmQualityCheckProjectResult,
+  CreateFilmRecapScriptProjectOptions,
+  CreateFilmRecapScriptProjectResult,
   CreateFilmStoryIndexProjectOptions,
   CreateFilmStoryIndexProjectResult,
   CreateFilmSubtitleProjectOptions,
@@ -83,6 +88,7 @@ export interface RunFilmRecapPipelineResult {
   projectDir: string
   projectId: string
   quality: CreateFilmQualityCheckProjectResult
+  script: CreateFilmRecapScriptProjectResult
   status: 'completed'
   storyIndex: CreateFilmStoryIndexProjectResult
   subtitle: CreateFilmSubtitleProjectResult
@@ -102,6 +108,10 @@ export async function runFilmRecapPipeline(options: RunFilmRecapPipelineOptions)
     maxScenes: options.maxScenes,
   })
   const storyIndex = await createFilmStoryIndexProject(common)
+  const script = await createFilmRecapScriptProject({
+    ...common,
+    targetDurationSeconds: options.targetDurationSeconds,
+  })
   const clipPlan = await createFilmClipPlanProject({
     ...common,
     targetDurationSeconds: options.targetDurationSeconds,
@@ -124,6 +134,7 @@ export async function runFilmRecapPipeline(options: RunFilmRecapPipelineOptions)
     projectDir: ingest.projectDir,
     projectId: ingest.projectId,
     quality,
+    script,
     status: 'completed',
     storyIndex,
     subtitle,

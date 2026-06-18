@@ -1162,7 +1162,7 @@ describe('job runner', () => {
       expect(qualityReport.summary).to.deep.equal({errors: 0, warnings: 0})
       expect(chunkPlan.chunks[0]?.artifactPrefix).to.equal('chunks/000')
       expect(chunkSummaries.chunks[0]?.chunkId).to.equal('chunk-000')
-      expect(chunkSummaries.chunks[0]?.silenceRanges).to.deep.equal([[0, 1]])
+      expect(chunkSummaries.chunks[0]?.silenceRanges).to.deep.equal([])
       expect(storyboard.scenes[0]?.evidence.map((item) => item.ref)).to.include('chunks/000/vlm.json')
       expect(storyboard.scenes[0]?.sourceRange).to.deep.equal([0, 1])
       expect(await fileSize(join(root, 'projects', 'demo', 'artifacts', 'chunks', '000', 'summary.json'))).to.be.greaterThan(0)

@@ -153,14 +153,15 @@ Each stage accepts typed input, writes artifacts, emits events, and returns type
 
 ## Film Recap Pipeline
 
-Film recap is for TV, movie, and long-video editing commentary. Its stage graph is media-first and cut-first:
+Film recap is for TV, movie, and long-video editing commentary. The production path requires source audio, timed ASR, VLM evidence, a recap script, script-driven clips, and script-sourced narration; missing production inputs are hard failures rather than silent degraded output. Its stage graph is media-first and cut-first:
 
 ```text
 input video
   -> ingest / probe
   -> source understanding (ASR + VLM)
   -> story index / narrative beats
-  -> clip planning (evidence-backed scoring)
+  -> recap script (third-person narration over story beats)
+  -> clip planning (script-driven, evidence-backed hard failure)
   -> render cut
   -> narrate against cut output timeline
   -> voiceover / subtitles / audio mix
@@ -168,9 +169,9 @@ input video
   -> quality check
 ```
 
-Important rule: do not write final narration against the original movie timeline and then cut large sections away. The pipeline first writes an evidence-backed `clip-plan.json`, renders `edited_source.mp4`, writes `output_timeline_map.json`, and only then writes narration timestamps against the output timeline.
+Important rule: do not write final narration by pasting raw source dialogue or by falling back to beat summaries. The pipeline first writes `recap-script.json` as third-person commentary over story beats, then uses that script to drive `clip-plan.json`. After rendering `edited_source.mp4`, it writes `output_timeline_map.json` and binds the script narration to the edited output timeline. If a clip or narration segment cannot be traced back to `recap-script.json`, the stage fails.
 
-Film-specific IR lives in `packages/ir/src/film.ts`: `FilmScene`, `ASRSegment`, `VLMSceneAnalysis`, `StoryIndex`, `NarrativeBeat`, `OutputTimelineMap`, and `OutputNarration`.
+Film-specific IR lives in `packages/ir/src/film.ts`: `FilmScene`, `ASRSegment`, `VLMSceneAnalysis`, `StoryIndex`, `NarrativeBeat`, `RecapScript`, `OutputTimelineMap`, and `OutputNarration`.
 
 Quality checks focus on source/output timeline consistency, evidence-backed clip choice, narration alignment to the edited output, speech overlap, ducking decisions, subtitle bounds, loudness, and render diagnostics.
 

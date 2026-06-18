@@ -1,22 +1,22 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {createFilmClipPlanProject} from '@video-agent/pipeline-film'
+import {createFilmRecapScriptProject} from '@video-agent/pipeline-film'
 
-export default class FilmPlanClips extends Command {
+export default class FilmWriteScript extends Command {
   static args = {
-    projectId: Args.string({description: 'Film Recap project id with story index artifacts', required: true}),
+    projectId: Args.string({description: 'Film Recap project id with story-index.json', required: true}),
   }
 
-  static description = 'Plan Film Recap clips from recap script and story beats'
+  static description = 'Write a Film Recap third-person narration script from story beats'
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    target: Flags.string({description: 'Target cut duration, such as 10m, 600s, or 00:10:00'}),
+    target: Flags.string({description: 'Target recap duration, such as 10m, 600s, or 00:10:00'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 
   async run(): Promise<void> {
-    const {args, flags} = await this.parse(FilmPlanClips)
-    const output = await createFilmClipPlanProject({
+    const {args, flags} = await this.parse(FilmWriteScript)
+    const output = await createFilmRecapScriptProject({
       projectId: args.projectId,
       targetDurationSeconds: flags.target === undefined ? undefined : parseDurationSeconds(flags.target),
       workspaceDir: flags.workspace,
@@ -30,10 +30,10 @@ export default class FilmPlanClips extends Command {
     this.log(`Project: ${output.projectId}`)
     this.log(`Workspace: ${output.projectDir}`)
     this.log(`Status: ${output.status}`)
-    this.log(`Clips: ${output.clips}`)
-    this.log(`Duration: ${output.duration}s`)
-    this.log(`Clip plan: ${output.artifacts.clipPlan}`)
-    this.log(`Next: vagent film cut ${output.projectId} --workspace ${flags.workspace}`)
+    this.log(`Segments: ${output.segments}`)
+    this.log(`Estimated duration: ${output.totalEstimatedDuration}s`)
+    this.log(`Recap script: ${output.artifacts.recapScript}`)
+    this.log(`Next: vagent film plan-clips ${output.projectId} --workspace ${flags.workspace}`)
   }
 }
 

@@ -177,6 +177,7 @@ describe('pipeline-specific IR schemas', () => {
           evidence: ['beat_001', 'clip_000'],
           id: 'n001',
           overlapsSpeech: true,
+          source: 'script',
           start: 1.2,
           text: 'The story opens with what looks like a routine assignment.',
         },
