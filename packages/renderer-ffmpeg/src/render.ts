@@ -160,7 +160,7 @@ function buildAudioFilter(inputs: AudioInput[], duration: number, options: Ffmpe
 
   if (preparedLabels.length === 1) {
     return {
-      filter: `${preparedLabels[0].filter};[${preparedLabels[0].label}]atrim=duration=${duration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo${outputLabel}`,
+      filter: `${preparedLabels[0].filter};[${preparedLabels[0].label}]apad,atrim=duration=${duration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo${outputLabel}`,
       outputLabel,
     }
   }
@@ -168,7 +168,7 @@ function buildAudioFilter(inputs: AudioInput[], duration: number, options: Ffmpe
   const mixInputs = preparedLabels.map((input) => `[${input.label}]`).join('')
 
   return {
-    filter: `${preparedLabels.map((input) => input.filter).join(';')};${mixInputs}amix=inputs=${preparedLabels.length}:duration=longest:dropout_transition=0,atrim=duration=${duration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo${outputLabel}`,
+    filter: `${preparedLabels.map((input) => input.filter).join(';')};${mixInputs}amix=inputs=${preparedLabels.length}:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo${outputLabel}`,
     outputLabel,
   }
 }
@@ -203,9 +203,9 @@ function buildDuckingAudioFilter(options: DuckingAudioFilterOptions): AudioFilte
   const filters = [
     ...options.preparedLabels.map((input) => input.filter),
     voiceMix,
-    `${voiceBus}asplit=2[duckkey][voicemix]`,
+    `${voiceBus}apad,atrim=duration=${options.duration},asplit=2[duckkey][voicemix]`,
     `[${options.source.label}][duckkey]sidechaincompress=${ducking}[ducked]`,
-    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,atrim=duration=${options.duration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo${options.outputLabel}`,
+    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${options.duration},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo${options.outputLabel}`,
   ]
 
   return {

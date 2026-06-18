@@ -7,13 +7,13 @@ import type {QualityIssue} from '@video-agent/quality'
 import type {JobStore} from '@video-agent/db'
 import {ASRResultSchema, CharacterIndexSchema, ClipPlanSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, NarrationSchema, NarrativeBeatsSchema, OutputNarrationSchema, OutputTimelineMapSchema, SilencePeriodsSchema, SourceManifestSchema, StoryIndexSchema, TimelineFusionSchema, VLMAnalysisSchema} from '@video-agent/ir'
 import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
-import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg} from '@video-agent/media'
+import {extractAudio, extractVideoFrame, inspectAudioVolume, probeMedia, runFfmpeg, runProcess} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {checkAudioLoudness, checkRenderedMedia, checkSrtSubtitles, createAudioLoudnessProbeFailure, createRenderedMediaProbeFailure} from '@video-agent/quality'
-import {narrationToSrt} from '@video-agent/renderer-ffmpeg'
+import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
-import {appendFile, mkdir} from 'node:fs/promises'
+import {appendFile, mkdir, rename, unlink} from 'node:fs/promises'
 import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import {refreshArtifactManifest} from './artifact-store.js'
@@ -844,11 +844,12 @@ export async function createFilmSubtitleProject(options: CreateFilmSubtitleProje
   try {
     const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
     const outputPath = resolve(workspace.rendersDir, 'subtitles.srt')
+    const cues = narrationToSrtCues(narration)
 
     await bunWrite(outputPath, narrationToSrt(narration))
 
     const subtitles = {
-      cues: narration.segments.length,
+      cues: cues.length,
       format: 'srt' as const,
       generatedAt: new Date().toISOString(),
       path: toProjectReference(workspace.projectDir, outputPath),
@@ -889,11 +890,10 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
   await startFilmStage(jobStore, workspace, 'render-final')
 
   try {
-    const [audioMix, subtitles, outputTimelineMap, narration] = await Promise.all([
+    const [audioMix, subtitles, outputTimelineMap] = await Promise.all([
       readFilmAudioMix(workspace.store.readJson('audio-mix.json')),
       readFilmSubtitles(workspace.store.readJson('subtitles.json')),
       OutputTimelineMapSchema.parseAsync(await workspace.store.readJson('output-timeline-map.json')),
-      NarrationSchema.parseAsync(await workspace.store.readJson('narration.json')),
     ])
     const editedSourcePath = resolve(workspace.rendersDir, 'edited_source.mp4')
     const audioMixPath = resolveProjectPath(workspace.projectDir, audioMix.outputPath)
@@ -918,9 +918,9 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
     })
     const audioQuality = outputQuality.audioStreams > 0 ? await inspectRenderedAudio(outputPath) : undefined
     const subtitleQuality = withSubtitleBurnInWarning(checkSrtSubtitles(await bunFile(subtitlePath).text(), {
-      expectedCues: narration.segments.length,
+      expectedCues: subtitles.cues,
       maxEnd: outputTimelineMap.outputDuration,
-    }), finalRender.subtitlesBurned)
+    }), finalRender.subtitleBurnInIssue)
     const artifactPath = await workspace.store.writeJson('render-output.json', {
       audioInputs: 1,
       audioMixPath: audioMix.outputPath,
@@ -932,6 +932,7 @@ export async function createFilmFinalRenderProject(options: CreateFilmFinalRende
       source: toProjectReference(workspace.projectDir, editedSourcePath),
       subtitlePath: subtitles.path,
       subtitleQuality,
+      ...(finalRender.subtitleBurnInIssue === undefined ? {} : {subtitleBurnInIssue: finalRender.subtitleBurnInIssue}),
       subtitlesBurned: finalRender.subtitlesBurned,
       version: 1 as const,
     })
@@ -1109,13 +1110,13 @@ function buildAudioMixFilter(options: {
   const allFilters = [...options.sourceFilters, ...options.voiceoverFilters]
 
   if (options.hasSourceAudio && options.voiceoverCount === 0) {
-    return `${allFilters.join(';')};[source]atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
+    return `${allFilters.join(';')};[source]apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
   }
 
   const voiceLabels = Array.from({length: options.voiceoverCount}, (_, index) => `[voice${index}]`)
 
   if (!options.hasSourceAudio) {
-    return `${allFilters.join(';')};${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
+    return `${allFilters.join(';')};${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`
   }
 
   const voiceBus = options.voiceoverCount === 1
@@ -1125,9 +1126,9 @@ function buildAudioMixFilter(options: {
   return [
     ...allFilters,
     voiceBus,
-    '[voicebus]asplit=2[duckkey][voicemix]',
+    `[voicebus]apad,atrim=duration=${duration},asplit=2[duckkey][voicemix]`,
     '[source][duckkey]sidechaincompress=threshold=0.03:ratio=8:attack=5:release=250[ducked]',
-    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`,
+    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[mix]`,
   ].join(';')
 }
 
@@ -1136,11 +1137,21 @@ async function renderFinalFilmVideo(options: {
   editedSourcePath: string
   outputPath: string
   subtitlePath: string
-}): Promise<{subtitlesBurned: boolean}> {
+}): Promise<{subtitleBurnInIssue?: QualityIssue; subtitlesBurned: boolean}> {
   await mkdir(resolve(options.outputPath, '..'), {recursive: true})
+  const subtitleBurnInIssue = await getSubtitleBurnInReadinessIssue(options.subtitlePath)
+
+  if (subtitleBurnInIssue !== undefined) {
+    await renderFinalFilmVideoAttempt(options, false)
+
+    return {
+      subtitleBurnInIssue,
+      subtitlesBurned: false,
+    }
+  }
 
   try {
-    await runFfmpeg(buildFinalFilmRenderArgs(options, true))
+    await renderFinalFilmVideoAttempt(options, true)
 
     return {subtitlesBurned: true}
   } catch (error) {
@@ -1148,9 +1159,81 @@ async function renderFinalFilmVideo(options: {
       throw error
     }
 
-    await runFfmpeg(buildFinalFilmRenderArgs(options, false))
+    await renderFinalFilmVideoAttempt(options, false)
 
-    return {subtitlesBurned: false}
+    return {
+      subtitleBurnInIssue: {
+        code: 'subtitle.render.filter_unavailable',
+        message: 'The ffmpeg subtitles filter is unavailable; subtitles were written as a sidecar file but not burned into final.mp4.',
+        severity: 'warning',
+      },
+      subtitlesBurned: false,
+    }
+  }
+}
+
+async function renderFinalFilmVideoAttempt(options: {
+  audioMixPath: string
+  editedSourcePath: string
+  outputPath: string
+  subtitlePath: string
+}, burnSubtitles: boolean): Promise<void> {
+  const tempOutputPath = `${options.outputPath}.tmp-${process.pid}-${Date.now()}.mp4`
+  const renderOptions = {
+    ...options,
+    outputPath: tempOutputPath,
+  }
+
+  try {
+    await runFfmpeg(buildFinalFilmRenderArgs(renderOptions, burnSubtitles))
+    await rename(tempOutputPath, options.outputPath)
+  } catch (error) {
+    await unlinkIfExists(tempOutputPath)
+    throw error
+  }
+}
+
+async function getSubtitleBurnInReadinessIssue(subtitlePath: string): Promise<QualityIssue | undefined> {
+  const content = await bunFile(subtitlePath).text()
+
+  if (!containsCjk(content)) {
+    return undefined
+  }
+
+  if (await hasCjkSubtitleFont()) {
+    return undefined
+  }
+
+  return {
+    code: 'subtitle.render.cjk_font_unavailable',
+    message: 'No reliable CJK subtitle font was found; subtitles were written as a sidecar file but not burned into final.mp4.',
+    severity: 'warning',
+  }
+}
+
+async function hasCjkSubtitleFont(): Promise<boolean> {
+  try {
+    const result = await runProcess(['fc-match', 'Noto Sans CJK SC'])
+
+    if (result.code !== 0) {
+      return false
+    }
+
+    return /(Noto\s*Sans\s*CJK|NotoSansCJK|Source\s*Han|WenQuanYi|Microsoft\s*YaHei|SimHei|PingFang|Hiragino|Songti|Kaiti)/iu.test(result.stdout)
+  } catch {
+    return false
+  }
+}
+
+async function unlinkIfExists(path: string): Promise<void> {
+  try {
+    await unlink(path)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return
+    }
+
+    throw error
   }
 }
 
@@ -1160,27 +1243,34 @@ function buildFinalFilmRenderArgs(options: {
   outputPath: string
   subtitlePath: string
 }, burnSubtitles: boolean): string[] {
+  const videoCodecArgs = burnSubtitles
+    ? [
+        '-c:v',
+        'libx264',
+        '-preset',
+        'veryfast',
+        '-tune',
+        'zerolatency',
+        '-pix_fmt',
+        'yuv420p',
+      ]
+    : [
+        '-c:v',
+        'copy',
+      ]
+
   return [
     '-y',
     '-i',
     options.editedSourcePath,
     '-i',
     options.audioMixPath,
-    ...(burnSubtitles ? ['-vf', `subtitles=filename='${escapeSubtitleFilterPath(options.subtitlePath)}'`] : []),
+    ...(burnSubtitles ? ['-vf', buildSubtitleBurnInFilter(options.subtitlePath)] : []),
     '-map',
     '0:v:0',
     '-map',
     '1:a:0',
-    '-c:v',
-    'libx264',
-    '-preset',
-    'veryfast',
-    '-tune',
-    'zerolatency',
-    '-threads',
-    '1',
-    '-pix_fmt',
-    'yuv420p',
+    ...videoCodecArgs,
     '-c:a',
     'aac',
     '-shortest',
@@ -1188,22 +1278,34 @@ function buildFinalFilmRenderArgs(options: {
   ]
 }
 
+function buildSubtitleBurnInFilter(subtitlePath: string): string {
+  const style = [
+    'FontName=Noto Sans CJK SC',
+    'FontSize=18',
+    'PrimaryColour=&H00FFFFFF',
+    'OutlineColour=&H90000000',
+    'BorderStyle=1',
+    'Outline=2',
+    'Shadow=0',
+    'Alignment=2',
+    'MarginV=80',
+  ].join(',')
+
+  return `subtitles=filename='${escapeSubtitleFilterPath(subtitlePath)}':charenc=UTF-8:force_style='${escapeSubtitleFilterValue(style)}'`
+}
+
 function isMissingSubtitleFilterError(error: unknown): boolean {
   return error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' && error.stderr.includes("No such filter: 'subtitles'")
 }
 
-function withSubtitleBurnInWarning<T extends {errors: number; issues: QualityIssue[]; warnings: number}>(quality: T, subtitlesBurned: boolean): T {
-  if (subtitlesBurned) {
+function withSubtitleBurnInWarning<T extends {errors: number; issues: QualityIssue[]; warnings: number}>(quality: T, issue: QualityIssue | undefined): T {
+  if (issue === undefined) {
     return quality
   }
 
   const issues = [
     ...quality.issues,
-    {
-      code: 'subtitle.render.burn_in_unavailable',
-      message: 'The ffmpeg subtitles filter is unavailable; subtitles were written as a sidecar file but not burned into final.mp4.',
-      severity: 'warning' as const,
-    },
+    issue,
   ]
 
   return {
@@ -1261,6 +1363,10 @@ function escapeSubtitleFilterPath(path: string): string {
   return path.replaceAll('\\', String.raw`\\`).replaceAll(':', String.raw`\:`).replaceAll("'", String.raw`\'`)
 }
 
+function escapeSubtitleFilterValue(value: string): string {
+  return value.replaceAll('\\', String.raw`\\`).replaceAll("'", String.raw`\'`)
+}
+
 function createSourceManifest(mediaInfo: MediaInfo, sourceHash: string): SourceManifest {
   const video = mediaInfo.streams.find((stream) => stream.type === 'video')
 
@@ -1298,7 +1404,7 @@ function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTime
         overlapsSpeech: false,
         pauseAfterMs: index === outputTimelineMap.clips.length - 1 ? 0 : 250,
         start,
-        text: createNarrationText(beat, index),
+        text: createNarrationText(beat, index, language),
       }
     }),
     timeline: 'output',
@@ -1320,12 +1426,61 @@ function createCompatibleNarration(outputNarration: OutputNarration): Narration 
   }
 }
 
-function createNarrationText(beat: NarrativeBeat | undefined, index: number): string {
+function createNarrationText(beat: NarrativeBeat | undefined, index: number, language: string): string {
   if (beat === undefined) {
-    return `第 ${index + 1} 段，剪辑保留了这一处关键画面，用来推进故事。`
+    return createFallbackNarrationText(index, language)
   }
 
-  return `第 ${index + 1} 段，${beat.summary}`
+  const text = cleanNarrationText(beat.summary, language)
+
+  return text === '' ? createFallbackNarrationText(index, language) : text
+}
+
+function createFallbackNarrationText(index: number, language: string): string {
+  if (isChineseLanguage(language)) {
+    return index === 0 ? '这一段保留开场关键画面，交代故事背景。' : '这一段保留关键画面，推进故事发展。'
+  }
+
+  return index === 0 ? 'This segment keeps the key opening moment and sets up the story.' : 'This segment keeps a key moment that moves the story forward.'
+}
+
+function cleanNarrationText(text: string, language: string): string {
+  const withoutSegmentLabel = text
+    .replace(/^第\s*\d+\s*段\s*[，,.:：、-]?\s*/u, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+
+  if (isChineseLanguage(language) && !containsCjk(withoutSegmentLabel)) {
+    return ''
+  }
+
+  return trimToSentenceBoundary(withoutSegmentLabel, 260)
+}
+
+function isChineseLanguage(language: string): boolean {
+  return language.toLowerCase().startsWith('zh')
+}
+
+function containsCjk(text: string): boolean {
+  return /\p{Script=Han}/u.test(text)
+}
+
+function trimToSentenceBoundary(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text
+  }
+
+  const sliced = text.slice(0, maxLength)
+  const boundary = Math.max(
+    sliced.lastIndexOf('。'),
+    sliced.lastIndexOf('！'),
+    sliced.lastIndexOf('？'),
+    sliced.lastIndexOf('.'),
+    sliced.lastIndexOf('!'),
+    sliced.lastIndexOf('?'),
+  )
+
+  return (boundary >= Math.floor(maxLength * 0.45) ? sliced.slice(0, boundary + 1) : sliced).trim()
 }
 
 function validateClipPlanForCut(clipPlan: ClipPlan): ClipPlan {
@@ -1712,9 +1867,10 @@ function inferBeatTypeFromEvidence(text: string, index: number, total: number): 
 }
 
 function createBeatSummary(fallback: string, asrTexts: string[], vlmSummaries: string[]): string {
-  const text = [...asrTexts, ...vlmSummaries].map((item) => item.trim()).filter(Boolean).join(' ')
+  const asrText = asrTexts.map((item) => item.trim()).filter(Boolean).join(' ')
+  const text = asrText === '' ? vlmSummaries.map((item) => item.trim()).filter(Boolean).join(' ') : asrText
 
-  return text === '' ? fallback : text.slice(0, 220)
+  return text === '' ? fallback : trimToSentenceBoundary(text, 260)
 }
 
 interface VlmSemanticHints {

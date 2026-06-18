@@ -93,14 +93,15 @@ export class JsonJobStore implements JobStore {
       return {
         ...stage,
         attempt: attempt ?? stage.attempt,
-        completedAt: status === 'completed' || status === 'failed' ? now : stage.completedAt,
-        message,
+        completedAt: status === 'completed' || status === 'failed' ? now : undefined,
+        message: status === 'failed' ? message : undefined,
         startedAt: status === 'running' ? now : stage.startedAt,
         status,
       }
     })
     const updated: JobState = {
       ...state,
+      completedAt: undefined,
       stages,
       status: status === 'failed' ? 'failed' : 'running',
       updatedAt: now,

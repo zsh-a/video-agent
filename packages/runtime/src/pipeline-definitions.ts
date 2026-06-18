@@ -46,7 +46,7 @@ export const FILM_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<FilmPipelineStage, reado
   'synthesize-voice': ['narration.json', 'output-narration.json'],
   'mix-audio': ['source-manifest.json', 'output-timeline-map.json', 'narration.json', 'tts-segments.json'],
   subtitle: ['narration.json'],
-  'render-final': ['audio-mix.json', 'subtitles.json', 'output-timeline-map.json', 'narration.json'],
+  'render-final': ['audio-mix.json', 'subtitles.json', 'output-timeline-map.json'],
   'quality-check': ['render-output.json', 'narration.json', 'tts-segments.json'],
 }
 

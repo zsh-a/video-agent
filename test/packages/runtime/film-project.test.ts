@@ -558,7 +558,9 @@ describe('film recap project', () => {
         evidence: ['beat-001', 'clip-001'],
         start: 0,
       })
-      expect(outputNarration.segments[0]?.text).to.contain('Mock visual analysis')
+      expect(outputNarration.segments[0]?.text).to.equal('这一段保留开场关键画面，交代故事背景。')
+      expect(outputNarration.segments[0]?.text).not.include('第 1 段')
+      expect(outputNarration.segments[0]?.text).not.include('Mock visual analysis')
       expect(narration.segments[0]).to.deep.include({
         duration: 0.5,
         start: 0,

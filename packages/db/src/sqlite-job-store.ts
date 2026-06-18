@@ -174,8 +174,8 @@ export class BunSqliteJobStore implements JobStore {
       )
       .run(
         attempt ?? existing.attempt,
-        status === 'completed' || status === 'failed' ? now : existing.completed_at,
-        message ?? null,
+        status === 'completed' || status === 'failed' ? now : null,
+        status === 'failed' ? message ?? null : null,
         status === 'running' ? now : existing.started_at,
         status,
         this.projectId,
@@ -186,7 +186,7 @@ export class BunSqliteJobStore implements JobStore {
       .prepare(
         `
           update jobs
-          set status = ?, updated_at = ?
+          set completed_at = null, status = ?, updated_at = ?
           where project_id = ?
         `,
       )

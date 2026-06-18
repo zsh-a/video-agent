@@ -96,7 +96,7 @@ describe('ffmpeg render args', () => {
     expect(joined).to.contain('[1:a]volume=0.8[source0]')
     expect(joined).to.contain('[2:a]atrim=duration=2,adelay=1000:all=1,volume=1.2[voice1]')
     expect(joined).to.contain('[voice1]anull[voicebus]')
-    expect(joined).to.contain('[voicebus]asplit=2[duckkey][voicemix]')
+    expect(joined).to.contain('[voicebus]apad,atrim=duration=5,asplit=2[duckkey][voicemix]')
     expect(joined).to.contain('[source0][duckkey]sidechaincompress=threshold=0.02:ratio=10:attack=3:release=180[ducked]')
     expect(joined).to.contain('[ducked][voicemix]amix=inputs=2')
   })
