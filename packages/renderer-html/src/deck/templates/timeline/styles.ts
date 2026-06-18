@@ -1,0 +1,23 @@
+export const timelineStyles = `.timeline {
+  padding-left: 44px;
+  position: relative;
+}
+
+.timeline__line {
+  background: linear-gradient(var(--accent), var(--accent-2));
+  bottom: 22px;
+  left: 12px;
+  position: absolute;
+  top: 22px;
+  transform-origin: top center;
+  width: 4px;
+}
+
+.timeline__item span {
+  background: var(--accent);
+  border-radius: 999px;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  height: 18px;
+  margin-left: -41px;
+  width: 18px;
+}`

@@ -5,7 +5,7 @@ import {mkdir, stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
-import {writeDeckHtmlCapturePage} from './deck/compiler.js'
+import {writeDeckHtmlCapturePage} from './deck/compiler/index.js'
 import {deckCanvasSize} from './deck/format.js'
 
 export interface DeckHtmlFrame {

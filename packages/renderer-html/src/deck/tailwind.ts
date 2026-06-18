@@ -5,7 +5,7 @@ import {createRequire} from 'node:module'
 import {dirname, resolve} from 'node:path'
 
 import {bunWrite} from '../bun-runtime.js'
-import {createDeckThemeCss} from './themes/create-theme-css.js'
+import {createDeckCss} from './styles/create-deck-css.js'
 
 const require = createRequire(import.meta.url)
 
@@ -27,7 +27,7 @@ export class DeckTailwindCompileError extends Error {
 }
 
 export async function compileDeckTailwindCss(options: CompileDeckTailwindCssOptions): Promise<void> {
-  await bunWrite(options.inputPath, createDeckThemeCss(options.deck, {
+  await bunWrite(options.inputPath, createDeckCss(options.deck, {
     sourceHtmlPath: options.sourceHtmlPath,
     tailwindCssPath: resolveTailwindCssPath(),
   }))

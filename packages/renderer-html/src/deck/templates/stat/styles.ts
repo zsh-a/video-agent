@@ -1,0 +1,31 @@
+export const statStyles = `.stat-block strong {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: calc(var(--font-title) * 1.12);
+  line-height: 0.95;
+}
+
+.stat-layout {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.35fr);
+}
+
+.stat-layout .stat-block {
+  min-width: 0;
+}
+
+.stat-points .point {
+  min-height: 0;
+  padding: 19px 22px;
+}
+
+.stat-points .point p {
+  font-size: calc(var(--font-body) * 0.8);
+}
+
+body[data-format="portrait_1080x1920"] .stat-layout {
+  grid-template-columns: 1fr;
+}`
