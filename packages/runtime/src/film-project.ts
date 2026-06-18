@@ -2663,10 +2663,11 @@ function createFilmScenesFromAsr(sourceManifest: SourceManifest, asrResult: ASRR
     throw new Error('Film Recap production scene planning requires timed ASR segments.')
   }
 
-  const groupCount = Math.max(1, Math.min(maxScenes, timedSegments.length))
-  const groupSize = Math.ceil(timedSegments.length / groupCount)
+  const groupCount = normalizeFilmSceneGroupCount(maxScenes, timedSegments.length)
   const scenes = Array.from({length: groupCount}, (_, index) => {
-    const group = timedSegments.slice(index * groupSize, (index + 1) * groupSize)
+    const startIndex = Math.floor(index * timedSegments.length / groupCount)
+    const endIndex = Math.floor((index + 1) * timedSegments.length / groupCount)
+    const group = timedSegments.slice(startIndex, endIndex)
     const start = roundSeconds(clamp(group[0]?.start ?? 0, 0, sourceManifest.duration))
     const end = roundSeconds(clamp(group.at(-1)?.end ?? start, start, sourceManifest.duration))
     const summary = group.map((segment) => segment.text).join(' ').slice(0, 180)
@@ -2691,6 +2692,12 @@ function createFilmScenesFromAsr(sourceManifest: SourceManifest, asrResult: ASRR
     source: sourceManifest.sourcePath,
     version: 1,
   }
+}
+
+function normalizeFilmSceneGroupCount(maxScenes: number, segmentCount: number): number {
+  const requested = Number.isFinite(maxScenes) ? Math.floor(maxScenes) : segmentCount
+
+  return Math.max(1, Math.min(requested, segmentCount))
 }
 
 function createFilmSilencePeriods(sourceManifest: SourceManifest, asrResult: ASRResult): SilencePeriods {

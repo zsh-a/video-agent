@@ -141,6 +141,64 @@ describe('film recap project', () => {
     }
   })
 
+  it('creates balanced film scenes when ASR returns more segments than the default scene count', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-film-balanced-scenes-'))
+    const inputPath = join(root, 'episode.mp4')
+    const asrProviderPath = join(root, 'asr-provider.ts')
+
+    try {
+      await createSampleVideoWithAudio(inputPath, 2)
+      await writeFile(asrProviderPath, [
+        'const segments = Array.from({length: 14}, (_, index) => ({',
+        '  start: Math.round(index / 14 * 1000) / 1000,',
+        '  end: Math.round((index + 1) / 14 * 1000) / 1000,',
+        '  text: `Segment ${index + 1}`',
+        '}))',
+        'console.log(JSON.stringify({language: "en", segments, text: segments.map((segment) => segment.text).join(" "), timestampConfidence: "chunked"}))',
+        '',
+      ].join('\n'))
+      await writeJson(join(root, 'config.json'), {
+        providerSettings: {
+          asr: {
+            command: ['bun', asrProviderPath],
+          },
+        },
+        providers: {
+          asr: 'command',
+        },
+        version: 1,
+      })
+      await createFilmIngestProject({
+        inputPath,
+        projectId: 'film-balanced-scenes-demo',
+        workspaceDir: root,
+      })
+
+      const result = await createFilmUnderstandingProject({
+        projectId: 'film-balanced-scenes-demo',
+        workspaceDir: root,
+      })
+      const scenes = JSON.parse(await readFile(result.artifacts.scenes, 'utf8')) as {
+        scenes: Array<{id: string; sourceRange: [number, number]; summary: string}>
+      }
+
+      expect(result.status).to.equal('understood')
+      expect(result.scenes).to.equal(12)
+      expect(scenes.scenes).to.have.length(12)
+      expect(scenes.scenes.every((scene) => scene.summary.trim() !== '')).to.equal(true)
+      expect(scenes.scenes.every((scene) => scene.sourceRange[1] > scene.sourceRange[0])).to.equal(true)
+      expect(scenes.scenes[5]?.summary).to.equal('Segment 6 Segment 7')
+      expect(scenes.scenes[11]?.summary).to.equal('Segment 13 Segment 14')
+
+      const verification = await verifyProjectArtifacts('film-balanced-scenes-demo', root)
+
+      expect(verification.ok).to.equal(true)
+      expect(verification.checked).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('builds story index artifacts from timeline fusion', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-story-'))
     const inputPath = join(root, 'episode.mp4')
@@ -1202,7 +1260,7 @@ async function createSampleVideo(inputPath: string): Promise<void> {
   }
 }
 
-async function createSampleVideoWithAudio(inputPath: string): Promise<void> {
+async function createSampleVideoWithAudio(inputPath: string, durationSeconds = 1): Promise<void> {
   const result = await runProcess([
     'ffmpeg',
     '-hide_banner',
@@ -1217,7 +1275,7 @@ async function createSampleVideoWithAudio(inputPath: string): Promise<void> {
     '-i',
     'sine=frequency=440:sample_rate=48000',
     '-t',
-    '1',
+    String(durationSeconds),
     '-map',
     '0:v:0',
     '-map',
