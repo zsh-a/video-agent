@@ -1,4 +1,4 @@
-import type {DeckFormat} from '@video-agent/ir'
+import type {DeckFormat, DeckSlideType} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 
 import type {
@@ -17,6 +17,7 @@ export interface CreateDeckExplainerProjectOptions {
   maxSlideCharacters?: number
   mode?: 'script-generated'
   projectId?: string
+  requiredSlideTypes?: DeckSlideType[]
   slideSeconds?: number
   theme?: string
   title?: string
@@ -55,6 +56,7 @@ export interface CreateDeckAudioAnchoredProjectOptions {
   llmClient?: LLMClient
   maxSlideCharacters?: number
   projectId?: string
+  requiredSlideTypes?: DeckSlideType[]
   slideSeconds?: number
   theme?: string
   title?: string

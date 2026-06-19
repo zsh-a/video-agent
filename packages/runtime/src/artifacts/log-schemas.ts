@@ -40,8 +40,10 @@ export const ProviderCallLogLineSchema = z.object({
   cost: ProviderCostMetadataSchema.optional(),
   durationMs: z.number().nonnegative(),
   error: z.object({
+    details: z.record(z.string(), z.unknown()).optional(),
     message: z.string().min(1),
     name: z.string().min(1),
+    stack: z.string().min(1).optional(),
   }).strict().optional(),
   input: z.record(z.string(), z.unknown()),
   model: z.string().min(1).optional(),
@@ -74,11 +76,13 @@ export const LLMTraceLogLineSchema = z.object({
   completedAt: z.string().min(1),
   durationMs: z.number().nonnegative(),
   error: z.object({
+    details: z.record(z.string(), z.unknown()).optional(),
     message: z.string().min(1),
     name: z.string().min(1),
+    stack: z.string().min(1).optional(),
   }).strict().optional(),
   model: z.string().min(1).optional(),
-  operation: z.enum(['generateObject', 'generateObjectFallbackText', 'generateText', 'streamText']),
+  operation: z.enum(['generateObject', 'generateObjectFallbackText', 'generateObjectJsonText', 'generateText', 'streamText']),
   provider: z.string().min(1).optional(),
   request: z.object({
     messages: z.array(z.unknown()).optional(),

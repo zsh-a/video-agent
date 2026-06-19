@@ -33,6 +33,7 @@ export function createLLMClientFromConfig(config?: LLMClientConfig, options: LLM
 
   return new AISDKLLMClient({
     model: createLanguageModelFromConfig(config, options),
+    structuredOutputs: config.supportsStructuredOutputs ?? true,
     trace: options.trace,
   })
 }

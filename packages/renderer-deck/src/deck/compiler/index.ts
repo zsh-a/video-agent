@@ -5,6 +5,8 @@ import {createRequire} from 'node:module'
 import {dirname, resolve} from 'node:path'
 
 import {bunWrite} from '../../bun-runtime.js'
+import {highlightDeckCodeBlocks} from '../code-highlighting.js'
+import type {CodeHighlightMap} from '../components/code-highlight-context.js'
 import {deckCanvasSize} from '../format.js'
 import {compileDeckMotionPlan, type DeckMotionPlan} from '../motion/index.js'
 import {createDeckRuntimeScript} from '../runtime.js'
@@ -71,12 +73,14 @@ export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Pr
     stylesPath,
     timedDeck: input.timedDeck,
   })
+  const codeHighlights = await highlightDeckCodeBlocks(plan.deck)
 
   await mkdir(outputDir, {recursive: true})
   await writeDeckFontAssets(outputDir)
   await bunWrite(planPath, `${JSON.stringify(plan, null, 2)}\n`)
   await bunWrite(runtimePath, createDeckRuntimeScript())
   await bunWrite(entryHtml, createDeckHtml(plan, {
+    codeHighlights,
     runtimeHref: './runtime.js',
     stylesheetHref: './styles.css',
   }))
@@ -106,10 +110,12 @@ export async function writeDeckHtmlCapturePage(input: WriteDeckHtmlCapturePageIn
     stylesPath: resolve(outputDir, input.stylesheetHref),
     timedDeck: input.timedDeck,
   })
+  const codeHighlights = await highlightDeckCodeBlocks(plan.deck)
 
   await mkdir(outputDir, {recursive: true})
   await bunWrite(outputPath, createDeckHtml(plan, {
     captureSlideId: input.slideId,
+    codeHighlights,
     runtimeHref: input.runtimeHref,
     stylesheetHref: input.stylesheetHref,
   }))
@@ -151,6 +157,7 @@ function createDeckHtmlRenderPlan(input: {
 
 interface CreateDeckHtmlOptions {
   captureSlideId?: string
+  codeHighlights?: CodeHighlightMap
   runtimeHref: string
   stylesheetHref: string
 }
@@ -168,6 +175,7 @@ function createDeckHtml(plan: DeckHtmlRenderPlan, options: CreateDeckHtmlOptions
 <body data-format="${escapeHtml(plan.deck.format)}" data-theme="${escapeHtml(plan.deck.theme)}"${options.captureSlideId === undefined ? '' : ' data-capture="slide"'}>
 ${renderDeckStage(plan.deck, {
   captureSlideId: options.captureSlideId,
+  codeHighlights: options.codeHighlights,
   timings: plan.timings,
 })}
   <script type="module" src="${escapeHtml(options.runtimeHref)}"></script>

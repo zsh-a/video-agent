@@ -188,6 +188,7 @@ describe('config', () => {
         model: MIMO_PROVIDER_MODEL_IDS.llm,
         name: 'mimo',
         provider: 'openai-compatible',
+        supportsStructuredOutputs: false,
       })
       expect(await readJson(join(root, 'config.json'))).to.deep.equal({
         providerProfile: 'mimo',

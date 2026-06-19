@@ -92,7 +92,7 @@ packages/
   providers/          ASR / VLM / TTS plus storyboard/script business provider interfaces
   llm/                Internal LLMClient interface, AI SDK config factory, and AI SDK-backed default adapter
   renderer-ffmpeg/    Emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
-  renderer-deck/      Shared DeckIR React/Tailwind templates, theme CSS, template manifest, and MotionIR compiler
+  renderer-deck/      Shared DeckIR React/Tailwind templates, theme CSS, Shiki code highlighting, template manifest, and MotionIR compiler
   renderer-html/      Browser HTML/Playwright capture boundary over shared deck templates
   renderer-hyperframes/ HyperFrames render plan and HTML project compiler boundary
   renderer-motion-canvas/ DeckIR + MotionIR to Motion Canvas project compiler boundary for technical diagram scenes
@@ -187,6 +187,7 @@ DeckIR + TimedDeck
   -> React templates          predefined semantic slide components
   -> renderToStaticMarkup     static slide DOM, no hydration
   -> Tailwind CSS             scanned utility CSS for generated markup
+  -> Shiki highlighting       static HTML code highlighting for code slides
   -> theme tokens             fixed canvas, safe area, typography, color system
   -> MotionIR                 renderer-agnostic property tracks in packages/ir
 ```

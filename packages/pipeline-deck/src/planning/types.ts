@@ -1,4 +1,4 @@
-import type {Claims, ContentBlock, Deck, DeckFormat, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {Claims, ContentBlock, Deck, DeckFormat, DeckSlideType, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
 
 export interface TextDeckProjectPlan {
@@ -30,6 +30,7 @@ export interface TextDeckProjectPlanOptions {
   durationTargetSeconds?: number
   language: string
   maxSlideCharacters: number
+  requiredSlideTypes?: DeckSlideType[]
   slideSeconds: number
   sourceType?: Document['source']['sourceType']
   theme?: string

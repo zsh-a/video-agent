@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "description": "First Deck Explainer golden cases. Keep source media out of git; materialize fixtures locally before running provider-backed evaluations.",
+  "cases": [
+    {
+      "id": "md-k8s-pods-en",
+      "title": "Kubernetes Pods concept page",
+      "pipeline": "deck",
+      "mode": "script-generated",
+      "language": "en-US",
+      "input": {
+        "kind": "markdown",
+        "path": "fixtures/md-k8s-pods-en/input.md"
+      },
+      "source": {
+        "name": "Kubernetes website documentation",
+        "homepage": "https://github.com/kubernetes/website",
+        "downloadUrl": "https://raw.githubusercontent.com/kubernetes/website/main/content/en/docs/concepts/workloads/pods/_index.md",
+        "license": "CC-BY-4.0",
+        "licenseUrl": "https://github.com/kubernetes/website/blob/main/LICENSE"
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/md-k8s-pods-en/input.md --duration 3m --language en-US --project-id golden-md-k8s-pods-en"
+      },
+      "expected": {
+        "minSlides": 6,
+        "maxSlides": 12,
+        "requiredSlideTypes": ["hero", "process", "code", "summary"],
+        "mustMention": ["Pod", "containers", "network", "storage"],
+        "forbid": ["{{<", "{{%", "frontmatter"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "md-github-rest-api",
+      "title": "GitHub REST API quickstart",
+      "pipeline": "deck",
+      "mode": "script-generated",
+      "language": "en-US",
+      "input": {
+        "kind": "markdown",
+        "path": "fixtures/md-github-rest-api/input.md"
+      },
+      "source": {
+        "name": "GitHub Docs",
+        "homepage": "https://github.com/github/docs",
+        "downloadUrl": "https://raw.githubusercontent.com/github/docs/main/content/rest/quickstart.md",
+        "license": "CC-BY-4.0",
+        "licenseUrl": "https://github.com/github/docs/blob/main/LICENSE"
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/md-github-rest-api/input.md --duration 2m --language en-US --project-id golden-md-github-rest-api"
+      },
+      "expected": {
+        "minSlides": 5,
+        "maxSlides": 10,
+        "requiredSlideTypes": ["hero", "process", "code", "summary"],
+        "mustMention": ["REST API", "authentication", "request"],
+        "forbid": ["{% data", "{% ifversion", "YOUR-TOKEN as a real secret"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "md-turing-way-cn",
+      "title": "The Turing Way Chinese README excerpt",
+      "pipeline": "deck",
+      "mode": "script-generated",
+      "language": "zh-CN",
+      "input": {
+        "kind": "markdown",
+        "path": "fixtures/md-turing-way-cn/input.md"
+      },
+      "source": {
+        "name": "The Turing Way",
+        "homepage": "https://github.com/the-turing-way/the-turing-way",
+        "downloadUrl": "https://raw.githubusercontent.com/the-turing-way/the-turing-way/main/README-translated/README-Chinese.md",
+        "license": "CC-BY-4.0",
+        "licenseUrl": "https://github.com/the-turing-way/the-turing-way/blob/main/LICENSE.md"
+      },
+      "preprocess": {
+        "maxCharacters": 12000,
+        "note": "Use the project overview, reproducibility motivation, contribution, and citation sections; avoid the long contributor list."
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/md-turing-way-cn/input.md --duration 3m --language zh-CN --project-id golden-md-turing-way-cn"
+      },
+      "expected": {
+        "minSlides": 6,
+        "maxSlides": 12,
+        "requiredSlideTypes": ["hero", "three-points", "process", "summary"],
+        "mustMention": ["可重复", "数据科学", "协作", "贡献"],
+        "forbid": ["Image:", "README-", "贡献者列表"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "md-ossf-scorecard-checks",
+      "title": "OpenSSF Scorecard checks excerpt",
+      "pipeline": "deck",
+      "mode": "script-generated",
+      "language": "en-US",
+      "input": {
+        "kind": "markdown",
+        "path": "fixtures/md-ossf-scorecard-checks/input.md"
+      },
+      "source": {
+        "name": "OpenSSF Scorecard",
+        "homepage": "https://github.com/ossf/scorecard",
+        "downloadUrl": "https://raw.githubusercontent.com/ossf/scorecard/main/docs/checks.md",
+        "license": "Apache-2.0",
+        "licenseUrl": "https://github.com/ossf/scorecard/blob/main/LICENSE"
+      },
+      "preprocess": {
+        "includeHeadings": ["Dangerous-Workflow", "Dependency-Update-Tool", "License", "Pinned-Dependencies", "Security-Policy"],
+        "note": "Use a focused subset so the deck tests risk/remediation structure instead of long-document truncation."
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/md-ossf-scorecard-checks/input.md --duration 150s --language en-US --project-id golden-md-ossf-scorecard-checks"
+      },
+      "expected": {
+        "minSlides": 5,
+        "maxSlides": 9,
+        "requiredSlideTypes": ["hero", "comparison", "process", "summary"],
+        "mustMention": ["risk", "remediation", "workflow", "license"],
+        "forbid": ["full checklist dump"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "audio-osr-en-clean",
+      "title": "Open Speech Repository American English Harvard sentences",
+      "pipeline": "deck",
+      "mode": "audio-anchored",
+      "language": "en-US",
+      "input": {
+        "kind": "audio",
+        "path": "fixtures/audio-osr-en-clean/input.wav"
+      },
+      "source": {
+        "name": "Open Speech Repository",
+        "homepage": "https://www.voiptroubleshooter.com/open_speech/",
+        "downloadUrl": "https://www.voiptroubleshooter.com/open_speech/american/OSR_us_000_0010_8k.wav",
+        "license": "Freely usable with source attribution",
+        "licenseUrl": "https://www.voiptroubleshooter.com/open_speech/"
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/audio-osr-en-clean/input.wav --audio-anchored --duration 60s --language en-US --project-id golden-audio-osr-en-clean"
+      },
+      "expected": {
+        "minSlides": 2,
+        "maxSlides": 5,
+        "requiredSlideTypes": ["hero", "summary"],
+        "mustMention": ["speech", "sentences"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "audio-osr-zh-clean",
+      "title": "Open Speech Repository Mandarin sample",
+      "pipeline": "deck",
+      "mode": "audio-anchored",
+      "language": "zh-CN",
+      "input": {
+        "kind": "audio",
+        "path": "fixtures/audio-osr-zh-clean/input.wav"
+      },
+      "source": {
+        "name": "Open Speech Repository",
+        "homepage": "https://www.voiptroubleshooter.com/open_speech/",
+        "downloadUrl": "https://www.voiptroubleshooter.com/open_speech/chinese/OSR_cn_000_0072_8k.wav",
+        "license": "Freely usable with source attribution",
+        "licenseUrl": "https://www.voiptroubleshooter.com/open_speech/"
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/audio-osr-zh-clean/input.wav --audio-anchored --duration 60s --language zh-CN --project-id golden-audio-osr-zh-clean"
+      },
+      "expected": {
+        "minSlides": 2,
+        "maxSlides": 5,
+        "requiredSlideTypes": ["hero", "summary"],
+        "mustMention": ["语音", "普通话"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "audio-librispeech-dev-clean",
+      "title": "LibriSpeech dev-clean excerpt",
+      "pipeline": "deck",
+      "mode": "audio-anchored",
+      "language": "en-US",
+      "input": {
+        "kind": "audio",
+        "path": "fixtures/audio-librispeech-dev-clean/input.wav"
+      },
+      "source": {
+        "name": "LibriSpeech ASR corpus",
+        "homepage": "https://www.openslr.org/12/",
+        "downloadUrl": "https://www.openslr.org/12/",
+        "license": "CC-BY-4.0",
+        "licenseUrl": "https://www.openslr.org/12/"
+      },
+      "fixturePolicy": "manual-excerpt",
+      "preprocess": {
+        "note": "Select a 60-120 second excerpt from dev-clean with matching transcript. Do not commit the full 337 MB archive."
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/audio-librispeech-dev-clean/input.wav --audio-anchored --duration 2m --language en-US --project-id golden-audio-librispeech-dev-clean"
+      },
+      "expected": {
+        "minSlides": 3,
+        "maxSlides": 7,
+        "requiredSlideTypes": ["hero", "three-points", "summary"],
+        "mustMention": ["narration", "chapter"],
+        "qualityMustPass": true
+      }
+    },
+    {
+      "id": "audio-harper-valley-dialog",
+      "title": "HarperValleyBank two-party dialog excerpt",
+      "pipeline": "deck",
+      "mode": "audio-anchored",
+      "language": "en-US",
+      "input": {
+        "kind": "audio",
+        "path": "fixtures/audio-harper-valley-dialog/input.wav"
+      },
+      "source": {
+        "name": "Gridspace-Stanford Harper Valley",
+        "homepage": "https://github.com/cricketclub/gridspace-stanford-harper-valley",
+        "downloadUrl": "https://github.com/cricketclub/gridspace-stanford-harper-valley",
+        "license": "CC-BY-4.0",
+        "licenseUrl": "https://github.com/cricketclub/gridspace-stanford-harper-valley/blob/master/LICENSE"
+      },
+      "fixturePolicy": "manual-excerpt",
+      "preprocess": {
+        "note": "Mix one agent/caller pair into a short mono wav and keep the matching transcript JSON next to it for review."
+      },
+      "run": {
+        "command": "bun run dev deck examples/golden-cases/fixtures/audio-harper-valley-dialog/input.wav --audio-anchored --duration 2m --language en-US --project-id golden-audio-harper-valley-dialog"
+      },
+      "expected": {
+        "minSlides": 3,
+        "maxSlides": 7,
+        "requiredSlideTypes": ["hero", "process", "summary"],
+        "mustMention": ["caller", "agent", "request", "resolution"],
+        "qualityMustPass": true
+      }
+    }
+  ]
+}

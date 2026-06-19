@@ -31,7 +31,7 @@ packages/pipeline-deck/    Deck Explainer business pipeline boundary over runtim
 packages/pipeline-film/    Film Recap business pipeline boundary over runtime APIs
 packages/llm/              internal LLMClient and AI SDK-backed adapter
 packages/renderer-ffmpeg/  ffmpeg renderer boundary
-packages/renderer-deck/    shared DeckIR React/Tailwind templates, themes, and MotionIR compiler
+packages/renderer-deck/    shared DeckIR React/Tailwind templates, themes, Shiki code highlighting, and MotionIR compiler
 packages/renderer-html/    browser HTML/Playwright capture boundary over shared deck templates
 packages/renderer-hyperframes/ HyperFrames project/compiler boundary
 packages/renderer-motion-canvas/ Motion Canvas project compiler boundary for technical diagram scenes

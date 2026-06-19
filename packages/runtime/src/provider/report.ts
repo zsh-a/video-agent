@@ -22,8 +22,10 @@ export interface LLMTraceReportRecord {
   completedAt: string
   durationMs: number
   error?: {
+    details?: Record<string, unknown>
     message: string
     name: string
+    stack?: string
   }
   model?: string
   operation: LLMTraceOperation

@@ -3,15 +3,72 @@
 }
 
 body[data-format="landscape_1920x1080"] .code-block__body {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: 640px;
 }
 
-.code-line {
-  border-bottom-color: var(--line-soft);
+.code-block__highlight,
+.code-block__highlight .shiki,
+.code-block__fallback {
+  min-width: 0;
+  overflow: hidden;
 }
 
-.code-line:nth-child(odd) {
+.code-block__highlight .shiki,
+.code-block__fallback {
+  background: transparent !important;
+  border: 0;
+  color: #e6edf3;
+  font-family: "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, Consolas, monospace;
+  font-size: calc(var(--font-caption) * 0.76);
+  line-height: 1.62;
+  margin: 0;
+  max-height: 100%;
+  overflow: hidden;
+  padding: 8px 10px 10px;
+  white-space: pre;
+}
+
+.code-block__highlight .shiki code,
+.code-block__fallback code {
+  counter-reset: code-line;
+  display: block;
+  min-width: 0;
+}
+
+.code-block__highlight .shiki .line,
+.code-block__fallback code {
+  display: block;
+  min-height: 1.62em;
+}
+
+.code-block__highlight .shiki .line {
+  padding-left: 58px;
+  position: relative;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  z-index: 0;
+}
+
+.code-block__highlight .shiki .line::before {
+  color: var(--accent-2);
+  content: counter(code-line, decimal-leading-zero);
+  counter-increment: code-line;
+  font-size: calc(var(--font-caption) * 0.62);
+  font-weight: 700;
+  left: 4px;
+  line-height: 1.62;
+  opacity: 0.9;
+  position: absolute;
+  top: 0;
+}
+
+.code-block__highlight .shiki .line:nth-child(odd)::after {
   background: rgb(255 255 255 / 3%);
+  border-radius: 6px;
+  content: "";
+  inset: -2px 0 -2px 46px;
+  position: absolute;
+  z-index: -1;
 }
 
 body[data-theme="clean-white"] .code-block,
@@ -23,9 +80,9 @@ body[data-theme="warm-paper"] .code-block {
   color-scheme: dark;
 }
 
-body[data-theme="clean-white"] .code-line code,
-body[data-theme="minimal-editorial"] .code-line code,
-body[data-theme="warm-paper"] .code-line code {
+body[data-theme="clean-white"] .code-block__fallback code,
+body[data-theme="minimal-editorial"] .code-block__fallback code,
+body[data-theme="warm-paper"] .code-block__fallback code {
   color: #f9fafb;
 }
 
@@ -33,6 +90,8 @@ body[data-format="portrait_1080x1920"] .code-block {
   max-height: 1120px;
 }
 
-body[data-format="portrait_1080x1920"] .code-line code {
-  font-size: calc(var(--font-caption) * 0.86);
+body[data-format="portrait_1080x1920"] .code-block__highlight .shiki,
+body[data-format="portrait_1080x1920"] .code-block__fallback {
+  font-size: calc(var(--font-caption) * 0.68);
+  line-height: 1.72;
 }

@@ -5,6 +5,24 @@ import {toJSONSchema} from 'zod'
 
 import type {GenerateObjectRequest, GenerateTextRequest, LLMTraceOperation, LLMTraceRecord, LLMTraceRecorder, LLMUsage} from '../types.js'
 
+const MAX_ERROR_TEXT_CHARS = 4000
+const MAX_ERROR_STACK_CHARS = 2000
+const MAX_ERROR_DETAIL_DEPTH = 3
+const ERROR_DIAGNOSTIC_KEYS = [
+  'cause',
+  'finishReason',
+  'isRetryable',
+  'lastError',
+  'requestBodyValues',
+  'response',
+  'responseBody',
+  'statusCode',
+  'text',
+  'url',
+  'usage',
+  'warnings',
+] as const
+
 export interface TraceContext {
   operation: LLMTraceOperation
   requestId: string
@@ -138,18 +156,119 @@ function traceResponse(result: {object?: unknown; text?: string}): {object?: unk
   }
 }
 
-function normalizeError(error: unknown): {message: string; name: string} {
+function normalizeError(error: unknown): NonNullable<LLMTraceRecord['error']> {
   if (error instanceof Error) {
+    const details = normalizeErrorDetails(error)
+    const stack = truncateDiagnosticString(error.stack, MAX_ERROR_STACK_CHARS)
+
     return {
+      ...(details === undefined ? {} : {details}),
       message: error.message,
       name: error.name,
+      ...(stack === undefined ? {} : {stack}),
     }
   }
 
+  const details = normalizeErrorDetails(error)
+
   return {
+    ...(details === undefined ? {} : {details}),
     message: String(error),
     name: 'Error',
   }
+}
+
+function normalizeErrorDetails(error: unknown): Record<string, unknown> | undefined {
+  const details: Record<string, unknown> = {}
+
+  if (isRecord(error)) {
+    for (const key of ERROR_DIAGNOSTIC_KEYS) {
+      if (key in error) {
+        details[key] = summarizeDiagnosticValue(error[key], MAX_ERROR_DETAIL_DEPTH)
+      }
+    }
+
+    const enumerable = Object.fromEntries(Object.entries(error)
+      .filter(([key]) => !(key in details) && key !== 'name' && key !== 'message' && key !== 'stack')
+      .map(([key, value]) => [key, summarizeDiagnosticValue(value, MAX_ERROR_DETAIL_DEPTH)]))
+
+    if (Object.keys(enumerable).length > 0) {
+      details.fields = enumerable
+    }
+  }
+
+  if (error instanceof Error && error.cause !== undefined && details.cause === undefined) {
+    details.cause = summarizeDiagnosticValue(error.cause, MAX_ERROR_DETAIL_DEPTH)
+  }
+
+  return Object.keys(details).length === 0 ? undefined : details
+}
+
+function summarizeDiagnosticValue(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') {
+    return summarizeDiagnosticString(value, MAX_ERROR_TEXT_CHARS)
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null || value === undefined) {
+    return value
+  }
+
+  if (value instanceof Error) {
+    return {
+      message: value.message,
+      name: value.name,
+      ...(value.cause === undefined || depth <= 0 ? {} : {cause: summarizeDiagnosticValue(value.cause, depth - 1)}),
+    }
+  }
+
+  if (depth <= 0) {
+    return summarizeOpaqueValue(value)
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 20).map((item) => summarizeDiagnosticValue(item, depth - 1))
+  }
+
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value)
+      .slice(0, 40)
+      .map(([key, item]) => [key, summarizeDiagnosticValue(item, depth - 1)]))
+  }
+
+  return summarizeOpaqueValue(value)
+}
+
+function summarizeDiagnosticString(value: string | undefined, limit: number): string | undefined | {chars: number; preview: string; sha256: string; truncated: true} {
+  if (value === undefined || value === '') {
+    return undefined
+  }
+
+  if (value.length <= limit) {
+    return value
+  }
+
+  return {
+    chars: value.length,
+    preview: value.slice(0, limit),
+    sha256: createHash('sha256').update(value).digest('hex'),
+    truncated: true,
+  }
+}
+
+function truncateDiagnosticString(value: string | undefined, limit: number): string | undefined {
+  if (value === undefined || value === '') {
+    return undefined
+  }
+
+  return value.length <= limit ? value : `${value.slice(0, limit)}\n[truncated ${value.length - limit} chars]`
+}
+
+function summarizeOpaqueValue(value: unknown): string {
+  if (typeof value === 'object' && value !== null) {
+    return `[${Array.isArray(value) ? 'array' : 'object'}]`
+  }
+
+  return String(value)
 }
 
 function readLanguageModelString(model: LanguageModel, key: 'modelId' | 'provider'): string | undefined {

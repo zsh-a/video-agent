@@ -20,6 +20,7 @@ import {normalizeUsage} from './usage.js'
 
 export interface AISDKLLMClientOptions {
   model: LanguageModel
+  structuredOutputs?: boolean
   trace?: LLMTraceRecorder
 }
 
@@ -27,6 +28,12 @@ export class AISDKLLMClient implements LLMClient {
   constructor(private readonly options: AISDKLLMClientOptions) {}
 
   async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GenerateObjectResult<T>> {
+    if (this.options.structuredOutputs === false) {
+      return this.generateObjectFromJsonText(request, {
+        operation: 'generateObjectJsonText',
+      })
+    }
+
     const trace = startTrace('generateObject')
 
     try {
@@ -56,7 +63,10 @@ export class AISDKLLMClient implements LLMClient {
       }
 
       await this.recordTrace(trace, request, {error})
-      return this.generateObjectFromJsonText(request, error)
+      return this.generateObjectFromJsonText(request, {
+        operation: 'generateObjectFallbackText',
+        originalError: error,
+      })
     }
   }
 
@@ -124,8 +134,14 @@ export class AISDKLLMClient implements LLMClient {
     }
   }
 
-  private async generateObjectFromJsonText<T>(request: GenerateObjectRequest<T>, originalError: unknown): Promise<GenerateObjectResult<T>> {
-    const trace = startTrace('generateObjectFallbackText')
+  private async generateObjectFromJsonText<T>(
+    request: GenerateObjectRequest<T>,
+    options: {
+      operation: 'generateObjectFallbackText' | 'generateObjectJsonText'
+      originalError?: unknown
+    },
+  ): Promise<GenerateObjectResult<T>> {
+    const trace = startTrace(options.operation)
     const fallbackRequest = createJsonFallbackRequest(request)
 
     let result: Awaited<ReturnType<typeof generateText>>
@@ -162,8 +178,8 @@ export class AISDKLLMClient implements LLMClient {
         usage: normalizeUsage(result.usage),
       })
 
-      throw new Error(`LLM JSON fallback failed after structured object generation failed: ${error instanceof Error ? error.message : String(error)}`, {
-        cause: originalError,
+      throw new Error(jsonObjectFailureMessage(options.operation, error), {
+        cause: options.originalError,
       })
     }
   }
@@ -181,6 +197,14 @@ export class AISDKLLMClient implements LLMClient {
       trace,
     })
   }
+}
+
+function jsonObjectFailureMessage(operation: 'generateObjectFallbackText' | 'generateObjectJsonText', error: unknown): string {
+  const detail = error instanceof Error ? error.message : String(error)
+
+  return operation === 'generateObjectFallbackText'
+    ? `LLM JSON fallback failed after structured object generation failed: ${detail}`
+    : `LLM JSON text object generation failed: ${detail}`
 }
 
 function createPromptInput(request: GenerateTextRequest): {messages: ModelMessage[]} | {prompt: string} {

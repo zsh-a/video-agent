@@ -153,6 +153,59 @@ describe('html deck compiler', () => {
     }
   })
 
+  it('renders code slides with Shiki highlighting while preserving code formatting', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-code-'))
+
+    try {
+      const result = await writeDeckHtmlProject({
+        outputDir: root,
+        timedDeck: {
+          deck: {
+            format: 'landscape_1920x1080',
+            inputMode: 'script-generated',
+            language: 'zh-CN',
+            slides: [
+              {
+                blockIds: [],
+                code: {
+                  language: 'ts',
+                  text: 'const answer = 42\nif (answer > 0) {\n  console.log(answer)\n}',
+                },
+                evidence: [],
+                motion: 'progressive-reveal',
+                points: [],
+                slideId: 'slide-code',
+                title: '代码样例',
+                type: 'code',
+                visual: {assetRefs: [], kind: 'text'},
+              },
+            ],
+            theme: 'elegant-dark',
+            title: 'Code Deck',
+            version: 1,
+          },
+          timings: [
+            {end: 8, slideId: 'slide-code', start: 0},
+          ],
+          version: 1,
+        },
+      })
+
+      const html = await readText(result.entryHtml)
+      const styles = await readText(result.stylesPath)
+
+      expect(html).to.contain('class="code-block__highlight"')
+      expect(html).to.contain('class="shiki github-dark-default"')
+      expect(html).to.contain('  console.')
+      expect(html.includes('whitespace-normal')).to.equal(false)
+      expect(html.includes('font-sans')).to.equal(false)
+      expect(styles).to.contain('counter-reset: code-line')
+      expect(styles).to.contain('.code-block__highlight .shiki .line::before')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('builds Chromium screenshot commands for a single slide capture', () => {
     const args = buildChromiumScreenshotArgs({
       command: ['chromium'],

@@ -48,15 +48,17 @@ export interface LLMUsage {
   totalTokens?: number
 }
 
-export type LLMTraceOperation = 'generateObject' | 'generateObjectFallbackText' | 'generateText' | 'streamText'
+export type LLMTraceOperation = 'generateObject' | 'generateObjectFallbackText' | 'generateObjectJsonText' | 'generateText' | 'streamText'
 export type LLMTraceStatus = 'failed' | 'succeeded'
 
 export interface LLMTraceRecord {
   completedAt: string
   durationMs: number
   error?: {
+    details?: Record<string, unknown>
     message: string
     name: string
+    stack?: string
   }
   model?: string
   operation: LLMTraceOperation

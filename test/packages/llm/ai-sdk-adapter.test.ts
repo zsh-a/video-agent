@@ -128,6 +128,53 @@ describe('AI SDK LLM adapter', () => {
     expect(result.usage?.totalTokens).to.equal(7)
   })
 
+  it('uses JSON text object generation directly when structured outputs are disabled', async () => {
+    let calls = 0
+    const traces: unknown[] = []
+    const model = createMockLanguageModel({
+      async generateResult() {
+        calls += 1
+
+        return {
+          content: [
+            {
+              text: '```json\n{"ok":true}\n```',
+              type: 'text',
+            },
+          ],
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 4,
+            outputTokens: 3,
+            totalTokens: 7,
+          },
+          warnings: [],
+        }
+      },
+    })
+    const client = new AISDKLLMClient({
+      model,
+      structuredOutputs: false,
+      trace: {
+        record(trace) {
+          traces.push(trace)
+        },
+      },
+    })
+
+    const result = await client.generateObject({
+      prompt: 'Return JSON',
+      schema: z.object({
+        ok: z.boolean(),
+      }),
+    })
+
+    expect(result.object).to.deep.equal({ok: true})
+    expect(calls).to.equal(1)
+    expect((traces[0] as {operation: string; status: string}).operation).to.equal('generateObjectJsonText')
+    expect((traces[0] as {operation: string; status: string}).status).to.equal('succeeded')
+  })
+
   it('falls back to text JSON when structured object generation receives a bad request', async () => {
     let calls = 0
     const model = createMockLanguageModel({
@@ -138,7 +185,8 @@ describe('AI SDK LLM adapter', () => {
           throw new APICallError({
             isRetryable: false,
             message: 'Bad Request',
-            requestBodyValues: {},
+            requestBodyValues: {response_format: {type: 'json_schema'}},
+            responseBody: '{"error":"unsupported response_format"}',
             statusCode: 400,
             url: 'https://example.test/messages',
           })
@@ -229,12 +277,15 @@ describe('AI SDK LLM adapter', () => {
     }
 
     expect(traces).to.have.length(2)
-    const structuredTrace = traces[0] as {error: {message: string}; model: string; operation: string; provider: string; request: {prompt?: string; schema?: unknown}; requestId: string; status: string; version: number}
+    const structuredTrace = traces[0] as {error: {details?: {requestBodyValues?: unknown; responseBody?: unknown; statusCode?: number; url?: string}; message: string}; model: string; operation: string; provider: string; request: {prompt?: string; schema?: unknown}; requestId: string; status: string; version: number}
     const fallbackTrace = traces[1] as {error: {message: string; name: string}; operation: string; response: {text: string}; status: string; usage: {totalTokens: number}}
 
     expect(structuredTrace.operation).to.equal('generateObject')
     expect(structuredTrace.status).to.equal('failed')
     expect(structuredTrace.error.message).to.equal('Bad Request')
+    expect(structuredTrace.error.details?.statusCode).to.equal(400)
+    expect(structuredTrace.error.details?.url).to.equal('https://example.test/messages')
+    expect(structuredTrace.error.details?.requestBodyValues).to.deep.equal({})
     expect(structuredTrace.model).to.equal('mock-model')
     expect(structuredTrace.provider).to.equal('mock-provider')
     expect(structuredTrace.request.prompt).to.equal('Return JSON')
