@@ -141,6 +141,9 @@ import {AbsoluteFill, Composition, interpolate, useCurrentFrame, useVideoConfig}
 import deckData from './deck-data.json';
 import motionTimeline from './motion-timeline.json';
 
+const SCENE_TRANSITION_SECONDS = 0.55;
+const SCENE_ENTER_OFFSET_Y = 28;
+
 interface DeckCompositionProps {
   deckData: typeof deckData;
   motionTimeline: typeof motionTimeline;
@@ -164,37 +167,54 @@ export function DeckComposition(props: DeckCompositionProps) {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const time = frame / fps;
-  const slide = currentSlide(props.deckData, time);
-  const style = motionStyle(props.motionTimeline, time);
 
   return (
     <AbsoluteFill style={{background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif'}}>
-      <AbsoluteFill style={{padding: 96, justifyContent: 'center', ...style}}>
-        <div style={{fontSize: 74, fontWeight: 700, lineHeight: 1.05}}>{slide?.title ?? props.deckData.deck.title}</div>
-        <div style={{display: 'grid', gap: 24, marginTop: 64, fontSize: 34, lineHeight: 1.25}}>
-          {(slide?.points ?? []).map((point) => <div key={point}>{point}</div>)}
-        </div>
-      </AbsoluteFill>
+      {props.motionTimeline.scenes.map((scene, index) => {
+        const slide = props.deckData.deck.slides.find((item) => item.slideId === scene.sourceId);
+        const style = sceneLayerStyle(scene, time, index === props.motionTimeline.scenes.length - 1);
+
+        if (slide === undefined || style.display === 'none') {
+          return null;
+        }
+
+        return (
+          <AbsoluteFill
+            data-slide={slide.slideId}
+            key={scene.id}
+            style={{padding: 96, justifyContent: 'center', ...style}}
+          >
+            <div className="slide__title" style={{fontSize: 74, fontWeight: 700, lineHeight: 1.05}}>{slide.title}</div>
+            <div style={{display: 'grid', gap: 24, marginTop: 64, fontSize: 34, lineHeight: 1.25}}>
+              {slide.points.map((point) => <div className="point" key={point}>{point}</div>)}
+            </div>
+          </AbsoluteFill>
+        );
+      })}
     </AbsoluteFill>
   );
 }
 
-function currentSlide(data: typeof deckData, time: number) {
-  const timing = data.timings.find((item, index) => {
-    const isLast = index === data.timings.length - 1;
-    return time >= item.start && (time < item.end || isLast);
-  });
+function sceneLayerStyle(scene: typeof motionTimeline.scenes[number], time: number, isLast: boolean): React.CSSProperties {
+  const exitEnd = isLast ? scene.end : scene.end + SCENE_TRANSITION_SECONDS;
 
-  return data.deck.slides.find((slide) => slide.slideId === timing?.slideId) ?? data.deck.slides[0];
-}
+  if (time < scene.start || time > exitEnd) {
+    return {display: 'none'};
+  }
 
-function motionStyle(timeline: typeof motionTimeline, time: number): React.CSSProperties {
-  const opacityTrack = timeline.tracks.find((track) => track.property === 'opacity' && time >= track.start && time <= track.start + track.duration);
-  const translateTrack = timeline.tracks.find((track) => track.property === 'translateY' && time >= track.start && time <= track.start + track.duration);
+  const enterEnd = Math.min(scene.start + SCENE_TRANSITION_SECONDS, scene.end);
+  const enterProgress = interpolate(time, [scene.start, enterEnd], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const exitProgress = isLast || time <= scene.end
+    ? 1
+    : interpolate(time, [scene.end, exitEnd], [1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const opacity = Math.min(enterProgress, exitProgress);
+  const translateY = interpolate(enterProgress, [0, 1], [SCENE_ENTER_OFFSET_Y, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const scale = interpolate(enterProgress, [0, 1], [0.985, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
 
   return {
-    opacity: opacityTrack === undefined ? 1 : interpolate(time, [opacityTrack.start, opacityTrack.start + opacityTrack.duration], [Number(opacityTrack.from), Number(opacityTrack.to)], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'}),
-    transform: translateTrack === undefined ? undefined : \`translateY(\${interpolate(time, [translateTrack.start, translateTrack.start + translateTrack.duration], [Number(translateTrack.from), Number(translateTrack.to)], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}px)\`,
+    opacity,
+    transform: \`translateY(\${translateY}px) scale(\${scale})\`,
+    zIndex: time <= scene.end ? 2 : 1,
   };
 }
 `
