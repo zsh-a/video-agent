@@ -1,4 +1,5 @@
-import type {TuiActionResult, TuiCommandSuggestion, TuiSnapshot} from '../commands/tui.js'
+import type {TuiActionResult} from './tui-action-types.js'
+import type {TuiCommandSuggestion, TuiSnapshot} from './tui-model.js'
 
 export type TuiManagerView = 'actions' | 'artifacts' | 'commands' | 'dashboard' | 'events' | 'output' | 'projects' | 'quality'
 export type TuiManagerActionId = 'audio' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'status' | 'verify' | 'visual' | 'worker-dry-run'

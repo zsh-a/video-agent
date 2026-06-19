@@ -2,7 +2,7 @@ import type {ReactElement} from 'react'
 
 import {Fragment, createElement as h} from 'react'
 
-import type {TuiCommandSuggestion} from '../../commands/tui.js'
+import type {TuiCommandSuggestion} from '../tui-model.js'
 
 import {EmptyTable, Table} from '../components/Table.js'
 import {SectionHeading} from './common.js'

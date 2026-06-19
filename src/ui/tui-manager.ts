@@ -3,7 +3,7 @@ import type {ReactElement} from 'react'
 import {render, useApp, useInput} from 'ink'
 import {createElement as h, useCallback, useEffect, useMemo, useRef, useState} from 'react'
 
-import type {TuiSnapshot} from '../commands/tui.js'
+import type {TuiSnapshot} from './tui-model.js'
 import type {LaunchTuiManagerOptions, TuiManagerActionRequest, TuiManagerAppProps} from './tui-types.js'
 
 import {useActionExecutor} from './hooks/useActionExecutor.js'

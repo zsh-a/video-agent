@@ -8,7 +8,8 @@ import type {ProjectStatus} from '../../packages/runtime/src/project-status.js'
 
 import {JsonJobStore} from '../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../packages/runtime/src/artifact-store.js'
-import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection, runTuiAction} from '../../src/commands/tui.js'
+import {runTuiAction} from '../../src/ui/tui-actions.js'
+import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../../src/ui/tui-console-format.js'
 
 describe('tui command', () => {
   it('formats dashboard actions without a banner', () => {

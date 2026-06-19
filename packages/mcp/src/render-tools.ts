@@ -1,0 +1,80 @@
+import type {ExportFormat} from '@video-agent/runtime'
+import type {McpToolDefinition} from './toolkit.js'
+
+import {exportProject, inspectFfmpegAudio, renderProject} from '@video-agent/runtime'
+import {
+  booleanSchema,
+  createToolDefinition,
+  enumSchema,
+  numberSchema,
+  projectIdSchema,
+  readOptionalBoolean,
+  readOptionalEnum,
+  readOptionalNumber,
+  readOptionalString,
+  readRequiredString,
+  stringSchema,
+} from './toolkit.js'
+
+export const RENDER_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
+  createToolDefinition('video_agent_render', 'Render a project timeline with ffmpeg.', {
+    audio: booleanSchema('When false, render without source or voiceover audio. Defaults to true.'),
+    audioDucking: booleanSchema('Enable sidechain ducking so voiceover lowers source audio.'),
+    duckingAttackMs: numberSchema('Sidechain compressor attack in milliseconds.'),
+    duckingRatio: numberSchema('Sidechain compressor ratio.'),
+    duckingReleaseMs: numberSchema('Sidechain compressor release in milliseconds.'),
+    duckingThreshold: numberSchema('Sidechain compressor threshold in dB.'),
+    output: stringSchema('Output video path.'),
+    projectId: projectIdSchema(),
+    sourceVolume: numberSchema('Source audio volume multiplier.'),
+    subtitles: booleanSchema('When false, skip generated subtitle burn-in. Defaults to true for ffmpeg.'),
+    voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
+  }, (args, workspaceDir) => renderProject(readRequiredString(args, 'projectId'), {
+    audio: readOptionalBoolean(args, 'audio'),
+    audioDucking: readOptionalBoolean(args, 'audioDucking'),
+    duckingAttackMs: readOptionalNumber(args, 'duckingAttackMs'),
+    duckingRatio: readOptionalNumber(args, 'duckingRatio'),
+    duckingReleaseMs: readOptionalNumber(args, 'duckingReleaseMs'),
+    duckingThreshold: readOptionalNumber(args, 'duckingThreshold'),
+    output: readOptionalString(args, 'output'),
+    sourceVolume: readOptionalNumber(args, 'sourceVolume'),
+    subtitles: readOptionalBoolean(args, 'subtitles'),
+    voiceoverVolume: readOptionalNumber(args, 'voiceoverVolume'),
+    workspaceDir,
+  })),
+  createToolDefinition('video_agent_inspect_audio', 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.', {
+    audio: booleanSchema('When false, report a disabled audio plan. Defaults to true.'),
+    audioDucking: booleanSchema('Inspect audio settings with sidechain ducking enabled.'),
+    duckingAttackMs: numberSchema('Sidechain compressor attack in milliseconds.'),
+    duckingRatio: numberSchema('Sidechain compressor ratio.'),
+    duckingReleaseMs: numberSchema('Sidechain compressor release in milliseconds.'),
+    duckingThreshold: numberSchema('Sidechain compressor threshold in dB.'),
+    projectId: projectIdSchema(),
+    sourceVolume: numberSchema('Source audio volume multiplier.'),
+    voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
+  }, (args, workspaceDir) => inspectFfmpegAudio(readRequiredString(args, 'projectId'), {
+    audio: readOptionalBoolean(args, 'audio'),
+    audioDucking: readOptionalBoolean(args, 'audioDucking'),
+    duckingAttackMs: readOptionalNumber(args, 'duckingAttackMs'),
+    duckingRatio: readOptionalNumber(args, 'duckingRatio'),
+    duckingReleaseMs: readOptionalNumber(args, 'duckingReleaseMs'),
+    duckingThreshold: readOptionalNumber(args, 'duckingThreshold'),
+    sourceVolume: readOptionalNumber(args, 'sourceVolume'),
+    voiceoverVolume: readOptionalNumber(args, 'voiceoverVolume'),
+    workspaceDir,
+  })),
+  createToolDefinition('video_agent_export', 'Export final video or full project bundle.', {
+    cleanOutput: booleanSchema('When true for directory exports, remove the existing output directory before copying the new bundle output.'),
+    format: enumSchema(['video', 'bundle'], 'Export format. Defaults to video.'),
+    outputPath: stringSchema('Destination path for the exported output.'),
+    projectId: projectIdSchema(),
+    requireQuality: booleanSchema('When true, refuse export unless project quality is clean.'),
+  }, (args, workspaceDir) => exportProject({
+    cleanOutput: readOptionalBoolean(args, 'cleanOutput'),
+    format: readOptionalEnum(args, 'format', ['video', 'bundle']) as ExportFormat | undefined,
+    outputPath: readOptionalString(args, 'outputPath'),
+    projectId: readRequiredString(args, 'projectId'),
+    requireQuality: readOptionalBoolean(args, 'requireQuality'),
+    workspaceDir,
+  })),
+]

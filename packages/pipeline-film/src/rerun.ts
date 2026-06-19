@@ -1,6 +1,6 @@
 import {resolve} from 'node:path'
 
-import {runFilmRecapProject, type RunFilmRecapProjectResult} from './film-project.js'
+import {runFilmRecapProject, type RunFilmRecapProjectResult} from './film-rerun-runner.js'
 import {FILM_PIPELINE_DEFINITION, type FilmPipelineStage} from './pipeline.js'
 import {assertPipelineStage, createConfiguredJobStore, detectPipelineKind, readConfig, type PipelineStage} from '@video-agent/runtime'
 

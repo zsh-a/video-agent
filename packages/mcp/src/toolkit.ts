@@ -1,0 +1,247 @@
+export interface McpTool {
+  description: string
+  inputSchema: JsonSchemaObject
+  name: string
+}
+
+export interface JsonSchemaObject {
+  additionalProperties?: boolean
+  properties?: Record<string, unknown>
+  required?: string[]
+  type: 'object'
+}
+
+export interface McpToolCallOptions {
+  workspaceDir?: string
+}
+
+export interface ToolCallParams {
+  arguments: Record<string, unknown>
+  name: string
+}
+
+export type McpToolHandler = (args: Record<string, unknown>, workspaceDir: string | undefined) => Promise<unknown> | unknown
+
+export interface McpToolDefinition {
+  handler: McpToolHandler
+  tool: McpTool
+}
+
+export function createToolDefinition(
+  name: string,
+  description: string,
+  properties: Record<string, unknown>,
+  handler: McpToolHandler,
+  required: string[] = requiredFromProperties(properties),
+): McpToolDefinition {
+  return {
+    handler,
+    tool: {
+      description,
+      inputSchema: {
+        additionalProperties: false,
+        properties,
+        required,
+        type: 'object',
+      },
+      name,
+    },
+  }
+}
+
+export function withWorkspaceDirSchema(tool: McpTool): McpTool {
+  return {
+    ...tool,
+    inputSchema: {
+      ...tool.inputSchema,
+      properties: {
+        ...tool.inputSchema.properties,
+        workspaceDir: stringSchema('Workspace directory override. Defaults to the MCP server workspace.'),
+      },
+    },
+  }
+}
+
+export function parseToolCallParams(value: unknown): ToolCallParams {
+  if (!isRecord(value) || typeof value.name !== 'string') {
+    throw new TypeError('tools/call params must include a string name.')
+  }
+
+  return {
+    arguments: isRecord(value.arguments) ? value.arguments : {},
+    name: value.name,
+  }
+}
+
+export function stringSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    type: 'string',
+  }
+}
+
+export function projectIdSchema(): Record<string, unknown> {
+  return stringSchema('Project id inside the video-agent workspace.')
+}
+
+export function booleanSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    type: 'boolean',
+  }
+}
+
+export function integerSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    minimum: 0,
+    type: 'integer',
+  }
+}
+
+export function numberSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    type: 'number',
+  }
+}
+
+export function stringArraySchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    items: {
+      type: 'string',
+    },
+    type: 'array',
+  }
+}
+
+export function stringRecordSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    additionalProperties: {
+      type: 'string',
+    },
+    type: 'object',
+  }
+}
+
+export function enumSchema(values: readonly string[], description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    enum: values,
+    type: 'string',
+  }
+}
+
+export function readRequiredString(value: Record<string, unknown>, field: string): string {
+  const result = readOptionalString(value, field)
+
+  if (result === undefined || result.trim() === '') {
+    throw new TypeError(`MCP tool argument ${field} is required.`)
+  }
+
+  return result
+}
+
+export function readOptionalString(value: Record<string, unknown>, field: string): string | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (typeof value[field] !== 'string') {
+    throw new TypeError(`MCP tool argument ${field} must be a string.`)
+  }
+
+  return value[field]
+}
+
+export function readOptionalBoolean(value: Record<string, unknown>, field: string): boolean | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (typeof value[field] !== 'boolean') {
+    throw new TypeError(`MCP tool argument ${field} must be a boolean.`)
+  }
+
+  return value[field]
+}
+
+export function readOptionalInteger(value: Record<string, unknown>, field: string): number | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (!Number.isInteger(value[field]) || (value[field] as number) < 0) {
+    throw new TypeError(`MCP tool argument ${field} must be a non-negative integer.`)
+  }
+
+  return value[field] as number
+}
+
+export function readOptionalNumber(value: Record<string, unknown>, field: string): number | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (typeof value[field] !== 'number' || !Number.isFinite(value[field])) {
+    throw new TypeError(`MCP tool argument ${field} must be a finite number.`)
+  }
+
+  return value[field]
+}
+
+export function readOptionalStringArray(value: Record<string, unknown>, field: string): string[] | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (!Array.isArray(value[field]) || !(value[field] as unknown[]).every((item) => typeof item === 'string')) {
+    throw new TypeError(`MCP tool argument ${field} must be an array of strings.`)
+  }
+
+  return value[field]
+}
+
+export function readOptionalStringRecord(value: Record<string, unknown>, field: string): Record<string, string> | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (!isRecord(value[field])) {
+    throw new TypeError(`MCP tool argument ${field} must be an object of string values.`)
+  }
+
+  const record: Record<string, string> = {}
+
+  for (const [key, item] of Object.entries(value[field])) {
+    if (typeof item !== 'string') {
+      throw new TypeError(`MCP tool argument ${field}.${key} must be a string.`)
+    }
+
+    record[key] = item
+  }
+
+  return record
+}
+
+export function readOptionalEnum<T extends string>(value: Record<string, unknown>, field: string, values: readonly T[]): T | undefined {
+  if (value[field] === undefined || value[field] === null) {
+    return undefined
+  }
+
+  if (typeof value[field] === 'string' && values.includes(value[field] as T)) {
+    return value[field] as T
+  }
+
+  throw new TypeError(`MCP tool argument ${field} must be one of: ${values.join(', ')}.`)
+}
+
+function requiredFromProperties(properties: Record<string, unknown>): string[] {
+  return Object.keys(properties).filter((key) => key === 'inputPath' || key === 'projectId')
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}

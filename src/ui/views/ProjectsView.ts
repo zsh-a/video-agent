@@ -2,7 +2,7 @@ import type {ReactElement} from 'react'
 
 import {Fragment, createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../../commands/tui.js'
+import type {TuiSnapshot} from '../tui-model.js'
 
 import {EmptyTable, Table} from '../components/Table.js'
 import {compactStatus, statusColor} from '../theme.js'

@@ -1,15 +1,15 @@
-import type {DeckMotionPreset, DeckSlideType, MotionEasing, MotionProperty, MotionTimeline, Slide, TimedDeck} from '@video-agent/ir'
+import type {DeckMotionPreset, DeckSlideType, MotionTimeline, Slide, TimedDeck} from '@video-agent/ir'
 
 import {MotionTimelineSchema} from '@video-agent/ir'
 
+import {motionPresetState, resolveBlurFreePreset} from './motion-presets.js'
+import {compileTransitions, type DeckMotionTransition} from './motion-transitions.js'
+import {cssEscape, round} from './motion-utils.js'
 import type {TemplateMotionStep} from './templates/define-template.js'
 
-export interface DeckMotionTransition {
-  from: string
-  to: string
-  type: 'crossfade' | 'fade' | 'slide-left' | 'slide-up'
-  duration: number
-}
+export type {DeckMotionTransition}
+export {motionPresetState, titlePresetFor} from './motion-presets.js'
+export {clamp} from './motion-utils.js'
 
 export interface DeckMotionPlan {
   duration: number
@@ -53,12 +53,6 @@ export type ResolveMotionSteps = (type: DeckSlideType) => TemplateMotionStep[] |
 
 export interface MotionOptions {
   blurFree?: boolean
-}
-
-const BLUR_FREE_PRESETS: Partial<Record<DeckMotionPreset, DeckMotionPreset>> = {
-  'blur-rise': 'slide-up',
-  'progressive-reveal': 'stagger-up',
-  'zoom-focus': 'soft-scale',
 }
 
 export function compileDeckMotionPlan(timedDeck: TimedDeck, resolveMotionSteps: ResolveMotionSteps, options?: MotionOptions): DeckMotionPlan {
@@ -121,50 +115,6 @@ function compileMotionTimeline(input: {
   })
 }
 
-function compileTransitions(slides: TimedDeck['deck']['slides'], motionSlides: DeckMotionSlide[]): DeckMotionTransition[] {
-  const transitions: DeckMotionTransition[] = []
-
-  for (let i = 0; i < slides.length - 1; i++) {
-    const from = slides[i]
-    const to = slides[i + 1]
-    const fromSlide = motionSlides[i]
-    const toSlide = motionSlides[i + 1]
-
-    if (from === undefined || to === undefined || fromSlide === undefined || toSlide === undefined) {
-      continue
-    }
-
-    transitions.push({
-      duration: 0.55,
-      from: from.slideId,
-      to: to.slideId,
-      type: transitionType(from.type, to.type),
-    })
-  }
-
-  return transitions
-}
-
-function transitionType(fromType: string, toType: string): DeckMotionTransition['type'] {
-  if (fromType === 'section' || fromType === 'hero') {
-    return 'slide-up'
-  }
-
-  if (toType === 'comparison' || toType === 'process' || toType === 'timeline') {
-    return 'slide-left'
-  }
-
-  if (toType === 'section' || toType === 'cta') {
-    return 'fade'
-  }
-
-  if (fromType === 'cta') {
-    return 'fade'
-  }
-
-  return 'crossfade'
-}
-
 function tracksForStep(step: DeckMotionStep, stepIndex: number, options?: MotionOptions): MotionTimeline['tracks'] {
   const preset = motionPresetState(step.preset, options)
 
@@ -190,177 +140,6 @@ function tracksForStep(step: DeckMotionStep, stepIndex: number, options?: Motion
   })
 }
 
-interface MotionPresetState {
-  easing: MotionEasing
-  properties: MotionPresetProperty[]
-}
-
-interface MotionPresetProperty {
-  from: number
-  property: MotionProperty
-  to: number
-}
-
-export function motionPresetState(preset: DeckMotionPreset, options?: {blurFree?: boolean}): MotionPresetState {
-  if (options?.blurFree && preset in BLUR_FREE_PRESETS) {
-    return motionPresetState(BLUR_FREE_PRESETS[preset]!, options)
-  }
-
-  if (preset === 'fade-in') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-    ])
-  }
-
-  if (preset === 'slide-up') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-      property('translateY', 36, 0),
-    ])
-  }
-
-  if (preset === 'soft-scale') {
-    return presetState('easeOutExpo', [
-      property('opacity', 0, 1),
-      property('scale', 0.96, 1),
-    ])
-  }
-
-  if (preset === 'blur-rise') {
-    return presetState('easeOutCubic', [
-      property('blur', 12, 0),
-      property('opacity', 0, 1),
-      property('translateY', 44, 0),
-    ])
-  }
-
-  if (preset === 'stagger-up') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-      property('translateY', 34, 0),
-    ])
-  }
-
-  if (preset === 'progressive-reveal') {
-    return presetState('easeOutCubic', [
-      property('blur', 8, 0),
-      property('opacity', 0, 1),
-      property('translateY', 28, 0),
-    ])
-  }
-
-  if (preset === 'card-stack') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-      property('scale', 0.98, 1),
-      property('translateY', 30, 0),
-    ])
-  }
-
-  if (preset === 'line-draw') {
-    return presetState('easeOutCubic', [
-      property('scaleX', 0, 1),
-    ])
-  }
-
-  if (preset === 'number-count') {
-    return presetState('easeOutExpo', [
-      property('opacity', 0, 1),
-      property('scale', 0.92, 1),
-      property('translateY', 26, 0),
-    ])
-  }
-
-  if (preset === 'spotlight') {
-    return presetState('easeOutCubic', [
-      property('scale', 1, 1.035),
-    ])
-  }
-
-  if (preset === 'wipe') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-      property('translateX', -34, 0),
-    ])
-  }
-
-  if (preset === 'zoom-focus') {
-    return presetState('easeOutExpo', [
-      property('blur', 8, 0),
-      property('opacity', 0, 1),
-      property('scale', 0.94, 1),
-    ])
-  }
-
-  if (preset === 'rotate') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-      property('rotate', -8, 0),
-      property('scale', 0.98, 1),
-    ])
-  }
-
-  if (preset === 'spin') {
-    return presetState('easeOutExpo', [
-      property('opacity', 0, 1),
-      property('rotate', -180, 0),
-      property('scale', 0.9, 1),
-    ])
-  }
-
-  if (preset === 'spring') {
-    return presetState('easeOutExpo', [
-      property('opacity', 0, 1),
-      property('scale', 0.86, 1),
-      property('translateY', 42, 0),
-    ])
-  }
-
-  if (preset === 'bounce') {
-    return presetState('easeOutExpo', [
-      property('opacity', 0, 1),
-      property('scale', 0.82, 1),
-      property('translateY', -32, 0),
-    ])
-  }
-
-  if (preset === 'typewriter') {
-    return presetState('linear', [
-      property('opacity', 0, 1),
-      property('translateX', -10, 0),
-    ])
-  }
-
-  if (preset === 'parallax') {
-    return presetState('easeOutCubic', [
-      property('opacity', 0, 1),
-      property('scale', 1.04, 1),
-      property('translateY', 70, 0),
-    ])
-  }
-
-  return presetState('easeOutExpo', [
-    property('opacity', 0, 1),
-    property('scale', 0.96, 1),
-    property('translateY', 60, 0),
-  ])
-}
-
-function presetState(easing: MotionEasing, properties: MotionPresetProperty[]): MotionPresetState {
-  return {
-    easing,
-    properties,
-  }
-}
-
-function property(property: MotionProperty, from: number, to: number): MotionPresetProperty {
-  return {
-    from,
-    property,
-    to,
-  }
-}
-
 function compileSlideSteps(slide: Slide, timing: DeckMotionSlide, resolveMotionSteps: ResolveMotionSteps, options?: MotionOptions): DeckMotionStep[] {
   const templateSteps = resolveMotionSteps(slide.type)
 
@@ -379,9 +158,7 @@ function resolveTemplateSteps(slide: Slide, timing: DeckMotionSlide, templateSte
     const rawPreset = typeof templateStep.preset === 'function'
       ? templateStep.preset(slide.motion)
       : templateStep.preset
-    const resolvedPreset = options?.blurFree && rawPreset in BLUR_FREE_PRESETS
-      ? BLUR_FREE_PRESETS[rawPreset]!
-      : rawPreset
+    const resolvedPreset = resolveBlurFreePreset(rawPreset, options?.blurFree)
 
     return {
       at: round(timing.start + templateStep.at(duration)),
@@ -391,22 +168,6 @@ function resolveTemplateSteps(slide: Slide, timing: DeckMotionSlide, templateSte
       ...(templateStep.stagger === undefined ? {} : {stagger: round(templateStep.stagger)}),
     }
   })
-}
-
-export function titlePresetFor(preset: DeckMotionPreset): DeckMotionPreset {
-  if (preset === 'stagger-up' || preset === 'progressive-reveal' || preset === 'card-stack' || preset === 'parallax') {
-    return 'blur-rise'
-  }
-
-  if (preset === 'number-count' || preset === 'line-draw' || preset === 'spotlight' || preset === 'typewriter') {
-    return 'slide-up'
-  }
-
-  return preset
-}
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
 }
 
 function summarizeMotionPlan(input: {
@@ -457,12 +218,4 @@ function slideIdFromSelector(selector: string): string | undefined {
   const match = /\[data-slide="((?:\\"|[^"])*)"\]/.exec(selector)
 
   return match?.[1]?.replaceAll('\\"', '"').replaceAll('\\\\', '\\')
-}
-
-function round(value: number): number {
-  return Math.round(value * 1000) / 1000
-}
-
-function cssEscape(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')
 }

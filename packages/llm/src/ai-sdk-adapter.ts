@@ -1,7 +1,6 @@
 import type {LanguageModel, ModelMessage} from 'ai'
 
-import {APICallError, generateObject, generateText, NoObjectGeneratedError, RetryError, streamText} from 'ai'
-import {toJSONSchema} from 'zod'
+import {generateObject, generateText, streamText} from 'ai'
 
 import type {
   GenerateObjectRequest,
@@ -10,13 +9,14 @@ import type {
   GenerateTextResult,
   LLMClient,
   LLMEvent,
-  LLMTraceOperation,
   LLMTraceRecorder,
   LLMUsage,
   StreamTextRequest,
 } from './types.js'
 
-import {createHash, randomUUID} from 'node:crypto'
+import {createJsonFallbackRequest, parseJsonFromText, shouldFallbackToJsonText} from './ai-sdk-json-fallback.js'
+import {recordAISDKTrace, startTrace, type TraceContext} from './ai-sdk-tracing.js'
+import {normalizeUsage} from './ai-sdk-usage.js'
 
 export interface AISDKLLMClientOptions {
   model: LanguageModel
@@ -173,31 +173,13 @@ export class AISDKLLMClient implements LLMClient {
     request: GenerateTextRequest | GenerateObjectRequest<unknown>,
     result: {error?: unknown; object?: unknown; text?: string; usage?: LLMUsage},
   ): Promise<void> {
-    if (this.options.trace === undefined) {
-      return
-    }
-
-    const completedAtMs = Date.now()
-
-    try {
-      await this.options.trace.record({
-        completedAt: new Date(completedAtMs).toISOString(),
-        durationMs: completedAtMs - trace.startedAtMs,
-        ...(result.error === undefined ? {} : {error: normalizeError(result.error)}),
-        ...(readLanguageModelString(this.options.model, 'modelId') === undefined ? {} : {model: readLanguageModelString(this.options.model, 'modelId')}),
-        operation: trace.operation,
-        ...(readLanguageModelString(this.options.model, 'provider') === undefined ? {} : {provider: readLanguageModelString(this.options.model, 'provider')}),
-        request: traceRequest(request),
-        requestId: trace.requestId,
-        ...(result.error === undefined ? {response: traceResponse(result)} : result.text === undefined ? {} : {response: {text: result.text}}),
-        startedAt: trace.startedAt,
-        status: result.error === undefined ? 'succeeded' : 'failed',
-        ...(result.usage === undefined ? {} : {usage: result.usage}),
-        version: 1,
-      })
-    } catch {
-      // Tracing must never change LLM behavior.
-    }
+    await recordAISDKTrace({
+      model: this.options.model,
+      recorder: this.options.trace,
+      request,
+      result,
+      trace,
+    })
   }
 }
 
@@ -215,244 +197,4 @@ function createPromptInput(request: GenerateTextRequest): {messages: ModelMessag
   }
 
   throw new Error('LLM request requires either prompt or messages.')
-}
-
-function shouldFallbackToJsonText(error: unknown): boolean {
-  return NoObjectGeneratedError.isInstance(error)
-    || isBadRequestApiError(error)
-    || (RetryError.isInstance(error) && isBadRequestApiError(error.lastError))
-}
-
-function isBadRequestApiError(error: unknown): boolean {
-  return APICallError.isInstance(error) && error.statusCode === 400
-}
-
-function createJsonFallbackRequest<T>(request: GenerateObjectRequest<T>): GenerateTextRequest {
-  const instruction = [
-    'Return only valid JSON. Do not include markdown fences, prose, or commentary.',
-    'The JSON must conform to this JSON Schema:',
-    JSON.stringify(toJSONSchema(request.schema), null, 2),
-  ].join('\n')
-
-  if (request.messages !== undefined) {
-    return {
-      messages: [
-        ...request.messages,
-        {
-          content: instruction,
-          role: 'user',
-        },
-      ],
-      ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
-      ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
-    }
-  }
-
-  if (request.prompt !== undefined) {
-    return {
-      prompt: `${request.prompt}\n\n${instruction}`,
-      ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
-      ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
-    }
-  }
-
-  throw new Error('LLM request requires either prompt or messages.')
-}
-
-function parseJsonFromText(text: string): unknown {
-  const trimmed = text.trim()
-
-  if (trimmed === '') {
-    throw new Error('LLM returned empty text.')
-  }
-
-  try {
-    return parseJsonCandidate(trimmed)
-  } catch {
-    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed)
-
-    if (fenced?.[1] !== undefined) {
-      return parseJsonCandidate(fenced[1])
-    }
-
-    return parseJsonCandidate(extractJsonSubstring(trimmed))
-  }
-}
-
-function parseJsonCandidate(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown
-  } catch (error) {
-    const repaired = repairCommonLLMJson(text)
-
-    if (repaired !== text) {
-      return JSON.parse(repaired) as unknown
-    }
-
-    throw error
-  }
-}
-
-function repairCommonLLMJson(text: string): string {
-  return text.replace(
-    /("comparison"\s*:\s*\{\s*"left"\s*:\s*\{[\s\S]*?\}\s*,)\s*\{\s*("label"\s*:)/g,
-    '$1 "right": { $2',
-  )
-}
-
-function extractJsonSubstring(text: string): string {
-  const objectStart = text.indexOf('{')
-  const arrayStart = text.indexOf('[')
-  const start = objectStart === -1 ? arrayStart : arrayStart === -1 ? objectStart : Math.min(objectStart, arrayStart)
-
-  if (start === -1) {
-    throw new Error('LLM text did not contain JSON.')
-  }
-
-  const objectEnd = text.lastIndexOf('}')
-  const arrayEnd = text.lastIndexOf(']')
-  const end = Math.max(objectEnd, arrayEnd)
-
-  if (end < start) {
-    throw new Error('LLM text contained incomplete JSON.')
-  }
-
-  return text.slice(start, end + 1)
-}
-
-function normalizeUsage(usage: undefined | {inputTokens?: number; outputTokens?: number; totalTokens?: number}): LLMUsage | undefined {
-  if (usage === undefined) {
-    return undefined
-  }
-
-  return {
-    ...(usage.inputTokens === undefined ? {} : {inputTokens: usage.inputTokens}),
-    ...(usage.outputTokens === undefined ? {} : {outputTokens: usage.outputTokens}),
-    ...(usage.totalTokens === undefined ? {} : {totalTokens: usage.totalTokens}),
-  }
-}
-
-interface TraceContext {
-  operation: LLMTraceOperation
-  requestId: string
-  startedAt: string
-  startedAtMs: number
-}
-
-function startTrace(operation: LLMTraceOperation): TraceContext {
-  const startedAtMs = Date.now()
-
-  return {
-    operation,
-    requestId: `llm_${randomUUID()}`,
-    startedAt: new Date(startedAtMs).toISOString(),
-    startedAtMs,
-  }
-}
-
-function traceRequest(request: GenerateTextRequest | GenerateObjectRequest<unknown>): {
-  messages?: ModelMessage[]
-  prompt?: string
-  providerOptions?: GenerateTextRequest['providerOptions']
-  schema?: unknown
-  temperature?: number
-} {
-  return {
-    ...(request.messages === undefined ? {} : {messages: sanitizeTraceMessages(request.messages)}),
-    ...(request.prompt === undefined ? {} : {prompt: request.prompt}),
-    ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
-    ...(!('schema' in request) ? {} : {schema: toJSONSchema(request.schema)}),
-    ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
-  }
-}
-
-function sanitizeTraceMessages(messages: ModelMessage[]): ModelMessage[] {
-  return messages.map((message) => {
-    if (!('content' in message) || !Array.isArray(message.content)) {
-      return message
-    }
-
-    return {
-      ...message,
-      content: message.content.map((part) => sanitizeTraceContentPart(part)),
-    } as ModelMessage
-  })
-}
-
-function sanitizeTraceContentPart(part: unknown): unknown {
-  if (!isRecord(part)) {
-    return part
-  }
-
-  const sanitized = {...part}
-
-  if (shouldOmitTraceData(sanitized.data, sanitized)) {
-    sanitized.data = summarizeTraceMediaData(sanitized.data)
-  }
-
-  if (shouldOmitTraceData(sanitized.image, sanitized)) {
-    sanitized.image = summarizeTraceMediaData(sanitized.image)
-  }
-
-  return sanitized
-}
-
-function shouldOmitTraceData(value: unknown, part: Record<string, unknown>): value is string {
-  if (typeof value !== 'string' || value.length === 0) {
-    return false
-  }
-
-  return value.startsWith('data:')
-    || typeof part.mediaType === 'string'
-    || part.type === 'file'
-    || part.type === 'image'
-}
-
-function summarizeTraceMediaData(value: string): string {
-  return `[omitted media payload: ${summarizeTraceMediaPayload(value)}]`
-}
-
-function summarizeTraceMediaPayload(value: string): string {
-  const dataUri = /^data:([^;,]+)?(?:;base64)?,/u.exec(value)
-  const mediaType = dataUri?.[1]
-  const dataStart = dataUri === null ? 0 : dataUri[0].length
-  const payloadChars = value.length - dataStart
-  const sha256 = createHash('sha256').update(value).digest('hex')
-
-  return [
-    ...(mediaType === undefined ? [] : [`mediaType=${mediaType}`]),
-    `chars=${payloadChars}`,
-    `sha256=${sha256}`,
-  ].join(' ')
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function traceResponse(result: {object?: unknown; text?: string}): {object?: unknown; text?: string} {
-  return {
-    ...(result.object === undefined ? {} : {object: result.object}),
-    ...(result.text === undefined ? {} : {text: result.text}),
-  }
-}
-
-function normalizeError(error: unknown): {message: string; name: string} {
-  if (error instanceof Error) {
-    return {
-      message: error.message,
-      name: error.name,
-    }
-  }
-
-  return {
-    message: String(error),
-    name: 'Error',
-  }
-}
-
-function readLanguageModelString(model: LanguageModel, key: 'modelId' | 'provider'): string | undefined {
-  const value = (model as Record<string, unknown>)[key]
-
-  return typeof value === 'string' && value !== '' ? value : undefined
 }

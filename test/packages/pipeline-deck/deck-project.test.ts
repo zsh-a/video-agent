@@ -11,7 +11,7 @@ import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
 import {readProjectVisualSamples} from '../../../packages/runtime/src/project-visual-samples.js'
-import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/pipeline-deck/src/deck-project.js'
+import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/pipeline-deck/src/index.js'
 
 function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<unknown>) => void): LLMClient {
   return {

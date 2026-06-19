@@ -3,7 +3,7 @@ import type {ReactElement} from 'react'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
-import type {TuiCommandSuggestion, TuiSnapshot} from '../../commands/tui.js'
+import type {TuiCommandSuggestion, TuiSnapshot} from '../tui-model.js'
 import type {TuiManagerActionDefinition, TuiManagerView} from '../tui-types.js'
 
 import {Badge} from '../components/Badge.js'

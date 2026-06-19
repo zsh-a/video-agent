@@ -1,4 +1,4 @@
-import type {TuiSnapshot} from '../commands/tui.js'
+import type {TuiSnapshot} from './tui-model.js'
 
 export function formatRender(render: NonNullable<TuiSnapshot['selected']>['summary']['render']): string {
   if (!render.rendered) {

@@ -1,0 +1,37 @@
+import type {Claims, ContentBlock, Deck, DeckFormat, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {QualityIssue} from '@video-agent/quality'
+
+export interface TextDeckProjectPlan {
+  claims: Claims
+  contentBlocks: {blocks: ContentBlock[]; version: 1}
+  deck: Deck
+  document: Document
+  mediaInfo: MediaInfo
+  narration: Narration
+  outline: Outline
+  qualityReport: {
+    checkedAt: string
+    issues: QualityIssue[]
+    narrationSegments: number
+    summary: {errors: number; warnings: number}
+    ttsSegments: number
+    version: 1
+  }
+  selectedMoments: LongVideoSelectedMoments
+  sourceQuotes: SourceQuotes
+  speakerScript: SpeakerScript
+  storyboard: Storyboard
+  timedDeck: TimedDeck
+  timeline: Timeline
+}
+
+export interface TextDeckProjectPlanOptions {
+  deckFormat?: DeckFormat
+  durationTargetSeconds?: number
+  language: string
+  maxSlideCharacters: number
+  slideSeconds: number
+  sourceType?: Document['source']['sourceType']
+  theme?: string
+  title?: string
+}

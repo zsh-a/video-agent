@@ -7,6 +7,8 @@ import {resolve} from 'node:path'
 
 import {bunWrite, type ProjectWorkspace} from '@video-agent/runtime'
 
+import {roundSeconds} from './deck-utils.js'
+
 export const DECK_REVIEW_FRAME_RENDERER = 'remotion'
 export const DEFAULT_DECK_REVIEW_FRAME_CONCURRENCY = 4
 
@@ -339,8 +341,4 @@ function escapeHtml(value: string): string {
 
 function toProjectPath(projectDir: string, path: string): string {
   return path.startsWith(`${projectDir}/`) ? path.slice(projectDir.length + 1) : path
-}
-
-function roundSeconds(value: number): number {
-  return Math.round(value * 1000) / 1000
 }

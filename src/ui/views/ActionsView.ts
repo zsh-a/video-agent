@@ -2,7 +2,7 @@ import type {ReactElement} from 'react'
 
 import {Fragment, createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../../commands/tui.js'
+import type {TuiSnapshot} from '../tui-model.js'
 import type {TuiManagerActionDefinition} from '../tui-types.js'
 
 import {Table} from '../components/Table.js'

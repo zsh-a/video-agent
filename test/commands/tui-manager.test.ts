@@ -1,4 +1,4 @@
-import type {TuiSnapshot} from '../../src/commands/tui.js'
+import type {TuiSnapshot} from '../../src/ui/tui-model.js'
 
 import {expect} from '#test/expect'
 import {renderToString} from 'ink'

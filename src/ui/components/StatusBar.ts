@@ -6,7 +6,7 @@ import {createElement as h} from 'react'
 import {formatIssueSummary} from '../tui-format.js'
 import {symbols, theme} from '../theme.js'
 
-import type {TuiSnapshot} from '../../commands/tui.js'
+import type {TuiSnapshot} from '../tui-model.js'
 
 export interface StatusBarProps {
   error?: string
