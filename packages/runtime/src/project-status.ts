@@ -54,6 +54,9 @@ export interface RenderSummary {
   outputWarnings: number
   rendered: boolean
   renderer?: string
+  reviewAvailable: boolean
+  reviewHtml?: string
+  reviewReport?: string
   subtitleErrors: number
   subtitleWarnings: number
   templateErrors: number
@@ -246,6 +249,7 @@ function createRenderSummary(report: RenderOutputLike): RenderSummary {
     ...readOutputRenderSummary(report),
     rendered: true,
     ...readRendererSummary(report),
+    ...readReviewRenderSummary(report),
     ...readSubtitleRenderSummary(report),
     ...readTemplateRenderSummary(report),
     ...readVisualRenderSummary(report),
@@ -272,6 +276,14 @@ function readOutputRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 
 
 function readRendererSummary(report: RenderOutputLike): Pick<RenderSummary, 'renderer'> {
   return typeof report.renderer === 'string' ? {renderer: report.renderer} : {}
+}
+
+function readReviewRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'reviewAvailable' | 'reviewHtml' | 'reviewReport'> {
+  return {
+    reviewAvailable: typeof report.reviewHtmlPath === 'string' && typeof report.reviewReportPath === 'string',
+    ...(typeof report.reviewHtmlPath === 'string' ? {reviewHtml: report.reviewHtmlPath} : {}),
+    ...(typeof report.reviewReportPath === 'string' ? {reviewReport: report.reviewReportPath} : {}),
+  }
 }
 
 function readSubtitleRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'subtitleErrors' | 'subtitleWarnings'> {
@@ -305,6 +317,7 @@ function createEmptyRenderSummary(): RenderSummary {
     outputErrors: 0,
     outputWarnings: 0,
     rendered: false,
+    reviewAvailable: false,
     subtitleErrors: 0,
     subtitleWarnings: 0,
     templateErrors: 0,
@@ -370,6 +383,8 @@ interface RenderOutputLike {
   outputPath?: unknown
   outputQuality?: IssueCountLike
   renderer?: unknown
+  reviewHtmlPath?: unknown
+  reviewReportPath?: unknown
   subtitleQuality?: IssueCountLike
   templateQuality?: IssueCountLike
   visualQuality?: IssueCountLike

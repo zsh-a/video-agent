@@ -259,6 +259,9 @@ describe('api server handler', () => {
     expect(html).to.include('id="workspace-summary"')
     expect(html).to.include('id="artifact-preview"')
     expect(html).to.include('id="visual-samples"')
+    expect(html).to.include('id="deck-review-summary"')
+    expect(html).to.include('id="deck-review-actions"')
+    expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/files?path="')
     expect(html).to.include('id="template-summary"')
     expect(html).to.include('id="template-issues"')
     expect(html).to.include('id="render-quality-summary"')
@@ -283,6 +286,7 @@ describe('api server handler', () => {
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/visual?includeContent=true')
     expect(html).to.include('renderTemplateQuality(renderOutput.content)')
     expect(html).to.include('renderRenderQuality(renderOutput.content)')
+    expect(html).to.include('renderDeckReview(status)')
     expect(html).to.include('audio.voiceover.missing')
     expect(html).to.include('id="render-action"')
     expect(html).to.include('id="export-action"')
@@ -636,6 +640,29 @@ describe('api server handler', () => {
         relativePath: 'renders/final-frame-first.jpg',
         timestamp: 0,
       })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('serves project files from inside the project directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'demo')
+      const reviewDir = join(root, 'projects', 'demo', 'renders', 'review')
+
+      await mkdir(reviewDir, {recursive: true})
+      await writeFile(join(reviewDir, 'index.html'), '<!doctype html><title>Deck Review</title>')
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(new Request('http://localhost/projects/demo/files?path=renders%2Freview%2Findex.html'))
+      const blocked = await fetch(new Request('http://localhost/projects/demo/files?path=..%2F..%2Foutside.html'))
+
+      expect(response.status).to.equal(200)
+      expect(response.headers.get('content-type')).to.equal('text/html; charset=utf-8')
+      expect(await response.text()).to.include('Deck Review')
+      expect(blocked.status).to.equal(400)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

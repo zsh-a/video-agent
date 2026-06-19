@@ -370,6 +370,52 @@ const DeckKeyframesSchema = z.object({
   }).strict(),
 }).strict()
 
+const DeckReviewReportSchema = z.object({
+  duration: z.number().nonnegative(),
+  format: z.string().min(1),
+  generatedAt: z.string().min(1),
+  keyframeQualityPath: z.string().min(1),
+  outputPath: z.string().min(1),
+  projectId: z.string().min(1),
+  renderer: z.enum(['chromium', 'playwright', 'remotion']),
+  reviewHtmlPath: z.string().min(1),
+  slides: z.array(z.object({
+    duration: z.number().nonnegative(),
+    end: z.number().nonnegative(),
+    index: z.number().int().positive(),
+    keyframe: z.object({
+      error: z.string().min(1).optional(),
+      ok: z.boolean(),
+      path: z.string().min(1),
+      sha256: z.string().min(1).optional(),
+      size: z.number().int().nonnegative().optional(),
+      time: z.number().nonnegative(),
+    }).strict().optional(),
+    points: z.array(z.string()).optional(),
+    slideId: z.string().min(1),
+    speakerNote: z.string().optional(),
+    start: z.number().nonnegative(),
+    title: z.string().min(1),
+    type: z.string().min(1),
+  }).strict()),
+  source: z.literal('timed-deck.json'),
+  summary: z.object({
+    deckErrors: z.number().int().nonnegative(),
+    deckWarnings: z.number().int().nonnegative(),
+    keyframes: z.number().int().nonnegative(),
+    outputErrors: z.number().int().nonnegative(),
+    outputWarnings: z.number().int().nonnegative(),
+    slides: z.number().int().nonnegative(),
+    subtitleErrors: z.number().int().nonnegative(),
+    subtitleWarnings: z.number().int().nonnegative(),
+    visualErrors: z.number().int().nonnegative(),
+    visualWarnings: z.number().int().nonnegative(),
+  }).strict(),
+  title: z.string().min(1),
+  version: z.literal(1),
+  videoRenderer: z.enum(['chromium+ffmpeg', 'playwright+ffmpeg', 'remotion+ffmpeg']),
+}).strict()
+
 const RenderOutputReferenceSchema = z.object({
   audioPath: z.string().min(1).optional(),
   audioMixPath: z.string().min(1).optional(),
@@ -383,6 +429,8 @@ const RenderOutputReferenceSchema = z.object({
     command: z.array(z.string()),
   }).passthrough().optional(),
   runtimePath: z.string().min(1).optional(),
+  reviewHtmlPath: z.string().min(1).optional(),
+  reviewReportPath: z.string().min(1).optional(),
   subtitlePath: z.string().min(1).optional(),
   silentVideoPath: z.string().min(1).optional(),
   stylesPath: z.string().min(1).optional(),
@@ -521,6 +569,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'deck-keyframes.json': DeckKeyframesSchema,
   'deck-voiceover.json': DeckVoiceoverSchema,
   'deck-quality-report.json': DeckQualityReportSchema,
+  'review-report.json': DeckReviewReportSchema,
   'deck.json': DeckSchema,
   'document.json': DocumentSchema,
   'export-output.json': ExportOutputSchema,
@@ -698,6 +747,7 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
   missing.push(...await findMissingDeckRendererBackendReferences(artifactsDir))
   missing.push(...await findMissingDeckRendererRemotionOutputReferences(artifactsDir))
   missing.push(...await findMissingDeckKeyframeReferences(artifactsDir))
+  missing.push(...await findMissingDeckReviewReportReferences(artifactsDir))
   missing.push(...await findMissingDeckVoiceoverReferences(artifactsDir))
   missing.push(...await findMissingSubtitleOutputReferences(artifactsDir))
   missing.push(...await findMissingTimedDeckReferences(artifactsDir))
@@ -859,6 +909,23 @@ async function findMissingDeckKeyframeReferences(artifactsDir: string): Promise<
   }
 }
 
+async function findMissingDeckReviewReportReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const report = DeckReviewReportSchema.parse(await bunFile(resolve(artifactsDir, 'review-report.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+    const paths = uniquePaths([
+      report.keyframeQualityPath,
+      report.outputPath,
+      report.reviewHtmlPath,
+      ...report.slides.map((slide) => slide.keyframe?.path),
+    ])
+
+    return findMissingProjectPathReferences(projectDir, paths)
+  } catch {
+    return []
+  }
+}
+
 async function findMissingSubtitleOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
   try {
     const subtitles = SubtitleOutputSchema.parse(await bunFile(resolve(artifactsDir, 'subtitles.json')).json())
@@ -950,6 +1017,8 @@ async function findMissingRenderOutputReferences(artifactsDir: string): Promise<
     const projectDir = resolve(artifactsDir, '..')
     const paths = uniquePaths([
       renderOutput.outputPath,
+      renderOutput.reviewHtmlPath,
+      renderOutput.reviewReportPath,
       renderOutput.audioPath,
       renderOutput.audioMixPath,
       renderOutput.frameManifestPath,

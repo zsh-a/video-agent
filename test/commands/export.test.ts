@@ -13,7 +13,7 @@ describe('export command', () => {
       'Quality: 36 errors, 48 warnings',
       'Pipeline: 2 errors, 3 warnings',
       'Content: 0 errors, 0 warnings',
-      'Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
+      'Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12, review none',
       'Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
     ].join('\n'))
   })
@@ -84,6 +84,7 @@ function createProjectQualityReport(): ProjectQualityReport {
       outputWarnings: 6,
       rendered: true,
       renderer: 'ffmpeg',
+      reviewAvailable: false,
       subtitleErrors: 7,
       subtitleWarnings: 8,
       templateErrors: 9,

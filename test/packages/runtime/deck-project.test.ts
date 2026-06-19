@@ -929,14 +929,30 @@ describe('deck explainer project', () => {
         workspaceDir: root,
       })
       const capturedOutput = JSON.parse(await readFile(capturedRender.artifactPath, 'utf8')) as {
+        reviewHtmlPath: string
+        reviewReportPath: string
         rendered?: {command: string[]; stdout: string}
         validation?: {command: string[]; stdout: string}
+      }
+      const reviewReport = JSON.parse(await readFile(join(root, 'projects', 'deck-voice-demo', 'artifacts', 'review-report.json'), 'utf8')) as {
+        reviewHtmlPath: string
+        slides: Array<{keyframe?: {path: string}; slideId: string}>
+        summary: {keyframes: number; slides: number}
       }
 
       expect(capturedRender.rendered?.stdout).to.contain('rendered')
       expect(capturedRender.validation?.stdout).to.contain('validated')
       expect(capturedOutput.rendered?.command).to.deep.equal(['bun', htmlRendererScript, 'render', capturedRender.htmlOutputDir, '--output', htmlCapturePath])
       expect(capturedOutput.validation?.command).to.deep.equal(['bun', htmlRendererScript, 'validate', capturedRender.htmlOutputDir])
+      expect(capturedOutput.reviewHtmlPath).to.equal('renders/review/index.html')
+      expect(capturedOutput.reviewReportPath).to.equal('artifacts/review-report.json')
+      expect(capturedRender.reviewHtmlPath).to.equal(join(root, 'projects', 'deck-voice-demo', 'renders', 'review', 'index.html'))
+      expect(capturedRender.reviewReportPath).to.equal(join(root, 'projects', 'deck-voice-demo', 'artifacts', 'review-report.json'))
+      expect(reviewReport.reviewHtmlPath).to.equal('renders/review/index.html')
+      expect(reviewReport.summary.slides).to.equal(reviewReport.slides.length)
+      expect(reviewReport.summary.keyframes).to.be.greaterThan(0)
+      expect(reviewReport.slides[0]?.keyframe?.path).to.match(/^renders\/(?:deck-frames\/frame|deck-keyframes\/keyframe)-\d{6}\.(?:jpg|png)$/)
+      expect(await readFile(join(root, 'projects', 'deck-voice-demo', 'renders', 'review', 'index.html'), 'utf8')).to.contain('Deck Review')
       expect((await stat(htmlCapturePath)).size).to.be.greaterThan(0)
 
       const exported = await exportProject({

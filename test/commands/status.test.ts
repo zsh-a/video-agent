@@ -56,6 +56,9 @@ describe('status command', () => {
           outputWarnings: 7,
           rendered: true,
           renderer: 'ffmpeg',
+          reviewAvailable: true,
+          reviewHtml: 'renders/review/index.html',
+          reviewReport: 'artifacts/review-report.json',
           subtitleErrors: 8,
           subtitleWarnings: 9,
           templateErrors: 10,
@@ -71,7 +74,7 @@ describe('status command', () => {
       'Events: 2',
       'Provider calls: 1 (0 failed)',
       'Quality issues: 3 (1 errors, 2 warnings)',
-      'Render: rendered, 38 errors, 52 warnings, output 6/7, subtitle 8/9, audio 2/12, template 10/11, visual 12/13',
+      'Render: rendered, 38 errors, 52 warnings, output 6/7, subtitle 8/9, audio 2/12, template 10/11, visual 12/13, review available',
       'Last event: stage:complete:render',
       'render: completed',
     ].join('\n'))

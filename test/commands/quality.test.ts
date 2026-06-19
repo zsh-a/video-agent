@@ -14,12 +14,13 @@ describe('quality command', () => {
       outputWarnings: 6,
       rendered: true,
       renderer: 'ffmpeg',
+      reviewAvailable: false,
       subtitleErrors: 7,
       subtitleWarnings: 8,
       templateErrors: 9,
       templateWarnings: 10,
       visualErrors: 11,
       visualWarnings: 12,
-    })).to.equal('rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12')
+    })).to.equal('rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12, review none')
   })
 })

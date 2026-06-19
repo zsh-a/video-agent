@@ -44,5 +44,6 @@ export function formatQualityRenderSummary(render: RenderSummary): string {
     `audio ${render.audioQualityErrors}/${render.audioQualityWarnings + render.audioWarnings + render.missingVoiceovers}`,
     `template ${render.templateErrors}/${render.templateWarnings}`,
     `visual ${render.visualErrors}/${render.visualWarnings}`,
+    `review ${render.reviewAvailable ? 'available' : 'none'}`,
   ].join(', ')
 }

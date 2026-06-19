@@ -514,6 +514,8 @@ describe('artifacts', () => {
           warnings: 0,
         },
         renderer: 'ffmpeg',
+        reviewHtmlPath: join(projectDir, 'renders', 'review', 'index.html'),
+        reviewReportPath: join(artifactsDir, 'review-report.json'),
         subtitlePath: join(projectDir, 'renders', 'subtitles.srt'),
         version: 1,
         visualQuality: {
@@ -537,11 +539,13 @@ describe('artifacts', () => {
       expect(result.missing.map((issue) => issue.name)).to.include.members([
         'renders/final-frame-first.jpg',
         'renders/final.mp4',
+        'renders/review/index.html',
+        'artifacts/review-report.json',
         'renders/subtitles.srt',
       ])
       expect(result.summary).to.deep.include({
-        errors: 3,
-        missing: 3,
+        errors: 5,
+        missing: 5,
       })
     } finally {
       await rm(root, {force: true, recursive: true})

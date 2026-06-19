@@ -31,6 +31,8 @@ import {
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
+import {readFile} from 'node:fs/promises'
+import {extname, relative, resolve, sep} from 'node:path'
 import {ZodError} from 'zod'
 
 export type {ProjectEventKind, ProviderCallRole, ProviderCallStatus} from '@video-agent/runtime'
@@ -423,6 +425,14 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
       projectId,
       workspaceDir,
     }))
+  }
+
+  if (resource === 'files') {
+    if (request.method !== 'GET') {
+      return methodNotAllowed()
+    }
+
+    return projectFileResponse(projectId, url.searchParams.get('path'), workspaceDir)
   }
 
   if (resource === 'artifacts' && artifactName === undefined) {
@@ -1089,6 +1099,11 @@ function renderStudioHtml(): string {
         <div class="sample-grid" id="visual-samples"></div>
       </div>
       <div class="panel">
+        <h2>Deck Review</h2>
+        <p class="summary-line" id="deck-review-summary">No deck review.</p>
+        <div class="actions" id="deck-review-actions"></div>
+      </div>
+      <div class="panel">
         <h2>Template Quality</h2>
         <p class="summary-line" id="template-summary">No template quality report.</p>
         <table>
@@ -1166,6 +1181,7 @@ function renderStudioHtml(): string {
       if (!response.ok) throw await createApiError(response);
       return response.json();
     };
+    const projectFileUrl = (path) => "/projects/" + encodeURIComponent(state.projectId) + "/files?path=" + encodeURIComponent(path);
     const text = (value) => value === undefined || value === null ? "" : String(value);
     const setRows = (id, rows, emptyCells) => {
       const target = byId(id);
@@ -1300,6 +1316,32 @@ function renderStudioHtml(): string {
         meta.textContent = sample.timestamp + "s " + (sample.relativePath ?? "");
         card.append(image, meta);
         target.append(card);
+      }
+    };
+    const renderDeckReview = (status) => {
+      const summary = byId("deck-review-summary");
+      const actions = byId("deck-review-actions");
+      const render = status?.summary?.render;
+      actions.textContent = "";
+      if (render?.reviewAvailable !== true) {
+        summary.textContent = "No deck review.";
+        return;
+      }
+      summary.textContent = "Review available: " + render.reviewHtml + " | " + render.reviewReport;
+      if (render.reviewHtml !== undefined) {
+        const link = document.createElement("a");
+        link.href = projectFileUrl(render.reviewHtml);
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = "Open review";
+        actions.append(link);
+      }
+      if (render.reviewReport !== undefined) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Preview report";
+        button.addEventListener("click", () => void previewArtifact(render.reviewReport.replace(/^artifacts\\//, "")));
+        actions.append(button);
       }
     };
     const severityBadge = (severity) => {
@@ -1523,6 +1565,7 @@ function renderStudioHtml(): string {
         setRows("events", [], 3);
         byId("artifact-preview").textContent = "Select an artifact to preview.";
         renderVisualSamples([]);
+        renderDeckReview(undefined);
         renderTemplateQuality(undefined);
         renderRenderQuality(undefined);
         renderArtifactIntegrity(undefined);
@@ -1538,6 +1581,7 @@ function renderStudioHtml(): string {
       byId("status").textContent = status.job.status;
       byId("quality").textContent = status.summary.quality.issues + " issues";
       byId("render").textContent = status.summary.render.rendered ? "rendered" : "none";
+      renderDeckReview(status);
       renderRerunStages(status.job.stages);
       setRows("stages", status.job.stages.map((stage) => tableRow([stage.name, stage.status, stage.attempt ?? ""])), 3);
       setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => artifactRow(artifact)), 4);
@@ -1644,6 +1688,48 @@ function htmlResponse(value: string): Response {
       'content-type': 'text/html; charset=utf-8',
     },
   })
+}
+
+async function projectFileResponse(projectId: string, projectPath: null | string, workspaceDir: string): Promise<Response> {
+  if (projectPath === null || projectPath.trim() === '') {
+    return jsonResponse({error: {message: 'Missing project file path.'}}, {status: 400})
+  }
+
+  const projectDir = resolve(workspaceDir, 'projects', projectId)
+  const filePath = resolve(projectDir, projectPath)
+  const relativePath = relative(projectDir, filePath)
+
+  if (relativePath === '' || relativePath.startsWith('..') || relativePath.split(sep).includes('..')) {
+    return jsonResponse({error: {message: 'Project file path must stay inside the project directory.'}}, {status: 400})
+  }
+
+  const content = await readFile(filePath)
+
+  return new Response(new Uint8Array(content), {
+    headers: {
+      'content-type': contentTypeForPath(filePath),
+    },
+  })
+}
+
+function contentTypeForPath(path: string): string {
+  switch (extname(path).toLowerCase()) {
+    case '.html':
+      return 'text/html; charset=utf-8'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.json':
+      return 'application/json; charset=utf-8'
+    case '.mp4':
+      return 'video/mp4'
+    case '.png':
+      return 'image/png'
+    case '.srt':
+      return 'text/plain; charset=utf-8'
+    default:
+      return 'application/octet-stream'
+  }
 }
 
 function methodNotAllowed(): Response {

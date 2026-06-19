@@ -125,7 +125,7 @@ describe('tui command', () => {
       '  Quality: 36 errors, 48 warnings',
       '  Pipeline: 2 errors, 3 warnings',
       '  Content: 0 errors, 0 warnings',
-      '  Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
+      '  Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12, review none',
       '  Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
     ].join('\n'))
   })
@@ -201,7 +201,7 @@ describe('tui command', () => {
       'Warnings: 48',
       'Pipeline: 2 errors, 3 warnings',
       'Content: 0 errors, 0 warnings',
-      'Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12',
+      'Render: rendered, 33 errors, 45 warnings, output 5/6, subtitle 7/8, audio 1/9, template 9/10, visual 11/12, review none',
       'Artifacts: not ok (1 changed, 1 missing, 1 schema invalid, 2 untracked)',
       'Details: not included',
     ].join('\n'))
@@ -219,7 +219,7 @@ describe('tui command', () => {
       'Events: 1',
       'Provider calls: 1 (0 failed)',
       'Quality issues: 1 (0 errors, 1 warnings)',
-      'Render: not rendered, 0 errors, 0 warnings, output 0/0, subtitle 0/0, audio 0/0, template 0/0, visual 0/0',
+      'Render: not rendered, 0 errors, 0 warnings, output 0/0, subtitle 0/0, audio 0/0, template 0/0, visual 0/0, review none',
       'Last event: stage:start:ingest',
       'ingest: running',
     ].join('\n'))
@@ -1048,6 +1048,7 @@ function createProjectStatus(): ProjectStatus {
         outputErrors: 0,
         outputWarnings: 0,
         rendered: false,
+        reviewAvailable: false,
         subtitleErrors: 0,
         subtitleWarnings: 0,
         templateErrors: 0,
@@ -1108,6 +1109,7 @@ function createProjectQualityReport(): ProjectQualityReport {
       outputWarnings: 6,
       rendered: true,
       renderer: 'ffmpeg',
+      reviewAvailable: false,
       subtitleErrors: 7,
       subtitleWarnings: 8,
       templateErrors: 9,
