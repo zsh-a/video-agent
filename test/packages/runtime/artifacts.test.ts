@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 import {writeText} from '#test/fs'
-import {mkdir, mkdtemp, rm, unlink} from 'node:fs/promises'
+import {mkdir, mkdtemp, rm, unlink, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -233,6 +233,50 @@ describe('artifacts', () => {
         'claims.json:claims.0.confidence',
         'source-quotes.json:quotes.0.id',
       ])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('accepts final-video deck keyframe artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const projectDir = join(root, 'projects', 'demo')
+      const artifactsDir = join(projectDir, 'artifacts')
+      const keyframePath = join(projectDir, 'renders', 'deck-keyframes', 'keyframe-000001.jpg')
+
+      await mkdir(join(projectDir, 'renders', 'deck-keyframes'), {recursive: true})
+      await writeFile(keyframePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]))
+      await writeText(join(artifactsDir, 'deck-keyframes.json'), `${JSON.stringify({
+        captureMode: 'final-video',
+        duration: 12,
+        fps: 30,
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        renderer: 'remotion',
+        samples: [
+          {
+            capturedAt: '2026-01-01T00:00:00.000Z',
+            frame: 181,
+            label: 'slide-mid',
+            ok: true,
+            path: 'renders/deck-keyframes/keyframe-000001.jpg',
+            sha256: 'fake-sha',
+            size: 4,
+            slideId: 'slide-001',
+            time: 6,
+          },
+        ],
+        source: 'timed-deck.json',
+        version: 1,
+        viewport: {height: 1080, width: 1920},
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(true)
+      expect(result.summary.errors).to.equal(0)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

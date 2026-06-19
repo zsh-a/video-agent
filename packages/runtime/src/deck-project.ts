@@ -148,7 +148,7 @@ export interface CreateDeckFinalRenderProjectResult {
   htmlEntryPath?: string
   htmlOutputDir?: string
   keyframeQualityPath?: string
-  keyframeRenderer?: DeckHtmlKeyframeCaptureBackend
+  keyframeRenderer?: DeckReviewFrameRenderer
   outputPath: string
   projectDir: string
   projectId: string
@@ -164,6 +164,8 @@ export interface CreateDeckFinalRenderProjectResult {
   videoRenderer: 'chromium+ffmpeg' | 'playwright+ffmpeg' | 'remotion+ffmpeg'
   visualQuality?: VisualSmokeQualityResult
 }
+
+type DeckReviewFrameRenderer = DeckHtmlKeyframeCaptureBackend | typeof DECK_REVIEW_FRAME_RENDERER
 
 export interface CreateDeckFrameShardPlanProjectOptions {
   frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
@@ -368,6 +370,7 @@ const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'qu
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
 const LLM_TRACE_ARTIFACT_NAME = 'llm-traces.jsonl'
+const DECK_REVIEW_FRAME_RENDERER = 'remotion'
 
 const DeckFrameManifestReuseSchema = z.object({
   capturedFrames: z.number().int().nonnegative().optional(),
@@ -1665,6 +1668,8 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
       subtitlePath: subtitleOutput.outputPath,
     })
 
+    const keyframeQuality = await createDeckFinalVideoKeyframeQuality(workspace, timedDeck, outputPath, fps)
+    const keyframeQualityPath = await workspace.store.writeJson('deck-keyframes.json', keyframeQuality.artifact)
     const outputQuality = await inspectDeckRenderedOutput(outputPath, {
       expectedDuration: timedDeck.timings.at(-1)?.end ?? 0,
     })
@@ -1674,6 +1679,8 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
       backendArtifactPath: toProjectPath(workspace.projectDir, backendArtifactPath),
       completedAt: new Date().toISOString(),
       finalized: true,
+      keyframeQualityPath: toProjectPath(workspace.projectDir, keyframeQualityPath),
+      keyframeRenderer: keyframeQuality.artifact.renderer,
       outputPath: toProjectPath(workspace.projectDir, outputPath),
       outputQuality,
       renderer: 'remotion' as const,
@@ -1698,6 +1705,7 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
       subtitlesBurned: false,
       version: 1 as const,
       videoRenderer: 'remotion+ffmpeg' as const,
+      visualQuality: keyframeQuality.visualQuality,
     })
 
     await jobStore.updateStage('render-final', 'completed', undefined, 1)
@@ -1711,6 +1719,8 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
       outputPath,
       projectDir: workspace.projectDir,
       projectId,
+      keyframeQualityPath,
+      keyframeRenderer: keyframeQuality.artifact.renderer,
       remotion,
       renderer: 'remotion',
       status: 'rendered',
@@ -1719,6 +1729,7 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
       subtitlePath: subtitleOutput.outputPath,
       subtitleQuality: subtitleOutput.quality,
       videoRenderer: 'remotion+ffmpeg',
+      visualQuality: keyframeQuality.visualQuality,
     }
   } catch (error) {
     await jobStore.updateStage('render-final', 'failed', error instanceof Error ? error.message : String(error), 1)
@@ -3285,18 +3296,99 @@ async function writeDeckSubtitles(workspace: ProjectWorkspace, timedDeck: TimedD
   }
 }
 
-async function createDeckKeyframeQuality(workspace: ProjectWorkspace, frameCapture: Awaited<ReturnType<typeof captureDeckHtmlFrameSequence>>, browserKeyframes?: CaptureDeckHtmlKeyframesResult): Promise<{
-  artifact: {
-    captureMode: 'browser-keyframes' | 'frame-sequence'
-    duration: number
-    fps: number
-    generatedAt: string
-    renderer: DeckHtmlKeyframeCaptureBackend
-    samples: DeckKeyframeSample[]
-    source: 'deck-frame-manifest.json'
-    version: 1
-    viewport: {height: number; width: number}
+async function createDeckFinalVideoKeyframeQuality(workspace: ProjectWorkspace, timedDeck: TimedDeck, outputPath: string, fps: number): Promise<{
+  artifact: DeckKeyframeArtifact
+  visualQuality: VisualSmokeQualityResult
+}> {
+  const outputDir = resolve(workspace.rendersDir, 'deck-keyframes')
+  const targets = createDeckFinalVideoKeyframeTargets(timedDeck, outputDir, fps)
+
+  await rm(outputDir, {force: true, recursive: true})
+  await mkdir(outputDir, {recursive: true})
+
+  const samples = await Promise.all(targets.map((target) => extractDeckFinalVideoKeyframe(workspace.projectDir, outputPath, target)))
+
+  const duration = timedDeck.timings.at(-1)?.end ?? 0
+  const visualQuality = checkVisualSmoke({
+    blackDuration: 0,
+    blackSegments: [],
+    duration,
+    frameSamples: samples.map(toVisualFrameSample),
+  })
+
+  return {
+    artifact: {
+      captureMode: 'final-video',
+      duration,
+      fps,
+      generatedAt: new Date().toISOString(),
+      renderer: DECK_REVIEW_FRAME_RENDERER,
+      samples,
+      source: 'timed-deck.json',
+      version: 1,
+      viewport: deckCanvasSize(timedDeck.deck.format),
+    },
+    visualQuality,
   }
+}
+
+function createDeckFinalVideoKeyframeTargets(timedDeck: TimedDeck, outputDir: string, fps: number): DeckKeyframeTarget[] {
+  return timedDeck.timings.map((timing, index) => {
+    const start = Math.max(0, timing.start)
+    const end = Math.max(start, timing.end)
+    const time = roundSeconds(start + ((end - start) / 2))
+
+    return {
+      frame: Math.max(1, Math.round(time * fps) + 1),
+      label: 'slide-mid',
+      path: resolve(outputDir, `keyframe-${String(index + 1).padStart(6, '0')}.jpg`),
+      slideId: timing.slideId,
+      time,
+    }
+  })
+}
+
+async function extractDeckFinalVideoKeyframe(projectDir: string, videoPath: string, target: DeckKeyframeTarget): Promise<DeckKeyframeSample> {
+  try {
+    await runFfmpeg([
+      '-y',
+      '-ss',
+      String(target.time),
+      '-i',
+      videoPath,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
+      target.path,
+    ])
+
+    return readDeckKeyframeSample(projectDir, target)
+  } catch (error) {
+    return {
+      ...target,
+      capturedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+      ok: false,
+      path: toProjectPath(projectDir, target.path),
+    }
+  }
+}
+
+interface DeckKeyframeArtifact {
+  captureMode: 'browser-keyframes' | 'final-video' | 'frame-sequence'
+  duration: number
+  fps: number
+  generatedAt: string
+  renderer: DeckReviewFrameRenderer
+  samples: DeckKeyframeSample[]
+  source: 'deck-frame-manifest.json' | 'timed-deck.json'
+  version: 1
+  viewport: {height: number; width: number}
+}
+
+async function createDeckKeyframeQuality(workspace: ProjectWorkspace, frameCapture: Awaited<ReturnType<typeof captureDeckHtmlFrameSequence>>, browserKeyframes?: CaptureDeckHtmlKeyframesResult): Promise<{
+  artifact: DeckKeyframeArtifact
   visualQuality: VisualSmokeQualityResult
 }> {
   const captureMode = browserKeyframes === undefined ? 'frame-sequence' : 'browser-keyframes'

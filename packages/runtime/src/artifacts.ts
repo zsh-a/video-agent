@@ -345,11 +345,11 @@ const DeckRendererRemotionOutputSchema = z.object({
 }).strict()
 
 const DeckKeyframesSchema = z.object({
-  captureMode: z.enum(['browser-keyframes', 'frame-sequence']).optional(),
+  captureMode: z.enum(['browser-keyframes', 'final-video', 'frame-sequence']).optional(),
   duration: z.number().nonnegative(),
   fps: z.number().positive(),
   generatedAt: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright']),
+  renderer: z.enum(['chromium', 'playwright', 'remotion']),
   samples: z.array(z.object({
     capturedAt: z.string().min(1),
     error: z.string().min(1).optional(),
@@ -362,7 +362,7 @@ const DeckKeyframesSchema = z.object({
     slideId: z.string().min(1),
     time: z.number().nonnegative(),
   }).strict()),
-  source: z.literal('deck-frame-manifest.json'),
+  source: z.enum(['deck-frame-manifest.json', 'timed-deck.json']),
   version: z.literal(1),
   viewport: z.object({
     height: z.number().int().positive(),
