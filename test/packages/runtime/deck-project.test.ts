@@ -969,6 +969,19 @@ describe('deck explainer project', () => {
       expect(verification.ok).to.equal(true)
       expect(verification.checked).to.be.greaterThan(0)
 
+      const shardOnlyRender = await createDeckFinalRenderProject({
+        finalize: false,
+        frameEnd: 1,
+        frameStart: 1,
+        projectId: 'deck-voice-demo',
+        renderer: 'html',
+        workspaceDir: root,
+      })
+
+      expect(shardOnlyRender.finalized).to.equal(false)
+      expect(await Bun.file(join(root, 'projects', 'deck-voice-demo', 'artifacts', 'review-report.json')).exists()).to.equal(false)
+      expect(await Bun.file(join(root, 'projects', 'deck-voice-demo', 'renders', 'review', 'index.html')).exists()).to.equal(false)
+
       await rm(join(root, 'projects', 'deck-voice-demo', 'renders', 'deck-frames', 'frame-000001.png'), {force: true})
 
       let missingFrameError: Error | undefined
