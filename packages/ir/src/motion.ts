@@ -10,6 +10,7 @@ export const MotionPropertySchema = z.enum([
   'opacity',
   'scale',
   'scaleX',
+  'rotate',
   'translateX',
   'translateY',
 ])

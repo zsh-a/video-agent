@@ -27,4 +27,12 @@ body[data-theme="clean-white"] .code-line code,
 body[data-theme="minimal-editorial"] .code-line code,
 body[data-theme="warm-paper"] .code-line code {
   color: #f9fafb;
+}
+
+body[data-format="portrait_1080x1920"] .code-block {
+  max-height: 1120px;
+}
+
+body[data-format="portrait_1080x1920"] .code-line code {
+  font-size: calc(var(--font-caption) * 0.86);
 }`

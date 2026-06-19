@@ -43,4 +43,12 @@ export const sectionStyles = `.slide--section .slide__content {
   top: 0;
   width: 60%;
   z-index: 0;
+}
+
+body[data-format="portrait_1080x1920"] .slide--section .slide__title {
+  font-size: calc(var(--font-title) * 0.88);
+}
+
+body[data-format="portrait_1080x1920"] .section__rule {
+  width: min(560px, 82%);
 }`

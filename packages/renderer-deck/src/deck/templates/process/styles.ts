@@ -58,4 +58,25 @@ body[data-format="square_1080x1080"] .process-list--dense {
 body[data-format="landscape_1920x1080"] .process-list--dense li + li::before,
 body[data-format="square_1080x1080"] .process-list--dense li + li::before {
   display: none;
+}
+
+body[data-format="portrait_1080x1920"] .process-list--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body[data-format="portrait_1080x1920"] .process-list--grid li {
+  align-content: start;
+  align-items: start;
+  grid-template-columns: 1fr;
+  min-height: 210px;
+  padding: 24px;
+}
+
+body[data-format="portrait_1080x1920"] .process-list--grid li + li::before {
+  display: none;
+}
+
+body[data-format="portrait_1080x1920"] .process-list--grid p,
+body[data-format="portrait_1080x1920"] .process-list--dense p {
+  font-size: calc(var(--font-body) * 0.78);
 }`

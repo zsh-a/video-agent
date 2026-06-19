@@ -1,5 +1,25 @@
+import type {MotionProperty} from '@video-agent/ir'
+
+import {MotionPropertySchema} from '@video-agent/ir'
+
+const MOTION_PROPERTY_DEFAULTS = {
+  blur: 0,
+  opacity: 1,
+  rotate: 0,
+  scale: 1,
+  scaleX: 1,
+  translateX: 0,
+  translateY: 0,
+} satisfies Record<MotionProperty, number>
+
+const MOTION_PROPERTY_DEFAULTS_SCRIPT = JSON.stringify(MotionPropertySchema.options.reduce<Record<MotionProperty, number>>((defaults, property) => ({
+  ...defaults,
+  [property]: MOTION_PROPERTY_DEFAULTS[property],
+}), {} as Record<MotionProperty, number>))
+
 export function createDeckRuntimeScript(): string {
-  return `const planElement = document.getElementById('deck-render-plan')
+  return `const motionPropertyDefaults = ${MOTION_PROPERTY_DEFAULTS_SCRIPT}
+const planElement = document.getElementById('deck-render-plan')
 const plan = planElement === null ? undefined : JSON.parse(planElement.textContent || '{}')
 const url = new URL(window.location.href)
 const requestedTimeParam = url.searchParams.get('time')
@@ -7,6 +27,8 @@ const requestedTime = requestedTimeParam === null ? undefined : Number(requested
 const requestedSlide = url.searchParams.get('slide')
 const slides = Array.from(document.querySelectorAll('[data-slide]'))
 const slideState = new Map((plan?.motion?.slides || []).map((slide) => [slide.slideId, slide]))
+const transitionsIn = new Map((plan?.motion?.transitions || []).map((transition) => [transition.to, transition]))
+const transitionsOut = new Map((plan?.motion?.transitions || []).map((transition) => [transition.from, transition]))
 let raf = 0
 let playing = false
 let playStartedAt = 0
@@ -28,13 +50,23 @@ function seek(timeSeconds) {
     const state = slideState.get(slideId) || readSlideState(slide)
     const active = time >= state.start && time <= state.end
     const localDuration = Math.max(0.001, state.end - state.start)
-    const enterDuration = Math.min(0.32, localDuration * 0.12)
-    const exitDuration = Math.min(0.32, localDuration * 0.12)
+    const enterTransition = transitionsIn.get(slideId)
+    const exitTransition = transitionsOut.get(slideId)
+    const enterDuration = Math.min(enterTransition?.duration || 0.32, localDuration * 0.22)
+    const exitDuration = Math.min(exitTransition?.duration || 0.32, localDuration * 0.22)
     const enterOpacity = clamp((time - state.start) / enterDuration, 0, 1)
     const exitOpacity = clamp((state.end - time) / exitDuration, 0, 1)
 
     slide.dataset.active = active ? 'true' : 'false'
-    slide.style.opacity = String(active ? Math.min(enterOpacity, exitOpacity) : 0)
+    applySlideTransitionState(slide, {
+      active,
+      enterOpacity,
+      enterProgress: enterOpacity,
+      enterTransition,
+      exitOpacity,
+      exitProgress: exitOpacity,
+      exitTransition,
+    })
   }
 
   applyMotionTimeline(time)
@@ -113,14 +145,7 @@ function stateForElement(states, element) {
     return existing
   }
 
-  const state = {
-    blur: 0,
-    opacity: 1,
-    scale: 1,
-    scaleX: 1,
-    translateX: 0,
-    translateY: 0,
-  }
+  const state = {...motionPropertyDefaults}
 
   states.set(element, state)
 
@@ -133,9 +158,52 @@ function applyElementState(element, state) {
   element.style.transformOrigin = state.scaleX !== 1 ? 'left center' : 'center'
   element.style.transform = [
     'translate3d(' + state.translateX + 'px, ' + state.translateY + 'px, 0)',
+    'rotate(' + state.rotate + 'deg)',
     'scale(' + state.scale + ')',
     'scaleX(' + state.scaleX + ')',
   ].join(' ')
+}
+
+function applySlideTransitionState(slide, state) {
+  if (!state.active) {
+    slide.style.opacity = '0'
+    slide.style.transform = ''
+    return
+  }
+
+  const opacity = Math.min(state.enterOpacity, state.exitOpacity)
+  const transform = slideTransitionTransform(state)
+
+  slide.style.opacity = String(opacity)
+  slide.style.transform = transform
+}
+
+function slideTransitionTransform(state) {
+  if (state.enterProgress < 1) {
+    return transformForTransition(state.enterTransition?.type, 1 - state.enterProgress, 'in')
+  }
+
+  if (state.exitProgress < 1) {
+    return transformForTransition(state.exitTransition?.type, 1 - state.exitProgress, 'out')
+  }
+
+  return ''
+}
+
+function transformForTransition(type, amount, direction) {
+  if (type === 'slide-left') {
+    const value = direction === 'in' ? amount * 86 : amount * -86
+
+    return 'translate3d(' + value + 'px, 0, 0)'
+  }
+
+  if (type === 'slide-up') {
+    const value = direction === 'in' ? amount * 72 : amount * -72
+
+    return 'translate3d(0, ' + value + 'px, 0)'
+  }
+
+  return ''
 }
 
 function readSlideState(slide) {

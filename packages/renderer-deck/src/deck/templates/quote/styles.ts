@@ -11,4 +11,12 @@ export const quoteStyles = `.quote-block {
   position: absolute;
   right: 36px;
   top: 20px;
+}
+
+body[data-format="portrait_1080x1920"] .quote-block {
+  padding: 38px;
+}
+
+body[data-format="portrait_1080x1920"] .quote-block blockquote {
+  font-size: calc(var(--font-heading) * 0.82);
 }`

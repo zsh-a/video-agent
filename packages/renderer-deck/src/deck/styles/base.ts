@@ -170,5 +170,18 @@ body {
 
 .slide--quiet .slide__title {
   font-size: var(--font-title);
+}
+
+body[data-format="portrait_1080x1920"] .slide__content {
+  gap: 28px;
+}
+
+body[data-format="portrait_1080x1920"] .slide__title {
+  font-size: calc(var(--font-title) * 0.88);
+  max-width: 11em;
+}
+
+body[data-format="portrait_1080x1920"] .slide--dense .slide__title {
+  font-size: calc(var(--font-heading) * 0.86);
 }`
 }

@@ -80,7 +80,7 @@ function round(value: number): number {
   return Math.round(value * 1000) / 1000
 }
 
-function slideDensityClass(slide: Slide, language: string): string {
+export function slideDensityClass(slide: Slide, language: string): string {
   const textLength = [
     slide.title,
     slide.subtitle ?? '',
@@ -90,6 +90,11 @@ function slideDensityClass(slide: Slide, language: string): string {
     ...(slide.comparison?.left.points ?? []),
     slide.comparison?.right.label ?? '',
     ...(slide.comparison?.right.points ?? []),
+    slide.quote?.text ?? '',
+    slide.quote?.attribution ?? '',
+    slide.stat?.value ?? '',
+    slide.stat?.label ?? '',
+    slide.stat?.caption ?? '',
   ].join('').length
 
   const isChinese = language.startsWith('zh')

@@ -15,7 +15,7 @@ export function createDeckCss(deck: Deck, options: CreateDeckCssOptions): string
     tailwindDirectives(options),
     fontFacesCss(),
     rootTokensCss(deck),
-    themeTokensCss(),
+    themeTokensCss(deck),
     baseCss(),
     componentCss(),
     templateCss(),

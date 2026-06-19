@@ -66,4 +66,25 @@ export const heroStyles = `.slide--hero .slide__content {
   top: 0;
   z-index: 0;
 }
+
+body[data-format="portrait_1080x1920"] .slide--hero .slide__content {
+  gap: 34px;
+}
+
+body[data-format="portrait_1080x1920"] .slide--hero .slide__title {
+  font-size: calc(var(--font-title) * 0.9);
+  max-width: 9em;
+}
+
+body[data-format="portrait_1080x1920"] .slide--hero .slide__subtitle {
+  font-size: calc(var(--font-heading) * 0.84);
+}
+
+body[data-format="portrait_1080x1920"] .hero__taglines {
+  gap: 14px 24px;
+}
+
+body[data-format="portrait_1080x1920"] .hero__tagline {
+  font-size: calc(var(--font-body) * 0.86);
+}
 `

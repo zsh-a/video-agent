@@ -38,7 +38,7 @@ describe('compileDeckMotionPlan', () => {
       [{slideId: 'slide-001', type: 'hero', points: ['A', 'B']}],
       [{slideId: 'slide-001', start: 0, end: 10}],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.version).to.equal(1)
     expect(plan.duration).to.be.greaterThan(0)
@@ -50,7 +50,7 @@ describe('compileDeckMotionPlan', () => {
     expect(plan.timeline.scenes).to.have.length(1)
   })
 
-  it('generates tracks for each slide type using fallback logic', () => {
+  it('generates tracks for each slide type using template motion steps', () => {
     const timedDeck = makeTimedDeck(
       [
         {slideId: 's1', type: 'hero', points: ['A']},
@@ -65,7 +65,7 @@ describe('compileDeckMotionPlan', () => {
         {slideId: 's4', start: 16, end: 20},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.slides).to.have.length(4)
     expect(plan.timeline.scenes).to.have.length(4)
@@ -91,16 +91,14 @@ describe('compileDeckMotionPlan', () => {
     expect(selectors.some((s) => s.includes('custom-body'))).to.equal(true)
   })
 
-  it('falls back to hardcoded steps when resolver returns undefined', () => {
+  it('throws when a template has no registered motionSteps', () => {
     const resolver: ResolveMotionSteps = () => undefined
     const timedDeck = makeTimedDeck(
       [{slideId: 'slide-001', type: 'hero', points: ['A']}],
       [{slideId: 'slide-001', start: 0, end: 10}],
     )
-    const planWithFallback = compileDeckMotionPlan(timedDeck, resolver)
-    const planWithout = compileDeckMotionPlan(timedDeck)
 
-    expect(planWithFallback.timeline.tracks.length).to.equal(planWithout.timeline.tracks.length)
+    expect(() => compileDeckMotionPlan(timedDeck, resolver)).to.throw('No motionSteps registered')
   })
 
   it('resolves template motion steps for all 13 slide types', () => {
@@ -114,15 +112,15 @@ describe('compileDeckMotionPlan', () => {
     }
   })
 
-  it('prefers template motion steps over fallback for known types', () => {
+  it('includes a human-readable motion summary', () => {
     const timedDeck = makeTimedDeck(
       [{slideId: 'slide-001', type: 'hero', motion: 'cinematic-rise', points: ['A']}],
       [{slideId: 'slide-001', start: 0, end: 10}],
     )
-    const planWithTemplate = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
-    const planWithFallback = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
-    expect(planWithTemplate.timeline.tracks.length).to.equal(planWithFallback.timeline.tracks.length)
+    expect(plan.summary.trackCount).to.equal(plan.timeline.tracks.length)
+    expect(plan.summary.lines.some((line) => line.includes('slide-001'))).to.equal(true)
   })
 })
 
@@ -162,7 +160,8 @@ describe('motionPresetState', () => {
   const allPresets: DeckMotionPreset[] = [
     'fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up',
     'progressive-reveal', 'card-stack', 'line-draw', 'number-count',
-    'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise',
+    'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise', 'rotate',
+    'spin', 'spring', 'bounce', 'typewriter', 'parallax',
   ]
 
   for (const preset of allPresets) {
@@ -260,8 +259,8 @@ describe('blur-free mode', () => {
       [{slideId: 'slide-001', type: 'hero', motion: 'progressive-reveal', points: ['A']}],
       [{slideId: 'slide-001', start: 0, end: 20}],
     )
-    const normal = compileDeckMotionPlan(timedDeck)
-    const blurFree = compileDeckMotionPlan(timedDeck, undefined, {blurFree: true})
+    const normal = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
+    const blurFree = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate, {blurFree: true})
     const normalBlurTracks = normal.timeline.tracks.filter((t) => t.property === 'blur')
     const blurFreeBlurTracks = blurFree.timeline.tracks.filter((t) => t.property === 'blur')
 
@@ -284,7 +283,7 @@ describe('transitions', () => {
         {slideId: 's3', start: 15, end: 20},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.transitions).to.have.length(2)
     expect(plan.transitions[0].from).to.equal('s1')
@@ -304,7 +303,7 @@ describe('transitions', () => {
         {slideId: 's2', start: 5, end: 15},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.transitions[0].type).to.equal('slide-up')
   })
@@ -320,12 +319,12 @@ describe('transitions', () => {
         {slideId: 's2', start: 10, end: 15},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.transitions[0].type).to.equal('fade')
   })
 
-  it('uses crossfade for content-to-content transitions', () => {
+  it('uses slide-left for structured content transitions', () => {
     const timedDeck = makeTimedDeck(
       [
         {slideId: 's1', type: 'three-points', points: ['A']},
@@ -336,9 +335,9 @@ describe('transitions', () => {
         {slideId: 's2', start: 10, end: 20},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
-    expect(plan.transitions[0].type).to.equal('crossfade')
+    expect(plan.transitions[0].type).to.equal('slide-left')
   })
 
   it('uses fade for section entry', () => {
@@ -352,7 +351,7 @@ describe('transitions', () => {
         {slideId: 's2', start: 10, end: 13},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.transitions[0].type).to.equal('fade')
   })
@@ -362,7 +361,7 @@ describe('transitions', () => {
       [{slideId: 's1', type: 'hero', points: ['A']}],
       [{slideId: 's1', start: 0, end: 10}],
     )
-    const plan = compileDeckMotionPlan(timedDeck)
+    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
     expect(plan.transitions).to.have.length(0)
   })

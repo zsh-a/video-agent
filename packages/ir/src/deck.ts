@@ -14,6 +14,7 @@ export const DeckThemeSchema = z.enum([
   'tech-gradient',
   'minimal-editorial',
   'warm-paper',
+  'custom',
 ])
 
 export const DeckMotionPresetSchema = z.enum([
@@ -30,6 +31,12 @@ export const DeckMotionPresetSchema = z.enum([
   'wipe',
   'zoom-focus',
   'cinematic-rise',
+  'rotate',
+  'spin',
+  'spring',
+  'bounce',
+  'typewriter',
+  'parallax',
 ])
 
 export const DeckSlideTypeSchema = z.enum([
@@ -157,6 +164,8 @@ export const DeckCodeBlockSchema = z.object({
   text: z.string().min(1),
 })
 
+export const DeckThemeTokensSchema = z.record(z.string().min(1), z.string().min(1))
+
 export const SlideSchema = z.object({
   blockIds: z.array(z.string().min(1)).default([]),
   code: DeckCodeBlockSchema.optional(),
@@ -181,6 +190,7 @@ export const DeckSchema = z.object({
   language: z.string().default('zh-CN'),
   slides: z.array(SlideSchema),
   theme: DeckThemeSchema.default('elegant-dark'),
+  themeTokens: DeckThemeTokensSchema.optional(),
   title: z.string().min(1),
   version: z.literal(1),
 })
@@ -234,10 +244,12 @@ export const DeckQualityIssueSchema = z.object({
 })
 
 export const DeckSlideQualityMetricsSchema = z.object({
+  density: z.enum(['quiet', 'normal', 'dense']),
   duration: z.number().finite().nonnegative(),
   estimatedCharactersPerSecond: z.number().finite().nonnegative(),
   pointCount: z.number().int().nonnegative(),
   slideId: z.string().min(1),
+  template: DeckSlideTypeSchema,
   textCharacters: z.number().int().nonnegative(),
   titleCharacters: z.number().int().nonnegative(),
 })
@@ -247,11 +259,35 @@ export const DeckQualityReportSchema = z.object({
   format: DeckFormatSchema,
   issues: z.array(DeckQualityIssueSchema),
   metrics: z.array(DeckSlideQualityMetricsSchema),
+  motion: z.object({
+    trackCount: z.number().int().nonnegative(),
+    tracksPerSlide: z.array(z.object({
+      presets: z.array(DeckMotionPresetSchema),
+      slideId: z.string().min(1),
+      trackCount: z.number().int().nonnegative(),
+      transitionIn: z.string().min(1).optional(),
+      transitionOut: z.string().min(1).optional(),
+    })),
+    transitionCount: z.number().int().nonnegative(),
+  }),
+  renderEstimate: z.object({
+    estimatedFrames: z.number().int().nonnegative(),
+    estimatedRenderSeconds: z.number().finite().nonnegative(),
+    fps: z.number().finite().positive(),
+  }),
   source: z.literal('timed-deck.json'),
   summary: z.object({
     errors: z.number().int().nonnegative(),
     slides: z.number().int().nonnegative(),
     warnings: z.number().int().nonnegative(),
+  }),
+  templateDistribution: z.record(z.string(), z.number().int().nonnegative()),
+  textDensity: z.object({
+    averageCharacters: z.number().finite().nonnegative(),
+    dense: z.number().int().nonnegative(),
+    maxCharacters: z.number().int().nonnegative(),
+    normal: z.number().int().nonnegative(),
+    quiet: z.number().int().nonnegative(),
   }),
   version: z.literal(1),
 })
@@ -274,6 +310,7 @@ export type DeckSlideType = z.infer<typeof DeckSlideTypeSchema>
 export type DeckSlideQualityMetrics = z.infer<typeof DeckSlideQualityMetricsSchema>
 export type DeckStat = z.infer<typeof DeckStatSchema>
 export type DeckTheme = z.infer<typeof DeckThemeSchema>
+export type DeckThemeTokens = z.infer<typeof DeckThemeTokensSchema>
 export type DeckVisual = z.infer<typeof DeckVisualSchema>
 export type Document = z.infer<typeof DocumentSchema>
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>

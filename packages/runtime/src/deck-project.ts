@@ -13,7 +13,7 @@ import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
 import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkSrtSubtitles, checkStoryboardConsistency, checkTimelineBounds, checkVisualSmoke, createRenderedMediaProbeFailure} from '@video-agent/quality'
-import {compileDeckMotionPlan, deckCanvasSize, deckTemplateManifestForLLM, findDeckTemplateManifestEntry, isDeckTemplateType, maxPointsForDeckTemplate, writeDeckHtmlProject} from '@video-agent/renderer-deck'
+import {compileDeckMotionPlan, deckCanvasSize, deckTemplateManifestForLLM, findDeckTemplateManifestEntry, isDeckTemplateType, maxPointsForDeckTemplate, resolveMotionStepsForTemplate, validateSlideAgainstTemplateManifest, writeDeckHtmlProject} from '@video-agent/renderer-deck'
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
 import {captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes, createDeckHtmlFrameSequence, selectDeckHtmlKeyframes} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
@@ -354,7 +354,7 @@ const DEFAULT_DECK_FRAME_CONCURRENCY = 1
 const DEFAULT_DECK_RENDER_FPS = 30
 const DEFAULT_DECK_FRAME_SHARD_SIZE = 300
 const DEFAULT_DECK_THEME: Deck['theme'] = 'elegant-dark'
-const DECK_THEMES = ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
+const DECK_THEMES = ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper', 'custom'] as const
 const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
   'elegant-dark': '深色科技风，适合技术、AI、数据、编程主题',
   'clean-white': '简洁白净，适合商业汇报、教育、通用主题',
@@ -1224,7 +1224,7 @@ export async function createDeckRendererBackendProject(options: CreateDeckRender
     workspaceDir,
   })
   const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
-  const motionTimeline = compileDeckMotionPlan(timedDeck).timeline
+  const motionTimeline = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate).timeline
   const outputDir = resolve(options.outputDir ?? resolve(workspace.rendersDir, options.backend))
   const sourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
   const fps = normalizeDeckRendererFps(options.fps ?? motionTimeline.fps)
@@ -1618,7 +1618,7 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
     const silentVideoPath = resolve(workspace.rendersDir, 'deck_silent.mp4')
     const outputPath = resolve(workspace.rendersDir, 'final.mp4')
     const sourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
-    const motionTimeline = compileDeckMotionPlan(timedDeck).timeline
+    const motionTimeline = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate).timeline
     const fps = normalizeDeckRendererFps(motionTimeline.fps)
 
     await assertFileExists(audioPath)
@@ -3411,6 +3411,7 @@ function confidenceForContentBlock(block: ContentBlock): number {
 function createDeckQualityReport(timedDeck: TimedDeck): DeckQualityReport {
   const timingBySlide = new Map(timedDeck.timings.map((timing) => [timing.slideId, timing]))
   const issues: DeckQualityIssue[] = []
+  const motion = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
   const metrics = timedDeck.deck.slides.map((slide) => {
     const timing = timingBySlide.get(slide.slideId)
     const duration = timing === undefined ? 0 : roundSeconds(timing.end - timing.start)
@@ -3433,16 +3434,42 @@ function createDeckQualityReport(timedDeck: TimedDeck): DeckQualityReport {
   issues.push(...createDeckTimingQualityIssues(timedDeck.timings))
   issues.push(...createDuplicateSlideQualityIssues(timedDeck.deck.slides))
 
+  const textCharacters = metrics.map((metric) => metric.textCharacters)
+
   return {
     checkedAt: new Date().toISOString(),
     format: timedDeck.deck.format,
     issues,
     metrics,
+    motion: {
+      trackCount: motion.summary.trackCount,
+      tracksPerSlide: motion.summary.slides.map((slide) => ({
+        presets: slide.presets,
+        slideId: slide.slideId,
+        trackCount: slide.trackCount,
+        ...(slide.transitionIn === undefined ? {} : {transitionIn: slide.transitionIn}),
+        ...(slide.transitionOut === undefined ? {} : {transitionOut: slide.transitionOut}),
+      })),
+      transitionCount: motion.summary.transitionCount,
+    },
+    renderEstimate: {
+      estimatedFrames: Math.ceil(motion.duration * motion.timeline.fps),
+      estimatedRenderSeconds: roundSeconds(motion.duration * estimateDeckRenderSecondsPerSecond(timedDeck.deck.format)),
+      fps: motion.timeline.fps,
+    },
     source: 'timed-deck.json',
     summary: {
       errors: issues.filter((issue) => issue.severity === 'error').length,
       slides: timedDeck.deck.slides.length,
       warnings: issues.filter((issue) => issue.severity === 'warning').length,
+    },
+    templateDistribution: createTemplateDistribution(timedDeck.deck.slides),
+    textDensity: {
+      averageCharacters: textCharacters.length === 0 ? 0 : roundSeconds(textCharacters.reduce((sum, value) => sum + value, 0) / textCharacters.length),
+      dense: metrics.filter((metric) => metric.density === 'dense').length,
+      maxCharacters: Math.max(0, ...textCharacters),
+      normal: metrics.filter((metric) => metric.density === 'normal').length,
+      quiet: metrics.filter((metric) => metric.density === 'quiet').length,
     },
     version: 1,
   }
@@ -3452,10 +3479,12 @@ function createDeckSlideQualityMetrics(slide: Slide, duration: number): DeckSlid
   const textCharacters = deckSlideText(slide).length
 
   return {
+    density: deckTextDensity(textCharacters),
     duration,
     estimatedCharactersPerSecond: duration <= 0 ? 0 : roundSeconds(textCharacters / duration),
     pointCount: slide.points.length,
     slideId: slide.slideId,
+    template: slide.type,
     textCharacters,
     titleCharacters: slide.title.length,
   }
@@ -3555,30 +3584,46 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
 }
 
 function createDeckTemplateQualityIssues(slide: Slide): DeckQualityIssue[] {
-  const template = findDeckTemplateManifestEntry(slide.type)
-  const issues: DeckQualityIssue[] = []
-  const maxPoints = maxPointsForDeckTemplate(slide.type)
-  const titleLimit = template.limits.title_chars
+  return validateSlideAgainstTemplateManifest(slide).map((message): DeckQualityIssue => ({
+    code: 'deck.template.manifest_violation',
+    message,
+    severity: 'error',
+    slideId: slide.slideId,
+  }))
+}
 
-  if (maxPoints !== undefined && slide.points.length > maxPoints) {
-    issues.push({
-      code: 'deck.template.too_many_points',
-      message: `Slide ${slide.slideId} uses ${slide.type} with ${slide.points.length} points; template limit is ${maxPoints}.`,
-      severity: 'error',
-      slideId: slide.slideId,
-    })
+function deckTextDensity(textCharacters: number): DeckSlideQualityMetrics['density'] {
+  if (textCharacters >= 180) {
+    return 'dense'
   }
 
-  if (titleLimit !== undefined && slide.title.length > titleLimit) {
-    issues.push({
-      code: 'deck.template.title_too_long',
-      message: `Slide ${slide.slideId} title has ${slide.title.length} characters; ${slide.type} template limit is ${titleLimit}.`,
-      severity: 'warning',
-      slideId: slide.slideId,
-    })
+  if (textCharacters <= 72) {
+    return 'quiet'
   }
 
-  return issues
+  return 'normal'
+}
+
+function createTemplateDistribution(slides: Slide[]): Record<string, number> {
+  const distribution: Record<string, number> = {}
+
+  for (const slide of slides) {
+    distribution[slide.type] = (distribution[slide.type] ?? 0) + 1
+  }
+
+  return distribution
+}
+
+function estimateDeckRenderSecondsPerSecond(format: DeckFormat): number {
+  if (format === 'portrait_1080x1920') {
+    return 0.65
+  }
+
+  if (format === 'square_1080x1080') {
+    return 0.5
+  }
+
+  return 0.55
 }
 
 function createDeckTimingQualityIssues(timings: SlideTiming[]): DeckQualityIssue[] {

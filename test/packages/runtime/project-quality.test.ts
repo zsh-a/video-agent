@@ -78,19 +78,47 @@ describe('project quality', () => {
         ],
         metrics: [
           {
+            density: 'dense',
             duration: 1,
             estimatedCharactersPerSecond: 30,
             pointCount: 8,
             slideId: 's001',
+            template: 'three-points',
             textCharacters: 240,
             titleCharacters: 12,
           },
         ],
+        motion: {
+          trackCount: 4,
+          tracksPerSlide: [
+            {
+              presets: ['progressive-reveal'],
+              slideId: 's001',
+              trackCount: 4,
+            },
+          ],
+          transitionCount: 0,
+        },
+        renderEstimate: {
+          estimatedFrames: 30,
+          estimatedRenderSeconds: 1,
+          fps: 30,
+        },
         source: 'timed-deck.json',
         summary: {
           errors: 1,
           slides: 1,
           warnings: 1,
+        },
+        templateDistribution: {
+          'three-points': 1,
+        },
+        textDensity: {
+          averageCharacters: 240,
+          dense: 1,
+          maxCharacters: 240,
+          normal: 0,
+          quiet: 0,
         },
         version: 1,
       })}\n`)

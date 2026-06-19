@@ -34,4 +34,21 @@ export const comparisonStyles = `.comparison__side::before {
 
 .comparison__side--right li::before {
   background: var(--accent-warm);
+}
+
+body[data-format="portrait_1080x1920"] .comparison {
+  grid-template-columns: 1fr;
+}
+
+body[data-format="portrait_1080x1920"] .comparison__side {
+  gap: 18px;
+  padding: 28px;
+}
+
+body[data-format="portrait_1080x1920"] .comparison__side h2 {
+  font-size: calc(var(--font-body) * 0.84);
+}
+
+body[data-format="portrait_1080x1920"] .comparison__side li {
+  font-size: calc(var(--font-body) * 0.74);
 }`

@@ -1,3 +1,5 @@
+import type {Deck} from '@video-agent/ir'
+
 const THEME_TOKEN_KEYS = [
   'bg',
   'bg-2',
@@ -50,8 +52,9 @@ const THEME_TOKEN_SETS: readonly ThemeTokenSet[] = [
   },
 ]
 
-export function themeTokensCss(): string {
-  return THEME_TOKEN_SETS.map((theme) => {
+export function themeTokensCss(deck: Deck): string {
+  return [
+    ...THEME_TOKEN_SETS.map((theme) => {
     const declarations = theme.values
       .map((value, index) => `  --${THEME_TOKEN_KEYS[index]}: ${value};`)
       .join('\n')
@@ -61,5 +64,44 @@ export function themeTokensCss(): string {
 [data-deck-root][data-theme="${theme.name}"] {
 ${colorScheme}${declarations}
 }`
-  }).join('\n\n')
+    }),
+    customThemeTokensCss(deck),
+  ].filter((css) => css.length > 0).join('\n\n')
+}
+
+function customThemeTokensCss(deck: Deck): string {
+  if (deck.theme !== 'custom') {
+    return ''
+  }
+
+  const declarations = THEME_TOKEN_KEYS
+    .map((key) => {
+      const tokens = deck.themeTokens ?? {}
+      const value = tokens[key] ?? tokens[`--deck-${key}`] ?? tokens[`--${key}`]
+
+      return value === undefined ? undefined : `  --${key}: ${sanitizeCssDeclarationValue(value)};`
+    })
+    .filter((value): value is string => value !== undefined)
+
+  if (declarations.length === 0) {
+    return ''
+  }
+
+  const tokens = deck.themeTokens ?? {}
+  const colorScheme = tokens.colorScheme === 'light' || tokens['color-scheme'] === 'light'
+    ? '  color-scheme: light;\n'
+    : ''
+
+  return `body[data-theme="custom"],
+[data-deck-root][data-theme="custom"] {
+${colorScheme}${declarations.join('\n')}
+}`
+}
+
+function sanitizeCssDeclarationValue(value: string): string {
+  if (/[;{}]/.test(value)) {
+    throw new Error(`Invalid custom deck theme token value "${value}".`)
+  }
+
+  return value
 }

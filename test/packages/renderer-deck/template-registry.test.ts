@@ -154,6 +154,80 @@ describe('validateSlideAgainstTemplateManifest', () => {
 
     expect(issues).to.have.length(0)
   })
+
+  it('detects per-point character overflow', () => {
+    const issues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'progressive-reveal',
+      points: ['This point is much too long for the hero point limit'],
+      slideId: 'slide-001',
+      title: 'Hero',
+      type: 'hero',
+    })
+
+    expect(issues.some((issue) => issue.includes('point character limit 28'))).to.equal(true)
+  })
+
+  it('detects subtitle overflow', () => {
+    const issues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'fade-in',
+      points: [],
+      slideId: 'slide-001',
+      subtitle: 'This subtitle is too long for a section divider template',
+      title: 'Section',
+      type: 'section',
+    })
+
+    expect(issues.some((issue) => issue.includes('subtitle limit 42'))).to.equal(true)
+  })
+
+  it('detects comparison side point limits', () => {
+    const issues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      comparison: {
+        left: {label: 'Left', points: ['A', 'B', 'C', 'D']},
+        right: {label: 'Right', points: ['A', 'B', 'C', 'D']},
+      },
+      evidence: [],
+      motion: 'card-stack',
+      points: [],
+      slideId: 'slide-001',
+      title: 'Compare',
+      type: 'comparison',
+    })
+
+    expect(issues.some((issue) => issue.includes('left_points limit 3'))).to.equal(true)
+    expect(issues.some((issue) => issue.includes('right_points limit 3'))).to.equal(true)
+  })
+
+  it('detects code and quote limits', () => {
+    const codeIssues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      code: {language: 'ts', text: Array.from({length: 13}, (_, index) => `line ${index}`).join('\n')},
+      evidence: [],
+      motion: 'blur-rise',
+      points: [],
+      slideId: 'slide-code',
+      title: 'Code',
+      type: 'code',
+    })
+    const quoteIssues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'soft-scale',
+      points: [],
+      quote: {text: 'A'.repeat(97)},
+      slideId: 'slide-quote',
+      title: 'Quote',
+      type: 'quote',
+    })
+
+    expect(codeIssues.some((issue) => issue.includes('code line limit 12'))).to.equal(true)
+    expect(quoteIssues.some((issue) => issue.includes('quote limit 96'))).to.equal(true)
+  })
 })
 
 describe('maxPointsForDeckTemplate', () => {
@@ -165,5 +239,6 @@ describe('maxPointsForDeckTemplate', () => {
     expect(maxPointsForDeckTemplate('chart')).to.equal(4)
     expect(maxPointsForDeckTemplate('summary')).to.equal(4)
     expect(maxPointsForDeckTemplate('cta')).to.equal(1)
+    expect(maxPointsForDeckTemplate('comparison')).to.equal(6)
   })
 })

@@ -44,25 +44,81 @@ export function findDeckTemplateManifestEntry(type: DeckSlideType): DeckTemplate
 }
 
 export function maxPointsForDeckTemplate(type: DeckSlideType): number | undefined {
-  const limits = findDeckTemplateManifestEntry(type).limits
+  const template = findDeckTemplateManifestEntry(type)
+  const limits = template.limits
 
-  return limits.points ?? limits.steps ?? limits.items ?? limits.bars
+  return limits.points ?? limits.steps ?? limits.items ?? limits.bars ?? template.qualityRules.maxPoints
 }
 
 export function validateSlideAgainstTemplateManifest(slide: Slide): string[] {
   const template = findDeckTemplateManifestEntry(slide.type)
-  const issues: string[] = []
+
+  return [
+    ...validatePointCount(slide),
+    ...validateTextLength(slide, 'title', slide.title, template.limits.title_chars, 'title limit'),
+    ...validateTextLength(slide, 'subtitle', slide.subtitle, template.limits.subtitle_chars, 'subtitle limit'),
+    ...validatePointCharacters(slide, template.limits.point_chars),
+    ...validateComparisonSideCounts(slide, template.limits),
+    ...validateCodeLines(slide, template.limits.code_lines),
+    ...validateTextLength(slide, 'quote', slide.quote?.text, template.limits.quote_chars, 'quote limit'),
+  ]
+}
+
+function validatePointCount(slide: Slide): string[] {
   const maxPoints = maxPointsForDeckTemplate(slide.type)
 
-  if (maxPoints !== undefined && slide.points.length > maxPoints) {
-    issues.push(`Slide ${slide.slideId} exceeds ${slide.type} point limit ${maxPoints}.`)
+  return maxPoints !== undefined && slide.points.length > maxPoints
+    ? [`Slide ${slide.slideId} exceeds ${slide.type} point limit ${maxPoints}.`]
+    : []
+}
+
+function validateTextLength(slide: Slide, field: string, value: string | undefined, limit: number | undefined, label: string): string[] {
+  return limit !== undefined && (value?.length ?? 0) > limit
+    ? [`Slide ${slide.slideId} ${field} exceeds ${slide.type} ${label} ${limit}.`]
+    : []
+}
+
+function validatePointCharacters(slide: Slide, limit: number | undefined): string[] {
+  if (limit === undefined) {
+    return []
   }
 
-  const titleLimit = template.limits.title_chars
+  return [
+    ...textLimitIssues(slide, slide.points, limit, 'point'),
+    ...textLimitIssues(slide, slide.comparison?.left.points ?? [], limit, 'left comparison point'),
+    ...textLimitIssues(slide, slide.comparison?.right.points ?? [], limit, 'right comparison point'),
+  ]
+}
 
-  if (titleLimit !== undefined && slide.title.length > titleLimit) {
-    issues.push(`Slide ${slide.slideId} title exceeds ${slide.type} title limit ${titleLimit}.`)
+function textLimitIssues(slide: Slide, values: string[], limit: number, label: string): string[] {
+  return values
+    .filter((value) => value.length > limit)
+    .map(() => `Slide ${slide.slideId} ${label} exceeds ${slide.type} point character limit ${limit}.`)
+}
+
+function validateComparisonSideCounts(slide: Slide, limits: DeckTemplateManifestEntry['limits']): string[] {
+  return [
+    ...validateCountLimit(slide, 'left comparison points', slide.comparison?.left.points.length ?? 0, limits.left_points, 'left_points'),
+    ...validateCountLimit(slide, 'right comparison points', slide.comparison?.right.points.length ?? 0, limits.right_points, 'right_points'),
+  ]
+}
+
+function validateCountLimit(slide: Slide, field: string, count: number, limit: number | undefined, label: string): string[] {
+  return limit !== undefined && count > limit
+    ? [`Slide ${slide.slideId} ${field} exceed ${slide.type} ${label} limit ${limit}.`]
+    : []
+}
+
+function validateCodeLines(slide: Slide, limit: number | undefined): string[] {
+  return limit !== undefined && lineCount(slide.code?.text) > limit
+    ? [`Slide ${slide.slideId} code exceeds ${slide.type} code line limit ${limit}.`]
+    : []
+}
+
+function lineCount(value: string | undefined): number {
+  if (value === undefined || value.length === 0) {
+    return 0
   }
 
-  return issues
+  return value.replaceAll(/\r\n?/g, '\n').split('\n').length
 }
