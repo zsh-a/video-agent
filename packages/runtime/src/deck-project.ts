@@ -1822,6 +1822,7 @@ async function createLLMTextDeckProjectPlan(
   options: TextDeckProjectPlanOptions,
 ): Promise<TextDeckProjectPlan> {
   const targetSlideCount = estimateTextDeckSlideCount(text, options.durationTargetSeconds)
+  const sourceStructure = createDeckPlanningSourceStructure(text)
   const result = await llm.generateObject({
     messages: [
       {
@@ -1832,7 +1833,10 @@ async function createLLMTextDeckProjectPlan(
             'Remove YAML frontmatter, Markdown syntax, code fences, table pipes, raw template markers, and implementation-only metadata.',
             'Do not split sentences by character count. Merge related source sections into audience-facing ideas.',
             'If the source is an agent skill or internal instruction document, explain what it does, when to use it, the workflow, output shape, and quality bar.',
+            'Treat source.structure.sections as a coverage checklist. Every major source heading should appear as a slide topic, visible point, or concrete speakerNote detail unless it is pure metadata.',
+            'For structured method documents, preserve optional helper/data sections, answer shape, output template, quality bar, validation criteria, and caveats as first-class content instead of collapsing everything into generic workflow steps.',
             'Do not paste the raw source verbatim. Rewrite it into natural presentation language.',
+            'When translating, preserve the source-domain meaning of technical terms and object nouns. Do not substitute terms from unrelated domains unless the source uses them.',
             'Keep slide titles short and concrete.',
             'Use concise visible text and respect each template field and limit in target.templateManifest.',
             'Choose slide type only from target.templateManifest.templates. Do not invent, rename, or translate type values.',
@@ -1857,6 +1861,7 @@ async function createLLMTextDeckProjectPlan(
           ],
           source: {
             path: inputPath,
+            structure: sourceStructure,
             sourceType: options.sourceType ?? inferDocumentSourceType(inputPath),
             text: truncateForLLM(text, 60_000),
           },
@@ -2058,7 +2063,7 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
     }
   }).filter((slide) => slide.title !== '' && slide.speakerNote !== '')
 
-  const repairedSlides = repairLLMTextDeckSlides(slides)
+  const repairedSlides = diversifyRepeatedDeckTemplates(repairLLMTextDeckSlides(slides))
 
   return repairedSlides.length === 0
     ? [{
@@ -2073,6 +2078,42 @@ function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDec
 
 function repairLLMTextDeckSlides(slides: NormalizedLLMTextDeckSlide[]): NormalizedLLMTextDeckSlide[] {
   return slides.flatMap((slide) => repairLLMTextDeckSlide(slide))
+}
+
+function diversifyRepeatedDeckTemplates(slides: NormalizedLLMTextDeckSlide[]): NormalizedLLMTextDeckSlide[] {
+  let repeatedThreePointCount = 0
+
+  return slides.map((slide, index) => {
+    if (index === 0 || slide.type !== 'three-points' || slide.points.length < 2) {
+      repeatedThreePointCount = slide.type === 'three-points' ? 1 : 0
+      return slide
+    }
+
+    repeatedThreePointCount += 1
+
+    if (repeatedThreePointCount < 2) {
+      return slide
+    }
+
+    return {
+      ...slide,
+      type: alternateRepeatedPointTemplate(slide, repeatedThreePointCount),
+    }
+  })
+}
+
+function alternateRepeatedPointTemplate(slide: NormalizedLLMTextDeckSlide, repeatedCount: number): DeckSlideType {
+  const title = slide.title
+
+  if (/验证|时间|季度|路径|链/u.test(title)) {
+    return 'timeline'
+  }
+
+  if (/评分|质量|总结|标准|仓位/u.test(title)) {
+    return 'summary'
+  }
+
+  return repeatedCount % 2 === 0 ? 'process' : 'timeline'
 }
 
 function repairLLMTextDeckSlide(slide: NormalizedLLMTextDeckSlide): NormalizedLLMTextDeckSlide[] {
@@ -2412,6 +2453,60 @@ function estimateNarrationCharactersPerSlide(durationTargetSeconds: number | und
   }
 
   return clampInteger(Math.round(durationTargetSeconds / Math.max(1, slideCount) * 4.5), 60, 150)
+}
+
+interface DeckPlanningSourceSection {
+  level: number
+  preview: string
+  title: string
+}
+
+interface DeckPlanningSourceStructure {
+  majorHeadings: string[]
+  sections: DeckPlanningSourceSection[]
+}
+
+function createDeckPlanningSourceStructure(text: string): DeckPlanningSourceStructure {
+  const sections: Array<DeckPlanningSourceSection & {body: string[]}> = []
+  let current: (DeckPlanningSourceSection & {body: string[]}) | undefined
+
+  for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
+    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(rawLine)
+
+    if (heading !== null) {
+      current = {
+        body: [],
+        level: heading[1]?.length ?? 1,
+        preview: '',
+        title: cleanGeneratedText(heading[2], ''),
+      }
+
+      if (current.title !== '') {
+        sections.push(current)
+      }
+
+      continue
+    }
+
+    current?.body.push(rawLine)
+  }
+
+  const visibleSections = sections
+    .filter((section) => section.title !== '')
+    .slice(0, 20)
+    .map(({body, level, title}) => ({
+      level,
+      preview: truncateForLLM(stripMarkdownControlText(body.join('\n')), 360),
+      title,
+    }))
+
+  return {
+    majorHeadings: visibleSections
+      .filter((section) => section.level <= 2)
+      .map((section) => section.title)
+      .slice(0, 12),
+    sections: visibleSections,
+  }
 }
 
 function estimateNarrationDuration(text: string): number {
@@ -3185,7 +3280,6 @@ async function writeDeckSubtitles(workspace: ProjectWorkspace, timedDeck: TimedD
   return {
     outputPath,
     quality: checkSrtSubtitles(await bunFile(outputPath).text(), {
-      expectedCues: narration.segments.length,
       maxEnd: timedDeck.timings.at(-1)?.end ?? 0,
     }),
   }

@@ -1,19 +1,38 @@
 import {resolve} from 'node:path'
 
+import type {LLMTraceOperation, LLMTraceRecord, LLMTraceStatus} from '@video-agent/llm'
 import type {ProviderCallRecord, ProviderCallRole, ProviderCallStatus} from './provider-calls.js'
 
 import {readJsonLines} from './file-io.js'
 
 export interface ReadProjectProviderReportOptions {
   role?: ProviderCallRole
-  status?: ProviderCallStatus
+  status?: ProviderCallStatus | LLMTraceStatus
   workspaceDir?: string
 }
 
 export interface ProjectProviderReport {
   calls: ProviderCallRecord[]
+  llmTraces: LLMTraceReportRecord[]
   projectId: string
   summary: ProviderReportSummary
+}
+
+export interface LLMTraceReportRecord {
+  completedAt: string
+  durationMs: number
+  error?: {
+    message: string
+    name: string
+  }
+  model?: string
+  operation: LLMTraceOperation
+  provider?: string
+  requestId: string
+  startedAt: string
+  status: LLMTraceStatus
+  usage?: LLMTraceReportUsage
+  version: 1
 }
 
 export interface ProviderReportSummary {
@@ -27,9 +46,39 @@ export interface ProviderReportSummary {
     total: number
   }
   failed: number
+  llm: LLMTraceReportSummary
   succeeded: number
   total: number
   usage: ProviderReportUsage
+}
+
+export interface LLMTraceReportSummary {
+  byModel: Record<string, LLMTraceReportBucket>
+  byOperation: Record<string, LLMTraceReportBucket>
+  byProvider: Record<string, LLMTraceReportBucket>
+  durationMs: {
+    average: number
+    max: number
+    total: number
+  }
+  failed: number
+  succeeded: number
+  total: number
+  usage: LLMTraceReportUsage
+}
+
+export interface LLMTraceReportBucket {
+  durationMs: number
+  failed: number
+  succeeded: number
+  total: number
+  usage: LLMTraceReportUsage
+}
+
+export interface LLMTraceReportUsage {
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
 }
 
 export interface ProviderReportBucket {
@@ -55,15 +104,21 @@ export async function readProjectProviderReport(projectId: string, options: Read
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
   const calls = (await readJsonLines<ProviderCallRecord>(resolve(artifactsDir, 'provider-calls.jsonl')))
     .filter((call) => (options.role === undefined || call.role === options.role) && (options.status === undefined || call.status === options.status))
+  const llmTraces = options.role === undefined
+    ? (await readJsonLines<LLMTraceRecord>(resolve(artifactsDir, 'llm-traces.jsonl')))
+      .map(toLLMTraceReportRecord)
+      .filter((trace) => options.status === undefined || trace.status === options.status)
+    : []
 
   return {
     calls,
+    llmTraces,
     projectId,
-    summary: summarizeProviderReport(calls),
+    summary: summarizeProviderReport(calls, llmTraces),
   }
 }
 
-function summarizeProviderReport(calls: ProviderCallRecord[]): ProviderReportSummary {
+function summarizeProviderReport(calls: ProviderCallRecord[], llmTraces: LLMTraceReportRecord[]): ProviderReportSummary {
   return {
     byModel: summarizeBuckets(calls, (call) => call.model ?? 'unknown'),
     byProvider: summarizeBuckets(calls, (call) => call.provider),
@@ -76,9 +131,104 @@ function summarizeProviderReport(calls: ProviderCallRecord[]): ProviderReportSum
     costs: sumCosts(calls),
     durationMs: summarizeDuration(calls),
     failed: calls.filter((call) => call.status === 'failed').length,
+    llm: summarizeLLMTraces(llmTraces),
     succeeded: calls.filter((call) => call.status === 'succeeded').length,
     total: calls.length,
     usage: sumUsage(calls),
+  }
+}
+
+function toLLMTraceReportRecord(trace: LLMTraceRecord): LLMTraceReportRecord {
+  return {
+    completedAt: trace.completedAt,
+    durationMs: trace.durationMs,
+    ...(trace.error === undefined ? {} : {error: trace.error}),
+    ...(trace.model === undefined ? {} : {model: trace.model}),
+    operation: trace.operation,
+    ...(trace.provider === undefined ? {} : {provider: trace.provider}),
+    requestId: trace.requestId,
+    startedAt: trace.startedAt,
+    status: trace.status,
+    ...(trace.usage === undefined ? {} : {usage: normalizeLLMTraceUsage(trace.usage)}),
+    version: trace.version,
+  }
+}
+
+function summarizeLLMTraces(traces: LLMTraceReportRecord[]): LLMTraceReportSummary {
+  return {
+    byModel: summarizeLLMBuckets(traces, (trace) => trace.model ?? 'unknown'),
+    byOperation: summarizeLLMBuckets(traces, (trace) => trace.operation),
+    byProvider: summarizeLLMBuckets(traces, (trace) => trace.provider ?? 'unknown'),
+    durationMs: summarizeLLMDuration(traces),
+    failed: traces.filter((trace) => trace.status === 'failed').length,
+    succeeded: traces.filter((trace) => trace.status === 'succeeded').length,
+    total: traces.length,
+    usage: sumLLMTraceUsage(traces),
+  }
+}
+
+function summarizeLLMBuckets(traces: LLMTraceReportRecord[], keyForTrace: (trace: LLMTraceReportRecord) => string): Record<string, LLMTraceReportBucket> {
+  const buckets: Record<string, LLMTraceReportRecord[]> = {}
+
+  for (const trace of traces) {
+    const key = keyForTrace(trace)
+    buckets[key] = [...(buckets[key] ?? []), trace]
+  }
+
+  return Object.fromEntries(Object.entries(buckets)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, bucketTraces]) => [key, summarizeLLMBucket(bucketTraces)]))
+}
+
+function summarizeLLMBucket(traces: LLMTraceReportRecord[]): LLMTraceReportBucket {
+  return {
+    durationMs: traces.reduce((total, trace) => total + trace.durationMs, 0),
+    failed: traces.filter((trace) => trace.status === 'failed').length,
+    succeeded: traces.filter((trace) => trace.status === 'succeeded').length,
+    total: traces.length,
+    usage: sumLLMTraceUsage(traces),
+  }
+}
+
+function summarizeLLMDuration(traces: LLMTraceReportRecord[]): LLMTraceReportSummary['durationMs'] {
+  const total = traces.reduce((sum, trace) => sum + trace.durationMs, 0)
+
+  return {
+    average: traces.length === 0 ? 0 : Math.round(total / traces.length),
+    max: traces.reduce((max, trace) => Math.max(max, trace.durationMs), 0),
+    total,
+  }
+}
+
+function sumLLMTraceUsage(traces: LLMTraceReportRecord[]): LLMTraceReportUsage {
+  const usage = createEmptyLLMTraceUsage()
+
+  for (const trace of traces) {
+    usage.inputTokens += trace.usage?.inputTokens ?? 0
+    usage.outputTokens += trace.usage?.outputTokens ?? 0
+    usage.totalTokens += trace.usage?.totalTokens ?? 0
+  }
+
+  if (usage.totalTokens === 0) {
+    usage.totalTokens = usage.inputTokens + usage.outputTokens
+  }
+
+  return usage
+}
+
+function normalizeLLMTraceUsage(usage: LLMTraceRecord['usage']): LLMTraceReportUsage {
+  return {
+    inputTokens: usage?.inputTokens ?? 0,
+    outputTokens: usage?.outputTokens ?? 0,
+    totalTokens: usage?.totalTokens ?? (usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0),
+  }
+}
+
+function createEmptyLLMTraceUsage(): LLMTraceReportUsage {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
   }
 }
 

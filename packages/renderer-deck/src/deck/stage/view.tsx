@@ -61,19 +61,14 @@ function DeckSlide({item, language, style}: {item: SlideRenderItem; language: st
       style={style}
       template={slide.type}
     >
-      <div className="slide__chrome relative z-[2] flex items-center justify-between border-b border-deck-line-soft pb-[22px] text-deck-caption font-bold leading-none text-deck-muted">
+      <div className="slide__chrome relative z-[2] flex items-center border-b border-deck-line-soft pb-[22px] text-deck-caption font-bold leading-none text-deck-muted">
         <span className="text-deck-accent">{String(index + 1).padStart(2, '0')}</span>
-        <span>{formatSlideType(slide.type)}</span>
       </div>
       <SafeArea className="slide__content relative z-[1] grid min-h-0 content-center gap-[34px] pt-[34px]" dataSafeCheck>
         <SlideBody slide={slide} />
       </SafeArea>
     </SlideFrame>
   )
-}
-
-function formatSlideType(type: Slide['type']): string {
-  return type.replaceAll('-', ' ')
 }
 
 function round(value: number): number {

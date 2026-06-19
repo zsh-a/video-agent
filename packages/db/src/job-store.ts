@@ -99,11 +99,12 @@ export class JsonJobStore implements JobStore {
         status,
       }
     })
+    const runStatus = stages.some((stage) => stage.status === 'failed') ? 'failed' : stages.every((stage) => stage.status === 'completed') ? 'completed' : 'running'
     const updated: JobState = {
       ...state,
-      completedAt: undefined,
+      completedAt: runStatus === 'completed' || runStatus === 'failed' ? now : undefined,
       stages,
-      status: status === 'failed' ? 'failed' : 'running',
+      status: runStatus,
       updatedAt: now,
     }
 

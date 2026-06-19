@@ -145,6 +145,18 @@ describe('deck explainer project', () => {
           '```text',
           'news -> demand -> revenue',
           '```',
+          '',
+          '## Answer Shape',
+          '',
+          'Open with the company that best fits the alpha hypothesis.',
+          '',
+          '## Output Template',
+          '',
+          'Use sections A through I, including validation metrics, downside risk, and position posture.',
+          '',
+          '## Quality Bar',
+          '',
+          'Anchor the analysis in observable demand and clear falsification conditions.',
         ].join('\n'),
       )
 
@@ -159,6 +171,12 @@ describe('deck explainer project', () => {
       })
       const prompt = JSON.parse(String(request?.messages?.[0]?.content)) as {
         instructions: string[]
+        source: {
+          structure: {
+            majorHeadings: string[]
+            sections: Array<{level: number; preview: string; title: string}>
+          }
+        }
         target: {
           slideCount: number
           templateManifest: {
@@ -177,6 +195,10 @@ describe('deck explainer project', () => {
 
       expect(prompt.instructions.join(' ')).to.contain('Remove YAML frontmatter')
       expect(prompt.instructions.join(' ')).to.contain('target.templateManifest')
+      expect(prompt.instructions.join(' ')).to.contain('coverage checklist')
+      expect(prompt.instructions.join(' ')).to.contain('source-domain meaning')
+      expect(prompt.source.structure.majorHeadings).to.deep.equal(['Serenity Alpha', 'Core Principle', 'Answer Shape', 'Output Template', 'Quality Bar'])
+      expect(prompt.source.structure.sections.find((section) => section.title === 'Output Template')?.preview).to.contain('validation metrics')
       expect(prompt.target.templateManifest.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
       expect(prompt.target.templateManifest.templates.find((template) => template.type === 'three-points')?.limits.points).to.equal(3)
       expect(prompt.target.slideCount).to.equal(8)
@@ -284,6 +306,74 @@ describe('deck explainer project', () => {
       expect(deck.slides[3]?.comparison?.right.points).to.deep.equal(['R1', 'R2', 'R3'])
       expect(deck.slides[4]?.type).to.equal('one-big-idea')
       expect(deck.slides[5]?.type).to.equal('one-big-idea')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('diversifies repeated three-point Deck templates', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-template-diversity-'))
+    const inputPath = join(root, 'notes.md')
+
+    try {
+      await writeFile(inputPath, '# Template Diversity\n\nAvoid repeated template rhythm.')
+
+      const result = await createDeckExplainerProject({
+        inputPath,
+        llmClient: {
+          async generateObject(input) {
+            return {
+              object: input.schema.parse({
+                summary: 'Repeated point slides should not all render with the same template.',
+                title: 'Template Diversity',
+                slides: [
+                  {
+                    points: ['A', 'B'],
+                    speakerNote: 'Intro note.',
+                    title: 'Intro',
+                    type: 'hero',
+                  },
+                  {
+                    points: ['A1', 'A2'],
+                    speakerNote: 'First point slide.',
+                    title: '第一组要点',
+                    type: 'three-points',
+                  },
+                  {
+                    points: ['B1', 'B2'],
+                    speakerNote: 'Second point slide.',
+                    title: '建立验证链',
+                    type: 'three-points',
+                  },
+                  {
+                    points: ['C1', 'C2'],
+                    speakerNote: 'Third point slide.',
+                    title: '质量评分',
+                    type: 'three-points',
+                  },
+                  {
+                    points: ['D1', 'D2'],
+                    speakerNote: 'Fourth point slide.',
+                    title: '执行动作',
+                    type: 'three-points',
+                  },
+                ],
+              }),
+            }
+          },
+          async generateText() {
+            throw new Error('Not used by this test.')
+          },
+          streamText() {
+            throw new Error('Not used by this test.')
+          },
+        } satisfies LLMClient,
+        projectId: 'deck-template-diversity-demo',
+        workspaceDir: root,
+      })
+      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {slides: Array<{type: string}>}
+
+      expect(deck.slides.map((slide) => slide.type)).to.deep.equal(['hero', 'three-points', 'timeline', 'summary', 'process'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }

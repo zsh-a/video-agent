@@ -49,9 +49,42 @@ describe('project provider report', () => {
           }),
         ].join('\n'),
       )
+      await writeText(
+        join(root, 'projects', 'demo', 'artifacts', 'llm-traces.jsonl'),
+        [
+          JSON.stringify({
+            completedAt: '2026-01-01T00:00:03.000Z',
+            durationMs: 300,
+            error: {message: 'bad json', name: 'AI_NoObjectGeneratedError'},
+            model: 'mimo-v2.5',
+            operation: 'generateObject',
+            provider: 'mimo.chat',
+            request: {messages: [{content: 'private prompt', role: 'user'}]},
+            requestId: 'llm-1',
+            startedAt: '2026-01-01T00:00:02.700Z',
+            status: 'failed',
+            version: 1,
+          }),
+          JSON.stringify({
+            completedAt: '2026-01-01T00:00:04.000Z',
+            durationMs: 400,
+            model: 'mimo-v2.5',
+            operation: 'generateObjectFallbackText',
+            provider: 'mimo.chat',
+            request: {messages: [{content: 'private fallback prompt', role: 'user'}]},
+            requestId: 'llm-2',
+            response: {text: 'private response'},
+            startedAt: '2026-01-01T00:00:03.600Z',
+            status: 'succeeded',
+            usage: {inputTokens: 100, outputTokens: 40, totalTokens: 140},
+            version: 1,
+          }),
+        ].join('\n'),
+      )
 
       const report = await readProjectProviderReport('demo', {workspaceDir: root})
       const failedVlm = await readProjectProviderReport('demo', {role: 'vlm', status: 'failed', workspaceDir: root})
+      const failedLLM = await readProjectProviderReport('demo', {status: 'failed', workspaceDir: root})
 
       expect(report.summary.total).to.equal(2)
       expect(report.summary.failed).to.equal(1)
@@ -69,8 +102,22 @@ describe('project provider report', () => {
       expect(report.summary.byRole.vlm.failed).to.equal(1)
       expect(report.summary.byProvider.llm.total).to.equal(2)
       expect(report.summary.byModel['vlm-model']?.failed).to.equal(1)
+      expect(report.llmTraces).to.have.length(2)
+      expect('request' in (report.llmTraces[0] ?? {})).to.equal(false)
+      expect('response' in (report.llmTraces[1] ?? {})).to.equal(false)
+      expect(report.summary.llm.total).to.equal(2)
+      expect(report.summary.llm.failed).to.equal(1)
+      expect(report.summary.llm.durationMs).to.deep.equal({average: 350, max: 400, total: 700})
+      expect(report.summary.llm.usage).to.deep.equal({inputTokens: 100, outputTokens: 40, totalTokens: 140})
+      expect(report.summary.llm.byOperation.generateObject?.failed).to.equal(1)
+      expect(report.summary.llm.byOperation.generateObjectFallbackText?.succeeded).to.equal(1)
+      expect(report.summary.llm.byProvider['mimo.chat']?.total).to.equal(2)
+      expect(report.summary.llm.byModel['mimo-v2.5']?.total).to.equal(2)
       expect(failedVlm.calls).to.have.length(1)
+      expect(failedVlm.llmTraces).to.have.length(0)
       expect(failedVlm.summary.byRole.vlm.failed).to.equal(1)
+      expect(failedLLM.llmTraces).to.have.length(1)
+      expect(failedLLM.summary.llm.failed).to.equal(1)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

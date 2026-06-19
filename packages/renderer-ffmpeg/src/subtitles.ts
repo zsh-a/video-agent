@@ -9,6 +9,7 @@ export interface SrtCue {
 
 const HARD_BREAK_PUNCTUATION = new Set(['。', '！', '？', '!', '?', ';', '；'])
 const SOFT_BREAK_PUNCTUATION = new Set(['，', ',', '、', ':', '：'])
+const WORD_BREAK_CHARS = new Set([' ', '\t', '/', '／'])
 const DEFAULT_MAX_CUE_CHARS = 32
 const DEFAULT_MAX_LINE_CHARS = 18
 const MIN_SOFT_BREAK_CHARS = 10
@@ -87,15 +88,19 @@ function splitSubtitleText(text: string): string[] {
 function shouldBreakSubtitleChunk(current: string, char: string): boolean {
   const length = current.trim().length
 
-  if (length >= DEFAULT_MAX_CUE_CHARS) {
-    return true
-  }
-
   if (HARD_BREAK_PUNCTUATION.has(char) && length >= MIN_SOFT_BREAK_CHARS) {
     return true
   }
 
-  return SOFT_BREAK_PUNCTUATION.has(char) && length >= DEFAULT_MAX_CUE_CHARS * 0.75
+  if (SOFT_BREAK_PUNCTUATION.has(char) && length >= DEFAULT_MAX_CUE_CHARS * 0.75) {
+    return true
+  }
+
+  if (WORD_BREAK_CHARS.has(char) && length >= DEFAULT_MAX_CUE_CHARS) {
+    return true
+  }
+
+  return false
 }
 
 function splitOversizedChunk(chunk: string): string[] {
@@ -108,6 +113,10 @@ function splitOversizedChunk(chunk: string): string[] {
 
   while (rest.length > DEFAULT_MAX_CUE_CHARS) {
     const splitAt = findSubtitleSplitIndex(rest, DEFAULT_MAX_CUE_CHARS)
+
+    if (splitAt === undefined) {
+      break
+    }
 
     chunks.push(rest.slice(0, splitAt).trim())
     rest = rest.slice(splitAt).trim()
@@ -125,7 +134,7 @@ function wrapSubtitleText(text: string): string {
     return text
   }
 
-  const splitAt = findSubtitleSplitIndex(text, Math.ceil(text.length / 2))
+  const splitAt = findSubtitleLineBreakIndex(text, Math.ceil(text.length / 2))
 
   if (splitAt <= 0 || splitAt >= text.length) {
     return text
@@ -134,19 +143,27 @@ function wrapSubtitleText(text: string): string {
   return `${text.slice(0, splitAt).trim()}\n${text.slice(splitAt).trim()}`
 }
 
-function findSubtitleSplitIndex(text: string, target: number): number {
+function findSubtitleSplitIndex(text: string, target: number): number | undefined {
+  return findSubtitleBoundaryIndex(text, target)
+}
+
+function findSubtitleLineBreakIndex(text: string, target: number): number {
+  return findSubtitleBoundaryIndex(text, target) ?? -1
+}
+
+function findSubtitleBoundaryIndex(text: string, target: number): number | undefined {
   const min = Math.max(1, target - 8)
   const max = Math.min(text.length - 1, target + 8)
 
   for (let index = max; index >= min; index -= 1) {
     const char = text[index - 1]
 
-    if (char !== undefined && (HARD_BREAK_PUNCTUATION.has(char) || SOFT_BREAK_PUNCTUATION.has(char))) {
+    if (char !== undefined && (HARD_BREAK_PUNCTUATION.has(char) || SOFT_BREAK_PUNCTUATION.has(char) || WORD_BREAK_CHARS.has(char))) {
       return index
     }
   }
 
-  return Math.min(Math.max(target, 1), text.length - 1)
+  return undefined
 }
 
 function normalizeSubtitleText(text: string): string {

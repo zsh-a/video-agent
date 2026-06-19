@@ -118,7 +118,7 @@ const TOOL_DEFINITIONS: McpTool[] = [
     status: enumSchema(['failed', 'succeeded'], 'Provider call status filter for provider events.'),
     type: enumSchema(['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start'], 'Pipeline event type filter.'),
   }),
-  createTool('video_agent_provider_report', 'Summarize provider calls, usage, cost, and latency for a project.', {
+  createTool('video_agent_provider_report', 'Summarize provider calls and LLM traces, including usage, cost, and latency for a project.', {
     projectId: projectIdSchema(),
     role: enumSchema(['asr', 'script', 'tts', 'vlm'], 'Optional provider role filter.'),
     status: enumSchema(['failed', 'succeeded'], 'Optional provider call status filter.'),

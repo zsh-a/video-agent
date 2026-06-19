@@ -68,6 +68,29 @@ describe('job store', () => {
     }
   })
 
+  it('marks JSON jobs completed when all stages complete', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-job-store-auto-complete-'))
+
+    try {
+      const store = new JsonJobStore(join(root, 'job-state.json'))
+
+      await store.initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest', 'quality'],
+      })
+      await store.updateStage('ingest', 'completed', undefined, 1)
+      await store.updateStage('quality', 'completed', undefined, 1)
+
+      const state = await store.read()
+
+      expect(state.status).to.equal('completed')
+      expect(state.completedAt).to.be.a('string')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('persists job stage state in SQLite when running on Bun', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-sqlite-job-store-'))
 
@@ -123,6 +146,29 @@ describe('job store', () => {
       })
       expect(stage?.completedAt).to.equal(undefined)
       expect(stage?.message).to.equal(undefined)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('marks SQLite jobs completed when all stages complete', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-sqlite-job-store-auto-complete-'))
+
+    try {
+      const store = new BunSqliteJobStore(join(root, 'state.db'), 'demo')
+
+      await store.initialize({
+        inputPath: '/tmp/input.mp4',
+        projectId: 'demo',
+        stages: ['ingest', 'quality'],
+      })
+      await store.updateStage('ingest', 'completed', undefined, 1)
+      await store.updateStage('quality', 'completed', undefined, 1)
+
+      const state = await store.read()
+
+      expect(state.status).to.equal('completed')
+      expect(state.completedAt).to.be.a('string')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

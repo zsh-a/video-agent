@@ -182,15 +182,31 @@ export class BunSqliteJobStore implements JobStore {
         name,
       )
 
+    const stageStatuses = database
+      .prepare<{status: JobStageStatus}>(
+        `
+          select status
+          from job_stages
+          where project_id = ?
+        `,
+      )
+      .all(this.projectId)
+    const runStatus = stageStatuses.some((stage) => stage.status === 'failed') ? 'failed' : stageStatuses.every((stage) => stage.status === 'completed') ? 'completed' : 'running'
+
     database
       .prepare(
         `
           update jobs
-          set completed_at = null, status = ?, updated_at = ?
+          set completed_at = ?, status = ?, updated_at = ?
           where project_id = ?
         `,
       )
-      .run(status === 'failed' ? 'failed' : 'running', now, this.projectId)
+      .run(
+        runStatus === 'completed' || runStatus === 'failed' ? now : null,
+        runStatus,
+        now,
+        this.projectId,
+      )
 
     return this.read()
   }
