@@ -1,15 +1,3 @@
-export const oneBigIdeaStyles = `.slide--one-big-idea .idea-card {
-  border-left: 4px solid var(--accent);
-}
+import styles from './styles.css' with { type: 'text' }
 
-.slide--one-big-idea .idea-card__headline {
-  font-size: var(--font-heading);
-}
-
-.slide--one-big-idea .idea-card__support {
-  gap: 14px;
-}
-
-.slide--one-big-idea .idea-card__support span {
-  padding-left: 4px;
-}`
+export const oneBigIdeaStyles = styles

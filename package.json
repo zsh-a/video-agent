@@ -78,7 +78,7 @@
   },
   "repository": "zs/video-agent",
   "scripts": {
-    "build": "bun run clean && tsc -b",
+    "build": "bun run clean && tsc -b && bun ./scripts/copy-css.js",
     "clean": "bun ./scripts/clean.js",
     "dev": "bun ./bin/dev.js",
     "lint": "eslint",

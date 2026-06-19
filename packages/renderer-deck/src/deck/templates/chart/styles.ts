@@ -1,13 +1,3 @@
-export const chartStyles = `.chart-bar i {
-  position: relative;
-  width: var(--bar-value);
-}
+import styles from './styles.css' with { type: 'text' }
 
-.chart-bar i::after {
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 32%));
-  content: "";
-  height: 100%;
-  position: absolute;
-  right: 0;
-  width: 40%;
-}`
+export const chartStyles = styles

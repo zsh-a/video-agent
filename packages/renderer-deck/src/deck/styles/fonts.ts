@@ -1,17 +1,5 @@
-export function fontFacesCss(): string {
-  return `@font-face {
-  font-display: swap;
-  font-family: "Noto Sans SC";
-  font-style: normal;
-  font-weight: 400;
-  src: url("./fonts/noto-sans-sc-chinese-simplified-400-normal.woff2") format("woff2");
-}
+import styles from './fonts.css' with { type: 'text' }
 
-@font-face {
-  font-display: swap;
-  font-family: "Noto Sans SC";
-  font-style: normal;
-  font-weight: 700;
-  src: url("./fonts/noto-sans-sc-chinese-simplified-700-normal.woff2") format("woff2");
-}`
+export function fontFacesCss(): string {
+  return styles
 }

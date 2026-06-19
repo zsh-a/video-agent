@@ -1,22 +1,3 @@
-export const quoteStyles = `.quote-block {
-  border-left: 4px solid var(--accent);
-}
+import styles from './styles.css' with { type: 'text' }
 
-.quote-block::after {
-  color: color-mix(in srgb, var(--accent) 20%, transparent);
-  content: "\\201C";
-  font-size: calc(var(--font-title) * 2);
-  font-weight: 700;
-  line-height: 1;
-  position: absolute;
-  right: 36px;
-  top: 20px;
-}
-
-body[data-format="portrait_1080x1920"] .quote-block {
-  padding: 38px;
-}
-
-body[data-format="portrait_1080x1920"] .quote-block blockquote {
-  font-size: calc(var(--font-heading) * 0.82);
-}`
+export const quoteStyles = styles

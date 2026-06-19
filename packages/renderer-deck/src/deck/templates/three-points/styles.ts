@@ -1,4 +1,3 @@
-export const threePointsStyles = `.points {
-  display: grid;
-  gap: 18px;
-}`
+import styles from './styles.css' with { type: 'text' }
+
+export const threePointsStyles = styles
