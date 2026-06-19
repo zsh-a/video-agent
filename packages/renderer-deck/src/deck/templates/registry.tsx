@@ -35,7 +35,9 @@ export const slideTemplates = slideTemplateModules.map((module) => module.templa
 
 export const slideTemplateManifests = slideTemplateModules.map((module) => module.manifest) satisfies DeckTemplateManifestEntry[]
 
-export const slideTemplateStyles = slideTemplateModules.map((module) => module.styles).filter((styles) => styles.length > 0)
+export const slideTemplateStyles = slideTemplateModules
+  .map((module) => module.styles)
+  .filter((styles): styles is string => typeof styles === 'string' && styles.length > 0)
 
 export const slideTemplateRegistry = new Map<DeckSlideType, SlideTemplate>(
   slideTemplates.map((template) => [template.type, template]),

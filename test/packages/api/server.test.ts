@@ -30,6 +30,7 @@ describe('api server handler', () => {
       )
       const config = await readJson<{persistence: {jobStore: string}; providers: {asr: string; tts: string; vlm: string}}>(fetch, '/config')
       const status = await readJson<{projectId: string; summary: {providers: {total: number}; quality: {errors: number; issues: number; warnings: number}; render: {rendered: boolean}}}>(fetch, '/projects/demo/status')
+      const providerReport = await readJson<{summary: {byModel: Record<string, {total: number}>; costs: Record<string, number>; total: number; usage: {inputTokens: number; outputTokens: number; totalTokens: number}}}>(fetch, '/projects/demo/provider-report')
       const quality = await readJson<{ok: boolean; projectId: string}>(fetch, '/projects/demo/quality')
       const actions = await readJson<{actions: Array<{category: string; command: string; id: string}>; projectId: string}>(fetch, '/projects/demo/actions?commandPrefix=bun%20run%20dev')
       const events = await readJson<{events: unknown[]}>(fetch, '/projects/demo/events?kind=provider&role=asr')
@@ -58,6 +59,14 @@ describe('api server handler', () => {
       expect(status.summary.providers.total).to.equal(1)
       expect(status.summary.quality).to.deep.equal({errors: 0, issues: 0, warnings: 0})
       expect(status.summary.render.rendered).to.equal(false)
+      expect(providerReport.summary.total).to.equal(1)
+      expect(providerReport.summary.costs).to.deep.equal({USD: 0.01})
+      expect(providerReport.summary.usage).to.deep.include({
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+      })
+      expect(providerReport.summary.byModel['mock-asr']?.total).to.equal(1)
       expect(quality.projectId).to.equal('demo')
       expect(quality.ok).to.equal(false)
       expect(actions.projectId).to.equal('demo')
@@ -791,6 +800,8 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
       completedAt: '2026-01-01T00:00:01.000Z',
       durationMs: 10,
       input: {},
+      cost: {amount: 0.01, currency: 'USD'},
+      model: 'mock-asr',
       operation: 'transcribe',
       output: {},
       provider: 'mock',
@@ -798,6 +809,7 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
       role: 'asr',
       startedAt: '2026-01-01T00:00:00.990Z',
       status: 'succeeded',
+      usage: {inputTokens: 10, outputTokens: 5},
       version: 1,
     })}\n`,
   )

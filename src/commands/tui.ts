@@ -41,7 +41,7 @@ export default class Tui extends Command {
     'dry-run': Flags.boolean({description: 'Preview worker recovery when --action worker is used'}),
     'event-kind': Flags.string({description: 'Event kind filter when --action events is used', options: ['pipeline', 'provider']}),
     'event-limit': Flags.integer({default: 6, description: 'Maximum recent events to show for the selected project'}),
-    'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: ['asr', 'tts', 'vlm']}),
+    'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: ['asr', 'script', 'tts', 'vlm']}),
     'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: ['failed', 'succeeded']}),
     'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
     'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),

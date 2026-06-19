@@ -427,6 +427,44 @@ describe('mcp server', () => {
     }
   })
 
+  it('calls the provider report tool with filters', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'provider-calls.jsonl'),
+        [
+          JSON.stringify({completedAt: '2026-01-01T00:00:00.100Z', durationMs: 100, input: {}, model: 'asr-model', operation: 'transcribe', output: {}, provider: 'llm', requestId: 'asr-1', role: 'asr', startedAt: '2026-01-01T00:00:00.000Z', status: 'succeeded', usage: {inputTokens: 3, outputTokens: 2}, version: 1}),
+          JSON.stringify({completedAt: '2026-01-01T00:00:00.200Z', durationMs: 100, input: {}, model: 'vlm-model', operation: 'analyzeScenes', output: {}, provider: 'llm', requestId: 'vlm-1', role: 'vlm', startedAt: '2026-01-01T00:00:00.100Z', status: 'succeeded', usage: {inputTokens: 5, outputTokens: 4}, version: 1}),
+        ].join('\n'),
+      )
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const response = await server.handleMessage({
+        id: 'provider-report-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            projectId: 'demo',
+            role: 'vlm',
+          },
+          name: 'video_agent_provider_report',
+        },
+      })
+      const {content} = response?.result as {content: Array<{text: string; type: string}>}
+      const result = JSON.parse(content[0]?.text ?? '{}') as {calls: unknown[]; summary: {byModel: Record<string, {total: number}>; total: number; usage: {totalTokens: number}}}
+
+      expect(result.calls).to.have.length(1)
+      expect(result.summary.total).to.equal(1)
+      expect(result.summary.usage.totalTokens).to.equal(9)
+      expect(result.summary.byModel['vlm-model']?.total).to.equal(1)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('calls Deck shard planning and backend export tools', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 

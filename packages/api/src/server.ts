@@ -17,6 +17,7 @@ import {
   readConfig,
   readProjectArtifact,
   readProjectEvents,
+  readProjectProviderReport,
   readProjectQuality,
   readProjectQualityDetails,
   readProjectStatus,
@@ -392,8 +393,18 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
         limit: parseOptionalInteger(url.searchParams.get('limit')),
         pipelineStage: url.searchParams.get('stage') ?? undefined,
         pipelineType: parseOptionalEnum(url.searchParams.get('type'), ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']),
-        providerRole: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'tts', 'vlm']),
+        providerRole: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'script', 'tts', 'vlm']),
         providerStatus: parseOptionalEnum(url.searchParams.get('status'), ['failed', 'succeeded']),
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'provider-report') {
+    return jsonResponse(
+      await readProjectProviderReport(projectId, {
+        role: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'script', 'tts', 'vlm']),
+        status: parseOptionalEnum(url.searchParams.get('status'), ['failed', 'succeeded']),
         workspaceDir,
       }),
     )

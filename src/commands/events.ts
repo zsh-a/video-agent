@@ -1,5 +1,5 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type ProjectEventRecord, type ProjectPipelineEventType, readProjectEvents} from '@video-agent/runtime'
+import {type ProjectEventRecord, type ProjectPipelineEventType, type ProviderCallRole, readProjectEvents} from '@video-agent/runtime'
 
 export default class Events extends Command {
   static args = {
@@ -10,7 +10,7 @@ export default class Events extends Command {
     json: Flags.boolean({description: 'Print machine-readable output'}),
     kind: Flags.string({description: 'Event kind to read', options: ['pipeline', 'provider']}),
     limit: Flags.integer({description: 'Limit to the last N events'}),
-    role: Flags.string({description: 'Provider role filter', options: ['asr', 'tts', 'vlm']}),
+    role: Flags.string({description: 'Provider role filter', options: ['asr', 'script', 'tts', 'vlm']}),
     stage: Flags.string({description: 'Pipeline stage filter'}),
     status: Flags.string({description: 'Provider status filter', options: ['failed', 'succeeded']}),
     type: Flags.string({description: 'Pipeline event type filter', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
@@ -24,7 +24,7 @@ export default class Events extends Command {
       limit: flags.limit,
       pipelineStage: flags.stage,
       pipelineType: flags.type as ProjectPipelineEventType | undefined,
-      providerRole: flags.role as 'asr' | 'tts' | 'vlm' | undefined,
+      providerRole: flags.role as ProviderCallRole | undefined,
       providerStatus: flags.status as 'failed' | 'succeeded' | undefined,
       workspaceDir: flags.workspace,
     })

@@ -310,3 +310,5 @@ If workspace config contains an `llm` block, runtime creates an AI SDK-backed `L
 2. Validate MCP config output against named external clients and document a client matrix.
 3. Add named providers only for non-LLM/local execution boundaries.
 4. Continue moving richer terminal interactions into adapter-only Ink/Clack surfaces without adding workflow ownership to the UI layer.
+
+Production provider work should keep call observability first-class. Runtime writes `provider-calls.jsonl` for individual ASR/VLM/TTS/script calls and exposes a shared provider report for CLI, API, and MCP adapters so hosted runs can be audited by role, provider, model, cost, usage, latency, and failure state without duplicating aggregation logic in adapters.

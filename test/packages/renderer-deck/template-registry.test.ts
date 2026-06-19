@@ -2,7 +2,7 @@ import {expect} from '#test/expect'
 
 import {defineSlideTemplateModule, type SlideTemplateModule} from '../../../packages/renderer-deck/src/deck/templates/define-template.js'
 import {maxPointsForDeckTemplate, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-deck/src/deck/templates/manifest.js'
-import {resolveMotionStepsForTemplate, resolveSlideTemplate, slideTemplateModules, slideTemplateMotionSteps, slideTemplateRegistry} from '../../../packages/renderer-deck/src/deck/templates/registry.js'
+import {resolveMotionStepsForTemplate, resolveSlideTemplate, slideTemplateModules, slideTemplateMotionSteps, slideTemplateRegistry, slideTemplateStyles} from '../../../packages/renderer-deck/src/deck/templates/registry.js'
 
 describe('slideTemplateModules', () => {
   it('contains all 13 template types', () => {
@@ -25,6 +25,15 @@ describe('slideTemplateModules', () => {
     for (const module of slideTemplateModules) {
       expect(Array.isArray(module.motionSteps)).to.equal(true)
       expect(module.motionSteps!.length).to.be.greaterThan(0)
+    }
+  })
+
+  it('collects available template styles without requiring renderer support for text CSS imports', () => {
+    expect(slideTemplateStyles).to.have.length(13)
+
+    for (const styles of slideTemplateStyles) {
+      expect(styles).to.be.a('string')
+      expect(styles.length).to.be.greaterThan(0)
     }
   })
 })

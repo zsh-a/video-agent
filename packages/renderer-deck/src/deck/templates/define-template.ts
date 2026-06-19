@@ -36,7 +36,7 @@ export interface TemplateMotionStep {
 export interface SlideTemplateModule {
   manifest: DeckTemplateManifestEntry
   motionSteps?: TemplateMotionStep[]
-  styles: string
+  styles?: string
   template: SlideTemplate
 }
 

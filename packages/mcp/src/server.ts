@@ -17,6 +17,7 @@ import {
   PipelineCheckpointError,
   readProjectArtifact,
   readProjectEvents,
+  readProjectProviderReport,
   readProjectQuality,
   readProjectQualityDetails,
   readProjectStatus,
@@ -112,10 +113,15 @@ const TOOL_DEFINITIONS: McpTool[] = [
     kind: enumSchema(['pipeline', 'provider'], 'Optional event stream filter.'),
     limit: integerSchema('Maximum number of events to return.'),
     projectId: projectIdSchema(),
-    role: enumSchema(['asr', 'tts', 'vlm'], 'Provider role filter for provider events.'),
+    role: enumSchema(['asr', 'script', 'tts', 'vlm'], 'Provider role filter for provider events.'),
     stage: stringSchema('Pipeline stage filter for pipeline events, for example ingest, understand, render, or quality.'),
     status: enumSchema(['failed', 'succeeded'], 'Provider call status filter for provider events.'),
     type: enumSchema(['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start'], 'Pipeline event type filter.'),
+  }),
+  createTool('video_agent_provider_report', 'Summarize provider calls, usage, cost, and latency for a project.', {
+    projectId: projectIdSchema(),
+    role: enumSchema(['asr', 'script', 'tts', 'vlm'], 'Optional provider role filter.'),
+    status: enumSchema(['failed', 'succeeded'], 'Optional provider call status filter.'),
   }),
   createTool('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {artifactName: stringSchema('Optional artifact filename, such as media-info.json or quality-report.json.'), projectId: projectIdSchema()}),
   createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes and known IR schemas for a project.', {projectId: projectIdSchema()}),
@@ -293,7 +299,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         limit: readOptionalInteger(args, 'limit'),
         pipelineStage: readOptionalString(args, 'stage'),
         pipelineType: readOptionalEnum(args, 'type', ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']),
-        providerRole: readOptionalEnum(args, 'role', ['asr', 'tts', 'vlm']),
+        providerRole: readOptionalEnum(args, 'role', ['asr', 'script', 'tts', 'vlm']),
         providerStatus: readOptionalEnum(args, 'status', ['failed', 'succeeded']),
         workspaceDir,
       })
@@ -357,6 +363,14 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         mediaPath: readOptionalString(args, 'mediaPath'),
         roles: resolveProviderSmokeTestRoles(readOptionalEnum(args, 'role', PROVIDER_TEST_ROLES)),
         text: readOptionalString(args, 'text'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_provider_report': {
+      return readProjectProviderReport(readRequiredString(args, 'projectId'), {
+        role: readOptionalEnum(args, 'role', ['asr', 'script', 'tts', 'vlm']),
+        status: readOptionalEnum(args, 'status', ['failed', 'succeeded']),
         workspaceDir,
       })
     }
