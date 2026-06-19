@@ -33,6 +33,7 @@ const ProviderUsageMetadataSchema = z.object({
   inputTokens: z.number().nonnegative().optional(),
   outputCharacters: z.number().nonnegative().optional(),
   outputTokens: z.number().nonnegative().optional(),
+  totalTokens: z.number().nonnegative().optional(),
 }).passthrough()
 
 export const ProviderCallLogLineSchema = z.object({
@@ -40,10 +41,17 @@ export const ProviderCallLogLineSchema = z.object({
   cost: ProviderCostMetadataSchema.optional(),
   durationMs: z.number().nonnegative(),
   error: z.object({
+    code: z.string().min(1).optional(),
     details: z.record(z.string(), z.unknown()).optional(),
     message: z.string().min(1),
     name: z.string().min(1),
+    retryable: z.boolean().optional(),
     stack: z.string().min(1).optional(),
+    validationIssues: z.array(z.object({
+      code: z.string().min(1),
+      message: z.string().min(1),
+      path: z.array(z.string()),
+    }).passthrough()).optional(),
   }).strict().optional(),
   input: z.record(z.string(), z.unknown()),
   model: z.string().min(1).optional(),
@@ -79,6 +87,7 @@ export const LLMTraceLogLineSchema = z.object({
     details: z.record(z.string(), z.unknown()).optional(),
     message: z.string().min(1),
     name: z.string().min(1),
+    retryable: z.boolean().optional(),
     stack: z.string().min(1).optional(),
   }).strict().optional(),
   model: z.string().min(1).optional(),

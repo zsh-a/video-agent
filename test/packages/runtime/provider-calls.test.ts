@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 import {readJsonLines} from '#test/fs'
-import {attachProviderMetadata, type ProviderSet} from '@video-agent/providers'
+import {attachProviderMetadata, ProviderExecutionError, type ProviderSet} from '@video-agent/providers'
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -118,6 +118,64 @@ describe('provider call recorder', () => {
       expect(call.error).to.deep.equal({
         message: 'asr failed',
         name: 'Error',
+      })
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('records structured retryable provider errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-calls-'))
+    const path = join(root, 'provider-calls.jsonl')
+    const providers = instrumentProviders(
+      createProviderSet({
+        asr: {
+          async transcribe() {
+            throw new ProviderExecutionError({
+              code: 'command_exit',
+              details: {
+                exitCode: 124,
+              },
+              message: 'Provider command failed with exit code 124.',
+              retryable: true,
+              role: 'asr',
+            })
+          },
+        },
+        tts: {
+          async synthesize() {
+            return []
+          },
+        },
+        vlm: {
+          async analyzeScenes() {
+            return []
+          },
+        },
+      }),
+      {
+        asr: 'command',
+        tts: 'test-tts',
+        vlm: 'test-vlm',
+      },
+      createJsonlProviderCallRecorder(path),
+    )
+
+    try {
+      await providers.asr.transcribe({path: '/tmp/audio.wav'})
+      expect.fail('Expected ASR provider to throw.')
+    } catch (error) {
+      expect(error).to.be.instanceOf(ProviderExecutionError)
+    } finally {
+      const [call] = await readJsonLines<Record<string, unknown>>(path)
+
+      expect(call.error).to.deep.equal({
+        code: 'command_exit',
+        details: {
+          exitCode: 124,
+        },
+        message: 'Provider command failed with exit code 124.',
+        name: 'ProviderExecutionError',
+        retryable: true,
       })
       await rm(root, {force: true, recursive: true})
     }

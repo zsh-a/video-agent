@@ -165,6 +165,7 @@ function normalizeError(error: unknown): NonNullable<LLMTraceRecord['error']> {
       ...(details === undefined ? {} : {details}),
       message: error.message,
       name: error.name,
+      ...(!isRecord(error) || typeof error.isRetryable !== 'boolean' ? {} : {retryable: error.isRetryable}),
       ...(stack === undefined ? {} : {stack}),
     }
   }
@@ -175,6 +176,7 @@ function normalizeError(error: unknown): NonNullable<LLMTraceRecord['error']> {
     ...(details === undefined ? {} : {details}),
     message: String(error),
     name: 'Error',
+    ...(!isRecord(error) || typeof error.isRetryable !== 'boolean' ? {} : {retryable: error.isRetryable}),
   }
 }
 

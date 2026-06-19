@@ -25,6 +25,7 @@ export interface LLMTraceReportRecord {
     details?: Record<string, unknown>
     message: string
     name: string
+    retryable?: boolean
     stack?: string
   }
   model?: string
@@ -289,10 +290,13 @@ function sumUsage(calls: ProviderCallRecord[]): ProviderReportUsage {
     usage.inputTokens += call.usage?.inputTokens ?? 0
     usage.outputCharacters += call.usage?.outputCharacters ?? 0
     usage.outputTokens += call.usage?.outputTokens ?? 0
+    usage.totalTokens += call.usage?.totalTokens ?? 0
   }
 
   usage.audioSeconds = roundMetric(usage.audioSeconds)
-  usage.totalTokens = usage.inputTokens + usage.outputTokens
+  if (usage.totalTokens === 0) {
+    usage.totalTokens = usage.inputTokens + usage.outputTokens
+  }
 
   return usage
 }

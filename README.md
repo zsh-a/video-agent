@@ -171,6 +171,8 @@ export VIDEO_AGENT_TTS_COMMAND='["bun","examples/provider-adapters/mock-json-pro
 bun run dev provider-test --json
 ```
 
+`provider-test` is the provider certification entry point before a real run. It exercises the configured ASR/VLM/TTS contracts and reports failure details, retryability, usage metadata, cost metadata when supplied by the provider, and LLM trace summaries for AI SDK-backed calls.
+
 See [docs/provider-configuration-model.md](./docs/provider-configuration-model.md) for config details and [docs/provider-adapter-recipes.md](./docs/provider-adapter-recipes.md) for adapter examples.
 
 ## Runtime Configuration

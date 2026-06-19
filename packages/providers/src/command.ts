@@ -12,7 +12,9 @@ import type {
   VLMProvider,
   VLMScene,
 } from './contracts.js'
+import type {ProviderExecutionRole} from './errors.js'
 
+import {ProviderExecutionError} from './errors.js'
 import {parseTranscript, parseTtsSegments, parseVlmScenes} from './json-response.js'
 
 export interface CommandProviderOptions {
@@ -25,7 +27,7 @@ export class CommandASRProvider implements ASRProvider {
 
   async transcribe(input: MediaInput): Promise<Transcript> {
     return parseTranscript(
-      await runProviderCommand(this.options, {
+      await runProviderCommand('asr', this.options, {
         input,
         kind: 'asr',
         version: 1,
@@ -39,7 +41,7 @@ export class CommandVLMProvider implements VLMProvider {
 
   async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
     return parseVlmScenes(
-      await runProviderCommand(this.options, {
+      await runProviderCommand('vlm', this.options, {
         context,
         input,
         kind: 'vlm',
@@ -54,7 +56,7 @@ export class CommandTTSProvider implements TTSProvider {
 
   async synthesize(segments: NarrationSegment[]): Promise<TTSSegment[]> {
     return parseTtsSegments(
-      await runProviderCommand(this.options, {
+      await runProviderCommand('tts', this.options, {
         kind: 'tts',
         segments,
         version: 1,
@@ -63,14 +65,24 @@ export class CommandTTSProvider implements TTSProvider {
   }
 }
 
-async function runProviderCommand(options: CommandProviderOptions, payload: unknown): Promise<unknown> {
+async function runProviderCommand(role: ProviderExecutionRole, options: CommandProviderOptions, payload: unknown): Promise<unknown> {
   const result = await runProcess(options.command, {
     env: options.env,
     stdin: `${JSON.stringify(payload)}\n`,
   })
 
   if (result.code !== 0) {
-    throw new Error(`Provider command failed with exit code ${result.code}: ${result.stderr}`)
+    throw new ProviderExecutionError({
+      code: 'command_exit',
+      details: {
+        command: summarizeCommand(options.command),
+        exitCode: result.code,
+        stderr: summarizeDiagnosticString(result.stderr),
+      },
+      message: `Provider command failed with exit code ${result.code}.`,
+      retryable: isRetryableCommandExit(result.code),
+      role,
+    })
   }
 
   try {
@@ -78,6 +90,33 @@ async function runProviderCommand(options: CommandProviderOptions, payload: unkn
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
 
-    throw new Error(`Provider command returned invalid JSON: ${message}`)
+    throw new ProviderExecutionError({
+      cause: error,
+      code: 'command_invalid_json',
+      details: {
+        command: summarizeCommand(options.command),
+        stdout: summarizeDiagnosticString(result.stdout),
+      },
+      message: `Provider command returned invalid JSON: ${message}`,
+      role,
+    })
   }
+}
+
+function isRetryableCommandExit(code: number): boolean {
+  return code === 124 || code === 137 || code === 143
+}
+
+function summarizeCommand(command: string[]): string[] {
+  return command.slice(0, 8)
+}
+
+function summarizeDiagnosticString(value: string, limit = 2000): string | {chars: number; preview: string; truncated: true} {
+  return value.length <= limit
+    ? value
+    : {
+        chars: value.length,
+        preview: value.slice(0, limit),
+        truncated: true,
+      }
 }

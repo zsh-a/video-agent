@@ -9,6 +9,7 @@ import type {TTSProvider, TTSProviderSynthesizeOptions, TTSSegment} from '../con
 import {probeMedia} from '@video-agent/media'
 import {isRecord, normalizeBaseURL, normalizeOptionalString, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './media-utils.js'
 import {attachProviderMetadata} from '../metadata.js'
+import {ProviderExecutionError} from '../errors.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
 import {TtsSegmentsSchema} from '../schemas.js'
 
@@ -61,6 +62,8 @@ export interface MimoTTSProviderOptions {
   apiKey: string
   baseURL?: string
   fetch?: typeof fetch
+  maxRetries?: number
+  retryBackoffMs?: number
   model?: string
   style?: string
   voice?: string
@@ -78,13 +81,17 @@ interface MimoTTSRequestMetadata {
 export class MimoTTSProvider implements TTSProvider {
   private readonly baseURL: string
   private readonly fetch: typeof fetch
+  private readonly maxRetries: number
   private readonly model: string
+  private readonly retryBackoffMs: number
   private readonly voice: string
 
   constructor(private readonly options: MimoTTSProviderOptions) {
     this.baseURL = normalizeBaseURL(options.baseURL ?? MIMO_TTS_BASE_URL)
     this.fetch = options.fetch ?? fetch
+    this.maxRetries = normalizeRetryCount(options.maxRetries ?? 2)
     this.model = options.model ?? MIMO_TTS_MODEL
+    this.retryBackoffMs = normalizeRetryDelay(options.retryBackoffMs ?? 250)
     this.voice = options.voice ?? MIMO_TTS_DEFAULT_VOICE
   }
 
@@ -120,37 +127,12 @@ export class MimoTTSProvider implements TTSProvider {
     const filename = `${String(index + 1).padStart(4, '0')}-${sanitizePathSegment(segment.id)}.wav`
     const outputPath = join(outputDir, filename)
     const relativePath = pathPrefix === undefined ? outputPath : posix.join(normalizePathPrefix(pathPrefix), filename)
-    const response = await this.fetch(`${this.baseURL}/chat/completions`, {
-      body: JSON.stringify({
-        audio: {
-          format: 'wav',
-          voice: resolveMimoTtsVoice(segment.voice, this.voice),
-        },
-        messages: [
-          ...(this.options.style === undefined
-            ? []
-            : [
-                {
-                  content: this.options.style,
-                  role: 'user',
-                },
-              ]),
-          {
-            content: segment.text,
-            role: 'assistant',
-          },
-        ],
-        model: this.model,
-      }),
-      headers: {
-        'Content-Type': 'application/json',
-        'api-key': this.options.apiKey,
-      },
-      method: 'POST',
+    const response = await retryProviderRequest({
+      backoffMs: this.retryBackoffMs,
+      maxRetries: this.maxRetries,
+      run: () => this.requestSegment(segment),
     })
-
-    const responseJson = await readJsonResponse(response)
-    const audioData = readMimoTtsAudioData(responseJson)
+    const audioData = readMimoTtsAudioData(response.json)
 
     await writeFile(outputPath, Buffer.from(audioData, 'base64'))
     const duration = await readGeneratedAudioDuration(outputPath, segment.duration ?? 0)
@@ -158,8 +140,8 @@ export class MimoTTSProvider implements TTSProvider {
     return {
       metadata: {
         inputCharacters: segment.text.length,
-        requestId: response.headers.get('x-request-id') ?? response.headers.get('request-id') ?? readStringField(responseJson, 'id'),
-        usage: readMimoTtsUsage(responseJson),
+        requestId: response.requestId ?? readStringField(response.json, 'id'),
+        usage: readMimoTtsUsage(response.json),
       },
       segment: {
         duration,
@@ -167,6 +149,51 @@ export class MimoTTSProvider implements TTSProvider {
         path: relativePath,
       },
     }
+  }
+
+  private async requestSegment(segment: NarrationSegment): Promise<{json: unknown; requestId?: string}> {
+    let response: Response
+
+    try {
+      response = await this.fetch(`${this.baseURL}/chat/completions`, {
+        body: JSON.stringify({
+          audio: {
+            format: 'wav',
+            voice: resolveMimoTtsVoice(segment.voice, this.voice),
+          },
+          messages: [
+            ...(this.options.style === undefined
+              ? []
+              : [
+                  {
+                    content: this.options.style,
+                    role: 'user',
+                  },
+                ]),
+            {
+              content: segment.text,
+              role: 'assistant',
+            },
+          ],
+          model: this.model,
+        }),
+        headers: {
+          'Content-Type': 'application/json',
+          'api-key': this.options.apiKey,
+        },
+        method: 'POST',
+      })
+    } catch (error) {
+      throw new ProviderExecutionError({
+        cause: error,
+        code: 'mimo_tts_network_error',
+        message: `MiMo TTS request failed before receiving a response: ${error instanceof Error ? error.message : String(error)}`,
+        retryable: true,
+        role: 'tts',
+      })
+    }
+
+    return readJsonResponse(response)
   }
 }
 
@@ -180,17 +207,41 @@ async function readGeneratedAudioDuration(path: string, fallback: number): Promi
   }
 }
 
-async function readJsonResponse(response: Response): Promise<unknown> {
+async function readJsonResponse(response: Response): Promise<{json: unknown; requestId?: string}> {
   const text = await response.text()
+  const requestId = response.headers.get('x-request-id') ?? response.headers.get('request-id') ?? undefined
 
   if (!response.ok) {
-    throw new Error(`MiMo TTS request failed with HTTP ${response.status}: ${text.slice(0, 500)}`)
+    throw new ProviderExecutionError({
+      code: 'mimo_tts_http_error',
+      details: {
+        ...(requestId === undefined ? {} : {requestId}),
+        responseBody: summarizeDiagnosticString(text),
+        status: response.status,
+        statusText: response.statusText,
+      },
+      message: `MiMo TTS request failed with HTTP ${response.status}.`,
+      retryable: isRetryableHttpStatus(response.status),
+      role: 'tts',
+    })
   }
 
   try {
-    return JSON.parse(text) as unknown
+    return {
+      json: JSON.parse(text) as unknown,
+      ...(requestId === undefined ? {} : {requestId}),
+    }
   } catch (error) {
-    throw new Error(`MiMo TTS response was not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
+    throw new ProviderExecutionError({
+      cause: error,
+      code: 'mimo_tts_invalid_json',
+      details: {
+        ...(requestId === undefined ? {} : {requestId}),
+        responseBody: summarizeDiagnosticString(text),
+      },
+      message: `MiMo TTS response was not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      role: 'tts',
+    })
   }
 }
 
@@ -229,4 +280,60 @@ function resolveMimoTtsVoice(segmentVoice: string | undefined, fallback: string)
   }
 
   return voice
+}
+
+async function retryProviderRequest<T>(input: {
+  backoffMs: number
+  maxRetries: number
+  run: () => Promise<T>
+}): Promise<T> {
+  let attempt = 0
+
+  /* eslint-disable no-await-in-loop */
+  for (;;) {
+    try {
+      return await input.run()
+    } catch (error) {
+      if (!isRetryableProviderError(error) || attempt >= input.maxRetries) {
+        throw error
+      }
+
+      attempt += 1
+
+      if (input.backoffMs > 0) {
+        await sleep(input.backoffMs * attempt)
+      }
+    }
+  }
+  /* eslint-enable no-await-in-loop */
+}
+
+function isRetryableProviderError(error: unknown): boolean {
+  return error instanceof ProviderExecutionError && error.retryable
+}
+
+function isRetryableHttpStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 429 || status >= 500
+}
+
+function normalizeRetryCount(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function normalizeRetryDelay(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function summarizeDiagnosticString(value: string, limit = 2000): string | {chars: number; preview: string; truncated: true} {
+  return value.length <= limit
+    ? value
+    : {
+        chars: value.length,
+        preview: value.slice(0, limit),
+        truncated: true,
+      }
 }

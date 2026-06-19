@@ -6,7 +6,7 @@ import {join} from 'node:path'
 
 import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMMessage} from '../../../packages/llm/src/index.js'
 
-import {MIMO_PROVIDER_MODEL_IDS, readProviderMetadata} from '../../../packages/providers/src/index.js'
+import {MIMO_PROVIDER_MODEL_IDS, ProviderExecutionError, readProviderMetadata} from '../../../packages/providers/src/index.js'
 import {createTtsProvider} from '../../../packages/providers/src/registry.js'
 import {LLMVLMProvider, MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '../../../packages/providers/src/llm/media.js'
 
@@ -384,6 +384,97 @@ describe('LLM media providers', () => {
     } finally {
       await rm(root, {force: true, recursive: true})
     }
+  })
+
+  it('retries retryable MiMo TTS HTTP failures before writing audio', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-tts-retry-'))
+    const responses = [
+      new Response('rate limited', {status: 429}),
+      new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              audio: {
+                data: Buffer.from('retry-wav').toString('base64'),
+              },
+            },
+          },
+        ],
+      }), {status: 200}),
+    ]
+    const fetchMock: typeof fetch = async () => responses.shift() ?? new Response('unexpected', {status: 500})
+
+    try {
+      const provider = new MimoTTSProvider({
+        apiKey: 'test-key',
+        fetch: fetchMock,
+        maxRetries: 1,
+        retryBackoffMs: 0,
+      })
+      const segments = await provider.synthesize([
+        {
+          duration: 1,
+          id: 'narration-1',
+          start: 0,
+          text: 'Retry test.',
+        },
+      ], {
+        outputDir: join(root, 'tts'),
+      })
+
+      expect(segments[0]?.path).to.equal(join(root, 'tts', '0001-narration-1.wav'))
+      expect(await readFile(join(root, 'tts', '0001-narration-1.wav'), 'utf8')).to.equal('retry-wav')
+      expect(responses).to.have.length(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('surfaces non-retryable MiMo TTS failures as structured provider errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-tts-error-'))
+    const fetchMock: typeof fetch = async () => new Response('bad request', {
+      headers: {
+        'x-request-id': 'mimo-bad-request',
+      },
+      status: 400,
+    })
+    let error: unknown
+
+    try {
+      const provider = new MimoTTSProvider({
+        apiKey: 'test-key',
+        fetch: fetchMock,
+        maxRetries: 2,
+        retryBackoffMs: 0,
+      })
+
+      await provider.synthesize([
+        {
+          duration: 1,
+          id: 'narration-1',
+          start: 0,
+          text: 'Bad request test.',
+        },
+      ], {
+        outputDir: join(root, 'tts'),
+      })
+    } catch (error_) {
+      error = error_
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+
+    expect(error).to.be.instanceOf(ProviderExecutionError)
+    expect(error).to.deep.include({
+      code: 'mimo_tts_http_error',
+      retryable: false,
+      role: 'tts',
+    })
+    expect((error as ProviderExecutionError).details).to.deep.include({
+      requestId: 'mimo-bad-request',
+      responseBody: 'bad request',
+      status: 400,
+    })
   })
 
   it('uses the configured MiMo TTS voice for generic narration voice hints', async () => {

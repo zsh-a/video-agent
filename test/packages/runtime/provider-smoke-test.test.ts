@@ -34,6 +34,13 @@ describe('provider smoke test', () => {
       expect(report.results.map((result) => result.role)).to.deep.equal(['asr', 'vlm', 'tts'])
       expect(report.results.map((result) => result.status)).to.deep.equal(['succeeded', 'succeeded', 'succeeded'])
       expect(report.results.map((result) => result.output?.type)).to.deep.equal(['transcript', 'scenes', 'tts'])
+      expect(report.certification).to.deep.equal({
+        costMetadata: 'not-observed',
+        failureDetails: 'not-observed',
+        retryableFailures: 'not-observed',
+        traces: 'not-observed',
+        usageMetadata: 'not-observed',
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -161,6 +168,26 @@ describe('provider smoke test', () => {
       })
       expect(report.results[0]?.metadata).to.deep.equal({
         model: MIMO_PROVIDER_MODEL_IDS.asr,
+        usage: {
+          inputTokens: 8,
+          outputTokens: 4,
+          totalTokens: 12,
+        },
+      })
+      expect(report.results[0]?.traces).to.deep.include({
+        failed: 0,
+        succeeded: 1,
+        total: 1,
+      })
+      expect(report.llmTraces[0]).to.deep.include({
+        model: MIMO_PROVIDER_MODEL_IDS.asr,
+        operation: 'generateText',
+        provider: 'mimo.chat',
+        status: 'succeeded',
+      })
+      expect(report.certification).to.deep.include({
+        traces: 'passed',
+        usageMetadata: 'passed',
       })
       expect(requestUrl).to.equal('https://token-plan-cn.xiaomimimo.com/v1/chat/completions')
       expect(body.model).to.equal(MIMO_PROVIDER_MODEL_IDS.asr)

@@ -10,6 +10,7 @@ export interface ProviderUsageMetadata {
   inputTokens?: number
   outputCharacters?: number
   outputTokens?: number
+  totalTokens?: number
 }
 
 export interface ProviderResponseMetadata {
@@ -77,6 +78,7 @@ function parseUsageMetadata(value: unknown): ProviderUsageMetadata {
     ...readOptionalNumber(value, 'inputTokens'),
     ...readOptionalNumber(value, 'outputCharacters'),
     ...readOptionalNumber(value, 'outputTokens'),
+    ...readOptionalNumber(value, 'totalTokens'),
   }
 }
 

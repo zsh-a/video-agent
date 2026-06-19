@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider, createAsrProvider, ProviderResponseValidationError, readProviderMetadata} from '../../../packages/providers/src/index.js'
+import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider, createAsrProvider, ProviderExecutionError, ProviderResponseValidationError, readProviderMetadata} from '../../../packages/providers/src/index.js'
 
 describe('command providers', () => {
   it('runs an ASR command provider over JSON stdin/stdout', async () => {
@@ -91,6 +91,53 @@ describe('command providers', () => {
     expect((error as ProviderResponseValidationError).role).to.equal('asr')
     expect((error as ProviderResponseValidationError).issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
     expect((error as Error).message).to.include('segments.0.end')
+  })
+
+  it('returns structured execution errors for failed commands', async () => {
+    const provider = new CommandASRProvider({
+      command: ['sh', '-c', 'cat >/dev/null; printf "%s" "temporary failure" >&2; exit 124'],
+    })
+    let error: unknown
+
+    try {
+      await provider.transcribe({path: '/tmp/audio.wav'})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(ProviderExecutionError)
+    expect(error).to.deep.include({
+      code: 'command_exit',
+      retryable: true,
+      role: 'asr',
+    })
+    expect((error as ProviderExecutionError).details).to.deep.include({
+      exitCode: 124,
+      stderr: 'temporary failure',
+    })
+  })
+
+  it('returns structured execution errors for invalid command JSON', async () => {
+    const provider = new CommandASRProvider({
+      command: jsonCommand('not json'),
+    })
+    let error: unknown
+
+    try {
+      await provider.transcribe({path: '/tmp/audio.wav'})
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(ProviderExecutionError)
+    expect(error).to.deep.include({
+      code: 'command_invalid_json',
+      retryable: false,
+      role: 'asr',
+    })
+    expect((error as ProviderExecutionError).details).to.deep.include({
+      stdout: 'not json\n',
+    })
   })
 
   it('fails fast when command provider env is missing', () => {

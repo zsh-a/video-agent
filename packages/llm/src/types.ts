@@ -58,6 +58,7 @@ export interface LLMTraceRecord {
     details?: Record<string, unknown>
     message: string
     name: string
+    retryable?: boolean
     stack?: string
   }
   model?: string

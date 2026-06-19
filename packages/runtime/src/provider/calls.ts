@@ -1,7 +1,7 @@
 import type {Narration, NarrationSegment, RecapScript, StoryIndex} from '@video-agent/ir'
 import type {MediaInput, ProviderCostMetadata, ProviderResponseMetadata, ProviderSet, ProviderUsageMetadata, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
 
-import {readProviderMetadata} from '@video-agent/providers'
+import {ProviderExecutionError, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 import {randomUUID} from 'node:crypto'
 import {appendFile, mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'
@@ -14,8 +14,16 @@ export interface ProviderCallRecord {
   cost?: ProviderCostMetadata
   durationMs: number
   error?: {
+    code?: string
+    details?: Record<string, unknown>
     message: string
     name: string
+    retryable?: boolean
+    validationIssues?: {
+      code: string
+      message: string
+      path: string[]
+    }[]
   }
   input: Record<string, unknown>
   model?: string
@@ -302,6 +310,25 @@ function summarizeTtsSegments(segments: TTSSegment[]): Record<string, unknown> {
 }
 
 function normalizeError(error: unknown): ProviderCallRecord['error'] {
+  if (error instanceof ProviderExecutionError) {
+    return {
+      code: error.code,
+      ...(error.details === undefined ? {} : {details: error.details}),
+      message: error.message,
+      name: error.name,
+      retryable: error.retryable,
+    }
+  }
+
+  if (error instanceof ProviderResponseValidationError) {
+    return {
+      message: error.message,
+      name: error.name,
+      retryable: false,
+      validationIssues: error.issues,
+    }
+  }
+
   if (error instanceof Error) {
     return {
       message: error.message,

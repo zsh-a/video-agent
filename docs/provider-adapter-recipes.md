@@ -27,7 +27,7 @@ bun run dev provider-env --json --workspace .video-agent
 bun run dev provider-test --workspace .video-agent
 ```
 
-When the env values are set, `provider-env` should report each required command variable as configured. `provider-test` should call each adapter with a minimal ASR/VLM/TTS payload and report `succeeded` for each role before you run the full pipeline.
+When the env values are set, `provider-env` should report each required command variable as configured. `provider-test` should call each adapter with a minimal ASR/VLM/TTS payload and report `succeeded` for each role before you run the full pipeline. Command adapters can return an optional `metadata` envelope with `model`, `requestId`, `usage`, and `cost`; `provider-test` includes those fields in the certification output and records structured setup, validation, and execution failures.
 
 ## LLM Provider Smoke Test
 

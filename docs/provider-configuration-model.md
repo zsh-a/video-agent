@@ -118,7 +118,7 @@ When a new hosted model endpoint is selected:
 2. Keep credentials on the shared LLM env path, normally `VIDEO_AGENT_LLM_TOKEN`.
 3. Keep ASR/VLM/TTS implementations behind the internal `LLMClient` unless the endpoint needs to produce binary media artifacts directly.
 4. Use AI SDK request-body transforms only for provider-specific protocol differences.
-5. Add `provider-test`, doctor, and no-network tests that validate request shape, response parsing, metadata, and failures.
+5. Add `provider-test`, doctor, and no-network tests that validate request shape, response parsing, usage/cost metadata, retryable failure reporting, LLM trace summaries, and failures.
 6. Document model, endpoint, and credential behavior without printing secret values.
 
 Add a named provider descriptor only when the service cannot reasonably be represented through the AI SDK-backed LLM boundary.

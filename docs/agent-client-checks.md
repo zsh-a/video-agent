@@ -80,7 +80,7 @@ Before calling an external agent integration ready, verify:
 - the skill instructions point to `bun run dev` for checkout workflows and `vagent` for installed workflows
 - `doctor` exits successfully for the intended workspace; failed provider or media checks return a non-zero exit code
 - HTTP clients treat `GET /doctor` as readiness and fail on `503`, while using `GET /health` only for liveness
-- `provider-test` succeeds for the intended workspace or reports provider setup failures clearly
+- `provider-test` succeeds for the intended workspace or reports provider setup failures clearly, including retryable failure state, usage/cost metadata when observed, and LLM trace summaries for AI SDK-backed providers
 - the generated MCP config shape matches the client field being edited
 - any provider credentials are represented only as configured/missing state or explicit env placeholders
 - Web Studio opens at the configured API port when visual review is part of the workflow

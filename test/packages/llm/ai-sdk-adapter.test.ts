@@ -299,6 +299,38 @@ describe('AI SDK LLM adapter', () => {
     expect(fallbackTrace.usage.totalTokens).to.equal(7)
   })
 
+  it('lifts retryable API errors into traces', async () => {
+    const traces: unknown[] = []
+    const model = createMockLanguageModel({
+      async generateResult() {
+        const error = new Error('Rate limited') as Error & {isRetryable: boolean; statusCode: number; url: string}
+
+        error.isRetryable = true
+        error.statusCode = 429
+        error.url = 'https://example.test/messages'
+
+        throw error
+      },
+    })
+    const client = new AISDKLLMClient({
+      model,
+      trace: {
+        record(trace) {
+          traces.push(trace)
+        },
+      },
+    })
+
+    try {
+      await client.generateText({prompt: 'Say hello'})
+      expect.fail('Expected generateText to fail.')
+    } catch (error) {
+      expect(error).to.be.instanceOf(Error)
+    }
+
+    expect((traces[0] as {error: {retryable?: boolean}}).error.retryable).to.equal(true)
+  })
+
   it('omits inline media payloads from traces', async () => {
     const traces: unknown[] = []
     const model = createMockLanguageModel({

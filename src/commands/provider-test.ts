@@ -37,6 +37,7 @@ export default class ProviderTest extends Command {
       this.log(`Workspace: ${report.workspaceDir}`)
       this.log(`Status: ${report.ok ? 'ok' : 'failed'}`)
       this.log(`Summary: ${report.summary.succeeded}/${report.summary.total} succeeded, ${report.summary.failed} failed`)
+      this.log(`Certification: failure-details=${report.certification.failureDetails} usage=${report.certification.usageMetadata} cost=${report.certification.costMetadata} retryable=${report.certification.retryableFailures} traces=${report.certification.traces}`)
 
       for (const result of report.results) {
         this.log(formatResult(result))
@@ -61,13 +62,19 @@ function formatResult(result: ProviderSmokeTestResult): string {
   const base = `${result.role}: ${result.status} - ${result.provider} (${result.durationMs}ms)`
 
   if (result.status === 'failed') {
-    return `${base} - ${result.error?.message ?? 'unknown error'}`
+    const code = result.error?.code === undefined ? '' : ` code=${result.error.code}`
+    const retryable = result.error?.retryable === undefined ? '' : ` retryable=${String(result.error.retryable)}`
+
+    return `${base} - ${result.error?.message ?? 'unknown error'}${code}${retryable}`
   }
 
   const metadata = result.metadata === undefined ? '' : ` request=${result.metadata.requestId ?? 'n/a'} model=${result.metadata.model ?? 'n/a'}`
+  const usage = result.metadata?.usage === undefined ? '' : ` usage=${formatUsage(result.metadata.usage)}`
+  const cost = result.metadata?.cost === undefined ? '' : ` cost=${formatCost(result.metadata.cost)}`
+  const traces = result.traces.total === 0 ? '' : ` traces=${result.traces.total}/${result.traces.failed}failed`
   const output = result.output === undefined ? '' : ` ${formatOutput(result.output)}`
 
-  return `${base}${output}${metadata}`
+  return `${base}${output}${metadata}${usage}${cost}${traces}`
 }
 
 function formatOutput(output: NonNullable<ProviderSmokeTestResult['output']>): string {
@@ -80,4 +87,21 @@ function formatOutput(output: NonNullable<ProviderSmokeTestResult['output']>): s
   }
 
   return `scenes=${output.scenes} evidence=${output.evidence}`
+}
+
+function formatUsage(usage: NonNullable<NonNullable<ProviderSmokeTestResult['metadata']>['usage']>): string {
+  const parts = [
+    usage.totalTokens === undefined ? undefined : `${usage.totalTokens} tokens`,
+    usage.inputTokens === undefined ? undefined : `${usage.inputTokens} in`,
+    usage.outputTokens === undefined ? undefined : `${usage.outputTokens} out`,
+    usage.audioSeconds === undefined ? undefined : `${usage.audioSeconds}s audio`,
+    usage.inputCharacters === undefined ? undefined : `${usage.inputCharacters} chars`,
+    usage.outputCharacters === undefined ? undefined : `${usage.outputCharacters} out-chars`,
+  ].filter((part): part is string => part !== undefined)
+
+  return parts.length === 0 ? 'none' : parts.join(',')
+}
+
+function formatCost(cost: NonNullable<NonNullable<ProviderSmokeTestResult['metadata']>['cost']>): string {
+  return `${cost.amount} ${cost.currency}${cost.estimated === true ? ' estimated' : ''}`
 }
