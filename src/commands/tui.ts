@@ -1,15 +1,15 @@
 import type {RecoveryOrderBy} from '@video-agent/pipeline-film'
 import type {ExportFormat, PipelineStage, ProjectEventKind, ProjectPipelineEventType, ProviderCallRole, ProviderCallStatus} from '@video-agent/runtime'
-import type {RunTuiActionOptions} from '../ui/tui-actions.js'
-import type {FormatTuiSnapshotOptions, TuiAction, TuiCommandSuggestion} from '../ui/tui-model.js'
+import type {RunTuiActionOptions} from '../ui/actions/index.js'
+import type {FormatTuiSnapshotOptions, TuiAction, TuiCommandSuggestion} from '../ui/model.js'
 
 import {Command, Flags} from '@oclif/core'
 import {FILM_PIPELINE_STAGES} from '@video-agent/pipeline-film'
 import {createInterface, type Interface} from 'node:readline'
 
-import {readTuiSnapshot, runTuiAction} from '../ui/tui-actions.js'
-import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../ui/tui-console-format.js'
-import {type TuiManagerActionRequest, launchTuiManager} from '../ui/tui-manager.js'
+import {readTuiSnapshot, runTuiAction} from '../ui/actions/index.js'
+import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../ui/format/console.js'
+import {type TuiManagerActionRequest, launchTuiManager} from '../ui/manager/index.js'
 
 export default class Tui extends Command {
   static description = 'Manage video-agent workspace projects in the terminal'

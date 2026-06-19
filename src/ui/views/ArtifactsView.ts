@@ -2,10 +2,10 @@ import type {ReactElement} from 'react'
 
 import {Fragment, createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../tui-model.js'
+import type {TuiSnapshot} from '../model.js'
 
 import {EmptyTable, Table} from '../components/Table.js'
-import {formatBytes} from '../tui-format.js'
+import {formatBytes} from '../format/common.js'
 import {SectionHeading} from './common.js'
 
 type ArtifactRow = TuiSnapshot['artifacts'][number]

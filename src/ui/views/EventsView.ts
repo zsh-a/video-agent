@@ -2,10 +2,10 @@ import type {ReactElement} from 'react'
 
 import {Fragment, createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../tui-model.js'
+import type {TuiSnapshot} from '../model.js'
 
 import {EmptyTable, Table} from '../components/Table.js'
-import {formatEvent} from '../tui-format.js'
+import {formatEvent} from '../format/common.js'
 import {statusColor} from '../theme.js'
 import {SectionHeading} from './common.js'
 

@@ -2,8 +2,8 @@ import type {Dispatch, MutableRefObject, SetStateAction} from 'react'
 
 import {useCallback, useEffect, useRef, useState} from 'react'
 
-import type {TuiSnapshot} from '../tui-model.js'
-import type {TuiManagerView} from '../tui-types.js'
+import type {TuiSnapshot} from '../model.js'
+import type {TuiManagerView} from '../manager/types.js'
 
 export interface UseProjectSelectOptions {
   clearOutput: () => void

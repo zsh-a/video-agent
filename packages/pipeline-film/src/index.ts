@@ -11,7 +11,7 @@ export {
   createFilmRecapScriptProject,
   createFilmStoryIndexProject,
   createFilmUnderstandingProject,
-} from './film-project.js'
+} from './project/index.js'
 export {
   createFilmAudioMixProject,
   createFilmCutProject,
@@ -20,9 +20,9 @@ export {
   createFilmQualityCheckProject,
   createFilmSubtitleProject,
   createFilmVoiceoverProject,
-} from './film-output-stages.js'
-export {runFilmRecapProject} from './film-rerun-runner.js'
-export {runFilmRecapPipeline} from './film-runner.js'
+} from './output/index.js'
+export {runFilmRecapProject} from './recovery/runner.js'
+export {runFilmRecapPipeline} from './runner.js'
 export {recoverWorkspaceJobs} from './worker.js'
 export {rerunProject} from './rerun.js'
 
@@ -37,7 +37,7 @@ export type {
   CreateFilmStoryIndexProjectResult,
   CreateFilmUnderstandingProjectOptions,
   CreateFilmUnderstandingProjectResult,
-} from './film-project.js'
+} from './project/index.js'
 export type {
   CreateFilmAudioMixProjectOptions,
   CreateFilmAudioMixProjectResult,
@@ -54,9 +54,9 @@ export type {
   CreateFilmVoiceoverProjectOptions,
   CreateFilmVoiceoverProjectResult,
   FilmQualityReport,
-} from './film-output-stages.js'
-export type {RunFilmRecapProjectOptions, RunFilmRecapProjectResult} from './film-rerun-runner.js'
-export type {FilmAudioMix, FilmAudioMixVoiceover, FilmSubtitleOutput} from './film-types.js'
-export type {RunFilmRecapPipelineOptions, RunFilmRecapPipelineResult} from './film-runner.js'
+} from './output/index.js'
+export type {RunFilmRecapProjectOptions, RunFilmRecapProjectResult} from './recovery/runner.js'
+export type {FilmAudioMix, FilmAudioMixVoiceover, FilmSubtitleOutput} from './shared/types.js'
+export type {RunFilmRecapPipelineOptions, RunFilmRecapPipelineResult} from './runner.js'
 export type {RecoverableJobStatus, RecoverWorkspaceJobResult, RecoverWorkspaceJobsOptions, RecoverWorkspaceJobsReport, RecoveryOrderBy} from './worker.js'
 export type {RerunProjectOptions, RerunProjectResult} from './rerun.js'

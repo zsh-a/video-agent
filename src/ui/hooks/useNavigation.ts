@@ -1,7 +1,7 @@
 import {useInput} from 'ink'
 import {useCallback, useMemo, useState} from 'react'
 
-import type {TuiManagerView, TuiManagerViewDefinition} from '../tui-types.js'
+import type {TuiManagerView, TuiManagerViewDefinition} from '../manager/types.js'
 
 export interface UseNavigationOptions {
   enabled?: boolean

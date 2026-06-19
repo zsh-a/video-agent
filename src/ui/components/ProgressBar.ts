@@ -3,7 +3,7 @@ import type {ReactElement} from 'react'
 import {Text} from 'ink'
 import {createElement as h} from 'react'
 
-import {formatPercent} from '../tui-format.js'
+import {formatPercent} from '../format/common.js'
 import {theme} from '../theme.js'
 
 export interface ProgressBarProps {

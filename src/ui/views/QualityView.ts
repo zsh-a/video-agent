@@ -3,10 +3,10 @@ import type {ReactElement} from 'react'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../tui-model.js'
+import type {TuiSnapshot} from '../model.js'
 
 import {Badge} from '../components/Badge.js'
-import {formatRender} from '../tui-format.js'
+import {formatRender} from '../format/common.js'
 import {theme} from '../theme.js'
 import {EmptyView, Field, SectionHeading} from './common.js'
 

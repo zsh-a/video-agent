@@ -3,7 +3,7 @@ import type {ReactElement} from 'react'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
-import {truncateText} from '../tui-format.js'
+import {truncateText} from '../format/common.js'
 import {symbols, theme} from '../theme.js'
 
 export interface TableColumn<T> {

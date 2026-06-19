@@ -3,10 +3,10 @@ import type {ReactElement} from 'react'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
-import {formatIssueSummary} from '../tui-format.js'
+import {formatIssueSummary} from '../format/common.js'
 import {symbols, theme} from '../theme.js'
 
-import type {TuiSnapshot} from '../tui-model.js'
+import type {TuiSnapshot} from '../model.js'
 
 export interface StatusBarProps {
   error?: string

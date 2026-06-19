@@ -3,7 +3,7 @@ import type {ReactElement} from 'react'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
-import type {TuiManagerActionDefinition} from '../tui-types.js'
+import type {TuiManagerActionDefinition} from '../manager/types.js'
 
 import {theme} from '../theme.js'
 import {Panel} from './Panel.js'

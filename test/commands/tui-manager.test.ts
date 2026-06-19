@@ -1,10 +1,10 @@
-import type {TuiSnapshot} from '../../src/ui/tui-model.js'
+import type {TuiSnapshot} from '../../src/ui/model.js'
 
 import {expect} from '#test/expect'
 import {renderToString} from 'ink'
 import {createElement as h} from 'react'
 
-import {TuiManagerScreen} from '../../src/ui/tui-manager.js'
+import {TuiManagerScreen} from '../../src/ui/manager/index.js'
 
 describe('interactive tui manager', () => {
   it('renders the project dashboard and management chrome', () => {

@@ -2,11 +2,11 @@ import type {ReactElement} from 'react'
 
 import {Fragment, createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../tui-model.js'
-import type {TuiManagerActionDefinition} from '../tui-types.js'
+import type {TuiSnapshot} from '../model.js'
+import type {TuiManagerActionDefinition} from '../manager/types.js'
 
 import {Table} from '../components/Table.js'
-import {MANAGER_ACTIONS} from '../tui-types.js'
+import {MANAGER_ACTIONS} from '../manager/types.js'
 import {theme} from '../theme.js'
 import {SectionHeading} from './common.js'
 

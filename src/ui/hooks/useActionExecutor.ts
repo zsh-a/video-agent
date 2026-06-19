@@ -1,6 +1,6 @@
 import {useCallback, useState} from 'react'
 
-import type {TuiManagerActionDefinition, TuiManagerActionRequest, TuiManagerRuntime, TuiManagerView} from '../tui-types.js'
+import type {TuiManagerActionDefinition, TuiManagerActionRequest, TuiManagerRuntime, TuiManagerView} from '../manager/types.js'
 
 export interface UseActionExecutorOptions {
   getProjectId: () => string | undefined

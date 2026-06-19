@@ -3,11 +3,11 @@ import type {ReactElement} from 'react'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
-import type {TuiSnapshot} from '../tui-model.js'
+import type {TuiSnapshot} from '../model.js'
 
 import {Badge} from '../components/Badge.js'
 import {EmptyTable, Table} from '../components/Table.js'
-import {formatBytes, formatEvent, formatRender} from '../tui-format.js'
+import {formatBytes, formatEvent, formatRender} from '../format/common.js'
 import {statusColor, statusSymbol, symbols} from '../theme.js'
 import {EmptyView, Field, SectionHeading} from './common.js'
 
