@@ -10,7 +10,7 @@ export {
   createDeckExplainerProject,
   createDeckSummarizeProject,
   createDeckVoiceoverProject,
-} from './deck-project.js'
+} from './project/index.js'
 
 export type {
   CreateDeckAudioAnchoredProjectOptions,
@@ -22,12 +22,12 @@ export type {
   CreateDeckSummarizeProjectResult,
   CreateDeckVoiceoverProjectOptions,
   CreateDeckVoiceoverProjectResult,
-} from './deck-project.js'
+} from './project/index.js'
 
 export {
   createDeckFrameShardBatchProject,
   createDeckFrameShardPlanProject,
-} from './deck-frame-shards.js'
+} from './render/frames/shards/index.js'
 export type {
   CreateDeckFrameShardBatchProjectOptions,
   CreateDeckFrameShardBatchProjectResult,
@@ -35,22 +35,22 @@ export type {
   CreateDeckFrameShardPlanProjectResult,
   DeckFrameShardBatchShard,
   DeckFrameShardPlanShard,
-} from './deck-frame-shards.js'
+} from './render/frames/shards/index.js'
 
-export {createDeckFinalRenderProject} from './deck-final-render.js'
-export type {CreateDeckFinalRenderProjectOptions, CreateDeckFinalRenderProjectResult} from './deck-final-render.js'
+export {createDeckFinalRenderProject} from './render/final/index.js'
+export type {CreateDeckFinalRenderProjectOptions, CreateDeckFinalRenderProjectResult} from './render/final/index.js'
 
 export {
   createDeckRemotionRenderProject,
   createDeckRendererBackendProject,
-} from './deck-renderer-backend.js'
+} from './render/backend.js'
 export type {
   CreateDeckRemotionRenderProjectOptions,
   CreateDeckRemotionRenderProjectResult,
   CreateDeckRendererBackendProjectOptions,
   CreateDeckRendererBackendProjectResult,
   DeckRendererBackend,
-} from './deck-renderer-backend.js'
+} from './render/backend.js'
 
-export {runDeckExplainerPipeline} from './deck-runner.js'
-export type {DeckExplainerPipelineMode, RunDeckExplainerPipelineOptions, RunDeckExplainerPipelineResult} from './deck-runner.js'
+export {runDeckExplainerPipeline} from './runner.js'
+export type {DeckExplainerPipelineMode, RunDeckExplainerPipelineOptions, RunDeckExplainerPipelineResult} from './runner.js'
