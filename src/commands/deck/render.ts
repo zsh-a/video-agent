@@ -11,9 +11,9 @@ export default class DeckRender extends Command {
   static flags = {
     'chromium-command': Flags.string({description: 'Chromium command prefix for HTML frame capture, either a binary name or JSON string array'}),
     finalize: Flags.boolean({default: false, description: 'Finalize video after a frame range capture when all frames are available'}),
-    'finalize-only': Flags.boolean({default: false, description: 'Finalize video from the existing complete frame sequence without running Chromium capture'}),
-    'frame-capture-backend': Flags.string({default: 'chromium', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
-    'frame-concurrency': Flags.integer({description: 'Maximum Chromium screenshot captures to run concurrently', default: 1}),
+    'finalize-only': Flags.boolean({default: false, description: 'Finalize video from the existing complete frame sequence without running browser capture'}),
+    'frame-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
+    'frame-concurrency': Flags.integer({description: 'Maximum browser screenshot captures to run concurrently', default: 1}),
     'frame-end': Flags.integer({description: 'Last 1-based frame number to capture for a frame shard'}),
     'frame-shard-size': Flags.integer({description: 'Frame count per planned shard when using --plan-shards'}),
     'frame-start': Flags.integer({description: 'First 1-based frame number to capture for a frame shard'}),
@@ -22,9 +22,10 @@ export default class DeckRender extends Command {
     'html-render-command': Flags.string({description: 'HTML renderer command prefix, either a binary name or JSON string array'}),
     'html-validate': Flags.boolean({default: false, description: 'Run external HTML renderer validation against renders/html'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    'keyframe-capture-backend': Flags.string({default: 'chromium', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
+    'keyframe-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
     'plan-shards': Flags.boolean({default: false, description: 'Write a frame shard plan and full frame manifest without rendering frames'}),
-    'playwright-command': Flags.string({description: 'Playwright keyframe capture command prefix, either a binary name or JSON string array'}),
+    'playwright-command': Flags.string({description: 'Playwright capture command prefix, either a binary name or JSON string array'}),
+    renderer: Flags.string({default: 'remotion', description: 'Deck video renderer', options: ['remotion', 'html']}),
     'run-shards': Flags.boolean({default: false, description: 'Capture all frame shards locally with bounded shard concurrency, then write a resumable shard batch artifact'}),
     'shard-concurrency': Flags.integer({description: 'Maximum frame shards to capture concurrently when using --run-shards', default: 1}),
     'shard-retries': Flags.integer({description: 'Retry count for each failed frame shard when using --run-shards', default: 0}),
@@ -110,6 +111,7 @@ export default class DeckRender extends Command {
       keyframeCaptureBackend: flags['keyframe-capture-backend'] as 'chromium' | 'playwright',
       playwrightCommand: parseCommandPrefix(flags['playwright-command'], '--playwright-command'),
       projectId: args.projectId,
+      renderer: flags.renderer as 'html' | 'remotion',
       workspaceDir: flags.workspace,
     })
 
@@ -123,14 +125,18 @@ export default class DeckRender extends Command {
     this.log(`Status: ${output.status}`)
     this.log(`Finalized: ${output.finalized ? 'yes' : 'no'}`)
     this.log(`Renderer: ${output.renderer}`)
-    this.log(`Frame renderer: ${output.frameRenderer}`)
-    this.log(`Frame concurrency: ${normalizePositiveInteger(flags['frame-concurrency'], '--frame-concurrency')}`)
     this.log(`Video renderer: ${output.videoRenderer}`)
-    this.log(`HTML entry: ${output.htmlEntryPath}`)
-    this.log(`HTML validated: ${output.validation === undefined ? 'no' : 'yes'}`)
-    this.log(`HTML rendered: ${output.rendered === undefined ? 'no' : 'yes'}`)
-    this.log(`Keyframe renderer: ${output.keyframeRenderer ?? 'not finalized'}`)
-    this.log(`Frame range: ${output.frameStart}-${output.frameEnd}`)
+    if (output.renderer === 'html') {
+      this.log(`Frame renderer: ${output.frameRenderer}`)
+      this.log(`Frame concurrency: ${normalizePositiveInteger(flags['frame-concurrency'], '--frame-concurrency')}`)
+      this.log(`HTML entry: ${output.htmlEntryPath}`)
+      this.log(`HTML validated: ${output.validation === undefined ? 'no' : 'yes'}`)
+      this.log(`HTML rendered: ${output.rendered === undefined ? 'no' : 'yes'}`)
+      this.log(`Keyframe renderer: ${output.keyframeRenderer ?? 'not finalized'}`)
+      this.log(`Frame range: ${output.frameStart}-${output.frameEnd}`)
+    } else {
+      this.log(`Remotion composition: ${output.remotion?.compositionId ?? 'unknown'}`)
+    }
     this.log(`Final video: ${output.finalized ? output.outputPath : 'not finalized'}`)
     this.log(`${output.finalized ? 'Render output' : 'Shard output'}: ${output.artifactPath}`)
   }

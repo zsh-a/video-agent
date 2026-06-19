@@ -145,12 +145,12 @@ const TOOL_DEFINITIONS: McpTool[] = [
     subtitles: booleanSchema('When false, skip generated subtitle burn-in. Defaults to true for ffmpeg.'),
     voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
   }),
-  createTool('video_agent_deck_render', 'Render a Deck Explainer project with the HTML/Chromium/ffmpeg Deck renderer.', {
+  createTool('video_agent_deck_render', 'Render a Deck Explainer project. Defaults to Remotion; use renderer=html for the slower HTML/Playwright fallback.', {
     chromiumCommand: stringArraySchema('Chromium command prefix for HTML frame capture.'),
     finalize: booleanSchema('Finalize video after a frame range capture when all frames are available.'),
-    finalizeOnly: booleanSchema('Finalize from an existing complete Deck frame manifest without launching Chromium.'),
-    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for full frame sequence capture. Defaults to chromium.'),
-    frameConcurrency: integerSchema('Maximum Chromium screenshot captures to run concurrently.'),
+    finalizeOnly: booleanSchema('Finalize from an existing complete Deck frame manifest without launching the browser capture backend.'),
+    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for full frame sequence capture. Defaults to playwright.'),
+    frameConcurrency: integerSchema('Maximum browser screenshot captures to run concurrently.'),
     frameEnd: integerSchema('Last 1-based frame number to capture for a frame shard.'),
     frameStart: integerSchema('First 1-based frame number to capture for a frame shard.'),
     htmlOutput: stringSchema('Output path for optional external HTML renderer capture.'),
@@ -158,17 +158,18 @@ const TOOL_DEFINITIONS: McpTool[] = [
     htmlRenderCommand: stringArraySchema('External HTML renderer command prefix.'),
     htmlValidate: booleanSchema('Run external HTML renderer validation against renders/html.'),
     keyframeCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for independent keyframe visual QC.'),
-    playwrightCommand: stringArraySchema('Playwright keyframe capture command prefix.'),
+    playwrightCommand: stringArraySchema('Playwright capture command prefix.'),
     projectId: projectIdSchema(),
+    renderer: enumSchema(['remotion', 'html'], 'Deck video renderer. Defaults to remotion.'),
   }),
   createTool('video_agent_deck_plan_shards', 'Write a Deck frame shard plan and complete planned frame manifest without rendering frames.', {
-    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for planned shard commands. Defaults to chromium.'),
+    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for planned shard commands. Defaults to playwright.'),
     frameShardSize: integerSchema('Frame count per planned shard.'),
     projectId: projectIdSchema(),
   }),
   createTool('video_agent_deck_run_shards', 'Capture all Deck frame shards locally with bounded shard concurrency and write a resumable shard batch artifact.', {
     chromiumCommand: stringArraySchema('Chromium command prefix for HTML frame capture.'),
-    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for full frame sequence capture. Defaults to chromium.'),
+    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for full frame sequence capture. Defaults to playwright.'),
     frameConcurrency: integerSchema('Maximum browser screenshot captures per shard.'),
     frameShardSize: integerSchema('Frame count per shard.'),
     playwrightCommand: stringArraySchema('Playwright frame capture command prefix.'),
@@ -415,6 +416,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         keyframeCaptureBackend: readOptionalEnum(args, 'keyframeCaptureBackend', ['chromium', 'playwright']),
         playwrightCommand: readOptionalStringArray(args, 'playwrightCommand'),
         projectId: readRequiredString(args, 'projectId'),
+        renderer: readOptionalEnum(args, 'renderer', ['remotion', 'html']) as 'remotion' | 'html' | undefined,
         workspaceDir,
       })
     }

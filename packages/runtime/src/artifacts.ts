@@ -106,7 +106,7 @@ const RenderOutputSchema = z.object({
   completedAt: z.string().min(1).optional(),
   outputPath: z.string().min(1).optional(),
   outputQuality: IssueCountSchema.optional(),
-  renderer: z.enum(['ffmpeg', 'html', 'hyperframes']),
+  renderer: z.enum(['ffmpeg', 'html', 'hyperframes', 'remotion']),
   subtitleQuality: IssueCountSchema.optional(),
   templateQuality: IssueCountSchema.optional(),
   version: z.literal(1),

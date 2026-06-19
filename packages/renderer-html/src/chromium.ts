@@ -145,8 +145,18 @@ export class PlaywrightCaptureError extends Error {
     readonly command: string[],
     readonly stderr: string,
   ) {
-    super(message)
+    super(formatCaptureErrorMessage(message, stderr))
   }
+}
+
+function formatCaptureErrorMessage(message: string, stderr: string): string {
+  const detail = stderr.trim()
+
+  if (detail === '') {
+    return message
+  }
+
+  return `${message}: ${detail}`
 }
 
 export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOptions): Promise<CaptureDeckHtmlFramesResult> {
@@ -191,7 +201,7 @@ export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOption
 }
 
 export async function captureDeckHtmlFrameSequence(options: CaptureDeckHtmlFrameSequenceOptions): Promise<CaptureDeckHtmlFrameSequenceResult> {
-  const backend = options.backend ?? 'chromium'
+  const backend = options.backend ?? 'playwright'
 
   if (backend === 'playwright') {
     return captureDeckHtmlFrameSequenceWithPlaywright(options)
@@ -258,7 +268,7 @@ export async function captureDeckHtmlFrameSequence(options: CaptureDeckHtmlFrame
 }
 
 export async function captureDeckHtmlKeyframes(options: CaptureDeckHtmlKeyframesOptions): Promise<CaptureDeckHtmlKeyframesResult> {
-  const backend = options.backend ?? (options.playwrightCommand === undefined ? 'chromium' : 'playwright')
+  const backend = options.backend ?? 'playwright'
 
   if (backend === 'playwright') {
     return captureDeckHtmlKeyframesWithPlaywright(options)
@@ -530,7 +540,7 @@ async function writePlaywrightFrameSequenceCaptureManifest(input: {
 }
 
 function createPlaywrightKeyframeCaptureRunner(): string {
-  return `import {chromium} from 'playwright';
+  return `import {chromium} from ${resolvePlaywrightModuleSpecifier()};
 import {readFile, stat} from 'node:fs/promises';
 
 const manifestPath = process.argv.at(-1);
@@ -573,7 +583,7 @@ try {
 }
 
 function createPlaywrightFrameSequenceCaptureRunner(): string {
-  return `import {chromium} from 'playwright';
+  return `import {chromium} from ${resolvePlaywrightModuleSpecifier()};
 import {readFile, stat} from 'node:fs/promises';
 
 const manifestPath = process.argv.at(-1);
@@ -613,6 +623,12 @@ try {
   await browser.close();
 }
 `
+}
+
+function resolvePlaywrightModuleSpecifier(): string {
+  const resolver = (import.meta as ImportMeta & {resolve?: (specifier: string) => string}).resolve
+
+  return JSON.stringify(resolver?.call(import.meta, 'playwright') ?? 'playwright')
 }
 
 async function assertPlaywrightFrameOutputs(frames: DeckHtmlFrameSequenceFrame[], command: string[], stderr: string): Promise<void> {

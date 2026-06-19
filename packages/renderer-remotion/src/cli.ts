@@ -1,3 +1,7 @@
+import type {RemotionDeckProject} from './compiler.js'
+
+import {bundle} from '@remotion/bundler'
+import {getCompositions, renderMedia} from '@remotion/renderer'
 import {runProcess} from '@video-agent/media'
 import {stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
@@ -13,6 +17,42 @@ export interface RemotionRenderCliResult {
   outputPath: string
   stderr: string
   stdout: string
+}
+
+export interface RemotionRenderMediaProgress {
+  encodedDoneIn: number | null
+  encodedFrames: number
+  progress: number
+  renderEstimatedTime: number
+  renderedDoneIn: number | null
+  renderedFrames: number
+  stitchStage: 'encoding' | 'muxing'
+}
+
+export type RemotionRenderMediaCodec = 'h264'
+export type RemotionRenderMediaImageFormat = 'jpeg' | 'png'
+export type RemotionRenderMediaX264Preset = 'ultrafast' | 'superfast' | 'veryfast' | 'faster' | 'fast' | 'medium' | 'slow' | 'slower' | 'veryslow' | 'placebo'
+
+export interface RemotionRenderMediaOptions {
+  codec?: RemotionRenderMediaCodec
+  concurrency?: number | string
+  imageFormat?: RemotionRenderMediaImageFormat
+  jpegQuality?: number
+  onProgress?: (progress: RemotionRenderMediaProgress) => void
+  outputPath?: string
+  project: RemotionDeckProject
+  x264Preset?: RemotionRenderMediaX264Preset
+}
+
+export interface RemotionRenderMediaResult {
+  codec: RemotionRenderMediaCodec
+  compositionId: string
+  concurrency: number | string
+  imageFormat: RemotionRenderMediaImageFormat
+  jpegQuality: number
+  outputPath: string
+  slowestFrames: Array<{frame: number; time: number}>
+  x264Preset: RemotionRenderMediaX264Preset
 }
 
 export class RemotionRenderCliError extends Error {
@@ -51,4 +91,61 @@ export async function renderRemotionDeckProject(options: RemotionRenderCliOption
     stderr: result.stderr,
     stdout: result.stdout,
   }
+}
+
+export async function renderRemotionDeckMedia(options: RemotionRenderMediaOptions): Promise<RemotionRenderMediaResult> {
+  const projectDir = resolve(options.project.outputDir)
+  const outputPath = resolve(options.outputPath ?? resolve(projectDir, 'out', 'final.mp4'))
+  const codec = options.codec ?? 'h264'
+  const concurrency = options.concurrency ?? '75%'
+  const imageFormat = options.imageFormat ?? 'jpeg'
+  const jpegQuality = normalizeJpegQuality(options.jpegQuality)
+  const x264Preset = options.x264Preset ?? 'veryfast'
+  const serveUrl = await bundle({
+    entryPoint: options.project.entryPath,
+  })
+  const compositions = await getCompositions(serveUrl)
+  const composition = compositions.find((item) => item.id === options.project.compositionId)
+
+  if (composition === undefined) {
+    throw new RemotionRenderCliError(`Remotion composition not found: ${options.project.compositionId}`, ['renderMedia'], '')
+  }
+
+  const rendered = await renderMedia({
+    codec,
+    composition,
+    concurrency,
+    imageFormat,
+    jpegQuality,
+    muted: true,
+    onProgress: options.onProgress,
+    outputLocation: outputPath,
+    overwrite: true,
+    serveUrl,
+    x264Preset,
+  })
+  const output = await stat(outputPath)
+
+  if (output.size <= 0) {
+    throw new RemotionRenderCliError(`Remotion output is empty: ${outputPath}`, ['renderMedia'], '')
+  }
+
+  return {
+    codec,
+    compositionId: options.project.compositionId,
+    concurrency,
+    imageFormat,
+    jpegQuality,
+    outputPath,
+    slowestFrames: rendered.slowestFrames,
+    x264Preset,
+  }
+}
+
+function normalizeJpegQuality(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 85
+  }
+
+  return Math.max(0, Math.min(100, Math.floor(value)))
 }

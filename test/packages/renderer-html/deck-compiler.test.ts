@@ -369,6 +369,7 @@ describe('html deck compiler', () => {
         timedDeck,
       })
       const result = await captureDeckHtmlFrameSequence({
+        backend: 'chromium',
         chromiumCommand: ['bun', chromiumPath],
         concurrency: 2,
         frameEnd: 4,
@@ -444,6 +445,7 @@ describe('html deck compiler', () => {
         timedDeck,
       })
       const result = await captureDeckHtmlKeyframes({
+        backend: 'chromium',
         chromiumCommand: ['bun', chromiumPath],
         concurrency: 2,
         fps: 10,

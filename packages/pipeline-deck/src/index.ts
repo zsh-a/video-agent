@@ -66,6 +66,7 @@ export interface RunDeckExplainerPipelineOptions extends Omit<CreateDeckExplaine
   keyframeCaptureBackend?: CreateDeckFinalRenderProjectOptions['keyframeCaptureBackend']
   mode?: DeckExplainerPipelineMode
   playwrightCommand?: CreateDeckFinalRenderProjectOptions['playwrightCommand']
+  renderer?: CreateDeckFinalRenderProjectOptions['renderer']
 }
 
 export interface RunDeckExplainerPipelineResult {
@@ -109,6 +110,7 @@ export async function runDeckExplainerPipeline(options: RunDeckExplainerPipeline
     htmlValidate: options.htmlValidate,
     keyframeCaptureBackend: options.keyframeCaptureBackend,
     playwrightCommand: options.playwrightCommand,
+    renderer: options.renderer,
   })
 
   return {

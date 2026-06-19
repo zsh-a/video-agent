@@ -423,11 +423,10 @@ describe('deck explainer project', () => {
       )
       const render = await createDeckFinalRenderProject({
         chromiumCommand,
-        frameCaptureBackend: 'playwright',
         frameConcurrency: 2,
-        keyframeCaptureBackend: 'playwright',
         playwrightCommand: ['bun', playwrightPath],
         projectId: 'deck-voice-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
       const renderOutput = JSON.parse(await readFile(render.artifactPath, 'utf8')) as {
@@ -591,7 +590,7 @@ describe('deck explainer project', () => {
 
       expect(shardPlan.status).to.equal('planned')
       expect(shardPlan.frameShardSize).to.equal(2)
-      expect(shardPlan.shards[0]?.commandArgs).to.deep.equal(['deck', 'render', 'deck-voice-demo', '--frame-start', '1', '--frame-end', '2'])
+      expect(shardPlan.shards[0]?.commandArgs).to.deep.equal(['deck', 'render', 'deck-voice-demo', '--frame-start', '1', '--frame-end', '2', '--frame-capture-backend', 'playwright'])
       expect(shardPlanOutput.frameManifestPath).to.equal('artifacts/deck-frame-manifest.json')
       expect(shardPlanOutput.frameShardSize).to.equal(2)
       expect(shardPlanOutput.finalizeArgs).to.deep.equal(['deck', 'render', 'deck-voice-demo', '--finalize-only'])
@@ -656,6 +655,7 @@ describe('deck explainer project', () => {
       )
       const retriedBatch = await createDeckFrameShardBatchProject({
         chromiumCommand: ['bun', flakyChromiumPath],
+        frameCaptureBackend: 'chromium',
         frameShardSize: 2,
         projectId: 'deck-voice-demo',
         shardRetries: 1,
@@ -759,9 +759,11 @@ describe('deck explainer project', () => {
 
       const shard = await createDeckFinalRenderProject({
         chromiumCommand,
+        frameCaptureBackend: 'chromium',
         frameEnd: 2,
         frameStart: 1,
         projectId: 'deck-voice-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
       const shardOutput = JSON.parse(await readFile(shard.artifactPath, 'utf8')) as {
@@ -785,6 +787,7 @@ describe('deck explainer project', () => {
       const resumedRender = await createDeckFinalRenderProject({
         chromiumCommand: ['bun', failingChromiumPath],
         projectId: 'deck-voice-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
       const resumedOutput = JSON.parse(await readFile(resumedRender.artifactPath, 'utf8')) as {
@@ -804,6 +807,7 @@ describe('deck explainer project', () => {
         chromiumCommand: ['bun', failingChromiumPath],
         finalizeOnly: true,
         projectId: 'deck-voice-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
       const finalizedFromFramesOutput = JSON.parse(await readFile(finalizedFromFrames.artifactPath, 'utf8')) as {
@@ -853,6 +857,7 @@ describe('deck explainer project', () => {
         htmlRenderCommand: ['bun', htmlRendererScript],
         htmlValidate: true,
         projectId: 'deck-voice-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
       const capturedOutput = JSON.parse(await readFile(capturedRender.artifactPath, 'utf8')) as {
@@ -887,6 +892,7 @@ describe('deck explainer project', () => {
         await createDeckFinalRenderProject({
           finalizeOnly: true,
           projectId: 'deck-voice-demo',
+          renderer: 'html',
           workspaceDir: root,
         })
       } catch (error) {
@@ -979,7 +985,10 @@ describe('deck explainer project', () => {
 
       const render = await createDeckFinalRenderProject({
         chromiumCommand: await createFakeChromiumCommand(root),
+        frameCaptureBackend: 'chromium',
+        keyframeCaptureBackend: 'chromium',
         projectId: 'deck-audio-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
 
@@ -1050,7 +1059,10 @@ describe('deck explainer project', () => {
 
       const render = await createDeckFinalRenderProject({
         chromiumCommand: await createFakeChromiumCommand(root),
+        frameCaptureBackend: 'chromium',
+        keyframeCaptureBackend: 'chromium',
         projectId: 'deck-summary-demo',
+        renderer: 'html',
         workspaceDir: root,
       })
 

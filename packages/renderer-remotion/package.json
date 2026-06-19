@@ -11,7 +11,10 @@
     }
   },
   "dependencies": {
+    "@remotion/bundler": "^4.0.481",
+    "@remotion/renderer": "^4.0.481",
     "@video-agent/ir": "workspace:*",
-    "@video-agent/media": "workspace:*"
+    "@video-agent/media": "workspace:*",
+    "remotion": "^4.0.481"
   }
 }

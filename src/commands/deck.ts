@@ -17,15 +17,15 @@ export default class Deck extends Command {
   static flags = {
     'chromium-command': Flags.string({description: 'Chromium command prefix for HTML frame capture, either a binary name or JSON string array'}),
     duration: Flags.string({description: 'Target deck duration, such as 180s, 3m, or 00:03:00'}),
-    'frame-capture-backend': Flags.string({default: 'chromium', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
-    'frame-concurrency': Flags.integer({description: 'Maximum Chromium screenshot captures to run concurrently', default: 1}),
+    'frame-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
+    'frame-concurrency': Flags.integer({description: 'Maximum browser screenshot captures to run concurrently', default: 1}),
     format: Flags.string({
       default: 'portrait',
       description: 'Output slide format',
       options: ['landscape', 'portrait', 'square'],
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    'keyframe-capture-backend': Flags.string({default: 'chromium', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
+    'keyframe-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
     language: Flags.string({description: 'Narration/deck language tag', default: 'zh-CN'}),
     'max-slide-characters': Flags.integer({description: 'Maximum characters per generated slide', default: 260}),
     mode: Flags.string({
@@ -34,7 +34,8 @@ export default class Deck extends Command {
       options: ['script-generated', 'summarize', 'audio-anchored'],
     }),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
-    'playwright-command': Flags.string({description: 'Playwright keyframe capture command prefix, either a binary name or JSON string array'}),
+    'playwright-command': Flags.string({description: 'Playwright capture command prefix, either a binary name or JSON string array'}),
+    renderer: Flags.string({default: 'remotion', description: 'Deck video renderer', options: ['remotion', 'html']}),
     'slide-seconds': Flags.integer({description: 'Fallback duration in seconds for each generated slide', default: 18}),
     style: Flags.string({
       description: 'Deck theme/style name (auto lets LLM choose based on content)',
@@ -73,6 +74,7 @@ export default class Deck extends Command {
         keyframeCaptureBackend: flags['keyframe-capture-backend'] as 'chromium' | 'playwright',
         mode,
         playwrightCommand: parseCommandPrefix(flags['playwright-command'], '--playwright-command'),
+        renderer: flags.renderer as 'html' | 'remotion',
       })
     } catch (error) {
       this.errorToStderr(error)
@@ -89,7 +91,10 @@ export default class Deck extends Command {
     this.log(`Workspace: ${output.projectDir}`)
     this.log(`Slides: ${output.deck.slides}`)
     this.log(`Status: ${output.status}`)
-    this.log(`HTML: ${output.finalRender.htmlEntryPath}`)
+    if (output.finalRender.htmlEntryPath !== undefined) {
+      this.log(`HTML: ${output.finalRender.htmlEntryPath}`)
+    }
+    this.log(`Renderer: ${output.finalRender.renderer}`)
     this.log(`Final: ${output.finalRender.outputPath}`)
   }
 

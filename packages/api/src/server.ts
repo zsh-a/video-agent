@@ -258,6 +258,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
         keyframeCaptureBackend: parseOptionalEnum(readStringField(body, 'keyframeCaptureBackend'), ['chromium', 'playwright']),
         playwrightCommand: readStringArrayField(body, 'playwrightCommand'),
         projectId,
+        renderer: parseOptionalEnum(readStringField(body, 'renderer'), ['remotion', 'html']),
         workspaceDir,
       }),
     )
