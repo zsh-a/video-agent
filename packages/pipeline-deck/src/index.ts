@@ -10,6 +10,10 @@ export {
   createDeckAudioAnchoredProject,
   createDeckExplainerProject,
   createDeckFinalRenderProject,
+  createDeckFrameShardBatchProject,
+  createDeckFrameShardPlanProject,
+  createDeckRemotionRenderProject,
+  createDeckRendererBackendProject,
   createDeckSummarizeProject,
   createDeckVoiceoverProject,
 } from '@video-agent/runtime'
@@ -31,21 +35,37 @@ export type {
   CreateDeckExplainerProjectResult,
   CreateDeckFinalRenderProjectOptions,
   CreateDeckFinalRenderProjectResult,
+  CreateDeckFrameShardBatchProjectOptions,
+  CreateDeckFrameShardBatchProjectResult,
+  CreateDeckFrameShardPlanProjectOptions,
+  CreateDeckFrameShardPlanProjectResult,
+  CreateDeckRemotionRenderProjectOptions,
+  CreateDeckRemotionRenderProjectResult,
+  CreateDeckRendererBackendProjectOptions,
+  CreateDeckRendererBackendProjectResult,
   CreateDeckSummarizeProjectOptions,
   CreateDeckSummarizeProjectResult,
   CreateDeckVoiceoverProjectOptions,
   CreateDeckVoiceoverProjectResult,
+  DeckRendererBackend,
 } from '@video-agent/runtime'
 
 export type DeckExplainerPipelineMode = 'audio-anchored' | 'script-generated' | 'summarize'
 
 export interface RunDeckExplainerPipelineOptions extends Omit<CreateDeckExplainerProjectOptions, 'mode'> {
   chromiumCommand?: CreateDeckFinalRenderProjectOptions['chromiumCommand']
+  finalize?: CreateDeckFinalRenderProjectOptions['finalize']
+  frameCaptureBackend?: CreateDeckFinalRenderProjectOptions['frameCaptureBackend']
+  frameConcurrency?: CreateDeckFinalRenderProjectOptions['frameConcurrency']
+  frameEnd?: CreateDeckFinalRenderProjectOptions['frameEnd']
+  frameStart?: CreateDeckFinalRenderProjectOptions['frameStart']
   htmlOutput?: CreateDeckFinalRenderProjectOptions['htmlOutput']
   htmlRender?: CreateDeckFinalRenderProjectOptions['htmlRender']
   htmlRenderCommand?: CreateDeckFinalRenderProjectOptions['htmlRenderCommand']
   htmlValidate?: CreateDeckFinalRenderProjectOptions['htmlValidate']
+  keyframeCaptureBackend?: CreateDeckFinalRenderProjectOptions['keyframeCaptureBackend']
   mode?: DeckExplainerPipelineMode
+  playwrightCommand?: CreateDeckFinalRenderProjectOptions['playwrightCommand']
 }
 
 export interface RunDeckExplainerPipelineResult {
@@ -78,10 +98,17 @@ export async function runDeckExplainerPipeline(options: RunDeckExplainerPipeline
   const finalRender = await createDeckFinalRenderProject({
     ...common,
     chromiumCommand: options.chromiumCommand,
+    finalize: options.finalize,
+    frameCaptureBackend: options.frameCaptureBackend,
+    frameConcurrency: options.frameConcurrency,
+    frameEnd: options.frameEnd,
+    frameStart: options.frameStart,
     htmlOutput: options.htmlOutput,
     htmlRender: options.htmlRender,
     htmlRenderCommand: options.htmlRenderCommand,
     htmlValidate: options.htmlValidate,
+    keyframeCaptureBackend: options.keyframeCaptureBackend,
+    playwrightCommand: options.playwrightCommand,
   })
 
   return {

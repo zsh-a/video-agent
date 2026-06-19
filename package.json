@@ -30,6 +30,8 @@
     "@video-agent/renderer-ffmpeg": "workspace:*",
     "@video-agent/renderer-html": "workspace:*",
     "@video-agent/renderer-hyperframes": "workspace:*",
+    "@video-agent/renderer-motion-canvas": "workspace:*",
+    "@video-agent/renderer-remotion": "workspace:*",
     "@video-agent/runtime": "workspace:*",
     "ai": "^6.0.205",
     "ink": "^7.1.0",

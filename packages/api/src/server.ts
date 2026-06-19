@@ -1,5 +1,10 @@
 import {
   checkRuntimeHealth,
+  createDeckFinalRenderProject,
+  createDeckFrameShardBatchProject,
+  createDeckFrameShardPlanProject,
+  createDeckRemotionRenderProject,
+  createDeckRendererBackendProject,
   createProviderEnvironmentShellTemplate,
   exportProject,
   ExportQualityError,
@@ -182,6 +187,7 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
 }
 
 // Route dispatch is intentionally centralized so the API handler remains dependency-light.
+// eslint-disable-next-line complexity
 async function routeProjectRequest(request: Request, segments: string[], url: URL, workspaceDir: string): Promise<Response> {
   const [projectId, resource, artifactName] = segments
 
@@ -224,6 +230,114 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
         sourceVolume: readNumberField(body, 'sourceVolume'),
         subtitles: readBooleanField(body, 'subtitles'),
         voiceoverVolume: readNumberField(body, 'voiceoverVolume'),
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'deck' && artifactName === 'render') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+
+    return jsonResponse(
+      await createDeckFinalRenderProject({
+        chromiumCommand: readStringArrayField(body, 'chromiumCommand'),
+        finalize: readBooleanField(body, 'finalize'),
+        finalizeOnly: readBooleanField(body, 'finalizeOnly'),
+        frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), ['chromium', 'playwright']),
+        frameConcurrency: readNumberField(body, 'frameConcurrency'),
+        frameEnd: readNumberField(body, 'frameEnd'),
+        frameStart: readNumberField(body, 'frameStart'),
+        htmlOutput: readStringField(body, 'htmlOutput') ?? undefined,
+        htmlRender: readBooleanField(body, 'htmlRender'),
+        htmlRenderCommand: readStringArrayField(body, 'htmlRenderCommand'),
+        htmlValidate: readBooleanField(body, 'htmlValidate'),
+        keyframeCaptureBackend: parseOptionalEnum(readStringField(body, 'keyframeCaptureBackend'), ['chromium', 'playwright']),
+        playwrightCommand: readStringArrayField(body, 'playwrightCommand'),
+        projectId,
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'deck' && artifactName === 'shards') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+
+    return jsonResponse(
+      await createDeckFrameShardPlanProject({
+        frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), ['chromium', 'playwright']),
+        frameShardSize: readNumberField(body, 'frameShardSize'),
+        projectId,
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'deck' && artifactName === 'shard-batch') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+
+    return jsonResponse(
+      await createDeckFrameShardBatchProject({
+        chromiumCommand: readStringArrayField(body, 'chromiumCommand'),
+        frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), ['chromium', 'playwright']),
+        frameConcurrency: readNumberField(body, 'frameConcurrency'),
+        frameShardSize: readNumberField(body, 'frameShardSize'),
+        playwrightCommand: readStringArrayField(body, 'playwrightCommand'),
+        projectId,
+        shardConcurrency: readNumberField(body, 'shardConcurrency'),
+        shardRetryDelayMs: readNumberField(body, 'shardRetryDelayMs'),
+        shardRetries: readNumberField(body, 'shardRetries'),
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'deck' && artifactName === 'backend') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+
+    return jsonResponse(
+      await createDeckRendererBackendProject({
+        backend: parseOptionalEnum(readStringField(body, 'backend'), ['motion-canvas', 'remotion']) ?? 'remotion',
+        compositionId: readStringField(body, 'compositionId') ?? undefined,
+        fps: readNumberField(body, 'fps'),
+        outputDir: readStringField(body, 'outputDir') ?? undefined,
+        projectId,
+        workspaceDir,
+      }),
+    )
+  }
+
+  if (resource === 'deck' && artifactName === 'backend-render') {
+    if (request.method !== 'POST') {
+      return methodNotAllowed()
+    }
+
+    const body = await readJsonBody(request)
+    parseOptionalEnum(readStringField(body, 'backend'), ['remotion'])
+
+    return jsonResponse(
+      await createDeckRemotionRenderProject({
+        command: readStringArrayField(body, 'command'),
+        compositionId: readStringField(body, 'compositionId') ?? undefined,
+        fps: readNumberField(body, 'fps'),
+        outputDir: readStringField(body, 'outputDir') ?? undefined,
+        outputPath: readStringField(body, 'outputPath') ?? undefined,
+        projectId,
         workspaceDir,
       }),
     )

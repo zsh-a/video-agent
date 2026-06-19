@@ -3,6 +3,11 @@ import type {ExportFormat, InitialPipelineStage, PipelineStage, ProjectRenderer,
 import {
   ALL_PIPELINE_STAGES,
   checkRuntimeHealth,
+  createDeckFinalRenderProject,
+  createDeckFrameShardBatchProject,
+  createDeckFrameShardPlanProject,
+  createDeckRemotionRenderProject,
+  createDeckRendererBackendProject,
   createProviderEnvironmentShellTemplate,
   exportProject,
   ExportQualityError,
@@ -139,6 +144,54 @@ const TOOL_DEFINITIONS: McpTool[] = [
     sourceVolume: numberSchema('Source audio volume multiplier.'),
     subtitles: booleanSchema('When false, skip generated subtitle burn-in. Defaults to true for ffmpeg.'),
     voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
+  }),
+  createTool('video_agent_deck_render', 'Render a Deck Explainer project with the HTML/Chromium/ffmpeg Deck renderer.', {
+    chromiumCommand: stringArraySchema('Chromium command prefix for HTML frame capture.'),
+    finalize: booleanSchema('Finalize video after a frame range capture when all frames are available.'),
+    finalizeOnly: booleanSchema('Finalize from an existing complete Deck frame manifest without launching Chromium.'),
+    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for full frame sequence capture. Defaults to chromium.'),
+    frameConcurrency: integerSchema('Maximum Chromium screenshot captures to run concurrently.'),
+    frameEnd: integerSchema('Last 1-based frame number to capture for a frame shard.'),
+    frameStart: integerSchema('First 1-based frame number to capture for a frame shard.'),
+    htmlOutput: stringSchema('Output path for optional external HTML renderer capture.'),
+    htmlRender: booleanSchema('Run an external HTML renderer such as HyperFrames against renders/html.'),
+    htmlRenderCommand: stringArraySchema('External HTML renderer command prefix.'),
+    htmlValidate: booleanSchema('Run external HTML renderer validation against renders/html.'),
+    keyframeCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for independent keyframe visual QC.'),
+    playwrightCommand: stringArraySchema('Playwright keyframe capture command prefix.'),
+    projectId: projectIdSchema(),
+  }),
+  createTool('video_agent_deck_plan_shards', 'Write a Deck frame shard plan and complete planned frame manifest without rendering frames.', {
+    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for planned shard commands. Defaults to chromium.'),
+    frameShardSize: integerSchema('Frame count per planned shard.'),
+    projectId: projectIdSchema(),
+  }),
+  createTool('video_agent_deck_run_shards', 'Capture all Deck frame shards locally with bounded shard concurrency and write a resumable shard batch artifact.', {
+    chromiumCommand: stringArraySchema('Chromium command prefix for HTML frame capture.'),
+    frameCaptureBackend: enumSchema(['chromium', 'playwright'], 'Browser backend for full frame sequence capture. Defaults to chromium.'),
+    frameConcurrency: integerSchema('Maximum browser screenshot captures per shard.'),
+    frameShardSize: integerSchema('Frame count per shard.'),
+    playwrightCommand: stringArraySchema('Playwright frame capture command prefix.'),
+    projectId: projectIdSchema(),
+    shardConcurrency: integerSchema('Maximum shards to capture concurrently.'),
+    shardRetryDelayMs: integerSchema('Delay between shard retry attempts in milliseconds.'),
+    shardRetries: integerSchema('Retry count for each failed frame shard.'),
+  }),
+  createTool('video_agent_deck_export_backend', 'Export a Deck project to an optional Remotion or Motion Canvas backend project.', {
+    backend: enumSchema(['motion-canvas', 'remotion'], 'Renderer backend project to generate. Defaults to remotion.'),
+    compositionId: stringSchema('Remotion composition id.'),
+    fps: integerSchema('Renderer project frames per second.'),
+    outputDir: stringSchema('Output directory for the generated backend project.'),
+    projectId: projectIdSchema(),
+  }),
+  createTool('video_agent_deck_render_backend', 'Render a Deck project through an optional external Remotion backend project.', {
+    backend: enumSchema(['remotion'], 'Renderer backend to execute. Defaults to remotion.'),
+    command: stringArraySchema('External Remotion render command. Defaults to ["bun","run","render"] inside the generated Remotion project.'),
+    compositionId: stringSchema('Remotion composition id.'),
+    fps: integerSchema('Renderer project frames per second.'),
+    outputDir: stringSchema('Output directory for the generated backend project.'),
+    outputPath: stringSchema('Expected Remotion output path. Defaults to renders/remotion/out/final.mp4.'),
+    projectId: projectIdSchema(),
   }),
   createTool('video_agent_inspect_audio', 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.', {
     audio: booleanSchema('When false, report a disabled audio plan. Defaults to true.'),
@@ -342,6 +395,75 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         sourceVolume: readOptionalNumber(args, 'sourceVolume'),
         subtitles: readOptionalBoolean(args, 'subtitles'),
         voiceoverVolume: readOptionalNumber(args, 'voiceoverVolume'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_deck_render': {
+      return createDeckFinalRenderProject({
+        chromiumCommand: readOptionalStringArray(args, 'chromiumCommand'),
+        finalize: readOptionalBoolean(args, 'finalize'),
+        finalizeOnly: readOptionalBoolean(args, 'finalizeOnly'),
+        frameCaptureBackend: readOptionalEnum(args, 'frameCaptureBackend', ['chromium', 'playwright']),
+        frameConcurrency: readOptionalInteger(args, 'frameConcurrency'),
+        frameEnd: readOptionalInteger(args, 'frameEnd'),
+        frameStart: readOptionalInteger(args, 'frameStart'),
+        htmlOutput: readOptionalString(args, 'htmlOutput'),
+        htmlRender: readOptionalBoolean(args, 'htmlRender'),
+        htmlRenderCommand: readOptionalStringArray(args, 'htmlRenderCommand'),
+        htmlValidate: readOptionalBoolean(args, 'htmlValidate'),
+        keyframeCaptureBackend: readOptionalEnum(args, 'keyframeCaptureBackend', ['chromium', 'playwright']),
+        playwrightCommand: readOptionalStringArray(args, 'playwrightCommand'),
+        projectId: readRequiredString(args, 'projectId'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_deck_plan_shards': {
+      return createDeckFrameShardPlanProject({
+        frameCaptureBackend: readOptionalEnum(args, 'frameCaptureBackend', ['chromium', 'playwright']),
+        frameShardSize: readOptionalInteger(args, 'frameShardSize'),
+        projectId: readRequiredString(args, 'projectId'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_deck_run_shards': {
+      return createDeckFrameShardBatchProject({
+        chromiumCommand: readOptionalStringArray(args, 'chromiumCommand'),
+        frameCaptureBackend: readOptionalEnum(args, 'frameCaptureBackend', ['chromium', 'playwright']),
+        frameConcurrency: readOptionalInteger(args, 'frameConcurrency'),
+        frameShardSize: readOptionalInteger(args, 'frameShardSize'),
+        playwrightCommand: readOptionalStringArray(args, 'playwrightCommand'),
+        projectId: readRequiredString(args, 'projectId'),
+        shardConcurrency: readOptionalInteger(args, 'shardConcurrency'),
+        shardRetryDelayMs: readOptionalInteger(args, 'shardRetryDelayMs'),
+        shardRetries: readOptionalInteger(args, 'shardRetries'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_deck_export_backend': {
+      return createDeckRendererBackendProject({
+        backend: readOptionalEnum(args, 'backend', ['motion-canvas', 'remotion']) ?? 'remotion',
+        compositionId: readOptionalString(args, 'compositionId'),
+        fps: readOptionalInteger(args, 'fps'),
+        outputDir: readOptionalString(args, 'outputDir'),
+        projectId: readRequiredString(args, 'projectId'),
+        workspaceDir,
+      })
+    }
+
+    case 'video_agent_deck_render_backend': {
+      readOptionalEnum(args, 'backend', ['remotion'])
+
+      return createDeckRemotionRenderProject({
+        command: readOptionalStringArray(args, 'command'),
+        compositionId: readOptionalString(args, 'compositionId'),
+        fps: readOptionalInteger(args, 'fps'),
+        outputDir: readOptionalString(args, 'outputDir'),
+        outputPath: readOptionalString(args, 'outputPath'),
+        projectId: readRequiredString(args, 'projectId'),
         workspaceDir,
       })
     }

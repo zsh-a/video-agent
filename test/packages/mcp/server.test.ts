@@ -28,6 +28,11 @@ describe('mcp server', () => {
       'video_agent_status',
       'video_agent_run',
       'video_agent_rerun',
+      'video_agent_deck_export_backend',
+      'video_agent_deck_plan_shards',
+      'video_agent_deck_render',
+      'video_agent_deck_render_backend',
+      'video_agent_deck_run_shards',
       'video_agent_worker',
     ])
   })
@@ -40,8 +45,16 @@ describe('mcp server', () => {
     const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties ?? {}
     const qualityProperties = toolsByName.get('video_agent_quality')?.inputSchema.properties ?? {}
     const exportProperties = toolsByName.get('video_agent_export')?.inputSchema.properties ?? {}
+    const deckRenderProperties = toolsByName.get('video_agent_deck_render')?.inputSchema.properties ?? {}
+    const deckBackendProperties = toolsByName.get('video_agent_deck_export_backend')?.inputSchema.properties ?? {}
+    const deckRenderBackendProperties = toolsByName.get('video_agent_deck_render_backend')?.inputSchema.properties ?? {}
+    const deckRunShardProperties = toolsByName.get('video_agent_deck_run_shards')?.inputSchema.properties ?? {}
 
     expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
+    expect(Object.keys(deckRenderProperties)).to.include.members(['chromiumCommand', 'finalizeOnly', 'frameCaptureBackend', 'frameStart', 'frameEnd', 'keyframeCaptureBackend', 'playwrightCommand'])
+    expect(Object.keys(deckBackendProperties)).to.include.members(['backend', 'compositionId', 'fps', 'outputDir'])
+    expect(Object.keys(deckRenderBackendProperties)).to.include.members(['backend', 'command', 'compositionId', 'outputPath'])
+    expect(Object.keys(deckRunShardProperties)).to.include.members(['frameCaptureBackend', 'frameConcurrency', 'frameShardSize', 'playwrightCommand', 'shardConcurrency', 'shardRetries', 'shardRetryDelayMs'])
     expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'orderBy', 'runningStaleAfterMs', 'status'])
     expect(Object.keys(qualityProperties)).to.include('details')
@@ -54,6 +67,8 @@ describe('mcp server', () => {
     const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const runProperties = toolsByName.get('video_agent_run')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+    const deckShardProperties = toolsByName.get('video_agent_deck_plan_shards')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+    const deckRunShardProperties = toolsByName.get('video_agent_deck_run_shards')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const guidedActionProperties = toolsByName.get('video_agent_guided_actions')?.inputSchema.properties as Record<string, {description?: string}> | undefined
 
     expect(guidedActionProperties?.artifactLimit.description).to.include('Maximum number of project artifacts')
@@ -63,6 +78,8 @@ describe('mcp server', () => {
     expect(workerProperties?.runningStaleAfterMs.description).to.include('Skip running jobs')
     expect(workerProperties?.orderBy.description).to.include('Recovery candidate ordering')
     expect(runProperties?.inputPath.description).to.include('source media file')
+    expect(deckShardProperties?.frameShardSize.description).to.include('Frame count per planned shard')
+    expect(deckRunShardProperties?.shardConcurrency.description).to.include('Maximum shards')
     expect(runProperties?.workspaceDir.description).to.include('Workspace directory override')
     expect(guidedActionProperties?.commandPrefix.description).to.include('Command prefix')
   })
@@ -448,6 +465,121 @@ describe('mcp server', () => {
 
       expect(result.renderer).to.equal('hyperframes')
       expect(result.outputDir).to.equal(join(root, 'hyperframes-output'))
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('calls Deck shard planning and backend export tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+
+    try {
+      await createProject(root, 'deck-demo')
+      await writeDeckArtifacts(root, 'deck-demo')
+
+      const playwrightPath = join(root, 'fake-playwright.ts')
+      await writeFile(
+        playwrightPath,
+        [
+          'const manifestPath = Bun.argv.at(-1)',
+          'if (manifestPath === undefined) process.exit(2)',
+          'const manifest = await Bun.file(manifestPath).json()',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'for (const frame of manifest.frames) {',
+          '  await Bun.write(frame.path, png)',
+          '}',
+          '',
+        ].join('\n'),
+      )
+      const remotionCommandPath = join(root, 'fake-remotion-render.ts')
+      await writeFile(
+        remotionCommandPath,
+        [
+          "await Bun.$`mkdir -p out`",
+          "await Bun.write('out/final.mp4', 'fake remotion video')",
+          '',
+        ].join('\n'),
+      )
+
+      const server = createVideoAgentMcpServer({workspaceDir: root})
+      const shardResponse = await server.handleMessage({
+        id: 'deck-shards-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            frameShardSize: 2,
+            projectId: 'deck-demo',
+          },
+          name: 'video_agent_deck_plan_shards',
+        },
+      })
+      const shardBatchResponse = await server.handleMessage({
+        id: 'deck-shard-batch-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            frameCaptureBackend: 'playwright',
+            frameShardSize: 2,
+            playwrightCommand: ['bun', playwrightPath],
+            projectId: 'deck-demo',
+            shardConcurrency: 2,
+          },
+          name: 'video_agent_deck_run_shards',
+        },
+      })
+      const backendResponse = await server.handleMessage({
+        id: 'deck-backend-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            backend: 'remotion',
+            compositionId: 'DeckMcp',
+            projectId: 'deck-demo',
+          },
+          name: 'video_agent_deck_export_backend',
+        },
+      })
+      const backendRenderResponse = await server.handleMessage({
+        id: 'deck-render-backend-1',
+        jsonrpc: '2.0',
+        method: 'tools/call',
+        params: {
+          arguments: {
+            command: ['bun', remotionCommandPath],
+            compositionId: 'DeckMcpRender',
+            projectId: 'deck-demo',
+          },
+          name: 'video_agent_deck_render_backend',
+        },
+      })
+      const shardContent = shardResponse?.result as {content: Array<{text: string; type: string}>}
+      const shardBatchContent = shardBatchResponse?.result as {content: Array<{text: string; type: string}>}
+      const backendContent = backendResponse?.result as {content: Array<{text: string; type: string}>}
+      const backendRenderContent = backendRenderResponse?.result as {content: Array<{text: string; type: string}>}
+      const shardPlan = JSON.parse(shardContent.content[0]?.text ?? '{}') as {frameShardSize: number; pendingShards: number; shardCount: number}
+      const shardBatch = JSON.parse(shardBatchContent.content[0]?.text ?? '{}') as {failedShards: number; frameCapturedCount: number; renderer: string; shardConcurrency: number; status: string}
+      const backend = JSON.parse(backendContent.content[0]?.text ?? '{}') as {backend: string; files: {composition: string; motion: string}; projectId: string}
+      const backendRender = JSON.parse(backendRenderContent.content[0]?.text ?? '{}') as {backend: string; outputPath: string; projectId: string; status: string}
+
+      expect(shardPlan.frameShardSize).to.equal(2)
+      expect(shardPlan.pendingShards).to.equal(shardPlan.shardCount)
+      expect(shardBatch.status).to.equal('completed')
+      expect(shardBatch.renderer).to.equal('playwright')
+      expect(shardBatch.shardConcurrency).to.equal(2)
+      expect(shardBatch.failedShards).to.equal(0)
+      expect(shardBatch.frameCapturedCount).to.be.greaterThan(0)
+      expect(backend.projectId).to.equal('deck-demo')
+      expect(backend.backend).to.equal('remotion')
+      expect((await stat(backend.files.composition)).size).to.be.greaterThan(0)
+      expect((await readFile(backend.files.composition, 'utf8')).includes('DeckMcp')).to.equal(true)
+      expect((await stat(backend.files.motion)).size).to.be.greaterThan(0)
+      expect(backendRender.projectId).to.equal('deck-demo')
+      expect(backendRender.backend).to.equal('remotion')
+      expect(backendRender.status).to.equal('rendered')
+      expect((await stat(backendRender.outputPath)).size).to.be.greaterThan(0)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -992,6 +1124,39 @@ async function writeRenderableArtifacts(root: string, projectId: string): Promis
       })}\n`,
     ),
   ])
+}
+
+async function writeDeckArtifacts(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+  await writeFile(
+    join(artifactsDir, 'timed-deck.json'),
+    `${JSON.stringify({
+      deck: {
+        format: 'portrait_1080x1920',
+        inputMode: 'script-generated',
+        language: 'zh-CN',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'slide-up',
+            points: ['MotionIR', 'MCP backend export'],
+            slideId: 'slide-001',
+            speakerNote: 'MCP should expose Deck backend export.',
+            title: 'Deck backend',
+            type: 'hero',
+            visual: {assetRefs: [], kind: 'text'},
+          },
+        ],
+        theme: 'elegant-dark',
+        title: 'Deck backend',
+        version: 1,
+      },
+      timings: [{end: 1, slideId: 'slide-001', start: 0}],
+      version: 1,
+    })}\n`,
+  )
 }
 
 async function writeVisualSamples(root: string, projectId: string): Promise<void> {

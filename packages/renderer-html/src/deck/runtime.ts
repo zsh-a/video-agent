@@ -13,74 +13,6 @@ let playStartedAt = 0
 let playStartedTime = 0
 let lastTime = 0
 
-const PRESETS = {
-  'fade-in': {
-    ease: easeOutCubic,
-    from: {opacity: 0},
-    to: {opacity: 1},
-  },
-  'slide-up': {
-    ease: easeOutCubic,
-    from: {opacity: 0, y: 36},
-    to: {opacity: 1, y: 0},
-  },
-  'soft-scale': {
-    ease: easeOutExpo,
-    from: {opacity: 0, scale: 0.96},
-    to: {opacity: 1, scale: 1},
-  },
-  'blur-rise': {
-    ease: easeOutCubic,
-    from: {blur: 12, opacity: 0, y: 44},
-    to: {blur: 0, opacity: 1, y: 0},
-  },
-  'stagger-up': {
-    ease: easeOutCubic,
-    from: {opacity: 0, y: 34},
-    to: {opacity: 1, y: 0},
-  },
-  'progressive-reveal': {
-    ease: easeOutCubic,
-    from: {blur: 8, opacity: 0, y: 28},
-    to: {blur: 0, opacity: 1, y: 0},
-  },
-  'card-stack': {
-    ease: easeOutCubic,
-    from: {opacity: 0, scale: 0.98, y: 30},
-    to: {opacity: 1, scale: 1, y: 0},
-  },
-  'line-draw': {
-    ease: easeOutCubic,
-    from: {opacity: 1, scaleX: 0},
-    to: {opacity: 1, scaleX: 1},
-  },
-  'number-count': {
-    ease: easeOutExpo,
-    from: {opacity: 0, scale: 0.92, y: 26},
-    to: {opacity: 1, scale: 1, y: 0},
-  },
-  'spotlight': {
-    ease: easeOutCubic,
-    from: {opacity: 1, scale: 1},
-    to: {opacity: 1, scale: 1.035},
-  },
-  'wipe': {
-    ease: easeOutCubic,
-    from: {opacity: 0, x: -34},
-    to: {opacity: 1, x: 0},
-  },
-  'zoom-focus': {
-    ease: easeOutExpo,
-    from: {blur: 8, opacity: 0, scale: 0.94},
-    to: {blur: 0, opacity: 1, scale: 1},
-  },
-  'cinematic-rise': {
-    ease: easeOutExpo,
-    from: {opacity: 0, scale: 0.96, y: 60},
-    to: {opacity: 1, scale: 1, y: 0},
-  },
-}
-
 async function ready() {
   if (document.fonts !== undefined) {
     await document.fonts.ready
@@ -105,15 +37,7 @@ function seek(timeSeconds) {
     slide.style.opacity = String(active ? Math.min(enterOpacity, exitOpacity) : 0)
   }
 
-  for (const step of plan?.motion?.steps || []) {
-    const elements = Array.from(document.querySelectorAll(step.selector))
-
-    elements.forEach((element, index) => {
-      const at = step.at + index * (step.stagger || 0)
-      const progress = clamp((time - at) / step.duration, 0, 1)
-      applyPreset(element, step.preset, progress)
-    })
-  }
+  applyMotionTimeline(time)
 
   document.body.dataset.motionReady = 'true'
 }
@@ -158,30 +82,60 @@ function currentTime() {
   return lastTime
 }
 
-function applyPreset(element, presetName, rawProgress) {
-  const preset = PRESETS[presetName] || PRESETS['fade-in']
-  const progress = preset.ease(rawProgress)
-  const state = mixState(preset.from, preset.to, progress)
+function applyMotionTimeline(time) {
+  const states = new Map()
 
+  for (const track of plan?.motion?.timeline?.tracks || []) {
+    if (track.target?.kind !== 'css-selector') {
+      continue
+    }
+
+    const elements = Array.from(document.querySelectorAll(track.target.value))
+
+    elements.forEach((element, index) => {
+      const at = track.start + index * (track.stagger || 0)
+      const progress = ease(track.easing, clamp((time - at) / track.duration, 0, 1))
+      const state = stateForElement(states, element)
+
+      state[track.property] = mix(track.from, track.to, progress)
+    })
+  }
+
+  for (const [element, state] of states.entries()) {
+    applyElementState(element, state)
+  }
+}
+
+function stateForElement(states, element) {
+  const existing = states.get(element)
+
+  if (existing !== undefined) {
+    return existing
+  }
+
+  const state = {
+    blur: 0,
+    opacity: 1,
+    scale: 1,
+    scaleX: 1,
+    translateX: 0,
+    translateY: 0,
+  }
+
+  states.set(element, state)
+
+  return state
+}
+
+function applyElementState(element, state) {
   element.style.opacity = String(state.opacity)
   element.style.filter = 'blur(' + state.blur + 'px)'
-  element.style.transformOrigin = presetName === 'line-draw' ? 'left center' : 'center'
+  element.style.transformOrigin = state.scaleX !== 1 ? 'left center' : 'center'
   element.style.transform = [
-    'translate3d(' + state.x + 'px, ' + state.y + 'px, 0)',
+    'translate3d(' + state.translateX + 'px, ' + state.translateY + 'px, 0)',
     'scale(' + state.scale + ')',
     'scaleX(' + state.scaleX + ')',
   ].join(' ')
-}
-
-function mixState(from, to, progress) {
-  return {
-    blur: mix(from.blur ?? 0, to.blur ?? 0, progress),
-    opacity: mix(from.opacity ?? 1, to.opacity ?? 1, progress),
-    scale: mix(from.scale ?? 1, to.scale ?? 1, progress),
-    scaleX: mix(from.scaleX ?? 1, to.scaleX ?? 1, progress),
-    x: mix(from.x ?? 0, to.x ?? 0, progress),
-    y: mix(from.y ?? 0, to.y ?? 0, progress),
-  }
 }
 
 function readSlideState(slide) {
@@ -198,6 +152,18 @@ function mix(from, to, progress) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
+}
+
+function ease(name, value) {
+  if (name === 'easeOutExpo') {
+    return easeOutExpo(value)
+  }
+
+  if (name === 'linear') {
+    return value
+  }
+
+  return easeOutCubic(value)
 }
 
 function easeOutCubic(value) {
@@ -235,16 +201,16 @@ function latestMotionEndForSlide(slideId) {
   let latest
   const marker = '[data-slide="' + slideId + '"]'
 
-  for (const step of plan?.motion?.steps || []) {
-    if (!step.selector.includes(marker)) {
+  for (const track of plan?.motion?.timeline?.tracks || []) {
+    if (track.target?.kind !== 'css-selector' || !track.target.value.includes(marker)) {
       continue
     }
 
-    const count = Math.max(1, document.querySelectorAll(step.selector).length)
-    const stagger = step.stagger || 0
-    const stepEnd = step.at + step.duration + Math.max(0, count - 1) * stagger
+    const count = Math.max(1, document.querySelectorAll(track.target.value).length)
+    const stagger = track.stagger || 0
+    const trackEnd = track.start + track.duration + Math.max(0, count - 1) * stagger
 
-    latest = latest === undefined ? stepEnd : Math.max(latest, stepEnd)
+    latest = latest === undefined ? trackEnd : Math.max(latest, trackEnd)
   }
 
   return latest

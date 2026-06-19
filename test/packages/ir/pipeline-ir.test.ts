@@ -3,6 +3,7 @@ import {expect} from '#test/expect'
 import {
   ClaimsSchema,
   DeckSchema,
+  MotionTimelineSchema,
   OutputNarrationSchema,
   OutputTimelineMapSchema,
   SourceQuotesSchema,
@@ -119,6 +120,53 @@ describe('pipeline-specific IR schemas', () => {
     }
 
     expect(error).to.be.instanceOf(Error)
+  })
+
+  it('validates renderer-agnostic MotionIR timelines', () => {
+    const timeline = MotionTimelineSchema.parse({
+      duration: 3,
+      fps: 30,
+      scenes: [
+        {
+          end: 3,
+          id: 'slide-001',
+          sourceId: 'slide-001',
+          start: 0,
+        },
+      ],
+      tracks: [
+        {
+          duration: 0.5,
+          easing: 'easeOutCubic',
+          from: 0,
+          id: 'slide-001-title-opacity',
+          property: 'opacity',
+          start: 0.2,
+          target: {
+            kind: 'semantic',
+            value: 'slide-001.title',
+          },
+          to: 1,
+        },
+        {
+          duration: 0.5,
+          easing: 'easeOutExpo',
+          from: 42,
+          id: 'slide-001-title-y',
+          property: 'translateY',
+          start: 0.2,
+          target: {
+            kind: 'css-selector',
+            value: '[data-slide="slide-001"] .slide__title',
+          },
+          to: 0,
+        },
+      ],
+      version: 1,
+    })
+
+    expect(timeline.fps).to.equal(30)
+    expect(timeline.tracks.map((track) => track.property)).to.deep.equal(['opacity', 'translateY'])
   })
 
   it('validates film story index and output-timeline narration', () => {

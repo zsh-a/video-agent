@@ -10,8 +10,9 @@ import {exportProject} from '../../../packages/runtime/src/export.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
+import {readProjectVisualSamples} from '../../../packages/runtime/src/project-visual-samples.js'
 import {renderProject} from '../../../packages/runtime/src/render-project.js'
-import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/runtime/src/deck-project.js'
+import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/runtime/src/deck-project.js'
 
 function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<unknown>) => void): LLMClient {
   return {
@@ -310,6 +311,51 @@ describe('deck explainer project', () => {
     }
   })
 
+  it('repairs missing LLM speaker notes before creating speaker script segments', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-missing-note-'))
+    const inputPath = join(root, 'notes.md')
+
+    try {
+      await writeFile(inputPath, '# Missing Note\n\nShow the generated visible points.')
+
+      const result = await createDeckExplainerProject({
+        inputPath,
+        llmClient: {
+          async generateObject(input) {
+            return {
+              object: input.schema.parse({
+                summary: 'Missing notes should be repaired from generated slide content.',
+                title: 'Missing Note Deck',
+                slides: [
+                  {
+                    points: ['Visible point one', 'Visible point two'],
+                    title: 'Generated slide',
+                    type: 'three-points',
+                  },
+                ],
+              }),
+            }
+          },
+          async generateText() {
+            throw new Error('Not used by this test.')
+          },
+          streamText() {
+            throw new Error('Not used by this test.')
+          },
+        } satisfies LLMClient,
+        projectId: 'deck-missing-note-demo',
+        workspaceDir: root,
+      })
+      const deck = JSON.parse(await readFile(result.artifacts.deck, 'utf8')) as {slides: Array<{speakerNote?: string}>}
+      const speakerScript = JSON.parse(await readFile(result.artifacts.speakerScript, 'utf8')) as {segments: Array<{text: string}>}
+
+      expect(deck.slides[0]?.speakerNote).to.equal('Generated slide。Visible point one。Visible point two')
+      expect(speakerScript.segments[0]?.text).to.equal('Generated slide。Visible point one。Visible point two')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('synthesizes Deck voiceover, renders final video, and updates timed DeckIR', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-voice-'))
     const inputPath = join(root, 'notes.md')
@@ -360,8 +406,27 @@ describe('deck explainer project', () => {
       expect(narration.segments.map((segment) => segment.duration)).to.deep.equal(timedDeck.timings.map((timing) => timing.end - timing.start))
       expect((await stat(result.outputPath)).size).to.be.greaterThan(44)
 
+      const playwrightPath = join(root, 'fake-playwright-keyframes.ts')
+      await writeFile(
+        playwrightPath,
+        [
+          'const manifestPath = Bun.argv.at(-1)',
+          'if (manifestPath === undefined) process.exit(2)',
+          'const manifest = await Bun.file(manifestPath).json()',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'for (const frame of manifest.frames) {',
+          '  if (typeof frame.url !== "string" || !frame.url.includes("capture=slide")) process.exit(3)',
+          '  await Bun.write(frame.path, png)',
+          '}',
+          '',
+        ].join('\n'),
+      )
       const render = await createDeckFinalRenderProject({
         chromiumCommand,
+        frameCaptureBackend: 'playwright',
+        frameConcurrency: 2,
+        keyframeCaptureBackend: 'playwright',
+        playwrightCommand: ['bun', playwrightPath],
         projectId: 'deck-voice-demo',
         workspaceDir: root,
       })
@@ -369,17 +434,59 @@ describe('deck explainer project', () => {
         audioInputs: number
         audioPath: string
         entryHtml: string
+        finalized: boolean
+        frameCapturedCount: number
+        frameConcurrency: number
+        frameEnd: number
+        frameFps: number
+        frameManifestPath: string
+        framePattern: string
+        frameReuse: boolean
         frameRenderer: string
+        frameSkippedCount: number
+        frameStart: number
         frameCount: number
+        keyframeQualityPath: string
+        keyframeRenderer: string
         outputDir: string
         outputPath: string
-        outputQuality: {audioStreams: number; videoStreams: number}
+        outputQuality: {audioStreams: number; subtitleStreams: number; videoStreams: number}
         planPath: string
         renderer: string
         runtimePath: string
         silentVideoPath: string
         stylesPath: string
+        subtitlePath: string
+        subtitleQuality: {errors: number; warnings: number}
+        subtitleMuxed: boolean
+        subtitleMuxMode: string
+        subtitlesBurned: boolean
         videoRenderer: string
+        visualQuality: {
+          errors: number
+          frameSamples: Array<{ok: boolean; path?: string; sha256?: string; size?: number; timestamp: number}>
+          warnings: number
+        }
+      }
+      const frameManifest = JSON.parse(await readFile(render.frameManifestPath, 'utf8')) as {
+        concurrency: number
+        fps: number
+        frameCount: number
+        frames: Array<{frame: number; path: string; slideId: string; time: number}>
+        pattern: string
+        renderer: string
+        sourceSha256: string
+      }
+      const keyframes = JSON.parse(await readFile(join(root, 'projects', 'deck-voice-demo', 'artifacts', 'deck-keyframes.json'), 'utf8')) as {
+        captureMode: string
+        renderer: string
+        samples: Array<{frame: number; ok: boolean; path: string; sha256?: string; size?: number; slideId: string; time: number}>
+        source: string
+      }
+      const subtitles = JSON.parse(await readFile(join(root, 'projects', 'deck-voice-demo', 'artifacts', 'subtitles.json'), 'utf8')) as {
+        cues: number
+        format: string
+        path: string
       }
       const deckQuality = JSON.parse(await readFile(render.deckQualityReportPath, 'utf8')) as {
         format: string
@@ -390,19 +497,32 @@ describe('deck explainer project', () => {
 
       expect(render.status).to.equal('rendered')
       expect(render.renderer).to.equal('html')
-      expect(render.frameRenderer).to.equal('chromium')
-      expect(render.videoRenderer).to.equal('chromium+ffmpeg')
-      expect(render.frameCount).to.equal(result.slides)
+      expect(render.frameRenderer).to.equal('playwright')
+      expect(render.videoRenderer).to.equal('playwright+ffmpeg')
+      expect(render.frameCount).to.be.greaterThan(result.slides)
+      expect(render.subtitleQuality.errors).to.equal(0)
       expect(render.htmlOutputDir.endsWith('renders/html')).to.equal(true)
       expect(render.htmlEntryPath.endsWith('renders/html/index.html')).to.equal(true)
       expect((await stat(render.outputPath)).size).to.be.greaterThan(0)
       expect((await stat(render.htmlEntryPath)).size).to.be.greaterThan(0)
+      expect((await stat(render.subtitlePath)).size).to.be.greaterThan(0)
       expect(renderOutput).to.deep.include({
         audioInputs: 1,
         audioPath: 'audio/deck_voiceover.wav',
         entryHtml: 'renders/html/index.html',
-        frameCount: result.slides,
-        frameRenderer: 'chromium',
+        finalized: true,
+        frameCapturedCount: render.frameCount,
+        frameConcurrency: 2,
+        frameEnd: render.frameCount,
+        frameFps: 30,
+        frameManifestPath: 'artifacts/deck-frame-manifest.json',
+        framePattern: 'renders/deck-frames/frame-%06d.png',
+        frameReuse: false,
+        frameRenderer: 'playwright',
+        frameSkippedCount: 0,
+        frameStart: 1,
+        keyframeQualityPath: 'artifacts/deck-keyframes.json',
+        keyframeRenderer: 'playwright',
         outputDir: 'renders/html',
         outputPath: 'renders/final.mp4',
         planPath: 'renders/html/deck-render-plan.json',
@@ -410,16 +530,296 @@ describe('deck explainer project', () => {
         runtimePath: 'renders/html/runtime.js',
         silentVideoPath: 'renders/deck_silent.mp4',
         stylesPath: 'renders/html/styles.css',
-        videoRenderer: 'chromium+ffmpeg',
+        subtitleMuxMode: 'mov_text',
+        subtitleMuxed: true,
+        subtitlePath: 'renders/subtitles.srt',
+        subtitlesBurned: false,
+        videoRenderer: 'playwright+ffmpeg',
       })
       expect(renderOutput.outputQuality.videoStreams).to.equal(1)
       expect(renderOutput.outputQuality.audioStreams).to.equal(1)
+      expect(renderOutput.outputQuality.subtitleStreams).to.equal(1)
+      expect(renderOutput.visualQuality.errors).to.equal(0)
+      expect(renderOutput.visualQuality.frameSamples.length).to.be.greaterThan(1)
+      expect(renderOutput.visualQuality.frameSamples.every((sample) => sample.ok && typeof sample.path === 'string' && typeof sample.sha256 === 'string' && (sample.size ?? 0) > 0)).to.equal(true)
+      expect(renderOutput.subtitleQuality.errors).to.equal(0)
+      expect(frameManifest.renderer).to.equal('playwright')
+      expect(frameManifest.concurrency).to.equal(2)
+      expect(frameManifest.fps).to.equal(30)
+      expect(frameManifest.frameCount).to.equal(render.frameCount)
+      expect(frameManifest.pattern).to.equal('renders/deck-frames/frame-%06d.png')
+      expect(frameManifest.sourceSha256).to.have.length(64)
+      expect(frameManifest.frames[0]).to.deep.include({frame: 1, path: 'renders/deck-frames/frame-000001.png', time: 0})
+      expect(frameManifest.frames.length).to.equal(render.frameCount)
+      expect(keyframes.captureMode).to.equal('browser-keyframes')
+      expect(keyframes.renderer).to.equal('playwright')
+      expect(keyframes.source).to.equal('deck-frame-manifest.json')
+      expect(keyframes.samples.length).to.equal(renderOutput.visualQuality.frameSamples.length)
+      expect(keyframes.samples[0]).to.deep.include({frame: 1, ok: true, path: 'renders/deck-keyframes/keyframe-000001.png', time: 0})
+      expect(keyframes.samples.every((sample) => typeof sample.sha256 === 'string' && (sample.size ?? 0) > 0)).to.equal(true)
+      expect(subtitles.format).to.equal('srt')
+      expect(subtitles.path).to.equal('renders/subtitles.srt')
+      expect(subtitles.cues).to.be.greaterThan(0)
       expect(deckQuality.source).to.equal('timed-deck.json')
       expect(deckQuality.format).to.equal('portrait_1080x1920')
       expect(deckQuality.summary.errors).to.equal(0)
       expect(deckQuality.summary.slides).to.equal(result.slides)
       expect(deckQuality.metrics.length).to.equal(result.slides)
       expect(deckQuality.metrics.every((metric) => metric.duration > 0 && metric.textCharacters > 0)).to.equal(true)
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+      expect((await readProjectVisualSamples('deck-voice-demo', {workspaceDir: root})).samples.length).to.equal(keyframes.samples.length)
+
+      const shardPlan = await createDeckFrameShardPlanProject({
+        frameShardSize: 2,
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const shardPlanOutput = JSON.parse(await readFile(shardPlan.artifactPath, 'utf8')) as {
+        completeShards: number
+        finalizeArgs: string[]
+        frameManifestPath: string
+        frameShardSize: number
+        pendingShards: number
+        shards: Array<{
+          commandArgs: string[]
+          frameEnd: number
+          frameStart: number
+          missingFrames: number
+          status: string
+        }>
+      }
+
+      expect(shardPlan.status).to.equal('planned')
+      expect(shardPlan.frameShardSize).to.equal(2)
+      expect(shardPlan.shards[0]?.commandArgs).to.deep.equal(['deck', 'render', 'deck-voice-demo', '--frame-start', '1', '--frame-end', '2'])
+      expect(shardPlanOutput.frameManifestPath).to.equal('artifacts/deck-frame-manifest.json')
+      expect(shardPlanOutput.frameShardSize).to.equal(2)
+      expect(shardPlanOutput.finalizeArgs).to.deep.equal(['deck', 'render', 'deck-voice-demo', '--finalize-only'])
+      expect(shardPlanOutput.pendingShards).to.equal(0)
+      expect(shardPlanOutput.completeShards).to.equal(shardPlanOutput.shards.length)
+      expect(shardPlanOutput.shards[0]?.status).to.equal('complete')
+      expect(shardPlanOutput.shards[0]?.missingFrames).to.equal(0)
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      const failingChromiumPath = join(root, 'failing-chromium.ts')
+      await writeFile(failingChromiumPath, 'process.exit(19)\n')
+
+      const shardBatch = await createDeckFrameShardBatchProject({
+        chromiumCommand: ['bun', failingChromiumPath],
+        frameShardSize: 2,
+        projectId: 'deck-voice-demo',
+        shardConcurrency: 2,
+        workspaceDir: root,
+      })
+      const shardBatchOutput = JSON.parse(await readFile(shardBatch.artifactPath, 'utf8')) as {
+        completedShards: number
+        failedShards: number
+        frameCapturedCount: number
+        frameCount: number
+        frameSkippedCount: number
+        htmlOutputDir: string
+        shardConcurrency: number
+        status: string
+      }
+
+      expect(shardBatch.status).to.equal('completed')
+      expect(shardBatch.completedShards).to.equal(shardBatch.shardCount)
+      expect(shardBatch.failedShards).to.equal(0)
+      expect(shardBatch.frameCapturedCount).to.equal(0)
+      expect(shardBatch.frameSkippedCount).to.equal(shardBatch.frameCount)
+      expect(shardBatch.shardConcurrency).to.equal(2)
+      expect(shardBatchOutput.status).to.equal('completed')
+      expect(shardBatchOutput.htmlOutputDir).to.equal('renders/html-shards')
+      expect(shardBatchOutput.frameCapturedCount).to.equal(0)
+      expect(shardBatchOutput.frameSkippedCount).to.equal(shardBatchOutput.frameCount)
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      await rm(join(root, 'projects', 'deck-voice-demo', 'renders', 'deck-frames', 'frame-000001.png'), {force: true})
+
+      const flakyChromiumPath = join(root, 'flaky-chromium.ts')
+      const flakyStatePath = join(root, 'flaky-chromium-state.json')
+      await writeFile(
+        flakyChromiumPath,
+        [
+          `const statePath = ${JSON.stringify(flakyStatePath)}`,
+          'let attempts = 0',
+          'try { attempts = (await Bun.file(statePath).json()).attempts } catch {}',
+          'await Bun.write(statePath, JSON.stringify({attempts: attempts + 1}))',
+          'if (attempts === 0) process.exit(23)',
+          'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
+          'if (screenshotArg === undefined) process.exit(2)',
+          'const outputPath = screenshotArg.slice("--screenshot=".length)',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'await Bun.write(outputPath, png)',
+          '',
+        ].join('\n'),
+      )
+      const retriedBatch = await createDeckFrameShardBatchProject({
+        chromiumCommand: ['bun', flakyChromiumPath],
+        frameShardSize: 2,
+        projectId: 'deck-voice-demo',
+        shardRetries: 1,
+        workspaceDir: root,
+      })
+      const retriedBatchOutput = JSON.parse(await readFile(retriedBatch.artifactPath, 'utf8')) as {
+        failedShards: number
+        frameCapturedCount: number
+        shardRetries: number
+        shards: Array<{attempts: number; frameStart: number; status: string}>
+      }
+
+      expect(retriedBatch.status).to.equal('completed')
+      expect(retriedBatch.failedShards).to.equal(0)
+      expect(retriedBatch.frameCapturedCount).to.equal(1)
+      expect(retriedBatch.shardRetries).to.equal(1)
+      expect(retriedBatch.shards.find((shard) => shard.frameStart === 1)?.attempts).to.equal(2)
+      expect(retriedBatchOutput.failedShards).to.equal(0)
+      expect(retriedBatchOutput.frameCapturedCount).to.equal(1)
+      expect(retriedBatchOutput.shardRetries).to.equal(1)
+      expect(retriedBatchOutput.shards.find((shard) => shard.frameStart === 1)?.attempts).to.equal(2)
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      const remotionProject = await createDeckRendererBackendProject({
+        backend: 'remotion',
+        compositionId: 'DeckDemo',
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const remotionArtifact = JSON.parse(await readFile(remotionProject.artifactPath, 'utf8')) as {
+        backend: string
+        files: {composition: string; data: string; motion: string; package: string}
+        motionTrackCount: number
+        renderCommand: string[]
+      }
+
+      expect(remotionProject.status).to.equal('exported')
+      expect(remotionProject.backend).to.equal('remotion')
+      expect(remotionArtifact.backend).to.equal('remotion')
+      expect(remotionArtifact.files.composition).to.equal('renders/remotion/src/DeckComposition.tsx')
+      expect(remotionArtifact.renderCommand).to.deep.equal(['bun', 'run', 'render'])
+      expect(remotionArtifact.motionTrackCount).to.be.greaterThan(0)
+      expect((await stat(remotionProject.files.package)).size).to.be.greaterThan(0)
+      expect((await stat(remotionProject.files.motion)).size).to.be.greaterThan(0)
+      expect(await readFile(remotionProject.files.composition, 'utf8')).to.contain('DeckDemo')
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      const remotionRenderCommandPath = join(root, 'fake-remotion-render.ts')
+      await writeFile(
+        remotionRenderCommandPath,
+        [
+          "await Bun.$`mkdir -p out`",
+          "await Bun.write('out/final.mp4', 'fake remotion video')",
+          '',
+        ].join('\n'),
+      )
+      const remotionRender = await createDeckRemotionRenderProject({
+        command: ['bun', remotionRenderCommandPath],
+        compositionId: 'DeckDemoRender',
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const remotionRenderArtifact = JSON.parse(await readFile(remotionRender.artifactPath, 'utf8')) as {
+        backend: string
+        exportArtifactPath: string
+        outputPath: string
+      }
+
+      expect(remotionRender.status).to.equal('rendered')
+      expect(remotionRender.backend).to.equal('remotion')
+      expect((await stat(remotionRender.outputPath)).size).to.be.greaterThan(0)
+      expect(remotionRenderArtifact.backend).to.equal('remotion')
+      expect(remotionRenderArtifact.exportArtifactPath).to.equal('artifacts/deck-renderer-remotion.json')
+      expect(remotionRenderArtifact.outputPath).to.equal('renders/remotion/out/final.mp4')
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      const motionCanvasProject = await createDeckRendererBackendProject({
+        backend: 'motion-canvas',
+        fps: 24,
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const motionCanvasArtifact = JSON.parse(await readFile(motionCanvasProject.artifactPath, 'utf8')) as {
+        backend: string
+        files: {project: string; scene: string}
+        fps: number
+        renderCommand: string[]
+      }
+
+      expect(motionCanvasProject.status).to.equal('exported')
+      expect(motionCanvasProject.backend).to.equal('motion-canvas')
+      expect(motionCanvasProject.fps).to.equal(24)
+      expect(motionCanvasArtifact.backend).to.equal('motion-canvas')
+      expect(motionCanvasArtifact.fps).to.equal(24)
+      expect(motionCanvasArtifact.files.project).to.equal('renders/motion-canvas/src/project.ts')
+      expect(motionCanvasArtifact.renderCommand).to.deep.equal(['bun', 'run', 'render'])
+      expect((await stat(motionCanvasProject.files.project)).size).to.be.greaterThan(0)
+      expect((await stat(motionCanvasProject.files.scene)).size).to.be.greaterThan(0)
+      expect(await readFile(motionCanvasProject.files.project, 'utf8')).to.contain('fps: 24')
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      const shard = await createDeckFinalRenderProject({
+        chromiumCommand,
+        frameEnd: 2,
+        frameStart: 1,
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const shardOutput = JSON.parse(await readFile(shard.artifactPath, 'utf8')) as {
+        finalized: boolean
+        frameEnd: number
+        frameStart: number
+        frames: Array<{frame: number; path: string}>
+      }
+
+      expect(shard.status).to.equal('frames-rendered')
+      expect(shard.finalized).to.equal(false)
+      expect(shard.frameStart).to.equal(1)
+      expect(shard.frameEnd).to.equal(2)
+      expect(shard.artifactPath).to.contain('deck-frame-shard-000001-000002.json')
+      expect(shardOutput.finalized).to.equal(false)
+      expect(shardOutput.frameStart).to.equal(1)
+      expect(shardOutput.frameEnd).to.equal(2)
+      expect(shardOutput.frames.map((frame) => frame.frame)).to.deep.equal([1, 2])
+      expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
+
+      const resumedRender = await createDeckFinalRenderProject({
+        chromiumCommand: ['bun', failingChromiumPath],
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const resumedOutput = JSON.parse(await readFile(resumedRender.artifactPath, 'utf8')) as {
+        frameCapturedCount: number
+        frameCount: number
+        frameReuse: boolean
+        frameSkippedCount: number
+      }
+
+      expect(resumedOutput.frameReuse).to.equal(true)
+      expect(resumedOutput.frameCapturedCount).to.equal(0)
+      expect(resumedOutput.frameSkippedCount).to.equal(resumedOutput.frameCount)
+      expect(resumedRender.frameCount).to.equal(render.frameCount)
+      expect((await stat(resumedRender.outputPath)).size).to.be.greaterThan(0)
+
+      const finalizedFromFrames = await createDeckFinalRenderProject({
+        chromiumCommand: ['bun', failingChromiumPath],
+        finalizeOnly: true,
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+      const finalizedFromFramesOutput = JSON.parse(await readFile(finalizedFromFrames.artifactPath, 'utf8')) as {
+        finalizeOnly: boolean
+        frameCapturedCount: number
+        frameCount: number
+        frameSkippedCount: number
+        outputQuality: {subtitleStreams: number}
+      }
+
+      expect(finalizedFromFrames.status).to.equal('rendered')
+      expect(finalizedFromFrames.finalized).to.equal(true)
+      expect(finalizedFromFramesOutput.finalizeOnly).to.equal(true)
+      expect(finalizedFromFramesOutput.frameCapturedCount).to.equal(0)
+      expect(finalizedFromFramesOutput.frameSkippedCount).to.equal(finalizedFromFramesOutput.frameCount)
+      expect(finalizedFromFramesOutput.outputQuality.subtitleStreams).to.equal(1)
 
       const htmlRendererScript = join(root, 'fake-html-renderer.ts')
       const htmlCapturePath = join(root, 'deck-html-capture.mp4')
@@ -479,6 +879,23 @@ describe('deck explainer project', () => {
 
       expect(verification.ok).to.equal(true)
       expect(verification.checked).to.be.greaterThan(0)
+
+      await rm(join(root, 'projects', 'deck-voice-demo', 'renders', 'deck-frames', 'frame-000001.png'), {force: true})
+
+      let missingFrameError: Error | undefined
+      try {
+        await createDeckFinalRenderProject({
+          finalizeOnly: true,
+          projectId: 'deck-voice-demo',
+          workspaceDir: root,
+        })
+      } catch (error) {
+        missingFrameError = error instanceof Error ? error : new Error(String(error))
+      }
+
+      expect(missingFrameError).to.be.instanceOf(Error)
+      expect(missingFrameError?.message).to.contain('Deck frame sequence is incomplete')
+      expect(missingFrameError?.message).to.contain('frame-000001.png')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -684,11 +1101,8 @@ async function createFakeChromiumCommand(root: string): Promise<string[]> {
       '  process.exit(2)',
       '}',
       'const outputPath = screenshotArg.slice("--screenshot=".length)',
-      'const ppm = new Uint8Array([',
-      '  80, 54, 10, 50, 32, 50, 10, 50, 53, 53, 10,',
-      '  255, 255, 255, 37, 99, 235, 15, 23, 42, 249, 115, 22,',
-      '])',
-      'await Bun.write(outputPath, ppm)',
+      "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+      'await Bun.write(outputPath, png)',
       '',
     ].join('\n'),
   )

@@ -17,12 +17,15 @@ export default class Deck extends Command {
   static flags = {
     'chromium-command': Flags.string({description: 'Chromium command prefix for HTML frame capture, either a binary name or JSON string array'}),
     duration: Flags.string({description: 'Target deck duration, such as 180s, 3m, or 00:03:00'}),
+    'frame-capture-backend': Flags.string({default: 'chromium', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
+    'frame-concurrency': Flags.integer({description: 'Maximum Chromium screenshot captures to run concurrently', default: 1}),
     format: Flags.string({
       default: 'portrait',
       description: 'Output slide format',
       options: ['landscape', 'portrait', 'square'],
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
+    'keyframe-capture-backend': Flags.string({default: 'chromium', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
     language: Flags.string({description: 'Narration/deck language tag', default: 'zh-CN'}),
     'max-slide-characters': Flags.integer({description: 'Maximum characters per generated slide', default: 260}),
     mode: Flags.string({
@@ -31,6 +34,7 @@ export default class Deck extends Command {
       options: ['script-generated', 'summarize', 'audio-anchored'],
     }),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
+    'playwright-command': Flags.string({description: 'Playwright keyframe capture command prefix, either a binary name or JSON string array'}),
     'slide-seconds': Flags.integer({description: 'Fallback duration in seconds for each generated slide', default: 18}),
     style: Flags.string({
       description: 'Deck theme/style name (auto lets LLM choose based on content)',
@@ -57,12 +61,24 @@ export default class Deck extends Command {
       trace: flags.trace,
       workspaceDir: flags.workspace,
     }
-    const output = await runDeckExplainerPipeline({
-      ...commonOptions,
-      chromiumCommand: parseCommandPrefix(flags['chromium-command']),
-      durationTargetSeconds: flags.duration === undefined ? undefined : parseDurationSeconds(flags.duration),
-      mode,
-    })
+    let output: Awaited<ReturnType<typeof runDeckExplainerPipeline>>
+
+    try {
+      output = await runDeckExplainerPipeline({
+        ...commonOptions,
+        chromiumCommand: parseCommandPrefix(flags['chromium-command'], '--chromium-command'),
+        durationTargetSeconds: flags.duration === undefined ? undefined : parseDurationSeconds(flags.duration),
+        frameCaptureBackend: flags['frame-capture-backend'] as 'chromium' | 'playwright',
+        frameConcurrency: normalizePositiveInteger(flags['frame-concurrency'], '--frame-concurrency'),
+        keyframeCaptureBackend: flags['keyframe-capture-backend'] as 'chromium' | 'playwright',
+        mode,
+        playwrightCommand: parseCommandPrefix(flags['playwright-command'], '--playwright-command'),
+      })
+    } catch (error) {
+      this.errorToStderr(error)
+      process.exitCode = 1
+      return
+    }
 
     if (flags.json) {
       this.log(JSON.stringify(output, null, 2))
@@ -76,9 +92,27 @@ export default class Deck extends Command {
     this.log(`HTML: ${output.finalRender.htmlEntryPath}`)
     this.log(`Final: ${output.finalRender.outputPath}`)
   }
+
+  private errorToStderr(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+
+    this.error(message === '' ? 'Deck pipeline failed.' : message, {exit: false})
+  }
 }
 
-function parseCommandPrefix(value: string | undefined): string[] | undefined {
+function normalizePositiveInteger(value: number | undefined, flagName: string): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (!Number.isFinite(value) || value < 1 || Math.floor(value) !== value) {
+    throw new Error(`${flagName} must be a positive integer.`)
+  }
+
+  return value
+}
+
+function parseCommandPrefix(value: string | undefined, flagName: string): string[] | undefined {
   if (value === undefined) {
     return undefined
   }
@@ -86,14 +120,14 @@ function parseCommandPrefix(value: string | undefined): string[] | undefined {
   const trimmed = value.trim()
 
   if (trimmed === '') {
-    throw new Error('--chromium-command must not be empty.')
+    throw new Error(`${flagName} must not be empty.`)
   }
 
   if (trimmed.startsWith('[')) {
     const parsed = JSON.parse(trimmed) as unknown
 
     if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string' || item.length === 0)) {
-      throw new Error('--chromium-command JSON value must be an array of non-empty strings.')
+      throw new Error(`${flagName} JSON value must be an array of non-empty strings.`)
     }
 
     return parsed

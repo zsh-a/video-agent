@@ -66,7 +66,9 @@ export default class Run extends Command {
         return
       }
 
-      throw error
+      this.errorToStderr(error)
+      process.exitCode = 1
+      return
     }
 
     await progressRenderer?.complete(output)
@@ -80,6 +82,12 @@ export default class Run extends Command {
     this.log(`Workspace: ${output.projectDir}`)
     this.log(`Artifacts: ${Object.keys(output.artifacts).length}`)
     this.log(`Status: ${output.status}`)
+  }
+
+  private errorToStderr(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+
+    this.error(message === '' ? 'Run failed.' : message, {exit: false})
   }
 }
 

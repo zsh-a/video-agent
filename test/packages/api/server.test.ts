@@ -539,6 +539,97 @@ describe('api server handler', () => {
     }
   })
 
+  it('plans Deck frame shards and exports renderer backend projects from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      await createApiProject(root, 'deck-demo')
+      await writeDeckArtifacts(root, 'deck-demo')
+
+      const playwrightPath = join(root, 'fake-playwright.ts')
+      await writeFile(
+        playwrightPath,
+        [
+          'const manifestPath = Bun.argv.at(-1)',
+          'if (manifestPath === undefined) process.exit(2)',
+          'const manifest = await Bun.file(manifestPath).json()',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'for (const frame of manifest.frames) {',
+          '  await Bun.write(frame.path, png)',
+          '}',
+          '',
+        ].join('\n'),
+      )
+
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const shardPlan = await readJson<{frameShardSize: number; pendingShards: number; projectId: string; shardCount: number}>(
+        fetch,
+        '/projects/deck-demo/deck/shards',
+        {
+          body: JSON.stringify({frameCaptureBackend: 'playwright', frameShardSize: 2}),
+          method: 'POST',
+        },
+      )
+      const shardBatch = await readJson<{failedShards: number; frameCapturedCount: number; frameShardSize: number; projectId: string; renderer: string; shardConcurrency: number; status: string}>(
+        fetch,
+        '/projects/deck-demo/deck/shard-batch',
+        {
+          body: JSON.stringify({frameCaptureBackend: 'playwright', frameShardSize: 2, playwrightCommand: ['bun', playwrightPath], shardConcurrency: 2}),
+          method: 'POST',
+        },
+      )
+      const backend = await readJson<{backend: string; files: {project: string; scene: string}; fps: number; projectId: string}>(
+        fetch,
+        '/projects/deck-demo/deck/backend',
+        {
+          body: JSON.stringify({backend: 'motion-canvas', fps: 24}),
+          method: 'POST',
+        },
+      )
+      const remotionCommandPath = join(root, 'fake-remotion-render.ts')
+      await writeFile(
+        remotionCommandPath,
+        [
+          "await Bun.$`mkdir -p out`",
+          "await Bun.write('out/final.mp4', 'fake remotion video')",
+          '',
+        ].join('\n'),
+      )
+      const backendRender = await readJson<{backend: string; command: string[]; outputPath: string; projectId: string; status: string}>(
+        fetch,
+        '/projects/deck-demo/deck/backend-render',
+        {
+          body: JSON.stringify({command: ['bun', remotionCommandPath], compositionId: 'DeckApi'}),
+          method: 'POST',
+        },
+      )
+
+      expect(shardPlan.projectId).to.equal('deck-demo')
+      expect(shardPlan.frameShardSize).to.equal(2)
+      expect(shardPlan.shardCount).to.be.greaterThan(0)
+      expect(shardPlan.pendingShards).to.equal(shardPlan.shardCount)
+      expect(shardBatch.projectId).to.equal('deck-demo')
+      expect(shardBatch.status).to.equal('completed')
+      expect(shardBatch.renderer).to.equal('playwright')
+      expect(shardBatch.frameShardSize).to.equal(2)
+      expect(shardBatch.shardConcurrency).to.equal(2)
+      expect(shardBatch.failedShards).to.equal(0)
+      expect(shardBatch.frameCapturedCount).to.be.greaterThan(0)
+      expect(backend.projectId).to.equal('deck-demo')
+      expect(backend.backend).to.equal('motion-canvas')
+      expect(backend.fps).to.equal(24)
+      expect((await stat(backend.files.project)).size).to.be.greaterThan(0)
+      expect((await stat(backend.files.scene)).size).to.be.greaterThan(0)
+      expect(backendRender.projectId).to.equal('deck-demo')
+      expect(backendRender.status).to.equal('rendered')
+      expect(backendRender.backend).to.equal('remotion')
+      expect(backendRender.command).to.deep.equal(['bun', remotionCommandPath])
+      expect((await stat(backendRender.outputPath)).size).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('verifies project artifacts from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 
@@ -806,6 +897,39 @@ async function writeVisualSamples(root: string, projectId: string): Promise<void
           },
         ],
       },
+    })}\n`,
+  )
+}
+
+async function writeDeckArtifacts(root: string, projectId: string): Promise<void> {
+  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
+
+  await writeFile(
+    join(artifactsDir, 'timed-deck.json'),
+    `${JSON.stringify({
+      deck: {
+        format: 'portrait_1080x1920',
+        inputMode: 'script-generated',
+        language: 'zh-CN',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'slide-up',
+            points: ['MotionIR', 'Backend export'],
+            slideId: 'slide-001',
+            speakerNote: 'Deck backend export should use timed DeckIR.',
+            title: 'Deck backend',
+            type: 'hero',
+            visual: {assetRefs: [], kind: 'text'},
+          },
+        ],
+        theme: 'elegant-dark',
+        title: 'Deck backend',
+        version: 1,
+      },
+      timings: [{end: 1, slideId: 'slide-001', start: 0}],
+      version: 1,
     })}\n`,
   )
 }

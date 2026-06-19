@@ -20,6 +20,8 @@
     {"path": "./packages/renderer-ffmpeg"},
     {"path": "./packages/renderer-html"},
     {"path": "./packages/renderer-hyperframes"},
+    {"path": "./packages/renderer-motion-canvas"},
+    {"path": "./packages/renderer-remotion"},
     {"path": "./packages/quality"},
     {"path": "./packages/db"}
   ]

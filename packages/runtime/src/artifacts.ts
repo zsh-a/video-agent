@@ -192,10 +192,190 @@ const DeckVoiceoverSchema = z.object({
   version: z.literal(1),
 }).strict()
 
+const DeckFrameManifestSchema = z.object({
+  capturedFrames: z.number().int().nonnegative().optional(),
+  concurrency: z.number().int().positive().optional(),
+  duration: z.number().nonnegative(),
+  fps: z.number().positive(),
+  frameCount: z.number().int().positive(),
+  frameEnd: z.number().int().positive().optional(),
+  frameStart: z.number().int().positive().optional(),
+  frames: z.array(z.object({
+    frame: z.number().int().positive(),
+    path: z.string().min(1),
+    slideId: z.string().min(1),
+    time: z.number().nonnegative(),
+  }).strict()),
+  generatedAt: z.string().min(1),
+  outputDir: z.string().min(1),
+  pattern: z.string().min(1),
+  renderer: z.enum(['chromium', 'playwright']),
+  skippedFrames: z.number().int().nonnegative().optional(),
+  source: z.literal('timed-deck.json').optional(),
+  sourceSha256: z.string().min(1),
+  version: z.literal(1),
+  viewport: z.object({
+    height: z.number().int().positive(),
+    width: z.number().int().positive(),
+  }).strict(),
+}).strict()
+
+const DeckFrameShardSchema = z.object({
+  capturedFrames: z.number().int().nonnegative(),
+  concurrency: z.number().int().positive(),
+  finalized: z.literal(false),
+  fps: z.number().positive(),
+  frameCount: z.number().int().positive(),
+  frameEnd: z.number().int().positive(),
+  frameStart: z.number().int().positive(),
+  frames: z.array(z.object({
+    frame: z.number().int().positive(),
+    path: z.string().min(1),
+    slideId: z.string().min(1),
+    time: z.number().nonnegative(),
+  }).strict()),
+  generatedAt: z.string().min(1),
+  outputDir: z.string().min(1),
+  renderer: z.enum(['chromium', 'playwright']),
+  skippedFrames: z.number().int().nonnegative(),
+  source: z.literal('timed-deck.json'),
+  sourceSha256: z.string().min(1),
+  version: z.literal(1),
+}).strict()
+
+const DeckFrameShardPlanSchema = z.object({
+  completeShards: z.number().int().nonnegative(),
+  duration: z.number().nonnegative(),
+  finalizeArgs: z.array(z.string()),
+  fps: z.number().positive(),
+  frameCount: z.number().int().positive(),
+  frameManifestPath: z.string().min(1),
+  frameShardSize: z.number().int().positive(),
+  generatedAt: z.string().min(1),
+  outputDir: z.string().min(1),
+  partialShards: z.number().int().nonnegative(),
+  pendingShards: z.number().int().nonnegative(),
+  renderer: z.enum(['chromium', 'playwright']),
+  shards: z.array(z.object({
+    commandArgs: z.array(z.string()),
+    existingFrames: z.number().int().nonnegative(),
+    frameCount: z.number().int().positive(),
+    frameEnd: z.number().int().positive(),
+    frameStart: z.number().int().positive(),
+    missingFrameSamples: z.array(z.object({
+      frame: z.number().int().positive(),
+      path: z.string().min(1),
+    }).strict()),
+    missingFrames: z.number().int().nonnegative(),
+    shardArtifactPath: z.string().min(1),
+    status: z.enum(['complete', 'partial', 'pending']),
+  }).strict()),
+  source: z.literal('timed-deck.json'),
+  sourceSha256: z.string().min(1),
+  version: z.literal(1),
+}).strict()
+
+const DeckFrameShardBatchSchema = z.object({
+  completedShards: z.number().int().nonnegative(),
+  duration: z.number().nonnegative(),
+  failedShards: z.number().int().nonnegative(),
+  fps: z.number().positive(),
+  frameCapturedCount: z.number().int().nonnegative(),
+  frameConcurrency: z.number().int().positive(),
+  frameCount: z.number().int().positive(),
+  frameManifestPath: z.string().min(1),
+  frameShardSize: z.number().int().positive(),
+  frameSkippedCount: z.number().int().nonnegative(),
+  generatedAt: z.string().min(1),
+  htmlOutputDir: z.string().min(1),
+  outputDir: z.string().min(1),
+  renderer: z.enum(['chromium', 'playwright']),
+  shardConcurrency: z.number().int().positive(),
+  shardRetryDelayMs: z.number().int().nonnegative(),
+  shardRetries: z.number().int().nonnegative(),
+  shards: z.array(z.object({
+    artifactPath: z.string().min(1).optional(),
+    attempts: z.number().int().positive(),
+    capturedFrames: z.number().int().nonnegative(),
+    error: z.string().min(1).optional(),
+    frameCount: z.number().int().positive(),
+    frameEnd: z.number().int().positive(),
+    frameStart: z.number().int().positive(),
+    skippedFrames: z.number().int().nonnegative(),
+    status: z.enum(['complete', 'failed']),
+  }).strict()),
+  source: z.literal('timed-deck.json'),
+  sourceSha256: z.string().min(1),
+  status: z.enum(['completed', 'partial']),
+  version: z.literal(1),
+}).strict()
+
+const DeckRendererBackendProjectSchema = z.object({
+  backend: z.enum(['motion-canvas', 'remotion']),
+  commandCwd: z.string().min(1),
+  files: z.record(z.string().min(1), z.string().min(1)),
+  fps: z.number().positive(),
+  generatedAt: z.string().min(1),
+  height: z.number().int().positive().optional(),
+  motionTimelinePath: z.string().min(1),
+  motionTrackCount: z.number().int().nonnegative(),
+  outputDir: z.string().min(1),
+  previewCommand: z.array(z.string()),
+  projectId: z.string().min(1),
+  renderCommand: z.array(z.string()),
+  source: z.literal('timed-deck.json'),
+  sourceSha256: z.string().min(1),
+  version: z.literal(1),
+  width: z.number().int().positive().optional(),
+}).strict()
+
+const DeckRendererRemotionOutputSchema = z.object({
+  backend: z.literal('remotion'),
+  command: z.array(z.string().min(1)),
+  commandCwd: z.string().min(1),
+  completedAt: z.string().min(1),
+  exportArtifactPath: z.string().min(1),
+  outputPath: z.string().min(1),
+  rendererProjectDir: z.string().min(1),
+  source: z.literal('timed-deck.json'),
+  sourceSha256: z.string().min(1),
+  stderr: z.string(),
+  stdout: z.string(),
+  version: z.literal(1),
+}).strict()
+
+const DeckKeyframesSchema = z.object({
+  captureMode: z.enum(['browser-keyframes', 'frame-sequence']).optional(),
+  duration: z.number().nonnegative(),
+  fps: z.number().positive(),
+  generatedAt: z.string().min(1),
+  renderer: z.enum(['chromium', 'playwright']),
+  samples: z.array(z.object({
+    capturedAt: z.string().min(1),
+    error: z.string().min(1).optional(),
+    frame: z.number().int().positive(),
+    label: z.string().min(1),
+    ok: z.boolean(),
+    path: z.string().min(1),
+    sha256: z.string().min(1).optional(),
+    size: z.number().int().nonnegative().optional(),
+    slideId: z.string().min(1),
+    time: z.number().nonnegative(),
+  }).strict()),
+  source: z.literal('deck-frame-manifest.json'),
+  version: z.literal(1),
+  viewport: z.object({
+    height: z.number().int().positive(),
+    width: z.number().int().positive(),
+  }).strict(),
+}).strict()
+
 const RenderOutputReferenceSchema = z.object({
   audioPath: z.string().min(1).optional(),
   audioMixPath: z.string().min(1).optional(),
   entryHtml: z.string().min(1).optional(),
+  frameManifestPath: z.string().min(1).optional(),
+  keyframeQualityPath: z.string().min(1).optional(),
   outputDir: z.string().min(1).optional(),
   outputPath: z.string().min(1).optional(),
   planPath: z.string().min(1).optional(),
@@ -332,6 +512,13 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'clip-plan.json': ClipPlanSchema,
   'clip-plan-validated.json': ClipPlanSchema,
   'content-blocks.json': ContentBlocksSchema,
+  'deck-frame-manifest.json': DeckFrameManifestSchema,
+  'deck-frame-shard-batch.json': DeckFrameShardBatchSchema,
+  'deck-frame-shard-plan.json': DeckFrameShardPlanSchema,
+  'deck-renderer-motion-canvas.json': DeckRendererBackendProjectSchema,
+  'deck-renderer-remotion.json': DeckRendererBackendProjectSchema,
+  'deck-renderer-remotion-output.json': DeckRendererRemotionOutputSchema,
+  'deck-keyframes.json': DeckKeyframesSchema,
   'deck-voiceover.json': DeckVoiceoverSchema,
   'deck-quality-report.json': DeckQualityReportSchema,
   'deck.json': DeckSchema,
@@ -370,6 +557,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
 }
 
 const NESTED_ARTIFACT_SCHEMAS: Array<{pattern: RegExp; schema: ZodType}> = [
+  {pattern: /^deck-frame-shard-\d{6}-\d{6}\.json$/, schema: DeckFrameShardSchema},
   {pattern: /^chunks\/[^/]+\/summary\.json$/, schema: LongVideoChunkSummarySchema},
   {pattern: /^chunks\/[^/]+\/silence\.json$/, schema: LongVideoChunkSilenceSchema},
   {pattern: /^chunks\/[^/]+\/transcript\.json$/, schema: TranscriptSchema},
@@ -504,6 +692,12 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
   missing.push(...await findMissingIngestSideArtifactReferences(artifactsDir))
   missing.push(...await findMissingAnalysisFrameReferences(artifactsDir))
   missing.push(...await findMissingAudioMixReferences(artifactsDir))
+  missing.push(...await findMissingDeckFrameManifestReferences(artifactsDir))
+  missing.push(...await findMissingDeckFrameShardBatchReferences(artifactsDir))
+  missing.push(...await findMissingDeckFrameShardReferences(artifactsDir))
+  missing.push(...await findMissingDeckRendererBackendReferences(artifactsDir))
+  missing.push(...await findMissingDeckRendererRemotionOutputReferences(artifactsDir))
+  missing.push(...await findMissingDeckKeyframeReferences(artifactsDir))
   missing.push(...await findMissingDeckVoiceoverReferences(artifactsDir))
   missing.push(...await findMissingSubtitleOutputReferences(artifactsDir))
   missing.push(...await findMissingTimedDeckReferences(artifactsDir))
@@ -560,6 +754,106 @@ async function findMissingDeckVoiceoverReferences(artifactsDir: string): Promise
     ])
 
     return findMissingProjectPathReferences(projectDir, paths)
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckFrameManifestReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const manifest = DeckFrameManifestSchema.parse(await bunFile(resolve(artifactsDir, 'deck-frame-manifest.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+    const paths = uniquePaths([
+      manifest.outputDir,
+      ...manifest.frames.map((frame) => frame.path),
+    ])
+
+    return findMissingProjectPathReferences(projectDir, paths)
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckFrameShardReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
+    const shardNames = entries.map((entry) => entry.name).filter((name) => /^deck-frame-shard-\d{6}-\d{6}\.json$/.test(name))
+    const nested = await Promise.all(shardNames.map(async (name) => {
+      const shard = DeckFrameShardSchema.parse(await bunFile(resolve(artifactsDir, name)).json())
+      const projectDir = resolve(artifactsDir, '..')
+
+      return findMissingProjectPathReferences(projectDir, uniquePaths([
+        shard.outputDir,
+        ...shard.frames.map((frame) => frame.path),
+      ]))
+    }))
+
+    return nested.flat()
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckFrameShardBatchReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const batch = DeckFrameShardBatchSchema.parse(await bunFile(resolve(artifactsDir, 'deck-frame-shard-batch.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths([
+      batch.frameManifestPath,
+      batch.htmlOutputDir,
+      batch.outputDir,
+      ...batch.shards.flatMap((shard) => shard.artifactPath === undefined ? [] : [shard.artifactPath]),
+    ]))
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckRendererBackendReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
+    const artifactNames = entries.map((entry) => entry.name).filter((name) => /^deck-renderer-(motion-canvas|remotion)\.json$/.test(name))
+    const nested = await Promise.all(artifactNames.map(async (name) => {
+      const artifact = DeckRendererBackendProjectSchema.parse(await bunFile(resolve(artifactsDir, name)).json())
+      const projectDir = resolve(artifactsDir, '..')
+
+      return findMissingProjectPathReferences(projectDir, uniquePaths([
+        artifact.commandCwd,
+        artifact.outputDir,
+        artifact.motionTimelinePath,
+        ...Object.values(artifact.files),
+      ]))
+    }))
+
+    return nested.flat()
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckRendererRemotionOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const output = DeckRendererRemotionOutputSchema.parse(await bunFile(resolve(artifactsDir, 'deck-renderer-remotion-output.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths([
+      output.commandCwd,
+      output.exportArtifactPath,
+      output.outputPath,
+      output.rendererProjectDir,
+    ]))
+  } catch {
+    return []
+  }
+}
+
+async function findMissingDeckKeyframeReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  try {
+    const keyframes = DeckKeyframesSchema.parse(await bunFile(resolve(artifactsDir, 'deck-keyframes.json')).json())
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths(keyframes.samples.map((sample) => sample.path)))
   } catch {
     return []
   }
@@ -658,6 +952,8 @@ async function findMissingRenderOutputReferences(artifactsDir: string): Promise<
       renderOutput.outputPath,
       renderOutput.audioPath,
       renderOutput.audioMixPath,
+      renderOutput.frameManifestPath,
+      renderOutput.keyframeQualityPath,
       renderOutput.subtitlePath,
       renderOutput.silentVideoPath,
       renderOutput.voiceoverPlanPath,

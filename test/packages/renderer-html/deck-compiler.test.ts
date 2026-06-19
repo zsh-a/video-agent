@@ -1,10 +1,10 @@
 import {expect} from '#test/expect'
 import {readText} from '#test/fs'
-import {mkdtemp, rm, stat} from 'node:fs/promises'
+import {mkdtemp, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {buildChromiumScreenshotArgs, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
+import {buildChromiumScreenshotArgs, captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
 import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck/compiler/index.js'
 import {deckTemplateManifestForLLM, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-html/src/deck/templates/manifest.js'
 
@@ -96,7 +96,14 @@ describe('html deck compiler', () => {
         canvas: {height: number; width: number}
         deck: {title: string}
         duration: number
-        motion: {steps: Array<{preset: string; selector: string}>}
+        motion: {
+          timeline: {
+            fps: number
+            scenes: Array<{id: string; sourceId?: string}>
+            tracks: Array<{property: string; target: {kind: string; value: string}}>
+            version: number
+          }
+        }
         timings: Array<{slideId: string}>
         version: number
       }
@@ -120,6 +127,9 @@ describe('html deck compiler', () => {
       expect(styles).not.include('@keyframes')
       expect(runtime).to.contain('window.vagent')
       expect(runtime).to.contain('function seek(timeSeconds)')
+      expect(runtime).to.contain('function applyMotionTimeline(time)')
+      expect(runtime.includes('function applyPreset')).to.equal(false)
+      expect(runtime.includes('plan?.motion?.steps')).to.equal(false)
       expect(runtime).to.contain('requestedTimeParam')
       expect(runtime).to.contain('firstSlidePreviewTime()')
       expect(runtime).to.contain('latestMotionEndForSlide')
@@ -130,8 +140,13 @@ describe('html deck compiler', () => {
       expect(plan.deck.title).to.equal('视频 Agent 的正确架构')
       expect(plan.duration).to.equal(18)
       expect(plan.version).to.equal(2)
-      expect(plan.motion.steps.some((step) => step.preset === 'cinematic-rise')).to.equal(true)
-      expect(plan.motion.steps.some((step) => step.selector.includes('.point'))).to.equal(true)
+      expect('steps' in plan.motion).to.equal(false)
+      expect(plan.motion.timeline.version).to.equal(1)
+      expect(plan.motion.timeline.fps).to.equal(30)
+      expect(plan.motion.timeline.scenes.map((scene) => scene.id)).to.deep.equal(['slide-001', 'slide-002'])
+      expect(plan.motion.timeline.tracks.some((track) => track.property === 'scale' && track.target.value.includes('.slide__title'))).to.equal(true)
+      expect(plan.motion.timeline.tracks.some((track) => track.property === 'translateY' && track.target.kind === 'css-selector')).to.equal(true)
+      expect(plan.motion.timeline.tracks.some((track) => track.property === 'opacity' && track.target.value.includes('.point'))).to.equal(true)
       expect(plan.timings.map((timing) => timing.slideId)).to.deep.equal(['slide-001', 'slide-002'])
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -227,6 +242,366 @@ describe('html deck compiler', () => {
   it('chooses completed slide states for static frame capture', () => {
     expect(deckFramePreviewTime(26.88, 9.76)).to.equal(34.883)
     expect(deckFramePreviewTime(50.72, 12.32)).to.equal(60.822)
+  })
+
+  it('plans timestamped frame sequences for animated video capture', () => {
+    const frames = createDeckHtmlFrameSequence({
+      fps: 10,
+      outputDir: '/tmp/deck-frames',
+      timedDeck: {
+        deck: {
+          slides: [
+            {
+              slideId: 'slide-001',
+              title: 'One',
+              type: 'hero',
+            },
+            {
+              slideId: 'slide-002',
+              title: 'Two',
+              type: 'summary',
+            },
+          ],
+          title: 'Deck',
+          version: 1,
+        },
+        timings: [
+          {end: 0.2, slideId: 'slide-001', start: 0},
+          {end: 0.5, slideId: 'slide-002', start: 0.2},
+        ],
+        version: 1,
+      },
+    })
+
+    expect(frames).to.have.length(5)
+    expect(frames.map((frame) => frame.frame)).to.deep.equal([1, 2, 3, 4, 5])
+    expect(frames.map((frame) => frame.time)).to.deep.equal([0, 0.1, 0.2, 0.3, 0.4])
+    expect(frames.map((frame) => frame.slideId)).to.deep.equal(['slide-001', 'slide-001', 'slide-002', 'slide-002', 'slide-002'])
+    expect(frames[0]?.path).to.equal('/tmp/deck-frames/frame-000001.png')
+  })
+
+  it('plans browser keyframes for independent visual quality capture', () => {
+    const keyframes = createDeckHtmlKeyframes({
+      fps: 10,
+      outputDir: '/tmp/deck-keyframes',
+      timedDeck: {
+        deck: {
+          slides: [
+            {
+              slideId: 'slide-001',
+              title: 'One',
+              type: 'hero',
+            },
+            {
+              slideId: 'slide-002',
+              title: 'Two',
+              type: 'summary',
+            },
+          ],
+          title: 'Deck',
+          version: 1,
+        },
+        timings: [
+          {end: 0.2, slideId: 'slide-001', start: 0},
+          {end: 0.5, slideId: 'slide-002', start: 0.2},
+        ],
+        version: 1,
+      },
+    })
+
+    expect(keyframes.length).to.be.greaterThan(2)
+    expect(keyframes[0]).to.deep.include({frame: 1, label: 'start', path: '/tmp/deck-keyframes/keyframe-000001.png', slideId: 'slide-001', time: 0})
+    expect(keyframes.some((frame) => frame.label === 'middle')).to.equal(true)
+    expect(keyframes.some((frame) => frame.label === 'end')).to.equal(true)
+  })
+
+  it('captures animated frame sequences with bounded concurrency', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-concurrent-'))
+    const logPath = join(root, 'capture.log')
+    const chromiumPath = join(root, 'fake-chromium.ts')
+    const timedDeck = {
+      deck: {
+        format: 'portrait_1080x1920' as const,
+        inputMode: 'script-generated' as const,
+        language: 'zh-CN',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'fade-in' as const,
+            points: [],
+            slideId: 'slide-001',
+            speakerNote: 'One',
+            title: 'One',
+            type: 'hero' as const,
+            visual: {assetRefs: [], kind: 'title-card' as const},
+          },
+        ],
+        theme: 'elegant-dark' as const,
+        title: 'Deck',
+        version: 1 as const,
+      },
+      timings: [
+        {end: 0.4, slideId: 'slide-001', start: 0},
+      ],
+      version: 1 as const,
+    }
+
+    try {
+      await writeFile(
+        chromiumPath,
+        [
+          "import {appendFile} from 'node:fs/promises'",
+          'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
+          'if (screenshotArg === undefined) process.exit(2)',
+          'const outputPath = screenshotArg.slice("--screenshot=".length)',
+          `const logPath = ${JSON.stringify(logPath)}`,
+          'await appendFile(logPath, `start:${outputPath}\\n`)',
+          'await Bun.sleep(150)',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'await Bun.write(outputPath, png)',
+          'await appendFile(logPath, `end:${outputPath}\\n`)',
+          '',
+        ].join('\n'),
+      )
+      const htmlProject = await writeDeckHtmlProject({
+        outputDir: join(root, 'html'),
+        timedDeck,
+      })
+      const result = await captureDeckHtmlFrameSequence({
+        chromiumCommand: ['bun', chromiumPath],
+        concurrency: 2,
+        frameEnd: 4,
+        frameStart: 2,
+        fps: 10,
+        outputDir: join(root, 'frames'),
+        projectDir: htmlProject.outputDir,
+        timedDeck,
+      })
+      const lines = (await readText(logPath)).trim().split('\n')
+      const firstEndIndex = lines.findIndex((line) => line.startsWith('end:'))
+      const secondStartIndex = lines.findIndex((line, index) => index > 0 && line.startsWith('start:'))
+
+      expect(result.concurrency).to.equal(2)
+      expect(result.frameStart).to.equal(2)
+      expect(result.frameEnd).to.equal(4)
+      expect(result.frames).to.have.length(4)
+      expect(result.capturedFrames).to.equal(3)
+      expect(result.skippedFrames).to.equal(0)
+      expect(secondStartIndex).to.be.greaterThan(-1)
+      expect(firstEndIndex).to.be.greaterThan(-1)
+      expect(secondStartIndex).to.be.lessThan(firstEndIndex)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('captures browser keyframes before full frame sequence rendering', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-keyframes-'))
+    const chromiumPath = join(root, 'fake-chromium.ts')
+    const timedDeck = {
+      deck: {
+        format: 'portrait_1080x1920' as const,
+        inputMode: 'script-generated' as const,
+        language: 'zh-CN',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'fade-in' as const,
+            points: [],
+            slideId: 'slide-001',
+            speakerNote: 'One',
+            title: 'One',
+            type: 'hero' as const,
+            visual: {assetRefs: [], kind: 'title-card' as const},
+          },
+        ],
+        theme: 'elegant-dark' as const,
+        title: 'Deck',
+        version: 1 as const,
+      },
+      timings: [
+        {end: 0.4, slideId: 'slide-001', start: 0},
+      ],
+      version: 1 as const,
+    }
+
+    try {
+      await writeFile(
+        chromiumPath,
+        [
+          'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
+          'if (screenshotArg === undefined) process.exit(2)',
+          'const outputPath = screenshotArg.slice("--screenshot=".length)',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'await Bun.write(outputPath, png)',
+          '',
+        ].join('\n'),
+      )
+      const htmlProject = await writeDeckHtmlProject({
+        outputDir: join(root, 'html'),
+        timedDeck,
+      })
+      const result = await captureDeckHtmlKeyframes({
+        chromiumCommand: ['bun', chromiumPath],
+        concurrency: 2,
+        fps: 10,
+        outputDir: join(root, 'keyframes'),
+        projectDir: htmlProject.outputDir,
+        timedDeck,
+      })
+
+      expect(result.concurrency).to.equal(2)
+      expect(result.capturedFrames).to.equal(result.frames.length)
+      expect(result.frames[0]?.path.endsWith('keyframe-000001.png')).to.equal(true)
+      expect(await fileSize(result.frames[0]?.path ?? '')).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('captures animated frame sequences through a Playwright command protocol', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-frame-playwright-'))
+    const playwrightPath = join(root, 'fake-playwright-frames.ts')
+    const timedDeck = {
+      deck: {
+        format: 'portrait_1080x1920' as const,
+        inputMode: 'script-generated' as const,
+        language: 'zh-CN',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'fade-in' as const,
+            points: [],
+            slideId: 'slide-001',
+            speakerNote: 'One',
+            title: 'One',
+            type: 'hero' as const,
+            visual: {assetRefs: [], kind: 'title-card' as const},
+          },
+        ],
+        theme: 'elegant-dark' as const,
+        title: 'Deck',
+        version: 1 as const,
+      },
+      timings: [
+        {end: 0.4, slideId: 'slide-001', start: 0},
+      ],
+      version: 1 as const,
+    }
+
+    try {
+      await writeFile(
+        playwrightPath,
+        [
+          'const manifestPath = Bun.argv.at(-1)',
+          'if (manifestPath === undefined) process.exit(2)',
+          'const manifest = await Bun.file(manifestPath).json()',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'for (const frame of manifest.frames) {',
+          '  if (typeof frame.url !== "string" || !frame.url.includes("capture=slide")) process.exit(3)',
+          '  await Bun.write(frame.path, png)',
+          '}',
+          '',
+        ].join('\n'),
+      )
+      const htmlProject = await writeDeckHtmlProject({
+        outputDir: join(root, 'html'),
+        timedDeck,
+      })
+      const result = await captureDeckHtmlFrameSequence({
+        backend: 'playwright',
+        concurrency: 2,
+        frameEnd: 3,
+        frameStart: 2,
+        fps: 10,
+        outputDir: join(root, 'frames'),
+        playwrightCommand: ['bun', playwrightPath],
+        projectDir: htmlProject.outputDir,
+        timedDeck,
+      })
+
+      expect(result.backend).to.equal('playwright')
+      expect(result.command.slice(0, 2)).to.deep.equal(['bun', playwrightPath])
+      expect(result.frameStart).to.equal(2)
+      expect(result.frameEnd).to.equal(3)
+      expect(result.frames).to.have.length(4)
+      expect(result.capturedFrames).to.equal(2)
+      expect(await fileSize(result.frames[1]?.path ?? '')).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('captures browser keyframes through a Playwright command protocol', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-playwright-'))
+    const playwrightPath = join(root, 'fake-playwright.ts')
+    const timedDeck = {
+      deck: {
+        format: 'portrait_1080x1920' as const,
+        inputMode: 'script-generated' as const,
+        language: 'zh-CN',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'fade-in' as const,
+            points: [],
+            slideId: 'slide-001',
+            speakerNote: 'One',
+            title: 'One',
+            type: 'hero' as const,
+            visual: {assetRefs: [], kind: 'title-card' as const},
+          },
+        ],
+        theme: 'elegant-dark' as const,
+        title: 'Deck',
+        version: 1 as const,
+      },
+      timings: [
+        {end: 0.4, slideId: 'slide-001', start: 0},
+      ],
+      version: 1 as const,
+    }
+
+    try {
+      await writeFile(
+        playwrightPath,
+        [
+          'const manifestPath = Bun.argv.at(-1)',
+          'if (manifestPath === undefined) process.exit(2)',
+          'const manifest = await Bun.file(manifestPath).json()',
+          "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
+          'for (const frame of manifest.frames) {',
+          '  if (typeof frame.url !== "string" || !frame.url.includes("capture=slide")) process.exit(3)',
+          '  await Bun.write(frame.path, png)',
+          '}',
+          '',
+        ].join('\n'),
+      )
+      const htmlProject = await writeDeckHtmlProject({
+        outputDir: join(root, 'html'),
+        timedDeck,
+      })
+      const result = await captureDeckHtmlKeyframes({
+        backend: 'playwright',
+        concurrency: 2,
+        fps: 10,
+        outputDir: join(root, 'keyframes'),
+        playwrightCommand: ['bun', playwrightPath],
+        projectDir: htmlProject.outputDir,
+        timedDeck,
+      })
+
+      expect(result.backend).to.equal('playwright')
+      expect(result.command.slice(0, 2)).to.deep.equal(['bun', playwrightPath])
+      expect(result.capturedFrames).to.equal(result.frames.length)
+      expect(await fileSize(result.frames[0]?.path ?? '')).to.be.greaterThan(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
   })
 })
 

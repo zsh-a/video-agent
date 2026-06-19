@@ -14,6 +14,7 @@ export interface RenderedMediaQualityResult {
   errors: number
   issues: QualityIssue[]
   probed: boolean
+  subtitleStreams: number
   videoStreams: number
   warnings: number
 }
@@ -21,6 +22,7 @@ export interface RenderedMediaQualityResult {
 export function checkRenderedMedia(mediaInfo: MediaInfo, options: RenderedMediaQualityOptions = {}): RenderedMediaQualityResult {
   const videoStreams = mediaInfo.streams.filter((stream) => stream.type === 'video').length
   const audioStreams = mediaInfo.streams.filter((stream) => stream.type === 'audio').length
+  const subtitleStreams = mediaInfo.streams.filter((stream) => stream.type === 'subtitle').length
   const issues = [
     ...(videoStreams > 0
       ? []
@@ -51,6 +53,7 @@ export function checkRenderedMedia(mediaInfo: MediaInfo, options: RenderedMediaQ
     errors: issues.filter((issue) => issue.severity === 'error').length,
     issues,
     probed: true,
+    subtitleStreams,
     videoStreams,
     warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
@@ -70,6 +73,7 @@ export function createRenderedMediaProbeFailure(message: string): RenderedMediaQ
     errors: 0,
     issues,
     probed: false,
+    subtitleStreams: 0,
     videoStreams: 0,
     warnings: 1,
   }

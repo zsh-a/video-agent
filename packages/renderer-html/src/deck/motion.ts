@@ -1,9 +1,11 @@
-import type {DeckMotionPreset, Slide, TimedDeck} from '@video-agent/ir'
+import type {DeckMotionPreset, MotionEasing, MotionProperty, MotionTimeline, Slide, TimedDeck} from '@video-agent/ir'
+
+import {MotionTimelineSchema} from '@video-agent/ir'
 
 export interface DeckMotionPlan {
   duration: number
   slides: DeckMotionSlide[]
-  steps: DeckMotionStep[]
+  timeline: MotionTimeline
   version: 1
 }
 
@@ -13,7 +15,7 @@ export interface DeckMotionSlide {
   start: number
 }
 
-export interface DeckMotionStep {
+interface DeckMotionStep {
   at: number
   duration: number
   preset: DeckMotionPreset
@@ -39,12 +41,184 @@ export function compileDeckMotionPlan(timedDeck: TimedDeck): DeckMotionPlan {
 
     return timing === undefined ? [] : compileSlideSteps(slide, timing)
   })
-
-  return {
-    duration: round(slides.at(-1)?.end ?? 0),
+  const timeline = compileMotionTimeline({
+    fps: 30,
     slides,
     steps,
+  })
+
+  return {
+    duration: timeline.duration,
+    slides,
+    timeline,
     version: 1,
+  }
+}
+
+function compileMotionTimeline(input: {
+  fps: number
+  slides: DeckMotionSlide[]
+  steps: DeckMotionStep[]
+}): MotionTimeline {
+  const tracks = input.steps.flatMap((step, index) => tracksForStep(step, index))
+  const duration = round(Math.max(input.slides.at(-1)?.end ?? 0, ...tracks.map((track) => track.start + track.duration)))
+
+  return MotionTimelineSchema.parse({
+    duration,
+    fps: input.fps,
+    scenes: input.slides.map((slide) => ({
+      end: slide.end,
+      id: slide.slideId,
+      sourceId: slide.slideId,
+      start: slide.start,
+    })),
+    tracks,
+    version: 1,
+  })
+}
+
+function tracksForStep(step: DeckMotionStep, stepIndex: number): MotionTimeline['tracks'] {
+  const preset = motionPresetState(step.preset)
+
+  return preset.properties.flatMap(({from, property, to}, propertyIndex) => {
+    if (from === to) {
+      return []
+    }
+
+    return [{
+      duration: step.duration,
+      easing: preset.easing,
+      from,
+      id: `step-${String(stepIndex + 1).padStart(3, '0')}-${property}-${propertyIndex + 1}`,
+      property,
+      ...(step.stagger === undefined ? {} : {stagger: step.stagger}),
+      start: step.at,
+      target: {
+        kind: 'css-selector' as const,
+        value: step.selector,
+      },
+      to,
+    }]
+  })
+}
+
+interface MotionPresetState {
+  easing: MotionEasing
+  properties: MotionPresetProperty[]
+}
+
+interface MotionPresetProperty {
+  from: number
+  property: MotionProperty
+  to: number
+}
+
+function motionPresetState(preset: DeckMotionPreset): MotionPresetState {
+  if (preset === 'fade-in') {
+    return presetState('easeOutCubic', [
+      property('opacity', 0, 1),
+    ])
+  }
+
+  if (preset === 'slide-up') {
+    return presetState('easeOutCubic', [
+      property('opacity', 0, 1),
+      property('translateY', 36, 0),
+    ])
+  }
+
+  if (preset === 'soft-scale') {
+    return presetState('easeOutExpo', [
+      property('opacity', 0, 1),
+      property('scale', 0.96, 1),
+    ])
+  }
+
+  if (preset === 'blur-rise') {
+    return presetState('easeOutCubic', [
+      property('blur', 12, 0),
+      property('opacity', 0, 1),
+      property('translateY', 44, 0),
+    ])
+  }
+
+  if (preset === 'stagger-up') {
+    return presetState('easeOutCubic', [
+      property('opacity', 0, 1),
+      property('translateY', 34, 0),
+    ])
+  }
+
+  if (preset === 'progressive-reveal') {
+    return presetState('easeOutCubic', [
+      property('blur', 8, 0),
+      property('opacity', 0, 1),
+      property('translateY', 28, 0),
+    ])
+  }
+
+  if (preset === 'card-stack') {
+    return presetState('easeOutCubic', [
+      property('opacity', 0, 1),
+      property('scale', 0.98, 1),
+      property('translateY', 30, 0),
+    ])
+  }
+
+  if (preset === 'line-draw') {
+    return presetState('easeOutCubic', [
+      property('scaleX', 0, 1),
+    ])
+  }
+
+  if (preset === 'number-count') {
+    return presetState('easeOutExpo', [
+      property('opacity', 0, 1),
+      property('scale', 0.92, 1),
+      property('translateY', 26, 0),
+    ])
+  }
+
+  if (preset === 'spotlight') {
+    return presetState('easeOutCubic', [
+      property('scale', 1, 1.035),
+    ])
+  }
+
+  if (preset === 'wipe') {
+    return presetState('easeOutCubic', [
+      property('opacity', 0, 1),
+      property('translateX', -34, 0),
+    ])
+  }
+
+  if (preset === 'zoom-focus') {
+    return presetState('easeOutExpo', [
+      property('blur', 8, 0),
+      property('opacity', 0, 1),
+      property('scale', 0.94, 1),
+    ])
+  }
+
+  return presetState('easeOutExpo', [
+    property('opacity', 0, 1),
+    property('scale', 0.96, 1),
+    property('translateY', 60, 0),
+  ])
+}
+
+function presetState(easing: MotionEasing, properties: MotionPresetProperty[]): MotionPresetState {
+  return {
+    easing,
+    properties,
+  }
+}
+
+function property(property: MotionProperty, from: number, to: number): MotionPresetProperty {
+  return {
+    from,
+    property,
+    to,
   }
 }
 

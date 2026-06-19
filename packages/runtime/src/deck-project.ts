@@ -1,19 +1,26 @@
-import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, DeckSlideType, DeckVisual, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {Claim, Claims, ContentBlock, Deck, DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, DeckSlideType, DeckVisual, Document, LongVideoSelectedMoments, MediaInfo, MotionTimeline, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {LLMClient, LLMTraceRecorder} from '@video-agent/llm'
 import type {TTSSegment} from '@video-agent/providers'
-import type {QualityIssue} from '@video-agent/quality'
+import type {QualityIssue, SubtitleQualityResult, VisualFrameSample, VisualSmokeQualityResult} from '@video-agent/quality'
+import type {CaptureDeckHtmlFrameSequenceResult, CaptureDeckHtmlKeyframesResult, DeckHtmlFrameSequenceCaptureBackend, DeckHtmlFrameSequenceFrame, DeckHtmlKeyframeCaptureBackend} from '@video-agent/renderer-html'
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
+import type {MotionCanvasDeckProject} from '@video-agent/renderer-motion-canvas'
+import type {RemotionDeckProject, RemotionRenderCliResult} from '@video-agent/renderer-remotion'
 
 import {JsonJobStore} from '@video-agent/db'
 import {ClaimsSchema, ContentBlocksSchema, DeckQualityReportSchema, DeckSchema, DocumentSchema, MediaInfoSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
 import {createJsonlLLMTraceRecorder} from '@video-agent/llm'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {TranscriptSchema, TtsSegmentsSchema} from '@video-agent/providers'
-import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkStoryboardConsistency, checkTimelineBounds, createRenderedMediaProbeFailure} from '@video-agent/quality'
-import {captureDeckHtmlFrames, deckTemplateManifestForLLM, findDeckTemplateManifestEntry, isDeckTemplateType, maxPointsForDeckTemplate, type DeckHtmlFrame, writeDeckHtmlProject} from '@video-agent/renderer-html'
+import {checkExplainerStructure, checkNarrationTiming, checkRenderedMedia, checkSrtSubtitles, checkStoryboardConsistency, checkTimelineBounds, checkVisualSmoke, createRenderedMediaProbeFailure} from '@video-agent/quality'
+import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
+import {captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes, compileDeckMotionPlan, createDeckHtmlFrameSequence, deckCanvasSize, deckTemplateManifestForLLM, findDeckTemplateManifestEntry, isDeckTemplateType, maxPointsForDeckTemplate, selectDeckHtmlKeyframes, writeDeckHtmlProject} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
-import {mkdir, rm} from 'node:fs/promises'
-import {extname, join, resolve} from 'node:path'
+import {writeMotionCanvasDeckProject} from '@video-agent/renderer-motion-canvas'
+import {renderRemotionDeckProject, writeRemotionDeckProject} from '@video-agent/renderer-remotion'
+import {createHash} from 'node:crypto'
+import {mkdir, rm, stat} from 'node:fs/promises'
+import {extname, isAbsolute, join, resolve} from 'node:path'
 import {z} from 'zod'
 
 import {refreshArtifactManifest} from './artifact-store.js'
@@ -108,10 +115,18 @@ export interface CreateDeckVoiceoverProjectResult {
 
 export interface CreateDeckFinalRenderProjectOptions {
   chromiumCommand?: string[]
+  frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
+  frameConcurrency?: number
+  frameEnd?: number
+  frameStart?: number
+  finalize?: boolean
+  finalizeOnly?: boolean
   htmlOutput?: string
   htmlRender?: boolean
   htmlRenderCommand?: string[]
   htmlValidate?: boolean
+  keyframeCaptureBackend?: DeckHtmlKeyframeCaptureBackend
+  playwrightCommand?: string[]
   projectId: string
   workspaceDir?: string
 }
@@ -120,18 +135,161 @@ export interface CreateDeckFinalRenderProjectResult {
   artifactPath: string
   audioPath: string
   deckQualityReportPath: string
-  frameRenderer: 'chromium'
+  finalized: boolean
+  frameEnd: number
+  frameManifestPath: string
+  frameRenderer: DeckHtmlFrameSequenceCaptureBackend
+  frameStart: number
   frameCount: number
   htmlEntryPath: string
   htmlOutputDir: string
+  keyframeQualityPath?: string
+  keyframeRenderer?: DeckHtmlKeyframeCaptureBackend
   outputPath: string
   projectDir: string
   projectId: string
   rendered?: HyperframesCliResult
   renderer: 'html'
-  status: 'rendered'
+  status: 'frames-rendered' | 'rendered'
+  subtitleMuxed?: boolean
+  subtitleMuxMode?: 'mov_text'
+  subtitlePath?: string
+  subtitleQuality?: SubtitleQualityResult
   validation?: HyperframesCliResult
-  videoRenderer: 'chromium+ffmpeg'
+  videoRenderer: 'chromium+ffmpeg' | 'playwright+ffmpeg'
+  visualQuality?: VisualSmokeQualityResult
+}
+
+export interface CreateDeckFrameShardPlanProjectOptions {
+  frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
+  frameShardSize?: number
+  projectId: string
+  workspaceDir?: string
+}
+
+export interface DeckFrameShardPlanShard {
+  commandArgs: string[]
+  existingFrames: number
+  frameCount: number
+  frameEnd: number
+  frameStart: number
+  missingFrameSamples: Array<{frame: number; path: string}>
+  missingFrames: number
+  shardArtifactPath: string
+  status: 'complete' | 'partial' | 'pending'
+}
+
+export interface CreateDeckFrameShardPlanProjectResult {
+  artifactPath: string
+  completeShards: number
+  duration: number
+  finalizeArgs: string[]
+  frameCount: number
+  frameShardSize: number
+  partialShards: number
+  pendingShards: number
+  projectDir: string
+  projectId: string
+  shardCount: number
+  shards: DeckFrameShardPlanShard[]
+  status: 'planned'
+}
+
+export interface CreateDeckFrameShardBatchProjectOptions {
+  chromiumCommand?: string[]
+  frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
+  frameConcurrency?: number
+  frameShardSize?: number
+  playwrightCommand?: string[]
+  projectId: string
+  shardConcurrency?: number
+  shardRetryDelayMs?: number
+  shardRetries?: number
+  workspaceDir?: string
+}
+
+export interface DeckFrameShardBatchShard {
+  artifactPath?: string
+  attempts: number
+  capturedFrames: number
+  error?: string
+  frameCount: number
+  frameEnd: number
+  frameStart: number
+  skippedFrames: number
+  status: 'complete' | 'failed'
+}
+
+export interface CreateDeckFrameShardBatchProjectResult {
+  artifactPath: string
+  completedShards: number
+  failedShards: number
+  frameCapturedCount: number
+  frameConcurrency: number
+  frameCount: number
+  frameManifestPath: string
+  frameShardSize: number
+  frameSkippedCount: number
+  htmlEntryPath: string
+  htmlOutputDir: string
+  projectDir: string
+  projectId: string
+  renderer: DeckHtmlFrameSequenceCaptureBackend
+  shardConcurrency: number
+  shardCount: number
+  shardRetryDelayMs: number
+  shardRetries: number
+  shards: DeckFrameShardBatchShard[]
+  status: 'completed' | 'partial'
+}
+
+export type DeckRendererBackend = 'motion-canvas' | 'remotion'
+
+export interface CreateDeckRendererBackendProjectOptions {
+  backend: DeckRendererBackend
+  compositionId?: string
+  fps?: number
+  outputDir?: string
+  projectId: string
+  workspaceDir?: string
+}
+
+export interface CreateDeckRendererBackendProjectResult {
+  artifactPath: string
+  backend: DeckRendererBackend
+  commandCwd: string
+  files: Record<string, string>
+  fps: number
+  height?: number
+  motionTimelinePath: string
+  outputDir: string
+  previewCommand: string[]
+  projectDir: string
+  projectId: string
+  renderCommand: string[]
+  sourceSha256: string
+  status: 'exported'
+  width?: number
+}
+
+export interface CreateDeckRemotionRenderProjectOptions extends Omit<CreateDeckRendererBackendProjectOptions, 'backend'> {
+  command?: string[]
+  outputPath?: string
+}
+
+export interface CreateDeckRemotionRenderProjectResult {
+  artifactPath: string
+  backend: 'remotion'
+  command: string[]
+  commandCwd: string
+  exportArtifactPath: string
+  outputPath: string
+  projectDir: string
+  projectId: string
+  rendered: RemotionRenderCliResult
+  rendererProjectDir: string
+  sourceSha256: string
+  status: 'rendered'
 }
 
 export interface CreateDeckAudioAnchoredProjectOptions {
@@ -188,6 +346,9 @@ export type CreateDeckSummarizeProjectResult = CreateDeckExplainerProjectResult 
 
 const DEFAULT_MAX_SLIDE_CHARACTERS = 260
 const DEFAULT_SLIDE_SECONDS = 18
+const DEFAULT_DECK_FRAME_CONCURRENCY = 1
+const DEFAULT_DECK_RENDER_FPS = 30
+const DEFAULT_DECK_FRAME_SHARD_SIZE = 300
 const DEFAULT_DECK_THEME: Deck['theme'] = 'elegant-dark'
 const DECK_THEMES = ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
 const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
@@ -202,6 +363,32 @@ const DECK_AUDIO_ANCHORED_STAGES = ['ingest', 'transcribe', 'plan', 'align', 'qu
 const DECK_SUMMARIZE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'quality'] as const
 const DECK_STAGES = ['ingest', 'understand', 'plan', 'script', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
 const LLM_TRACE_ARTIFACT_NAME = 'llm-traces.jsonl'
+
+const DeckFrameManifestReuseSchema = z.object({
+  capturedFrames: z.number().int().nonnegative().optional(),
+  concurrency: z.number().int().positive().optional(),
+  duration: z.number().nonnegative(),
+  fps: z.number().positive(),
+  frameCount: z.number().int().positive(),
+  frameEnd: z.number().int().positive().optional(),
+  frames: z.array(z.object({
+    frame: z.number().int().positive(),
+    path: z.string().min(1),
+    slideId: z.string().min(1),
+    time: z.number().nonnegative(),
+  }).strict()),
+  frameStart: z.number().int().positive().optional(),
+  outputDir: z.string().min(1),
+  pattern: z.string().min(1),
+  renderer: z.enum(['chromium', 'playwright']),
+  skippedFrames: z.number().int().nonnegative().optional(),
+  sourceSha256: z.string().min(1),
+  viewport: z.object({
+    height: z.number().int().positive(),
+    width: z.number().int().positive(),
+  }).strict(),
+}).passthrough()
+type ReusableDeckFrameManifest = z.infer<typeof DeckFrameManifestReuseSchema>
 
 interface ProjectLLMTrace {
   path?: string
@@ -708,6 +895,437 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
   }
 }
 
+export async function createDeckFrameShardPlanProject(options: CreateDeckFrameShardPlanProjectOptions): Promise<CreateDeckFrameShardPlanProjectResult> {
+  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const projectId = options.projectId
+  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const state = await jobStore.read()
+  const workspace = await createProjectWorkspace({
+    inputPath: state.inputPath,
+    projectId,
+    workspaceDir,
+  })
+  const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+  const framesDir = resolve(workspace.rendersDir, 'deck-frames')
+  const frameCaptureBackend = options.frameCaptureBackend ?? 'chromium'
+  const frameShardSize = normalizeDeckFrameShardSize(options.frameShardSize)
+  const timedDeckSourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+  const frames = createDeckHtmlFrameSequence({
+    fps: DEFAULT_DECK_RENDER_FPS,
+    outputDir: framesDir,
+    timedDeck,
+  })
+
+  await mkdir(framesDir, {recursive: true})
+  await workspace.store.writeJson('deck-frame-manifest.json', createPlannedDeckFrameManifest({
+    concurrency: DEFAULT_DECK_FRAME_CONCURRENCY,
+    fps: DEFAULT_DECK_RENDER_FPS,
+    outputDir: framesDir,
+    projectDir: workspace.projectDir,
+    sourceSha256: timedDeckSourceSha256,
+    timedDeck,
+    renderer: frameCaptureBackend,
+  }))
+
+  const shards: DeckFrameShardPlanShard[] = []
+
+  for (let frameStart = 1; frameStart <= frames.length; frameStart += frameShardSize) {
+    const frameEnd = Math.min(frames.length, frameStart + frameShardSize - 1)
+    const shardFrames = frames.filter((frame) => frame.frame >= frameStart && frame.frame <= frameEnd)
+    // eslint-disable-next-line no-await-in-loop
+    const missingFrames = await findMissingDeckFrameFiles(workspace.projectDir, shardFrames)
+    const existingFrames = shardFrames.length - missingFrames.length
+    const status = missingFrames.length === 0 ? 'complete' : existingFrames > 0 ? 'partial' : 'pending'
+
+    shards.push({
+      commandArgs: [
+        'deck',
+        'render',
+        projectId,
+        '--frame-start',
+        String(frameStart),
+        '--frame-end',
+        String(frameEnd),
+        ...(frameCaptureBackend === 'chromium' ? [] : ['--frame-capture-backend', frameCaptureBackend]),
+      ],
+      existingFrames,
+      frameCount: shardFrames.length,
+      frameEnd,
+      frameStart,
+      missingFrameSamples: missingFrames.slice(0, 5).map((frame) => ({
+        frame: frame.frame,
+        path: toProjectPath(workspace.projectDir, frame.path),
+      })),
+      missingFrames: missingFrames.length,
+      shardArtifactPath: `artifacts/deck-frame-shard-${String(frameStart).padStart(6, '0')}-${String(frameEnd).padStart(6, '0')}.json`,
+      status,
+    })
+  }
+
+  const artifact = {
+    completeShards: shards.filter((shard) => shard.status === 'complete').length,
+    duration: roundSeconds(frames.length / DEFAULT_DECK_RENDER_FPS),
+    finalizeArgs: ['deck', 'render', projectId, '--finalize-only'],
+    fps: DEFAULT_DECK_RENDER_FPS,
+    frameCount: frames.length,
+    frameManifestPath: 'artifacts/deck-frame-manifest.json',
+    frameShardSize,
+    generatedAt: new Date().toISOString(),
+    outputDir: toProjectPath(workspace.projectDir, framesDir),
+    partialShards: shards.filter((shard) => shard.status === 'partial').length,
+    pendingShards: shards.filter((shard) => shard.status === 'pending').length,
+    renderer: frameCaptureBackend,
+    shards,
+    source: 'timed-deck.json',
+    sourceSha256: timedDeckSourceSha256,
+    version: 1 as const,
+  }
+  const artifactPath = await workspace.store.writeJson('deck-frame-shard-plan.json', artifact)
+
+  await refreshArtifactManifest(workspace.artifactsDir)
+
+  return {
+    artifactPath,
+    completeShards: artifact.completeShards,
+    duration: artifact.duration,
+    finalizeArgs: artifact.finalizeArgs,
+    frameCount: artifact.frameCount,
+    frameShardSize,
+    partialShards: artifact.partialShards,
+    pendingShards: artifact.pendingShards,
+    projectDir: workspace.projectDir,
+    projectId,
+    shardCount: shards.length,
+    shards,
+    status: 'planned',
+  }
+}
+
+export async function createDeckFrameShardBatchProject(options: CreateDeckFrameShardBatchProjectOptions): Promise<CreateDeckFrameShardBatchProjectResult> {
+  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const projectId = options.projectId
+  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const state = await jobStore.read()
+  const workspace = await createProjectWorkspace({
+    inputPath: state.inputPath,
+    projectId,
+    workspaceDir,
+  })
+
+  await jobStore.initialize({
+    inputPath: state.inputPath,
+    projectId,
+    stages: DECK_STAGES,
+  })
+  await jobStore.updateStage('render-final', 'running', undefined, 1)
+
+  try {
+    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+    const framesDir = resolve(workspace.rendersDir, 'deck-frames')
+    const htmlOutputDir = resolve(workspace.rendersDir, 'html-shards')
+    const frameCaptureBackend = options.frameCaptureBackend ?? 'chromium'
+    const frameConcurrency = normalizeDeckFrameConcurrency(options.frameConcurrency)
+    const shardConcurrency = normalizeDeckShardConcurrency(options.shardConcurrency)
+    const shardRetries = normalizeDeckShardRetries(options.shardRetries)
+    const shardRetryDelayMs = normalizeDeckShardRetryDelayMs(options.shardRetryDelayMs)
+    const frameShardSize = normalizeDeckFrameShardSize(options.frameShardSize)
+    const timedDeckSourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+    const reusableFrameManifest = await readReusableDeckFrameManifest(workspace, {
+      fps: DEFAULT_DECK_RENDER_FPS,
+      outputDir: framesDir,
+      sourceSha256: timedDeckSourceSha256,
+    })
+
+    if (reusableFrameManifest === undefined) {
+      await rm(framesDir, {force: true, recursive: true})
+    }
+    await Promise.all([
+      rm(htmlOutputDir, {force: true, recursive: true}),
+      mkdir(framesDir, {recursive: true}),
+    ])
+
+    const htmlProject = await writeDeckHtmlProject({
+      outputDir: htmlOutputDir,
+      timedDeck,
+    })
+    const frames = createDeckHtmlFrameSequence({
+      fps: DEFAULT_DECK_RENDER_FPS,
+      outputDir: framesDir,
+      timedDeck,
+    })
+    const ranges = createDeckFrameShardRanges(frames.length, frameShardSize)
+    let frameManifestPath = await workspace.store.writeJson('deck-frame-manifest.json', createPlannedDeckFrameManifest({
+      concurrency: frameConcurrency,
+      fps: DEFAULT_DECK_RENDER_FPS,
+      outputDir: framesDir,
+      projectDir: workspace.projectDir,
+      renderer: frameCaptureBackend,
+      sourceSha256: timedDeckSourceSha256,
+      timedDeck,
+    }))
+    const shardResults = await runConcurrentMap(ranges, shardConcurrency, async (range): Promise<DeckFrameShardBatchShard> => {
+      let attempts = 0
+
+      try {
+        const frameCapture = await retryDeckShardCapture({
+          delayMs: shardRetryDelayMs,
+          retries: shardRetries,
+          run: async () => {
+            attempts += 1
+
+            return captureDeckHtmlFrameSequence({
+              backend: frameCaptureBackend,
+              chromiumCommand: options.chromiumCommand,
+              concurrency: frameConcurrency,
+              frameEnd: range.end,
+              frameStart: range.start,
+              fps: DEFAULT_DECK_RENDER_FPS,
+              outputDir: framesDir,
+              playwrightCommand: options.playwrightCommand,
+              projectDir: htmlProject.outputDir,
+              reuseExistingFrames: true,
+              timedDeck,
+            })
+          },
+        })
+        const artifactPath = await workspace.store.writeJson(`deck-frame-shard-${String(range.start).padStart(6, '0')}-${String(range.end).padStart(6, '0')}.json`, createDeckFrameShardArtifact({
+          frameCapture,
+          projectDir: workspace.projectDir,
+          sourceSha256: timedDeckSourceSha256,
+        }))
+
+        return {
+          artifactPath,
+          attempts,
+          capturedFrames: frameCapture.capturedFrames,
+          frameCount: range.end - range.start + 1,
+          frameEnd: range.end,
+          frameStart: range.start,
+          skippedFrames: frameCapture.skippedFrames,
+          status: 'complete',
+        }
+      } catch (error) {
+        return {
+          attempts,
+          capturedFrames: 0,
+          error: error instanceof Error ? error.message : String(error),
+          frameCount: range.end - range.start + 1,
+          frameEnd: range.end,
+          frameStart: range.start,
+          skippedFrames: 0,
+          status: 'failed',
+        }
+      }
+    })
+    const frameCapture = createDeckFrameCaptureFromFrames({
+      backend: frameCaptureBackend,
+      capturedFrames: shardResults.reduce((total, shard) => total + shard.capturedFrames, 0),
+      concurrency: frameConcurrency,
+      fps: DEFAULT_DECK_RENDER_FPS,
+      frames,
+      outputDir: framesDir,
+      skippedFrames: shardResults.reduce((total, shard) => total + shard.skippedFrames, 0),
+      timedDeck,
+    })
+
+    frameManifestPath = await workspace.store.writeJson('deck-frame-manifest.json', createDeckFrameManifest({
+      frameCapture,
+      projectDir: workspace.projectDir,
+      sourceSha256: timedDeckSourceSha256,
+    }))
+
+    const failedShards = shardResults.filter((shard) => shard.status === 'failed').length
+    const completedShards = shardResults.length - failedShards
+    const status = failedShards === 0 ? 'completed' as const : 'partial' as const
+    const artifact = {
+      completedShards,
+      duration: frameCapture.duration,
+      failedShards,
+      fps: frameCapture.fps,
+      frameCapturedCount: frameCapture.capturedFrames,
+      frameConcurrency,
+      frameCount: frameCapture.frames.length,
+      frameManifestPath: toProjectPath(workspace.projectDir, frameManifestPath),
+      frameShardSize,
+      frameSkippedCount: frameCapture.skippedFrames,
+      generatedAt: new Date().toISOString(),
+      htmlOutputDir: toProjectPath(workspace.projectDir, htmlProject.outputDir),
+      outputDir: toProjectPath(workspace.projectDir, frameCapture.outputDir),
+      renderer: frameCaptureBackend,
+      shardConcurrency,
+      shardRetryDelayMs,
+      shardRetries,
+      shards: shardResults.map((shard) => ({
+        ...(shard.artifactPath === undefined ? {} : {artifactPath: toProjectPath(workspace.projectDir, shard.artifactPath)}),
+        attempts: shard.attempts,
+        capturedFrames: shard.capturedFrames,
+        ...(shard.error === undefined ? {} : {error: shard.error}),
+        frameCount: shard.frameCount,
+        frameEnd: shard.frameEnd,
+        frameStart: shard.frameStart,
+        skippedFrames: shard.skippedFrames,
+        status: shard.status,
+      })),
+      source: 'timed-deck.json',
+      sourceSha256: timedDeckSourceSha256,
+      status,
+      version: 1 as const,
+    }
+    const artifactPath = await workspace.store.writeJson('deck-frame-shard-batch.json', artifact)
+
+    if (failedShards === 0) {
+      await assertCompleteDeckFrameSequence(workspace.projectDir, frameCapture.frames)
+      await jobStore.updateStage('render-final', 'completed', 'Frame shard batch captured; run finalize-only to encode final video.', 1)
+    } else {
+      await jobStore.updateStage('render-final', 'failed', `${failedShards} frame shard(s) failed; rerun the batch or capture failed ranges before finalize-only.`, 1)
+    }
+    await refreshArtifactManifest(workspace.artifactsDir)
+
+    return {
+      artifactPath,
+      completedShards,
+      failedShards,
+      frameCapturedCount: frameCapture.capturedFrames,
+      frameConcurrency,
+      frameCount: frameCapture.frames.length,
+      frameManifestPath,
+      frameShardSize,
+      frameSkippedCount: frameCapture.skippedFrames,
+      htmlEntryPath: htmlProject.entryHtml,
+      htmlOutputDir: htmlProject.outputDir,
+      projectDir: workspace.projectDir,
+      projectId,
+      renderer: frameCaptureBackend,
+      shardConcurrency,
+      shardRetryDelayMs,
+      shardRetries,
+      shardCount: shardResults.length,
+      shards: shardResults,
+      status,
+    }
+  } catch (error) {
+    await jobStore.updateStage('render-final', 'failed', error instanceof Error ? error.message : String(error), 1)
+    throw error
+  }
+}
+
+export async function createDeckRendererBackendProject(options: CreateDeckRendererBackendProjectOptions): Promise<CreateDeckRendererBackendProjectResult> {
+  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const projectId = options.projectId
+  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const state = await jobStore.read()
+  const workspace = await createProjectWorkspace({
+    inputPath: state.inputPath,
+    projectId,
+    workspaceDir,
+  })
+  const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+  const motionTimeline = compileDeckMotionPlan(timedDeck).timeline
+  const outputDir = resolve(options.outputDir ?? resolve(workspace.rendersDir, options.backend))
+  const sourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+  const fps = normalizeDeckRendererFps(options.fps ?? motionTimeline.fps)
+  const backendProject = options.backend === 'remotion'
+    ? await writeRemotionDeckProject({
+        compositionId: options.compositionId,
+        fps,
+        motionTimeline,
+        outputDir,
+        timedDeck,
+      })
+    : await writeMotionCanvasDeckProject({
+        fps,
+        motionTimeline,
+        outputDir,
+        timedDeck,
+      })
+  const artifact = createDeckRendererBackendArtifact({
+    backend: options.backend,
+    backendProject,
+    motionTimeline,
+    projectDir: workspace.projectDir,
+    projectId,
+    sourceSha256,
+  })
+  const artifactPath = await workspace.store.writeJson(`deck-renderer-${options.backend}.json`, artifact)
+
+  await refreshArtifactManifest(workspace.artifactsDir)
+
+  return {
+    artifactPath,
+    backend: artifact.backend,
+    commandCwd: resolveProjectPath(workspace.projectDir, artifact.commandCwd),
+    files: Object.fromEntries(Object.entries(artifact.files).map(([key, value]) => [key, resolveProjectPath(workspace.projectDir, value)])),
+    fps: artifact.fps,
+    ...(artifact.height === undefined ? {} : {height: artifact.height}),
+    motionTimelinePath: resolveProjectPath(workspace.projectDir, artifact.motionTimelinePath),
+    outputDir: resolveProjectPath(workspace.projectDir, artifact.outputDir),
+    previewCommand: artifact.previewCommand,
+    projectDir: workspace.projectDir,
+    projectId,
+    renderCommand: artifact.renderCommand,
+    sourceSha256,
+    status: 'exported',
+    ...(artifact.width === undefined ? {} : {width: artifact.width}),
+  }
+}
+
+export async function createDeckRemotionRenderProject(options: CreateDeckRemotionRenderProjectOptions): Promise<CreateDeckRemotionRenderProjectResult> {
+  const backendProject = await createDeckRendererBackendProject({
+    backend: 'remotion',
+    compositionId: options.compositionId,
+    fps: options.fps,
+    outputDir: options.outputDir,
+    projectId: options.projectId,
+    workspaceDir: options.workspaceDir,
+  })
+  const rendered = await renderRemotionDeckProject({
+    command: options.command,
+    outputPath: options.outputPath,
+    projectDir: backendProject.outputDir,
+  })
+  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const projectId = options.projectId
+  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const state = await jobStore.read()
+  const workspace = await createProjectWorkspace({
+    inputPath: state.inputPath,
+    projectId,
+    workspaceDir,
+  })
+  const artifact = {
+    backend: 'remotion' as const,
+    command: rendered.command,
+    commandCwd: toProjectPath(workspace.projectDir, backendProject.outputDir),
+    completedAt: new Date().toISOString(),
+    exportArtifactPath: toProjectPath(workspace.projectDir, backendProject.artifactPath),
+    outputPath: toProjectPath(workspace.projectDir, rendered.outputPath),
+    rendererProjectDir: toProjectPath(workspace.projectDir, backendProject.outputDir),
+    source: 'timed-deck.json',
+    sourceSha256: backendProject.sourceSha256,
+    stderr: rendered.stderr,
+    stdout: rendered.stdout,
+    version: 1 as const,
+  }
+  const artifactPath = await workspace.store.writeJson('deck-renderer-remotion-output.json', artifact)
+
+  await refreshArtifactManifest(workspace.artifactsDir)
+
+  return {
+    artifactPath,
+    backend: 'remotion',
+    command: rendered.command,
+    commandCwd: backendProject.outputDir,
+    exportArtifactPath: backendProject.artifactPath,
+    outputPath: rendered.outputPath,
+    projectDir: workspace.projectDir,
+    projectId,
+    rendered,
+    rendererProjectDir: backendProject.outputDir,
+    sourceSha256: backendProject.sourceSha256,
+    status: 'rendered',
+  }
+}
+
 export async function createDeckFinalRenderProject(options: CreateDeckFinalRenderProjectOptions): Promise<CreateDeckFinalRenderProjectResult> {
   const workspaceDir = options.workspaceDir ?? '.video-agent'
   const projectId = options.projectId
@@ -731,19 +1349,34 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
     const audioRef = timedDeck.audioRef ?? 'audio/deck_voiceover.wav'
     const audioPath = resolve(workspace.projectDir, audioRef)
     const framesDir = resolve(workspace.rendersDir, 'deck-frames')
-    const clipsDir = resolve(workspace.rendersDir, 'deck-clips')
     const htmlOutputDir = resolve(workspace.rendersDir, 'html')
     const htmlRenderedOutputPath = resolve(options.htmlOutput ?? resolve(workspace.rendersDir, 'deck_html_capture.mp4'))
-    const concatPath = resolve(clipsDir, 'clips.txt')
     const silentVideoPath = resolve(workspace.rendersDir, 'deck_silent.mp4')
     const outputPath = resolve(workspace.rendersDir, 'final.mp4')
+    const frameConcurrency = normalizeDeckFrameConcurrency(options.frameConcurrency)
+    const requestedFrameRange = normalizeDeckFrameRange(options)
+    const finalizeOnly = options.finalizeOnly === true
+    const shouldFinalize = finalizeOnly || requestedFrameRange === undefined || options.finalize === true
+    const timedDeckSourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+    const reusableFrameManifest = await readReusableDeckFrameManifest(workspace, {
+      fps: DEFAULT_DECK_RENDER_FPS,
+      outputDir: framesDir,
+      sourceSha256: timedDeckSourceSha256,
+    })
+    const reuseExistingFrames = reusableFrameManifest !== undefined
+    const finalizeOnlyManifest = resolveDeckFinalizeOnlyManifest({
+      finalizeOnly,
+      requestedFrameRange,
+      reusableFrameManifest,
+    })
 
-    await assertFileExists(audioPath)
-    await Promise.all([
-      rm(framesDir, {force: true, recursive: true}),
-      rm(clipsDir, {force: true, recursive: true}),
-      rm(htmlOutputDir, {force: true, recursive: true}),
-    ])
+    if (shouldFinalize) {
+      await assertFileExists(audioPath)
+    }
+    if (!finalizeOnly && !reuseExistingFrames && requestedFrameRange === undefined) {
+      await rm(framesDir, {force: true, recursive: true})
+    }
+    await rm(htmlOutputDir, {force: true, recursive: true})
     await mkdir(framesDir, {recursive: true})
 
     const htmlProject = await writeDeckHtmlProject({
@@ -763,46 +1396,151 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
           projectDir: htmlProject.outputDir,
         })
       : undefined
-    const frameCapture = await captureDeckHtmlFrames({
-      chromiumCommand: options.chromiumCommand,
-      outputDir: framesDir,
-      projectDir: htmlProject.outputDir,
-      timedDeck,
-    })
-    const clips = await renderDeckFrameClips(frameCapture.frames, clipsDir)
+    const browserKeyframes = shouldFinalize && !finalizeOnly && !reuseExistingFrames
+      ? await captureDeckHtmlKeyframes({
+          backend: options.keyframeCaptureBackend,
+          chromiumCommand: options.chromiumCommand,
+          concurrency: frameConcurrency,
+          fps: DEFAULT_DECK_RENDER_FPS,
+          outputDir: resolve(workspace.rendersDir, 'deck-keyframes'),
+          playwrightCommand: options.playwrightCommand,
+          projectDir: htmlProject.outputDir,
+          timedDeck,
+        })
+      : undefined
+    let frameCapture: CaptureDeckHtmlFrameSequenceResult
+    let frameManifestPath = workspace.store.resolve('deck-frame-manifest.json')
 
-    await writeDeckClipConcatList(clips, concatPath)
-    await concatDeckFrameClips(concatPath, silentVideoPath)
-    await muxDeckFinalVideo(silentVideoPath, audioPath, outputPath)
+    if (finalizeOnlyManifest !== undefined) {
+      frameCapture = createDeckFrameCaptureFromManifest({
+        concurrency: frameConcurrency,
+        manifest: finalizeOnlyManifest,
+        projectDir: workspace.projectDir,
+      })
+    } else {
+      await workspace.store.writeJson('deck-frame-manifest.json', createPlannedDeckFrameManifest({
+        concurrency: frameConcurrency,
+        fps: DEFAULT_DECK_RENDER_FPS,
+        outputDir: framesDir,
+        projectDir: workspace.projectDir,
+        renderer: options.frameCaptureBackend ?? 'chromium',
+        sourceSha256: timedDeckSourceSha256,
+        timedDeck,
+      }))
+      frameCapture = await captureDeckHtmlFrameSequence({
+        backend: options.frameCaptureBackend,
+        chromiumCommand: options.chromiumCommand,
+        concurrency: frameConcurrency,
+        frameEnd: requestedFrameRange?.end,
+        frameStart: requestedFrameRange?.start,
+        fps: DEFAULT_DECK_RENDER_FPS,
+        outputDir: framesDir,
+        playwrightCommand: options.playwrightCommand,
+        projectDir: htmlProject.outputDir,
+        reuseExistingFrames,
+        timedDeck,
+      })
+      frameManifestPath = await workspace.store.writeJson('deck-frame-manifest.json', createDeckFrameManifest({
+        frameCapture,
+        projectDir: workspace.projectDir,
+        sourceSha256: timedDeckSourceSha256,
+      }))
+    }
+    const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
+    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
+
+    if (!shouldFinalize) {
+      const artifactPath = await workspace.store.writeJson(`deck-frame-shard-${String(frameCapture.frameStart).padStart(6, '0')}-${String(frameCapture.frameEnd).padStart(6, '0')}.json`, createDeckFrameShardArtifact({
+        frameCapture,
+        projectDir: workspace.projectDir,
+        sourceSha256: timedDeckSourceSha256,
+      }))
+
+      await jobStore.updateStage('render-final', 'completed', 'Frame shard captured; final encode was not run.', 1)
+      await refreshArtifactManifest(workspace.artifactsDir)
+
+      return {
+        artifactPath,
+        audioPath,
+        deckQualityReportPath,
+        finalized: false,
+        frameCount: frameCapture.frames.length,
+        frameEnd: frameCapture.frameEnd,
+        frameManifestPath,
+        frameRenderer: frameCapture.backend,
+        frameStart: frameCapture.frameStart,
+        htmlEntryPath: htmlProject.entryHtml,
+        htmlOutputDir: htmlProject.outputDir,
+        outputPath,
+        projectDir: workspace.projectDir,
+        projectId,
+        ...(rendered === undefined ? {} : {rendered}),
+        renderer: 'html',
+        status: 'frames-rendered',
+        ...(validation === undefined ? {} : {validation}),
+        videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+      }
+    }
+
+    await assertCompleteDeckFrameSequence(workspace.projectDir, frameCapture.frames)
+
+    const keyframeQuality = await createDeckKeyframeQuality(workspace, frameCapture, browserKeyframes)
+    const keyframeQualityPath = await workspace.store.writeJson('deck-keyframes.json', keyframeQuality.artifact)
+    const subtitleOutput = await writeDeckSubtitles(workspace, timedDeck)
+
+    await renderDeckFrameSequenceVideo(frameCapture.pattern, frameCapture.fps, silentVideoPath)
+    await muxDeckFinalVideo({
+      audioPath,
+      outputPath,
+      silentVideoPath,
+      subtitlePath: subtitleOutput.outputPath,
+    })
 
     const outputQuality = await inspectDeckRenderedOutput(outputPath, {
       expectedDuration: timedDeck.timings.at(-1)?.end ?? 0,
     })
-    const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
-    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
     const artifactPath = await workspace.store.writeJson('render-output.json', {
       audioInputs: 1,
       audioPath: toProjectPath(workspace.projectDir, audioPath),
       completedAt: new Date().toISOString(),
       entryHtml: toProjectPath(workspace.projectDir, htmlProject.entryHtml),
-      clipCount: clips.length,
-      clipsDir: toProjectPath(workspace.projectDir, clipsDir),
+      finalizeOnly,
+      finalized: true,
+      frameCaptureDuration: frameCapture.duration,
+      frameCapturedCount: frameCapture.capturedFrames,
+      frameConcurrency: frameCapture.concurrency,
       frameCount: frameCapture.frames.length,
-      frameRenderer: 'chromium' as const,
+      frameEnd: frameCapture.frameEnd,
+      frameFps: frameCapture.fps,
+      frameManifestPath: toProjectPath(workspace.projectDir, frameManifestPath),
+      framePattern: toProjectPath(workspace.projectDir, frameCapture.pattern),
+      frameReuse: reuseExistingFrames,
+      frameRenderer: frameCapture.backend,
+      frameSkippedCount: frameCapture.skippedFrames,
+      frameStart: frameCapture.frameStart,
       framesDir: toProjectPath(workspace.projectDir, frameCapture.outputDir),
+      keyframeQualityPath: toProjectPath(workspace.projectDir, keyframeQualityPath),
+      keyframeRenderer: keyframeQuality.artifact.renderer,
       outputDir: toProjectPath(workspace.projectDir, htmlProject.outputDir),
       outputPath: toProjectPath(workspace.projectDir, outputPath),
       outputQuality,
       planPath: toProjectPath(workspace.projectDir, htmlProject.planPath),
-      renderer: 'html' as const,
+    renderer: 'html' as const,
       rendered,
       runtimePath: toProjectPath(workspace.projectDir, htmlProject.runtimePath),
       silentVideoPath: toProjectPath(workspace.projectDir, silentVideoPath),
       source: 'timed-deck.json',
+      sourceSha256: timedDeckSourceSha256,
       stylesPath: toProjectPath(workspace.projectDir, htmlProject.stylesPath),
+      subtitleMuxMode: 'mov_text' as const,
+      subtitleMuxed: true,
+      subtitlePath: toProjectPath(workspace.projectDir, subtitleOutput.outputPath),
+      subtitleQuality: subtitleOutput.quality,
+      subtitlesBurned: false,
       validation,
       version: 1 as const,
-      videoRenderer: 'chromium+ffmpeg' as const,
+      videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+      visualQuality: keyframeQuality.visualQuality,
     })
 
     await jobStore.updateStage('render-final', 'completed', undefined, 1)
@@ -812,18 +1550,29 @@ export async function createDeckFinalRenderProject(options: CreateDeckFinalRende
       artifactPath,
       audioPath,
       deckQualityReportPath,
+      finalized: true,
       frameCount: frameCapture.frames.length,
-      frameRenderer: 'chromium',
+      frameEnd: frameCapture.frameEnd,
+      frameManifestPath,
+      frameRenderer: frameCapture.backend,
+      frameStart: frameCapture.frameStart,
       htmlEntryPath: htmlProject.entryHtml,
       htmlOutputDir: htmlProject.outputDir,
+      keyframeQualityPath,
+      keyframeRenderer: keyframeQuality.artifact.renderer,
       outputPath,
       projectDir: workspace.projectDir,
       projectId,
       ...(rendered === undefined ? {} : {rendered}),
       renderer: 'html',
       status: 'rendered',
+      subtitleMuxMode: 'mov_text',
+      subtitleMuxed: true,
+      subtitlePath: subtitleOutput.outputPath,
+      subtitleQuality: subtitleOutput.quality,
       ...(validation === undefined ? {} : {validation}),
-      videoRenderer: 'chromium+ffmpeg',
+      videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+      visualQuality: keyframeQuality.visualQuality,
     }
   } catch (error) {
     await jobStore.updateStage('render-final', 'failed', error instanceof Error ? error.message : String(error), 1)
@@ -873,7 +1622,7 @@ const LLMTextDeckPlanSchema = z.object({
       attribution: z.string().min(1).optional(),
       text: z.string().min(1),
     }).optional(),
-    speakerNote: z.string().min(1),
+    speakerNote: z.string().optional(),
     stat: z.object({
       caption: z.string().min(1).optional(),
       label: z.string().min(1),
@@ -904,6 +1653,7 @@ interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'comparison'
   }
   motion?: Slide['motion']
   points: string[]
+  speakerNote: string
   subtitle?: string
   type: DeckSlideType
 }
@@ -1815,97 +2565,610 @@ async function renderDeckVoiceover(projectDir: string, ttsSegments: TTSSegment[]
   ])
 }
 
-interface DeckFrame {
-  duration: number
+async function readReusableDeckFrameManifest(workspace: ProjectWorkspace, expected: {
+  fps: number
+  outputDir: string
+  sourceSha256: string
+}): Promise<ReusableDeckFrameManifest | undefined> {
+  try {
+    const manifest = DeckFrameManifestReuseSchema.parse(await workspace.store.readJson('deck-frame-manifest.json'))
+    const matches = manifest.fps === expected.fps
+      && manifest.outputDir === toProjectPath(workspace.projectDir, expected.outputDir)
+      && manifest.sourceSha256 === expected.sourceSha256
+
+    return matches ? manifest : undefined
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return undefined
+    }
+
+    return undefined
+  }
+}
+
+function resolveDeckFinalizeOnlyManifest(input: {
+  finalizeOnly: boolean
+  requestedFrameRange: {end?: number; start?: number} | undefined
+  reusableFrameManifest: ReusableDeckFrameManifest | undefined
+}): ReusableDeckFrameManifest | undefined {
+  if (!input.finalizeOnly) {
+    return undefined
+  }
+
+  if (input.requestedFrameRange !== undefined) {
+    throw new TypeError('finalizeOnly cannot be combined with frameStart/frameEnd; capture shards first, then finalize from the complete frame manifest.')
+  }
+
+  if (input.reusableFrameManifest === undefined) {
+    throw new Error('Cannot finalize Deck video from existing frames because artifacts/deck-frame-manifest.json is missing or does not match timed-deck.json.')
+  }
+
+  return input.reusableFrameManifest
+}
+
+function createDeckFrameCaptureFromManifest(input: {
+  concurrency: number
+  manifest: ReusableDeckFrameManifest
+  projectDir: string
+}): CaptureDeckHtmlFrameSequenceResult {
+  return {
+    backend: input.manifest.renderer,
+    capturedFrames: 0,
+    command: [],
+    concurrency: input.concurrency,
+    duration: input.manifest.duration,
+    fps: input.manifest.fps,
+    frameEnd: input.manifest.frameCount,
+    frameStart: 1,
+    frames: input.manifest.frames.map((frame) => ({
+      frame: frame.frame,
+      path: resolveProjectPath(input.projectDir, frame.path),
+      slideId: frame.slideId,
+      time: frame.time,
+    })),
+    outputDir: resolveProjectPath(input.projectDir, input.manifest.outputDir),
+    pattern: resolveProjectPath(input.projectDir, input.manifest.pattern),
+    skippedFrames: input.manifest.frameCount,
+    viewport: input.manifest.viewport,
+  }
+}
+
+function deckFrameVideoRenderer(backend: DeckHtmlFrameSequenceCaptureBackend): 'chromium+ffmpeg' | 'playwright+ffmpeg' {
+  return backend === 'playwright' ? 'playwright+ffmpeg' : 'chromium+ffmpeg'
+}
+
+async function assertCompleteDeckFrameSequence(projectDir: string, frames: CaptureDeckHtmlFrameSequenceResult['frames']): Promise<void> {
+  const missingFrames = await findMissingDeckFrameFiles(projectDir, frames)
+
+  if (missingFrames.length === 0) {
+    return
+  }
+
+  const examples = missingFrames
+    .slice(0, 5)
+    .map((frame) => `${frame.frame}:${toProjectPath(projectDir, frame.path)}`)
+    .join(', ')
+
+  throw new Error(`Deck frame sequence is incomplete: ${missingFrames.length} missing or empty frame(s). First missing frames: ${examples}`)
+}
+
+async function findMissingDeckFrameFiles(projectDir: string, frames: CaptureDeckHtmlFrameSequenceResult['frames']): Promise<Array<{frame: number; path: string}>> {
+  const missing: Array<{frame: number; path: string}> = []
+
+  for (const frame of frames) {
+    const path = resolveProjectPath(projectDir, frame.path)
+
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      const info = await stat(path)
+
+      if (info.size <= 0) {
+        missing.push({frame: frame.frame, path})
+      }
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        missing.push({frame: frame.frame, path})
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  return missing
+}
+
+function createPlannedDeckFrameManifest(input: {
+  concurrency: number
+  fps: number
+  outputDir: string
+  projectDir: string
+  renderer: DeckHtmlFrameSequenceCaptureBackend
+  sourceSha256: string
+  timedDeck: TimedDeck
+}) {
+  const frames = createDeckHtmlFrameSequence({
+    fps: input.fps,
+    outputDir: input.outputDir,
+    timedDeck: input.timedDeck,
+  })
+
+  return {
+    concurrency: input.concurrency,
+    duration: roundSeconds(frames.length / input.fps),
+    fps: input.fps,
+    frameCount: frames.length,
+    frames: frames.map((frame) => ({
+      frame: frame.frame,
+      path: toProjectPath(input.projectDir, frame.path),
+      slideId: frame.slideId,
+      time: frame.time,
+    })),
+    generatedAt: new Date().toISOString(),
+    outputDir: toProjectPath(input.projectDir, input.outputDir),
+    pattern: toProjectPath(input.projectDir, resolve(input.outputDir, 'frame-%06d.png')),
+    renderer: input.renderer,
+    source: 'timed-deck.json',
+    sourceSha256: input.sourceSha256,
+    version: 1 as const,
+    viewport: deckCanvasSize(input.timedDeck.deck.format),
+  }
+}
+
+function createDeckFrameManifest(input: {
+  frameCapture: Awaited<ReturnType<typeof captureDeckHtmlFrameSequence>>
+  projectDir: string
+  sourceSha256: string
+}) {
+  return {
+    capturedFrames: input.frameCapture.capturedFrames,
+    concurrency: input.frameCapture.concurrency,
+    duration: input.frameCapture.duration,
+    fps: input.frameCapture.fps,
+    frameCount: input.frameCapture.frames.length,
+    frameEnd: input.frameCapture.frameEnd,
+    frameStart: input.frameCapture.frameStart,
+    frames: input.frameCapture.frames.map((frame) => ({
+      frame: frame.frame,
+      path: toProjectPath(input.projectDir, frame.path),
+      slideId: frame.slideId,
+      time: frame.time,
+    })),
+    generatedAt: new Date().toISOString(),
+    outputDir: toProjectPath(input.projectDir, input.frameCapture.outputDir),
+    pattern: toProjectPath(input.projectDir, input.frameCapture.pattern),
+    renderer: input.frameCapture.backend,
+    skippedFrames: input.frameCapture.skippedFrames,
+    source: 'timed-deck.json',
+    sourceSha256: input.sourceSha256,
+    version: 1 as const,
+    viewport: input.frameCapture.viewport,
+  }
+}
+
+function normalizeDeckFrameConcurrency(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_DECK_FRAME_CONCURRENCY
+  }
+
+  return Math.max(1, Math.floor(value))
+}
+
+function normalizeDeckFrameShardSize(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return DEFAULT_DECK_FRAME_SHARD_SIZE
+  }
+
+  return Math.max(1, Math.floor(value))
+}
+
+function normalizeDeckShardConcurrency(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 1
+  }
+
+  return Math.max(1, Math.floor(value))
+}
+
+function normalizeDeckShardRetries(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.max(0, Math.floor(value))
+}
+
+function normalizeDeckShardRetryDelayMs(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) {
+    return 0
+  }
+
+  return Math.max(0, Math.floor(value))
+}
+
+function normalizeDeckRendererFps(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    return DEFAULT_DECK_RENDER_FPS
+  }
+
+  return Math.max(1, Math.floor(value))
+}
+
+function normalizeDeckFrameRange(options: Pick<CreateDeckFinalRenderProjectOptions, 'frameEnd' | 'frameStart'>): {end?: number; start?: number} | undefined {
+  if (options.frameStart === undefined && options.frameEnd === undefined) {
+    return undefined
+  }
+
+  const start = options.frameStart === undefined || !Number.isFinite(options.frameStart) ? undefined : Math.max(1, Math.floor(options.frameStart))
+  const end = options.frameEnd === undefined || !Number.isFinite(options.frameEnd) ? undefined : Math.max(1, Math.floor(options.frameEnd))
+
+  if (start !== undefined && end !== undefined && end < start) {
+    throw new RangeError(`--frame-end (${end}) must be greater than or equal to --frame-start (${start}).`)
+  }
+
+  return {end, start}
+}
+
+function createDeckFrameShardRanges(frameCount: number, frameShardSize: number): Array<{end: number; start: number}> {
+  const ranges: Array<{end: number; start: number}> = []
+
+  for (let start = 1; start <= frameCount; start += frameShardSize) {
+    ranges.push({
+      end: Math.min(frameCount, start + frameShardSize - 1),
+      start,
+    })
+  }
+
+  return ranges
+}
+
+async function runConcurrentMap<Input, Output>(items: Input[], concurrency: number, worker: (item: Input) => Promise<Output>): Promise<Output[]> {
+  const results = new Array<Output>(items.length)
+  let nextIndex = 0
+
+  async function runWorker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const index = nextIndex
+
+      nextIndex += 1
+      const item = items[index]
+
+      if (item === undefined) {
+        continue
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      results[index] = await worker(item)
+    }
+  }
+
+  await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, () => runWorker()))
+
+  return results
+}
+
+async function retryDeckShardCapture<T>(input: {
+  delayMs: number
+  retries: number
+  run: () => Promise<T>
+}): Promise<T> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt <= input.retries; attempt += 1) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      return await input.run()
+    } catch (error) {
+      lastError = error
+
+      if (attempt >= input.retries) {
+        break
+      }
+
+      if (input.delayMs > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(input.delayMs)
+      }
+    }
+  }
+
+  throw lastError
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolveSleep) => {
+    setTimeout(resolveSleep, ms)
+  })
+}
+
+async function sha256File(path: string): Promise<string> {
+  return createHash('sha256').update(await bunFile(path).bytes()).digest('hex')
+}
+
+function createDeckFrameCaptureFromFrames(input: {
+  backend: DeckHtmlFrameSequenceCaptureBackend
+  capturedFrames: number
+  concurrency: number
+  fps: number
+  frames: DeckHtmlFrameSequenceFrame[]
+  outputDir: string
+  skippedFrames: number
+  timedDeck: TimedDeck
+}): CaptureDeckHtmlFrameSequenceResult {
+  return {
+    backend: input.backend,
+    capturedFrames: input.capturedFrames,
+    command: [],
+    concurrency: input.concurrency,
+    duration: roundSeconds(input.frames.length / input.fps),
+    fps: input.fps,
+    frameEnd: input.frames.length,
+    frameStart: 1,
+    frames: input.frames,
+    outputDir: input.outputDir,
+    pattern: resolve(input.outputDir, 'frame-%06d.png'),
+    skippedFrames: input.skippedFrames,
+    viewport: deckCanvasSize(input.timedDeck.deck.format),
+  }
+}
+
+function createDeckFrameShardArtifact(input: {
+  frameCapture: Awaited<ReturnType<typeof captureDeckHtmlFrameSequence>>
+  projectDir: string
+  sourceSha256: string
+}) {
+  const selectedFrames = input.frameCapture.frames
+    .filter((frame) => frame.frame >= input.frameCapture.frameStart && frame.frame <= input.frameCapture.frameEnd)
+    .map((frame) => ({
+      frame: frame.frame,
+      path: toProjectPath(input.projectDir, frame.path),
+      slideId: frame.slideId,
+      time: frame.time,
+    }))
+
+  return {
+    capturedFrames: input.frameCapture.capturedFrames,
+    concurrency: input.frameCapture.concurrency,
+    finalized: false,
+    fps: input.frameCapture.fps,
+    frameCount: input.frameCapture.frames.length,
+    frameEnd: input.frameCapture.frameEnd,
+    frameStart: input.frameCapture.frameStart,
+    frames: selectedFrames,
+    generatedAt: new Date().toISOString(),
+    outputDir: toProjectPath(input.projectDir, input.frameCapture.outputDir),
+    renderer: input.frameCapture.backend,
+    skippedFrames: input.frameCapture.skippedFrames,
+    source: 'timed-deck.json',
+    sourceSha256: input.sourceSha256,
+    version: 1 as const,
+  }
+}
+
+function createDeckRendererBackendArtifact(input: {
+  backend: DeckRendererBackend
+  backendProject: MotionCanvasDeckProject | RemotionDeckProject
+  motionTimeline: MotionTimeline
+  projectDir: string
+  projectId: string
+  sourceSha256: string
+}) {
+  const files = input.backend === 'remotion'
+    ? remotionProjectFiles(input.projectDir, input.backendProject as RemotionDeckProject)
+    : motionCanvasProjectFiles(input.projectDir, input.backendProject as MotionCanvasDeckProject)
+  const height = 'height' in input.backendProject ? input.backendProject.height : undefined
+  const width = 'width' in input.backendProject ? input.backendProject.width : undefined
+
+  return {
+    backend: input.backend,
+    commandCwd: toProjectPath(input.projectDir, input.backendProject.outputDir),
+    files,
+    fps: input.backendProject.fps,
+    generatedAt: new Date().toISOString(),
+    ...(height === undefined ? {} : {height}),
+    motionTimelinePath: files.motion,
+    motionTrackCount: input.motionTimeline.tracks.length,
+    outputDir: toProjectPath(input.projectDir, input.backendProject.outputDir),
+    previewCommand: ['bun', 'run', 'preview'],
+    projectId: input.projectId,
+    renderCommand: ['bun', 'run', 'render'],
+    source: 'timed-deck.json' as const,
+    sourceSha256: input.sourceSha256,
+    version: 1 as const,
+    ...(width === undefined ? {} : {width}),
+  }
+}
+
+function remotionProjectFiles(projectDir: string, project: RemotionDeckProject): Record<string, string> {
+  return {
+    composition: toProjectPath(projectDir, project.compositionPath),
+    data: toProjectPath(projectDir, project.dataPath),
+    entry: toProjectPath(projectDir, project.entryPath),
+    motion: toProjectPath(projectDir, project.motionPath),
+    package: toProjectPath(projectDir, project.packagePath),
+  }
+}
+
+function motionCanvasProjectFiles(projectDir: string, project: MotionCanvasDeckProject): Record<string, string> {
+  return {
+    data: toProjectPath(projectDir, project.dataPath),
+    motion: toProjectPath(projectDir, project.motionPath),
+    package: toProjectPath(projectDir, project.packagePath),
+    project: toProjectPath(projectDir, project.projectPath),
+    scene: toProjectPath(projectDir, project.scenePath),
+  }
+}
+
+async function writeDeckSubtitles(workspace: ProjectWorkspace, timedDeck: TimedDeck): Promise<{
+  outputPath: string
+  quality: SubtitleQualityResult
+}> {
+  const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
+  const outputPath = resolve(workspace.rendersDir, 'subtitles.srt')
+  const cues = narrationToSrtCues(narration)
+
+  await bunWrite(outputPath, narrationToSrt(narration))
+  await workspace.store.writeJson('subtitles.json', {
+    cues: cues.length,
+    format: 'srt' as const,
+    generatedAt: new Date().toISOString(),
+    path: toProjectPath(workspace.projectDir, outputPath),
+    version: 1 as const,
+  })
+
+  return {
+    outputPath,
+    quality: checkSrtSubtitles(await bunFile(outputPath).text(), {
+      expectedCues: narration.segments.length,
+      maxEnd: timedDeck.timings.at(-1)?.end ?? 0,
+    }),
+  }
+}
+
+async function createDeckKeyframeQuality(workspace: ProjectWorkspace, frameCapture: Awaited<ReturnType<typeof captureDeckHtmlFrameSequence>>, browserKeyframes?: CaptureDeckHtmlKeyframesResult): Promise<{
+  artifact: {
+    captureMode: 'browser-keyframes' | 'frame-sequence'
+    duration: number
+    fps: number
+    generatedAt: string
+    renderer: DeckHtmlKeyframeCaptureBackend
+    samples: DeckKeyframeSample[]
+    source: 'deck-frame-manifest.json'
+    version: 1
+    viewport: {height: number; width: number}
+  }
+  visualQuality: VisualSmokeQualityResult
+}> {
+  const captureMode = browserKeyframes === undefined ? 'frame-sequence' : 'browser-keyframes'
+  const targets = browserKeyframes?.frames ?? selectDeckHtmlKeyframes(frameCapture.frames)
+  const samples = await Promise.all(targets.map((target) => readDeckKeyframeSample(workspace.projectDir, target)))
+  const visualQuality = checkVisualSmoke({
+    blackDuration: 0,
+    blackSegments: [],
+    duration: browserKeyframes?.duration ?? frameCapture.duration,
+    frameSamples: samples.map(toVisualFrameSample),
+  })
+
+  return {
+    artifact: {
+      captureMode,
+      duration: browserKeyframes?.duration ?? frameCapture.duration,
+      fps: browserKeyframes?.fps ?? frameCapture.fps,
+      generatedAt: new Date().toISOString(),
+      renderer: browserKeyframes?.backend ?? 'chromium',
+      samples,
+      source: 'deck-frame-manifest.json',
+      version: 1,
+      viewport: browserKeyframes?.viewport ?? frameCapture.viewport,
+    },
+    visualQuality,
+  }
+}
+
+interface DeckKeyframeTarget {
+  frame: number
+  label: string
   path: string
   slideId: string
+  time: number
 }
 
-async function renderDeckFrameClips(frames: DeckHtmlFrame[], clipsDir: string): Promise<DeckFrame[]> {
-  await mkdir(clipsDir, {recursive: true})
-
-  return Promise.all(frames.map((frame, index) => renderDeckFrameClip(frame, resolve(clipsDir, `slide-${String(index + 1).padStart(3, '0')}.mp4`))))
+interface DeckKeyframeSample extends DeckKeyframeTarget {
+  capturedAt: string
+  error?: string
+  ok: boolean
+  sha256?: string
+  size?: number
 }
 
-async function renderDeckFrameClip(frame: DeckHtmlFrame, outputPath: string): Promise<DeckFrame> {
+async function readDeckKeyframeSample(projectDir: string, target: DeckKeyframeTarget): Promise<DeckKeyframeSample> {
+  try {
+    const content = await bunFile(target.path).bytes()
+
+    return {
+      ...target,
+      capturedAt: new Date().toISOString(),
+      ok: true,
+      path: toProjectPath(projectDir, target.path),
+      sha256: createHash('sha256').update(content).digest('hex'),
+      size: content.byteLength,
+    }
+  } catch (error) {
+    return {
+      ...target,
+      capturedAt: new Date().toISOString(),
+      error: error instanceof Error ? error.message : String(error),
+      ok: false,
+      path: toProjectPath(projectDir, target.path),
+    }
+  }
+}
+
+function toVisualFrameSample(sample: DeckKeyframeSample): VisualFrameSample {
+  return {
+    capturedAt: sample.capturedAt,
+    ...(sample.error === undefined ? {} : {error: sample.error}),
+    ok: sample.ok,
+    path: sample.path,
+    ...(sample.sha256 === undefined ? {} : {sha256: sample.sha256}),
+    ...(sample.size === undefined ? {} : {size: sample.size}),
+    timestamp: sample.time,
+  }
+}
+
+async function renderDeckFrameSequenceVideo(framePattern: string, fps: number, outputPath: string): Promise<void> {
   await runFfmpeg([
     '-y',
-    '-loop',
-    '1',
-    '-t',
-    String(frame.duration),
+    '-framerate',
+    String(fps),
     '-i',
-    frame.path,
+    framePattern,
     '-an',
     '-vf',
     'format=yuv420p',
     '-r',
-    '30',
+    String(fps),
     '-c:v',
     'libx264',
     '-preset',
     'veryfast',
-    '-tune',
-    'stillimage',
-    '-movflags',
-    '+faststart',
-    outputPath,
-  ])
-
-  return {
-    duration: frame.duration,
-    path: outputPath,
-    slideId: frame.slideId,
-  }
-}
-
-async function writeDeckClipConcatList(clips: DeckFrame[], outputPath: string): Promise<void> {
-  const lines = clips.map((clip) => `file '${escapeFfmpegConcatPath(clip.path)}'`)
-
-  await bunWrite(outputPath, `${lines.join('\n')}\n`)
-}
-
-async function concatDeckFrameClips(concatPath: string, outputPath: string): Promise<void> {
-  await runFfmpeg([
-    '-y',
-    '-f',
-    'concat',
-    '-safe',
-    '0',
-    '-i',
-    concatPath,
-    '-c',
-    'copy',
     '-movflags',
     '+faststart',
     outputPath,
   ])
 }
 
-async function muxDeckFinalVideo(silentVideoPath: string, audioPath: string, outputPath: string): Promise<void> {
+async function muxDeckFinalVideo(input: {
+  audioPath: string
+  outputPath: string
+  silentVideoPath: string
+  subtitlePath: string
+}): Promise<void> {
   await runFfmpeg([
     '-y',
     '-i',
-    silentVideoPath,
+    input.silentVideoPath,
     '-i',
-    audioPath,
+    input.audioPath,
+    '-i',
+    input.subtitlePath,
     '-map',
     '0:v:0',
     '-map',
     '1:a:0',
+    '-map',
+    '2:0',
     '-c:v',
     'copy',
     '-c:a',
     'aac',
+    '-c:s',
+    'mov_text',
     '-shortest',
     '-movflags',
     '+faststart',
-    outputPath,
+    input.outputPath,
   ])
-}
-
-function escapeFfmpegConcatPath(path: string): string {
-  return path.replaceAll("'", "'\\''")
 }
 
 async function inspectDeckRenderedOutput(outputPath: string, options: {expectedDuration: number}) {
@@ -1921,6 +3184,10 @@ async function inspectDeckRenderedOutput(outputPath: string, options: {expectedD
 
 function toProjectPath(projectDir: string, path: string): string {
   return path.startsWith(`${projectDir}/`) ? path.slice(projectDir.length + 1) : path
+}
+
+function resolveProjectPath(projectDir: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(projectDir, path)
 }
 
 function createTextQualityIssues(input: {

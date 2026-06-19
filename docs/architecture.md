@@ -94,6 +94,8 @@ packages/
   renderer-ffmpeg/    Emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
   renderer-html/      DeckIR to React/Tailwind template/theme/motion HTML runtime compiler boundary
   renderer-hyperframes/ HyperFrames render plan and HTML project compiler boundary
+  renderer-motion-canvas/ DeckIR + MotionIR to Motion Canvas project compiler boundary for technical diagram scenes
+  renderer-remotion/  DeckIR + MotionIR to Remotion project compiler boundary; Remotion CLI remains an optional external executor
   api/                Fetch API handler for runtime state, project operations, and audio preflight diagnostics
   mcp/                Stdio MCP adapter exposing runtime operations as agent-callable tools
   quality/            Clip plan consistency, timeline, narration timing, TTS coverage, subtitle, rendered media, audio loudness, and artifact quality checks
@@ -189,7 +191,7 @@ text / audio
   -> timing
   -> Template + Theme + MotionPreset
   -> seekable HTML runtime
-  -> Chromium capture / ffmpeg mux
+  -> Chromium frame sequence / frame manifest / SRT sidecar / ffmpeg mux
   -> quality check
 ```
 
@@ -211,9 +213,11 @@ DeckIR + TimedDeck
   -> renderToStaticMarkup     static slide DOM, no hydration
   -> Tailwind CSS             scanned utility CSS for generated markup
   -> theme tokens             fixed canvas, safe area, typography, color system
-  -> motion plan              deterministic preset timeline
+  -> MotionIR                 renderer-agnostic property tracks in packages/ir
   -> runtime.js               window.vagent.seek(t) / play() / pause()
 ```
+
+Deck motion presets are authoring hints, not renderer contracts. The HTML renderer compiles them into `MotionTimeline` tracks such as opacity, translate, scale, and blur. Future Remotion, Motion Canvas, or other animation backends should consume the same MotionIR instead of adding backend-specific animation concepts to DeckIR.
 
 Template source is intentionally layered:
 
@@ -227,7 +231,7 @@ deck/motion.ts     deterministic motion presets compiled into a seekable timelin
 
 Templates compose lower layers and declare semantic structure only. `deck/templates/registry.tsx` is the renderer-side catalog for template modules; `template-manifest.ts` remains the LLM-facing catalog of allowed choices, limits, repair behavior, and quality rules. Themes own style tokens, motion presets own animation behavior, and LLM output remains limited to DeckIR fields selected from the manifest.
 
-The primary renderer for this pipeline is static React HTML rendered through Chromium plus ffmpeg for muxing, subtitles, loudness, and final delivery. React is a template authoring layer only; exported Deck pages do not hydrate or depend on React client state. HyperFrames remains an optional backend for compatible HTML project rendering.
+The primary renderer for this pipeline is static React HTML sampled through a seekable browser frame sequence, then encoded and muxed with ffmpeg for final delivery. Full renders first capture independent browser keyframe screenshots into `renders/deck-keyframes/` for visual QC; this capture defaults to Chromium and can use an optional Playwright command backend for environments that want Playwright-based screenshot inspection. Reruns that already have a valid frame manifest can fall back to frame-sequence samples so recovery does not depend on launching a browser again. The runtime writes `deck-frame-manifest.json` with the `timed-deck.json` source hash for frame-level audit/recovery; reruns with the same source reuse existing non-empty frames and recapture missing ones. Full frame capture supports Chromium or Playwright through the Deck render `frameCaptureBackend` option and CLI `--frame-capture-backend`, bounded local concurrency through `frameConcurrency` / `--frame-concurrency`, and 1-based frame shard capture through `frameStart`/`frameEnd` or CLI `--frame-start`/`--frame-end`. `createDeckFrameShardPlanProject` and CLI `--plan-shards` write `deck-frame-shard-plan.json`, classify each shard as pending, partial, or complete from existing frame files, and emit per-shard render args plus a finalize command for external worker orchestration. `createDeckFrameShardBatchProject` and CLI `--run-shards` use one shared HTML project, capture disjoint shard ranges with bounded `shardConcurrency`, retry failed shard captures through `shardRetries` / `--shard-retries`, write per-shard artifacts plus `deck-frame-shard-batch.json`, and preserve failed shard ranges and attempt counts for rerun/recovery. Shard captures write `deck-frame-shard-START-END.json`; once all shards exist, `finalizeOnly` or CLI `--finalize-only` uses the existing frame manifest without launching the frame capture backend and preflights every expected PNG before ffmpeg encoding. Full finalization writes `deck-keyframes.json` for representative screenshot quality samples and `subtitles.srt` as a sidecar subtitle artifact, then muxes subtitles into `final.mp4` as an MP4 `mov_text` subtitle stream. React is a template authoring layer only; exported Deck pages do not hydrate or depend on React client state. HyperFrames remains an optional backend for compatible HTML project rendering. `createDeckRendererBackendProject` and CLI `deck export-backend` compile the same DeckIR plus MotionIR into standalone Remotion or Motion Canvas projects and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json`. `createDeckRemotionRenderProject` and CLI `deck render-backend --backend remotion` run an explicit external Remotion command inside `renders/remotion/`, expect `out/final.mp4` by default, and record `deck-renderer-remotion-output.json`; runtime still treats Remotion as an optional external executor rather than replacing the default HTML/browser/ffmpeg renderer.
 
 Quality checks focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
 

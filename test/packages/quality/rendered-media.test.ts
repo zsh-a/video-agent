@@ -14,6 +14,10 @@ describe('rendered media quality', () => {
             index: 0,
             type: 'video',
           },
+          {
+            index: 1,
+            type: 'subtitle',
+          },
         ],
         version: 1,
       },
@@ -28,6 +32,7 @@ describe('rendered media quality', () => {
       errors: 0,
       issues: [],
       probed: true,
+      subtitleStreams: 1,
       videoStreams: 1,
       warnings: 0,
     })
@@ -97,6 +102,7 @@ describe('rendered media quality', () => {
         },
       ],
       probed: false,
+      subtitleStreams: 0,
       videoStreams: 0,
       warnings: 1,
     })

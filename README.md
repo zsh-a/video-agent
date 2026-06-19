@@ -33,6 +33,8 @@ packages/llm/              internal LLMClient and AI SDK-backed adapter
 packages/renderer-ffmpeg/  ffmpeg renderer boundary
 packages/renderer-html/    DeckIR to React/Tailwind template/theme/motion HTML runtime boundary
 packages/renderer-hyperframes/ HyperFrames project/compiler boundary
+packages/renderer-motion-canvas/ Motion Canvas project compiler boundary for technical diagram scenes
+packages/renderer-remotion/ Remotion project compiler boundary for DeckIR + MotionIR
 packages/quality/          pipeline, render, and artifact quality checks
 packages/db/               JSON and Bun SQLite job stores
 packages/api/              dependency-light Fetch API adapter
@@ -95,7 +97,17 @@ bun run dev export <projectId> --output ./output
 
 `run --progress` enables an Ink-rendered live progress view for interactive terminals. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
 
-The Deck HTML renderer uses a template manifest for LLM slide-type selection, React server rendering for predefined slide templates, Tailwind CSS for controlled utility styling, CSS variables for design tokens, manifest-driven repair/splitting, and a seekable runtime for deterministic capture. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
+The Deck HTML renderer uses a template manifest for LLM slide-type selection, React server rendering for predefined slide templates, Tailwind CSS for controlled utility styling, CSS variables for design tokens, manifest-driven repair/splitting, and a seekable runtime for deterministic frame-sequence capture. Motion presets compile into renderer-agnostic MotionIR tracks before the HTML runtime interprets them, so Remotion and Motion Canvas compiler backends can share timing semantics without owning DeckIR. Full Deck renders first capture independent browser keyframe screenshots for visual QC; this defaults to Chromium and can use the optional Playwright keyframe backend through `--keyframe-capture-backend playwright`. The renderer then writes a source-hashed frame manifest, reuses existing non-empty frames on rerun, supports bounded frame-capture concurrency through `--frame-concurrency`, supports Chromium or Playwright full frame capture through `--frame-capture-backend`, and supports 1-based frame shard capture through `--frame-start` / `--frame-end`. `deck render PROJECT --plan-shards --frame-shard-size N` writes `deck-frame-shard-plan.json` plus a complete planned frame manifest so external workers can run the listed shard commands and retry only pending or partial shards. `deck render PROJECT --run-shards --frame-shard-size N --shard-concurrency M --shard-retries R` captures all shards locally with bounded shard concurrency, retries failed shard captures, writes `deck-frame-shard-batch.json`, and records failed shard ranges plus attempt counts for rerun/recovery. After shards have produced a complete frame sequence, `--finalize-only` muxes from the existing manifest without launching the frame capture backend and fails early if any expected PNG is missing or empty. Full finalization emits keyframe screenshot quality samples, writes an SRT sidecar, and muxes subtitles into the final MP4 as `mov_text`. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
+
+Optional renderer backend projects can be exported from the same Deck artifacts without making Remotion or Motion Canvas part of the default runtime renderer:
+
+```sh
+bun run dev deck export-backend notes-demo --backend remotion
+bun run dev deck export-backend notes-demo --backend motion-canvas --fps 24
+bun run dev deck render-backend notes-demo --backend remotion --remotion-command '["bun","run","render"]'
+```
+
+Export commands write a backend project under `renders/remotion/` or `renders/motion-canvas/` by default and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json` for artifact auditing. `deck render-backend` runs an explicit external Remotion command inside the generated Remotion project, expects `renders/remotion/out/final.mp4` by default, and records `deck-renderer-remotion-output.json`.
 
 Create a PPT-style explainer from text or Markdown:
 
