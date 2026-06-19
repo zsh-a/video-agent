@@ -68,6 +68,17 @@ export const STUDIO_CLIENT_API_SCRIPT = String.raw`    const state = {projectId:
       }
       return row;
     };
+    const formatUsage = (usage) => {
+      if (usage === undefined) return "none";
+      const tokens = usage.totalTokens ?? ((usage.inputTokens ?? 0) + (usage.outputTokens ?? 0));
+      const parts = [
+        tokens > 0 ? tokens + " tok" : undefined,
+        usage.inputTokens !== undefined ? usage.inputTokens + " in" : undefined,
+        usage.outputTokens !== undefined ? usage.outputTokens + " out" : undefined,
+        usage.audioSeconds !== undefined ? usage.audioSeconds + "s audio" : undefined,
+      ].filter((part) => part !== undefined);
+      return parts.length === 0 ? "none" : parts.join(", ");
+    };
     const optionalNumber = (id) => {
       const value = byId(id).value.trim();
       if (value === "") return undefined;

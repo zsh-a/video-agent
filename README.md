@@ -196,6 +196,8 @@ bun run dev mcp --print-config
 
 In an interactive terminal, `tui` opens the Ink manager for project navigation, artifact inspection, events, guided commands, and confirmed management actions. Use `--no-interactive`, `--json`, `--watch`, or a non-TTY shell for the script-friendly dashboard/action output.
 
+`serve` exposes Web Studio at `/studio` as a review desk for project status, artifacts, rendered video output, keyframes, quality issues, provider calls, and LLM traces. Studio starts read-only; rerun, render, and export require enabling project operations in the page.
+
 ## Documentation
 
 - [Architecture](./docs/architecture.md) — package boundaries, pipeline stages, provider strategy.

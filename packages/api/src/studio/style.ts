@@ -24,6 +24,22 @@ export const STUDIO_STYLE = String.raw`    :root {
       background: #ffffff;
     }
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .mode-badge {
+      border: 1px solid #b9c2ce;
+      border-radius: 999px;
+      color: #42515f;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 9px;
+      text-transform: uppercase;
+    }
+
     h1,
     h2,
     p {
@@ -121,6 +137,10 @@ export const STUDIO_STYLE = String.raw`    :root {
       gap: 12px;
     }
 
+    .two-column {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .panel {
       border: 1px solid #d9dee5;
       border-radius: 8px;
@@ -139,6 +159,23 @@ export const STUDIO_STYLE = String.raw`    :root {
       flex-wrap: wrap;
       gap: 8px;
       align-items: center;
+    }
+
+    .operation-toggle {
+      align-items: center;
+      border: 1px solid #b9c2ce;
+      border-radius: 6px;
+      color: #172026;
+      display: inline-flex;
+      font-size: 13px;
+      gap: 8px;
+      min-height: 32px;
+      padding: 6px 10px;
+    }
+
+    .operation-toggle input {
+      height: 16px;
+      width: 16px;
     }
 
     .action-group {
@@ -229,11 +266,29 @@ export const STUDIO_STYLE = String.raw`    :root {
       margin-top: 12px;
     }
 
+    .render-player {
+      background: #111820;
+      border-radius: 6px;
+      display: block;
+      margin-top: 12px;
+      max-height: 70vh;
+      width: 100%;
+    }
+
+    .render-player[hidden] {
+      display: none;
+    }
+
     .sample {
       border: 1px solid #d9dee5;
       border-radius: 6px;
       background: #f8fafc;
       padding: 8px;
+    }
+
+    .sample--warning {
+      border-color: #f0c36a;
+      background: #fffaf0;
     }
 
     .sample img {
@@ -243,6 +298,19 @@ export const STUDIO_STYLE = String.raw`    :root {
       object-fit: contain;
       background: #111820;
       border-radius: 4px;
+    }
+
+    .sample-missing {
+      align-items: center;
+      aspect-ratio: 16 / 9;
+      background: #202a33;
+      border-radius: 4px;
+      color: #dce3ea;
+      display: flex;
+      font-size: 12px;
+      justify-content: center;
+      padding: 10px;
+      text-align: center;
     }
 
     table {
@@ -257,6 +325,7 @@ export const STUDIO_STYLE = String.raw`    :root {
       padding: 8px 6px;
       text-align: left;
       vertical-align: top;
+      overflow-wrap: anywhere;
     }
 
     th {
@@ -272,7 +341,8 @@ export const STUDIO_STYLE = String.raw`    :root {
 
     @media (max-width: 760px) {
       main,
-      .grid {
+      .grid,
+      .two-column {
         grid-template-columns: 1fr;
       }
 

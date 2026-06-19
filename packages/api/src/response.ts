@@ -23,7 +23,7 @@ export function htmlResponse(value: string): Response {
   })
 }
 
-export async function projectFileResponse(projectId: string, projectPath: null | string, workspaceDir: string): Promise<Response> {
+export async function projectFileResponse(projectId: string, projectPath: null | string, workspaceDir: string, request?: Request): Promise<Response> {
   if (projectPath === null || projectPath.trim() === '') {
     return jsonResponse({error: {message: 'Missing project file path.'}}, {status: 400})
   }
@@ -37,16 +37,87 @@ export async function projectFileResponse(projectId: string, projectPath: null |
   }
 
   const content = await readFile(filePath)
+  const range = parseRangeHeader(request?.headers.get('range'), content.length)
+  const contentType = contentTypeForPath(filePath)
+
+  if (range === 'invalid') {
+    return new Response(undefined, {
+      headers: {
+        'accept-ranges': 'bytes',
+        'content-range': `bytes */${content.length}`,
+      },
+      status: 416,
+    })
+  }
+
+  if (range !== undefined) {
+    const body = content.subarray(range.start, range.end + 1)
+
+    return new Response(new Uint8Array(body), {
+      headers: {
+        'accept-ranges': 'bytes',
+        'content-length': String(body.length),
+        'content-range': `bytes ${range.start}-${range.end}/${content.length}`,
+        'content-type': contentType,
+      },
+      status: 206,
+    })
+  }
 
   return new Response(new Uint8Array(content), {
     headers: {
-      'content-type': contentTypeForPath(filePath),
+      'accept-ranges': 'bytes',
+      'content-length': String(content.length),
+      'content-type': contentType,
     },
   })
 }
 
 export function methodNotAllowed(): Response {
   return jsonResponse({error: {message: 'Method not allowed'}}, {status: 405})
+}
+
+function parseRangeHeader(value: null | string | undefined, size: number): 'invalid' | {end: number; start: number} | undefined {
+  if (value === undefined || value === null || value.trim() === '') {
+    return undefined
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/u.exec(value.trim())
+
+  if (match === null) {
+    return 'invalid'
+  }
+
+  const [, startText, endText] = match
+
+  if (startText === '' && endText === '') {
+    return 'invalid'
+  }
+
+  if (startText === '') {
+    const suffixLength = Number(endText)
+
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) {
+      return 'invalid'
+    }
+
+    return {
+      end: size - 1,
+      start: Math.max(0, size - suffixLength),
+    }
+  }
+
+  const start = Number(startText)
+  const end = endText === '' ? size - 1 : Number(endText)
+
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || start >= size) {
+    return 'invalid'
+  }
+
+  return {
+    end: Math.min(end, size - 1),
+    start,
+  }
 }
 
 function contentTypeForPath(path: string): string {

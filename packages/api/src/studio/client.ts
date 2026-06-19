@@ -68,6 +68,24 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
         renderArtifactIntegrity(undefined);
       }
     };
+    const syncOperationControls = (projectSelected) => {
+      const operationsEnabled = byId("operations-enabled").checked === true;
+      const locked = !projectSelected || !operationsEnabled;
+      for (const id of ["render-action", "export-action", "rerun-action"]) {
+        byId(id).disabled = locked;
+      }
+      for (const id of ["render-subtitles", "render-audio", "render-audio-ducking", "render-source-volume", "render-voiceover-volume", "export-format", "export-output", "export-require-quality", "export-clean-output"]) {
+        byId(id).disabled = !projectSelected;
+      }
+      byId("rerun-stage").disabled = locked || byId("rerun-stage").options.length === 0;
+      byId("worker-action").disabled = !projectSelected;
+      byId("provider-test-action").disabled = false;
+      byId("operation-lock-status").textContent = projectSelected
+        ? operationsEnabled
+          ? "Project operations enabled for " + state.projectId + "."
+          : "Rerun, render, and export are disabled."
+        : "Select a project to enable project operations.";
+    };
     const defaultRerunStage = (stages) => {
       const resumable = stages.find((stage) => ["failed", "running", "pending"].includes(stage.status));
       return (resumable ?? stages[0])?.name ?? "";
@@ -84,7 +102,7 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
         select.append(option);
       }
       select.value = stages.some((stage) => stage.name === previous) ? previous : fallback;
-      select.disabled = stages.length === 0;
+      syncOperationControls(state.projectId !== undefined);
     };
     const renderProjects = (projects) => {
       const list = byId("projects");
@@ -103,6 +121,7 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
         button.setAttribute("aria-pressed", String(project.projectId === state.projectId));
         button.addEventListener("click", () => {
           state.projectId = project.projectId;
+          byId("operations-enabled").checked = false;
           void load();
         });
         const name = document.createElement("strong");
@@ -115,14 +134,21 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
       }
     };
     const renderSelected = async () => {
-      const actionButtons = [byId("render-action"), byId("export-action"), byId("rerun-action"), byId("worker-action")];
       if (state.projectId === undefined) {
         byId("status").textContent = "none";
         byId("quality").textContent = "none";
         byId("render").textContent = "none";
+        byId("status-summary").textContent = "No project selected.";
+        byId("quality-summary").textContent = "No quality report.";
+        byId("render-summary").textContent = "No rendered output.";
+        byId("artifact-count").textContent = "0";
+        byId("artifact-summary").textContent = "No artifacts.";
+        renderLLMTraces(undefined);
+        renderQualityDetails(undefined);
+        renderRenderResult(undefined);
         byId("action-status").textContent = "Select a project to run actions.";
-        actionButtons.forEach((button) => { button.disabled = true; });
         renderRerunStages([]);
+        syncOperationControls(false);
         setRows("stages", [], 3);
         setRows("artifacts", [], 4);
         setRows("events", [], 3);
@@ -135,19 +161,29 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
         await loadGuidedActions();
         return;
       }
-      actionButtons.forEach((button) => { button.disabled = false; });
-      const [status, artifacts, events] = await Promise.all([
+      const [status, artifacts, events, providerReport, qualityDetails] = await Promise.all([
         api("/projects/" + encodeURIComponent(state.projectId) + "/status"),
         api("/projects/" + encodeURIComponent(state.projectId) + "/artifacts"),
         api("/projects/" + encodeURIComponent(state.projectId) + "/events?limit=8"),
+        api("/projects/" + encodeURIComponent(state.projectId) + "/provider-report"),
+        api("/projects/" + encodeURIComponent(state.projectId) + "/quality?details=true"),
       ]);
       byId("status").textContent = status.job.status;
       byId("quality").textContent = status.summary.quality.issues + " issues";
       byId("render").textContent = status.summary.render.rendered ? "rendered" : "none";
+      byId("status-summary").textContent = status.job.pipeline + " | " + status.job.stages.length + " stages | " + status.summary.events.count + " events";
+      byId("quality-summary").textContent = status.summary.quality.errors + " errors, " + status.summary.quality.warnings + " warnings";
+      byId("render-summary").textContent = status.summary.render.renderer ?? (status.summary.render.output ?? "No rendered output.");
+      byId("artifact-count").textContent = String(artifacts.artifacts.length);
+      byId("artifact-summary").textContent = artifacts.artifacts.length + " artifacts available";
+      renderLLMTraces(providerReport);
+      renderQualityDetails(qualityDetails);
+      renderRenderResult(status.summary.render);
       renderDeckReview(status);
       renderRerunStages(status.job.stages);
+      syncOperationControls(true);
       setRows("stages", status.job.stages.map((stage) => tableRow([stage.name, stage.status, stage.attempt ?? ""])), 3);
-      setRows("artifacts", artifacts.artifacts.slice(0, 12).map((artifact) => artifactRow(artifact)), 4);
+      setRows("artifacts", artifacts.artifacts.map((artifact) => artifactRow(artifact)), 4);
       setRows("events", events.events.map((event) => tableRow([event.time, event.kind, event.event.type ?? event.event.operation ?? ""])), 3);
       byId("artifact-preview").textContent = "Select an artifact to preview.";
       await Promise.all([
@@ -173,6 +209,14 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
         byId("action-status").textContent = label + " failed: " + (error instanceof Error ? error.message : String(error));
       }
     };
+    const runControlledAction = async (label, action) => {
+      if (byId("operations-enabled").checked !== true) {
+        byId("action-status").textContent = label + " blocked: enable project operations first.";
+        syncOperationControls(state.projectId !== undefined);
+        return;
+      }
+      await runAction(label, action);
+    };
     const runWorkspaceAction = async (label, action) => {
       byId("action-status").textContent = label + " running...";
       try {
@@ -191,24 +235,24 @@ export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
         api("/projects"),
       ]);
       byId("workspace").textContent = health.workspaceDir;
-      byId("workspace-summary").textContent = health.workspaceDir;
       renderProviderEnvironment(providerEnv);
       renderConfig(config);
       renderProjects(projects.projects);
       await renderSelected();
     };
+    byId("operations-enabled").addEventListener("change", () => syncOperationControls(state.projectId !== undefined));
     byId("refresh").addEventListener("click", () => void load());
-    byId("render-action").addEventListener("click", () => void runAction("Render", () => api("/projects/" + encodeURIComponent(state.projectId) + "/render", {
+    byId("render-action").addEventListener("click", () => void runControlledAction("Render", () => api("/projects/" + encodeURIComponent(state.projectId) + "/render", {
       body: JSON.stringify(readRenderOptions()),
       headers: {"content-type": "application/json"},
       method: "POST",
     })));
-    byId("export-action").addEventListener("click", () => void runAction("Export", () => api("/projects/" + encodeURIComponent(state.projectId) + "/export", {
+    byId("export-action").addEventListener("click", () => void runControlledAction("Export", () => api("/projects/" + encodeURIComponent(state.projectId) + "/export", {
       body: JSON.stringify(readExportOptions()),
       headers: {"content-type": "application/json"},
       method: "POST",
     })));
-    byId("rerun-action").addEventListener("click", () => void runAction("Rerun", () => api("/projects/" + encodeURIComponent(state.projectId) + "/rerun", {
+    byId("rerun-action").addEventListener("click", () => void runControlledAction("Rerun", () => api("/projects/" + encodeURIComponent(state.projectId) + "/rerun", {
       body: JSON.stringify({fromStage: byId("rerun-stage").value || undefined}),
       headers: {"content-type": "application/json"},
       method: "POST",

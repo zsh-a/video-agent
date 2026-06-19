@@ -319,7 +319,7 @@ async function routeProjectFiles({projectId, request, url, workspaceDir}: Projec
     return methodNotAllowed()
   }
 
-  return projectFileResponse(projectId, url.searchParams.get('path'), workspaceDir)
+  return projectFileResponse(projectId, url.searchParams.get('path'), workspaceDir, request)
 }
 
 async function routeProjectArtifacts({projectId, request, workspaceDir}: ProjectRouteContext): Promise<Response> {

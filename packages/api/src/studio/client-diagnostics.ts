@@ -22,26 +22,60 @@ export const STUDIO_CLIENT_DIAGNOSTICS_SCRIPT = String.raw`    const artifactRow
     const renderVisualSamples = (samples) => {
       const target = byId("visual-samples");
       target.textContent = "";
-      const available = samples.filter((sample) => sample.exists && sample.contentBase64 !== undefined);
-      if (available.length === 0) {
+      if (samples.length === 0) {
         const empty = document.createElement("p");
         empty.className = "muted";
-        empty.textContent = "No visual samples";
+        empty.textContent = "No keyframes";
         target.append(empty);
         return;
       }
-      for (const sample of available) {
+      for (const sample of samples) {
         const card = document.createElement("div");
-        card.className = "sample";
-        const image = document.createElement("img");
-        image.alt = "Frame sample at " + sample.timestamp + "s";
-        image.src = "data:image/jpeg;base64," + sample.contentBase64;
+        card.className = "sample" + (sample.ok ? "" : " sample--warning");
+        if (sample.exists && sample.contentBase64 !== undefined) {
+          const image = document.createElement("img");
+          image.alt = "Keyframe at " + sample.timestamp + "s";
+          image.src = "data:image/jpeg;base64," + sample.contentBase64;
+          card.append(image);
+        } else {
+          const missing = document.createElement("div");
+          missing.className = "sample-missing";
+          missing.textContent = sample.error ?? "Keyframe unavailable";
+          card.append(missing);
+        }
         const meta = document.createElement("p");
         meta.className = "muted";
-        meta.textContent = sample.timestamp + "s " + (sample.relativePath ?? "");
-        card.append(image, meta);
+        meta.textContent = sample.timestamp + "s " + (sample.relativePath ?? sample.path ?? "") + (sample.size === undefined ? "" : " · " + sample.size + " bytes");
+        card.append(meta);
         target.append(card);
       }
+    };
+    const renderRenderResult = (render) => {
+      const summary = byId("render-result-summary");
+      const actions = byId("render-result-actions");
+      const player = byId("render-result-player");
+      actions.textContent = "";
+      player.removeAttribute("src");
+      player.load();
+      if (render?.rendered !== true || render.output === undefined) {
+        summary.textContent = "No rendered output.";
+        player.hidden = true;
+        return;
+      }
+      const url = projectFileUrl(render.output);
+      summary.textContent = render.output;
+      player.hidden = false;
+      player.src = url;
+      const open = document.createElement("a");
+      open.href = url;
+      open.target = "_blank";
+      open.rel = "noreferrer";
+      open.textContent = "Open video";
+      const download = document.createElement("a");
+      download.href = url;
+      download.download = render.output.split("/").pop() || "render.mp4";
+      download.textContent = "Download";
+      actions.append(open, download);
     };
     const renderDeckReview = (status) => {
       const summary = byId("deck-review-summary");
@@ -130,6 +164,32 @@ export const STUDIO_CLIENT_DIAGNOSTICS_SCRIPT = String.raw`    const artifactRow
       ].join(" | ");
       setRows("render-quality-issues", renderQualityRows(renderOutput), 4);
     };
+    const qualityDetailRows = (quality) => {
+      const rows = [];
+      for (const issue of quality?.contentIssues ?? []) {
+        rows.push(qualityIssueRow("Content", issue));
+      }
+      for (const issue of quality?.deckIssues ?? []) {
+        rows.push(qualityIssueRow("Deck", issue));
+      }
+      for (const issue of quality?.qualityReport?.issues ?? []) {
+        rows.push(qualityIssueRow("Pipeline", issue));
+      }
+      return rows;
+    };
+    const renderQualityDetails = (quality) => {
+      if (quality === undefined) {
+        byId("quality-issue-summary").textContent = "No quality details.";
+        setRows("quality-issues", [], 4);
+        return;
+      }
+      byId("quality-issue-summary").textContent = [
+        "project " + quality.summary.errors + " errors, " + quality.summary.warnings + " warnings",
+        "content " + quality.content.errors + "/" + quality.content.warnings,
+        "deck " + quality.deck.errors + "/" + quality.deck.warnings,
+      ].join(" | ");
+      setRows("quality-issues", qualityDetailRows(quality), 4);
+    };
     const renderTemplateQuality = (renderOutput) => {
       const quality = renderOutput?.templateQuality;
       if (quality === undefined) {
@@ -188,4 +248,23 @@ export const STUDIO_CLIENT_DIAGNOSTICS_SCRIPT = String.raw`    const artifactRow
         ...(integrity.schemaInvalid ?? []).map((issue) => integrityRow("schema invalid", issue.name, issue.issues.map((schemaIssue) => (schemaIssue.path.join(".") || "<root>") + ": " + schemaIssue.message).join("; "))),
         ...integrity.untracked.map((name) => integrityRow("untracked", name, "not present in artifact-manifest.json")),
       ], 3);
+    };
+    const traceRow = (trace) => tableRow([
+      trace.status,
+      trace.operation,
+      trace.provider ?? "unknown",
+      trace.model ?? "unknown",
+      formatUsage(trace.usage),
+      trace.durationMs + "ms",
+      trace.requestId,
+    ]);
+    const renderLLMTraces = (report) => {
+      const traces = report?.llmTraces ?? [];
+      const failed = traces.filter((trace) => trace.status === "failed").length;
+      const usage = report?.summary?.llm?.usage;
+      byId("trace-count").textContent = String(traces.length);
+      byId("trace-summary").textContent = traces.length + " traces, " + failed + " failed, " + formatUsage(usage);
+      byId("provider-call-count").textContent = String(report?.summary?.total ?? 0);
+      byId("provider-call-summary").textContent = (report?.summary?.failed ?? 0) + " failed, " + formatUsage(report?.summary?.usage);
+      setRows("llm-traces", traces.slice(0, 30).map((trace) => traceRow(trace)), 7);
     };`
