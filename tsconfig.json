@@ -17,6 +17,7 @@
     {"path": "./packages/pipeline-deck"},
     {"path": "./packages/pipeline-film"},
     {"path": "./packages/providers"},
+    {"path": "./packages/renderer-deck"},
     {"path": "./packages/renderer-ffmpeg"},
     {"path": "./packages/renderer-html"},
     {"path": "./packages/renderer-hyperframes"},

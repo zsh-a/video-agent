@@ -1,12 +1,10 @@
 import type {TimedDeck} from '@video-agent/ir'
 
 import {runProcess} from '@video-agent/media'
+import {deckCanvasSize, writeDeckHtmlCapturePage} from '@video-agent/renderer-deck'
 import {mkdir, stat, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
-
-import {writeDeckHtmlCapturePage} from './deck/compiler/index.js'
-import {deckCanvasSize} from './deck/format.js'
 
 export interface DeckHtmlFrame {
   duration: number

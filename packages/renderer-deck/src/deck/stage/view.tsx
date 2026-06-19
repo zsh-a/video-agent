@@ -1,40 +1,45 @@
 import type {Deck, Slide, SlideTiming} from '@video-agent/ir'
-import type {ReactNode} from 'react'
-
-import {renderToStaticMarkup} from 'react-dom/server'
+import type {CSSProperties, ReactNode} from 'react'
 
 import {SafeArea, SlideFrame, Stage, classNames} from '../layout/primitives.js'
 import {SlideBody} from './slide-body.js'
 
-export interface RenderDeckStageOptions {
+export interface DeckStageViewOptions {
   captureSlideId?: string
+  slideStyle?: (item: SlideRenderItem) => CSSProperties | undefined
   timings: SlideTiming[]
 }
 
-interface SlideRenderItem {
+export interface SlideRenderItem {
   index: number
   slide: Slide
   timing?: SlideTiming
 }
 
-export function renderDeckStage(deck: Deck, options: RenderDeckStageOptions): string {
-  const timingBySlide = new Map(options.timings.map((timing) => [timing.slideId, timing]))
-  const slides = deck.slides
-    .map((slide, index): SlideRenderItem => ({index, slide, timing: timingBySlide.get(slide.slideId)}))
-    .filter((item) => options.captureSlideId === undefined || item.slide.slideId === options.captureSlideId)
+export function DeckStageView({
+  captureSlideId,
+  deck,
+  slideStyle,
+  timings,
+}: DeckStageViewOptions & {deck: Deck}): ReactNode {
+  const slides = deckStageItems(deck, {captureSlideId, timings})
 
-  return renderToStaticMarkup(<DeckStage slides={slides} />)
-}
-
-function DeckStage({slides}: {slides: SlideRenderItem[]}): ReactNode {
   return (
     <Stage>
-      {slides.map((item) => <DeckSlide item={item} key={item.slide.slideId} />)}
+      {slides.map((item) => <DeckSlide item={item} key={item.slide.slideId} style={slideStyle?.(item)} />)}
     </Stage>
   )
 }
 
-function DeckSlide({item}: {item: SlideRenderItem}): ReactNode {
+export function deckStageItems(deck: Deck, options: Pick<DeckStageViewOptions, 'captureSlideId' | 'timings'>): SlideRenderItem[] {
+  const timingBySlide = new Map(options.timings.map((timing) => [timing.slideId, timing]))
+
+  return deck.slides
+    .map((slide, index): SlideRenderItem => ({index, slide, timing: timingBySlide.get(slide.slideId)}))
+    .filter((item) => options.captureSlideId === undefined || item.slide.slideId === options.captureSlideId)
+}
+
+function DeckSlide({item, style}: {item: SlideRenderItem; style?: CSSProperties}): ReactNode {
   const {index, slide, timing} = item
   const start = timing?.start ?? 0
   const end = timing?.end ?? start + (slide.duration ?? 1)
@@ -47,11 +52,13 @@ function DeckSlide({item}: {item: SlideRenderItem}): ReactNode {
 
   return (
     <SlideFrame
+      active={style?.display !== 'none' && style?.opacity !== 0}
       ariaLabel={slide.title}
       className={className}
       end={round(end)}
       slideId={slide.slideId}
       start={round(start)}
+      style={style}
       template={slide.type}
     >
       <div className="slide__chrome relative z-[2] flex items-center justify-between border-b border-deck-line-soft pb-[22px] text-deck-caption font-bold leading-none text-deck-muted">

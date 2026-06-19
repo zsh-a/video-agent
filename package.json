@@ -27,6 +27,7 @@
     "@video-agent/pipeline-film": "workspace:*",
     "@video-agent/providers": "workspace:*",
     "@video-agent/quality": "workspace:*",
+    "@video-agent/renderer-deck": "workspace:*",
     "@video-agent/renderer-ffmpeg": "workspace:*",
     "@video-agent/renderer-html": "workspace:*",
     "@video-agent/renderer-hyperframes": "workspace:*",

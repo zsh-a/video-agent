@@ -184,7 +184,7 @@ function serializeJsonForScript(value: unknown): string {
     .replaceAll('\u2029', '\\u2029')
 }
 
-async function writeDeckFontAssets(outputDir: string): Promise<void> {
+export async function writeDeckFontAssets(outputDir: string): Promise<void> {
   const fontsDir = resolve(outputDir, 'fonts')
 
   await mkdir(fontsDir, {recursive: true})

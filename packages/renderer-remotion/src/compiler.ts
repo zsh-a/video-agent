@@ -1,6 +1,7 @@
-import type {DeckFormat, MotionTimeline, TimedDeck} from '@video-agent/ir'
+import type {MotionTimeline, TimedDeck} from '@video-agent/ir'
 
 import {MotionTimelineSchema, TimedDeckSchema} from '@video-agent/ir'
+import {compileDeckTailwindCss, deckCanvasSize, writeDeckFontAssets} from '@video-agent/renderer-deck'
 import {mkdir, writeFile} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
@@ -14,6 +15,7 @@ export interface RemotionDeckProject {
   motionPath: string
   outputDir: string
   packagePath: string
+  stylesPath: string
   width: number
 }
 
@@ -40,7 +42,7 @@ export async function writeRemotionDeckProject(options: WriteRemotionDeckProject
   const outputDir = resolve(options.outputDir)
   const srcDir = join(outputDir, 'src')
   const compositionId = options.compositionId ?? 'DeckExplainer'
-  const size = remotionDeckCanvasSize(timedDeck.deck.format)
+  const size = deckCanvasSize(timedDeck.deck.format)
   const project: RemotionDeckProject = {
     compositionId,
     compositionPath: join(srcDir, 'DeckComposition.tsx'),
@@ -51,6 +53,7 @@ export async function writeRemotionDeckProject(options: WriteRemotionDeckProject
     motionPath: join(srcDir, 'motion-timeline.json'),
     outputDir,
     packagePath: join(outputDir, 'package.json'),
+    stylesPath: join(srcDir, 'styles.css'),
     width: size.width,
   }
   const spec = createRemotionDeckCompositionSpec({
@@ -62,6 +65,7 @@ export async function writeRemotionDeckProject(options: WriteRemotionDeckProject
   })
 
   await mkdir(srcDir, {recursive: true})
+  await writeDeckFontAssets(srcDir)
   await Promise.all([
     writeJson(project.packagePath, createRemotionPackageJson(compositionId)),
     writeJson(project.dataPath, timedDeck),
@@ -69,6 +73,12 @@ export async function writeRemotionDeckProject(options: WriteRemotionDeckProject
     writeFile(project.entryPath, createRemotionEntrySource(), 'utf8'),
     writeFile(project.compositionPath, createRemotionCompositionSource(spec), 'utf8'),
   ])
+  await compileDeckTailwindCss({
+    deck: timedDeck.deck,
+    inputPath: join(srcDir, 'tailwind.css'),
+    outputPath: project.stylesPath,
+    sourceHtmlPath: project.compositionPath,
+  })
 
   return project
 }
@@ -116,6 +126,7 @@ function createRemotionPackageJson(compositionId: string) {
       render: `remotion render src/index.tsx ${compositionId} out/final.mp4`,
     },
     dependencies: {
+      '@video-agent/renderer-deck': 'workspace:*',
       '@remotion/cli': '^4.0.0',
       react: '^19.0.0',
       'react-dom': '^19.0.0',
@@ -138,8 +149,10 @@ registerRoot(RemotionRoot);
 function createRemotionCompositionSource(spec: RemotionDeckCompositionSpec): string {
   return `import type React from 'react';
 import {AbsoluteFill, Composition, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
+import {DeckStageView} from '@video-agent/renderer-deck/remotion';
 import deckData from './deck-data.json';
 import motionTimeline from './motion-timeline.json';
+import './styles.css';
 
 const SCENE_TRANSITION_SECONDS = 0.55;
 const SCENE_ENTER_OFFSET_Y = 28;
@@ -167,30 +180,21 @@ export function DeckComposition(props: DeckCompositionProps) {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const time = frame / fps;
+  const sceneBySlide = new Map(props.motionTimeline.scenes.map((scene, index) => [scene.sourceId, {isLast: index === props.motionTimeline.scenes.length - 1, scene}]));
 
   return (
-    <AbsoluteFill style={{background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif'}}>
-      {props.motionTimeline.scenes.map((scene, index) => {
-        const slide = props.deckData.deck.slides.find((item) => item.slideId === scene.sourceId);
-        const style = sceneLayerStyle(scene, time, index === props.motionTimeline.scenes.length - 1);
+    <AbsoluteFill data-deck-root data-format={props.deckData.deck.format} data-theme={props.deckData.deck.theme}>
+      <DeckStageView
+        deck={props.deckData.deck}
+        timings={props.deckData.timings}
+        slideStyle={(item) => {
+          const sceneState = sceneBySlide.get(item.slide.slideId);
 
-        if (slide === undefined || style.display === 'none') {
-          return null;
-        }
-
-        return (
-          <AbsoluteFill
-            data-slide={slide.slideId}
-            key={scene.id}
-            style={{padding: 96, justifyContent: 'center', ...style}}
-          >
-            <div className="slide__title" style={{fontSize: 74, fontWeight: 700, lineHeight: 1.05}}>{slide.title}</div>
-            <div style={{display: 'grid', gap: 24, marginTop: 64, fontSize: 34, lineHeight: 1.25}}>
-              {slide.points.map((point) => <div className="point" key={point}>{point}</div>)}
-            </div>
-          </AbsoluteFill>
-        );
-      })}
+          return sceneState === undefined
+            ? {display: 'none'}
+            : sceneLayerStyle(sceneState.scene, time, sceneState.isLast);
+        }}
+      />
     </AbsoluteFill>
   );
 }
@@ -218,18 +222,6 @@ function sceneLayerStyle(scene: typeof motionTimeline.scenes[number], time: numb
   };
 }
 `
-}
-
-function remotionDeckCanvasSize(format: DeckFormat | undefined): {height: number; width: number} {
-  if (format === 'landscape_1920x1080') {
-    return {height: 1080, width: 1920}
-  }
-
-  if (format === 'square_1080x1080') {
-    return {height: 1080, width: 1080}
-  }
-
-  return {height: 1920, width: 1080}
 }
 
 function normalizeFps(value: number): number {

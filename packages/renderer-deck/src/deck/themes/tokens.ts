@@ -57,7 +57,8 @@ export function themeTokensCss(): string {
       .join('\n')
     const colorScheme = theme.colorScheme === undefined ? '' : '  color-scheme: light;\n'
 
-    return `body[data-theme="${theme.name}"] {
+    return `body[data-theme="${theme.name}"],
+[data-deck-root][data-theme="${theme.name}"] {
 ${colorScheme}${declarations}
 }`
   }).join('\n\n')

@@ -1,5 +1,5 @@
 {
-  "name": "@video-agent/renderer-html",
+  "name": "@video-agent/renderer-deck",
   "version": "0.0.0",
   "type": "module",
   "main": "dist/index.js",
@@ -8,12 +8,19 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./remotion": {
+      "types": "./dist/remotion.d.ts",
+      "import": "./dist/remotion.js"
     }
   },
   "dependencies": {
+    "@fontsource/noto-sans-sc": "^5.2.8",
+    "@tailwindcss/cli": "^4.3.1",
     "@video-agent/ir": "workspace:*",
-    "@video-agent/renderer-deck": "workspace:*",
     "@video-agent/media": "workspace:*",
-    "playwright": "^1.57.0"
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.1"
   }
 }

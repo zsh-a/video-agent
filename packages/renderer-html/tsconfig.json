@@ -11,6 +11,7 @@
   "include": ["src/**/*"],
   "references": [
     {"path": "../ir"},
-    {"path": "../media"}
+    {"path": "../media"},
+    {"path": "../renderer-deck"}
   ]
 }

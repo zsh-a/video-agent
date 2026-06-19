@@ -5,8 +5,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {buildChromiumScreenshotArgs, captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
-import {writeDeckHtmlProject} from '../../../packages/renderer-html/src/deck/compiler/index.js'
-import {deckTemplateManifestForLLM, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-html/src/deck/templates/manifest.js'
+import {writeDeckHtmlProject} from '../../../packages/renderer-deck/src/deck/compiler/index.js'
+import {deckTemplateManifestForLLM, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-deck/src/deck/templates/manifest.js'
 
 describe('html deck compiler', () => {
   it('exposes a template manifest for LLM slide-type selection', () => {

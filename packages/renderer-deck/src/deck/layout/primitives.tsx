@@ -3,6 +3,7 @@ import type {CSSProperties, ReactNode} from 'react'
 export interface PrimitiveProps {
   children?: ReactNode
   className?: string
+  style?: CSSProperties
 }
 
 export interface CardProps extends PrimitiveProps {
@@ -10,6 +11,7 @@ export interface CardProps extends PrimitiveProps {
 }
 
 export interface SlideFrameProps extends PrimitiveProps {
+  active?: boolean
   ariaLabel: string
   end: number
   slideId: string
@@ -26,12 +28,14 @@ export function Stage({children, className}: PrimitiveProps): ReactNode {
 }
 
 export function SlideFrame({
+  active,
   ariaLabel,
   children,
   className,
   end,
   slideId,
   start,
+  style,
   template,
 }: SlideFrameProps): ReactNode {
   return (
@@ -39,9 +43,11 @@ export function SlideFrame({
       aria-label={ariaLabel}
       className={classNames('slide', className)}
       data-end={end}
+      data-active={active || undefined}
       data-slide={slideId}
       data-start={start}
       data-template={template}
+      style={style}
     >
       {children}
     </section>

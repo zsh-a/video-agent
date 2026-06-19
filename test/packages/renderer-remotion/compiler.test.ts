@@ -73,7 +73,11 @@ describe('remotion deck compiler', () => {
       expect(packageJson.scripts.render).to.contain('DeckExplainer')
       expect(entry).to.contain('registerRoot')
       expect(composition).to.contain('<Composition')
+      expect(composition).to.contain("@video-agent/renderer-deck/remotion")
+      expect(composition).to.contain('<DeckStageView')
+      expect(composition).to.contain("import './styles.css'")
       expect(composition).to.contain('durationInFrames={60}')
+      expect(await fileSize(project.stylesPath)).to.be.greaterThan(0)
       expect(deckData.deck.slides[0]?.title).to.equal('Remotion 后端')
       expect(motion.tracks[0]?.id).to.equal('title-opacity')
     } finally {

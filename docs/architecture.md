@@ -78,7 +78,7 @@ Pipeline facade packages expose the business orchestration surface while reusing
 ```text
 packages/
   pipeline-film/    film recap orchestration facade over runtime/core/media/providers/renderers
-  pipeline-deck/    deck explainer orchestration facade over runtime/core/providers/renderer-html
+  pipeline-deck/    deck explainer orchestration facade over runtime/core/providers/renderer-deck/renderers
 ```
 
 ## Package Layout
@@ -92,7 +92,8 @@ packages/
   providers/          ASR / VLM / TTS plus storyboard/script business provider interfaces
   llm/                Internal LLMClient interface, AI SDK config factory, and AI SDK-backed default adapter
   renderer-ffmpeg/    Emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
-  renderer-html/      DeckIR to React/Tailwind template/theme/motion HTML runtime compiler boundary
+  renderer-deck/      Shared DeckIR React/Tailwind templates, theme CSS, template manifest, and MotionIR compiler
+  renderer-html/      Browser HTML/Playwright capture boundary over shared deck templates
   renderer-hyperframes/ HyperFrames render plan and HTML project compiler boundary
   renderer-motion-canvas/ DeckIR + MotionIR to Motion Canvas project compiler boundary for technical diagram scenes
   renderer-remotion/  DeckIR + MotionIR to Remotion project compiler boundary; Remotion CLI remains an optional external executor
@@ -202,9 +203,9 @@ Two modes:
 
 Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`. `Slide` is semantic: it chooses a controlled slide type (`hero`, `three-points`, `comparison`, `process`, `timeline`, `quote`, `stat`, `chart`, `code`, `summary`, `cta`) plus structured content and a motion preset. LLM providers generate DeckIR only; they do not generate HTML, CSS, absolute positions, fonts, colors, or animation curves.
 
-Template selection is manifest-driven. `packages/renderer-html/src/deck/template-manifest.ts` is the source of truth for built-in template `type`, `use_when`, supported fields, content limits, allowed motion presets, repair strategy, and template quality rules. Runtime planning passes this manifest to the LLM as `target.templateManifest`; prompts require the LLM to choose only from that manifest, split over-limit content into multiple slides, and avoid mixing unrelated themes on one page. Runtime normalization still enforces the same limits before creating DeckIR, so overfilled slides are split or downgraded before rendering.
+Template selection is manifest-driven. `packages/renderer-deck/src/deck/templates/manifest.ts` is the source of truth for built-in template `type`, `use_when`, supported fields, content limits, allowed motion presets, repair strategy, and template quality rules. Runtime planning passes this manifest to the LLM as `target.templateManifest`; prompts require the LLM to choose only from that manifest, split over-limit content into multiple slides, and avoid mixing unrelated themes on one page. Runtime normalization still enforces the same limits before creating DeckIR, so overfilled slides are split or downgraded before rendering.
 
-`packages/renderer-html` compiles DeckIR through React/Tailwind static rendering boundaries:
+`packages/renderer-deck` owns the reusable DeckIR presentation system:
 
 ```text
 DeckIR + TimedDeck
@@ -214,10 +215,11 @@ DeckIR + TimedDeck
   -> Tailwind CSS             scanned utility CSS for generated markup
   -> theme tokens             fixed canvas, safe area, typography, color system
   -> MotionIR                 renderer-agnostic property tracks in packages/ir
-  -> runtime.js               window.vagent.seek(t) / play() / pause()
 ```
 
-Deck motion presets are authoring hints, not renderer contracts. The HTML renderer compiles them into `MotionTimeline` tracks such as opacity, translate, scale, and blur. Future Remotion, Motion Canvas, or other animation backends should consume the same MotionIR instead of adding backend-specific animation concepts to DeckIR.
+The HTML renderer adds a browser runtime (`window.vagent.seek(t) / play() / pause()`) for Playwright/Chromium inspection and frame capture. The Remotion renderer imports the same React templates through the browser-safe `@video-agent/renderer-deck/remotion` entry and evaluates scene timing per frame inside the Remotion composition.
+
+Deck motion presets are authoring hints, not renderer contracts. The shared deck package compiles them into `MotionTimeline` tracks such as opacity, translate, scale, and blur. HTML, Remotion, Motion Canvas, or other animation backends should consume the same MotionIR instead of adding backend-specific animation concepts to DeckIR.
 
 Template source is intentionally layered:
 

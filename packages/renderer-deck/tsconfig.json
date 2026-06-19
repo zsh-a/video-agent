@@ -3,15 +3,14 @@
   "compilerOptions": {
     "composite": true,
     "declaration": true,
+    "jsx": "react-jsx",
     "outDir": "dist",
     "rootDir": "src",
-    "skipLibCheck": true,
     "tsBuildInfoFile": "tsconfig.tsbuildinfo"
   },
   "include": ["src/**/*"],
   "references": [
     {"path": "../ir"},
-    {"path": "../media"},
-    {"path": "../renderer-deck"}
+    {"path": "../media"}
   ]
 }
