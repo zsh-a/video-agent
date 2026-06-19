@@ -2,12 +2,12 @@ import type {LLMClient, LLMMessage} from '@video-agent/llm'
 
 import {posix} from 'node:path'
 
-import type {SceneFrameBatch, VLMProvider, VLMScene} from './contracts.js'
+import type {SceneFrameBatch, VLMProvider, VLMScene} from '../contracts.js'
 
-import {bunFile} from './bun-runtime.js'
-import {createFileDataUri, resolveImageMimeType} from './llm-media-utils.js'
-import {attachProviderMetadata} from './metadata.js'
-import {VlmScenesSchema} from './schemas.js'
+import {bunFile} from '../bun-runtime.js'
+import {createFileDataUri, resolveImageMimeType} from './media-utils.js'
+import {attachProviderMetadata} from '../metadata.js'
+import {VlmScenesSchema} from '../schemas.js'
 
 const MAX_VLM_IMAGE_PARTS = 16
 

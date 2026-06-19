@@ -8,7 +8,7 @@ import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMMessage} 
 
 import {MIMO_PROVIDER_MODEL_IDS, readProviderMetadata} from '../../../packages/providers/src/index.js'
 import {createTtsProvider} from '../../../packages/providers/src/registry.js'
-import {LLMVLMProvider, MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '../../../packages/providers/src/llm-media.js'
+import {LLMVLMProvider, MIMO_ASR_MODEL, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from '../../../packages/providers/src/llm/media.js'
 
 const asrOptionsKey = 'asr_options'
 

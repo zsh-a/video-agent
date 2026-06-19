@@ -6,7 +6,7 @@ import {dirname, resolve} from 'node:path'
 
 import {bunWrite} from '../../bun-runtime.js'
 import {deckCanvasSize} from '../format.js'
-import {compileDeckMotionPlan, type DeckMotionPlan} from '../motion.js'
+import {compileDeckMotionPlan, type DeckMotionPlan} from '../motion/index.js'
 import {createDeckRuntimeScript} from '../runtime.js'
 import {renderDeckStage} from '../stage/render-stage.js'
 import {compileDeckTailwindCss} from '../tailwind.js'

@@ -2,14 +2,14 @@ import type {DeckMotionPreset, DeckSlideType, MotionTimeline, Slide, TimedDeck} 
 
 import {MotionTimelineSchema} from '@video-agent/ir'
 
-import {motionPresetState, resolveBlurFreePreset} from './motion-presets.js'
-import {compileTransitions, type DeckMotionTransition} from './motion-transitions.js'
-import {cssEscape, round} from './motion-utils.js'
-import type {TemplateMotionStep} from './templates/define-template.js'
+import {motionPresetState, resolveBlurFreePreset} from './presets.js'
+import {compileTransitions, type DeckMotionTransition} from './transitions.js'
+import {cssEscape, round} from './utils.js'
+import type {TemplateMotionStep} from '../templates/define-template.js'
 
 export type {DeckMotionTransition}
-export {motionPresetState, titlePresetFor} from './motion-presets.js'
-export {clamp} from './motion-utils.js'
+export {motionPresetState, titlePresetFor} from './presets.js'
+export {clamp} from './utils.js'
 
 export interface DeckMotionPlan {
   duration: number

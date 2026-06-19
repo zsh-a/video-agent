@@ -12,11 +12,11 @@ import type {
   LLMTraceRecorder,
   LLMUsage,
   StreamTextRequest,
-} from './types.js'
+} from '../types.js'
 
-import {createJsonFallbackRequest, parseJsonFromText, shouldFallbackToJsonText} from './ai-sdk-json-fallback.js'
-import {recordAISDKTrace, startTrace, type TraceContext} from './ai-sdk-tracing.js'
-import {normalizeUsage} from './ai-sdk-usage.js'
+import {createJsonFallbackRequest, parseJsonFromText, shouldFallbackToJsonText} from './json-fallback.js'
+import {recordAISDKTrace, startTrace, type TraceContext} from './tracing.js'
+import {normalizeUsage} from './usage.js'
 
 export interface AISDKLLMClientOptions {
   model: LanguageModel

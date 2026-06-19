@@ -3,7 +3,7 @@ import {checkRuntimeHealth, createProviderEnvironmentShellTemplate, listProjects
 
 import {parseOptionalBoolean, parseOptionalInteger, readBooleanField, readCommandPrefix, readEnvField, readEnvQuery, readJsonBody, readNumberField, readRecoveryOrderBy, readStringField, resolveProviderSmokeTestRoles, resolveRecoverableStatuses} from './request.js'
 import {htmlResponse, jsonResponse, methodNotAllowed} from './response.js'
-import {renderStudioHtml} from './studio.js'
+import {renderStudioHtml} from './studio/index.js'
 
 interface RootRouteContext {
   request: Request

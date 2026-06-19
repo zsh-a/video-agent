@@ -2,8 +2,8 @@ import {expect} from '#test/expect'
 
 import type {DeckMotionPreset, TimedDeck} from '@video-agent/ir'
 
-import {clamp, compileDeckMotionPlan, motionPresetState, titlePresetFor} from '../../../packages/renderer-deck/src/deck/motion.js'
-import type {ResolveMotionSteps} from '../../../packages/renderer-deck/src/deck/motion.js'
+import {clamp, compileDeckMotionPlan, motionPresetState, titlePresetFor} from '../../../packages/renderer-deck/src/deck/motion/index.js'
+import type {ResolveMotionSteps} from '../../../packages/renderer-deck/src/deck/motion/index.js'
 import type {TemplateMotionStep} from '../../../packages/renderer-deck/src/deck/templates/define-template.js'
 import {resolveMotionStepsForTemplate} from '../../../packages/renderer-deck/src/deck/templates/registry.js'
 

@@ -1,7 +1,7 @@
 import {APICallError, NoObjectGeneratedError, RetryError} from 'ai'
 import {toJSONSchema} from 'zod'
 
-import type {GenerateObjectRequest, GenerateTextRequest} from './types.js'
+import type {GenerateObjectRequest, GenerateTextRequest} from '../types.js'
 
 export function shouldFallbackToJsonText(error: unknown): boolean {
   return NoObjectGeneratedError.isInstance(error)

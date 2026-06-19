@@ -1,4 +1,4 @@
-import type {LLMUsage} from './types.js'
+import type {LLMUsage} from '../types.js'
 
 export function normalizeUsage(usage: undefined | {inputTokens?: number; outputTokens?: number; totalTokens?: number}): LLMUsage | undefined {
   if (usage === undefined) {

@@ -5,7 +5,7 @@ import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMPr
 import {bunEnv} from './bun-runtime.js'
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
 import {providerEnvName, type ProviderRole} from './descriptors.js'
-import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MIMO_TTS_BASE_URL, MIMO_TTS_DEFAULT_VOICE, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from './llm-media.js'
+import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MIMO_TTS_BASE_URL, MIMO_TTS_DEFAULT_VOICE, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from './llm/media.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
 import {LLMRequiredScriptProvider, LLMRequiredStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
 

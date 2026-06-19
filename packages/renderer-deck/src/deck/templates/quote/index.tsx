@@ -1,5 +1,5 @@
 import {QuoteBlock, TitleBlock} from '../../components/index.js'
-import {slideTiming} from '../../motion-helpers.js'
+import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {quoteForSlide} from '../helpers.js'
 import {quoteManifest} from './manifest.js'

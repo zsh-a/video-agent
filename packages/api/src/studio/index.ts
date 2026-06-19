@@ -1,5 +1,5 @@
-import {STUDIO_CLIENT_SCRIPT} from './studio-client.js'
-import {STUDIO_STYLE} from './studio-style.js'
+import {STUDIO_CLIENT_SCRIPT} from './client.js'
+import {STUDIO_STYLE} from './style.js'
 
 export function renderStudioHtml(): string {
   return String.raw`<!doctype html>

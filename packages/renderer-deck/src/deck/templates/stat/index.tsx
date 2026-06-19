@@ -2,7 +2,7 @@ import type {Slide} from '@video-agent/ir'
 import type {ReactNode} from 'react'
 
 import {PointCard, StatNumber, TitleBlock} from '../../components/index.js'
-import {slideTiming} from '../../motion-helpers.js'
+import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {ReadableFallback} from '../helpers.js'
 import {statManifest} from './manifest.js'

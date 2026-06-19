@@ -3,7 +3,7 @@ import type {LanguageModel, ModelMessage} from 'ai'
 import {createHash, randomUUID} from 'node:crypto'
 import {toJSONSchema} from 'zod'
 
-import type {GenerateObjectRequest, GenerateTextRequest, LLMTraceOperation, LLMTraceRecord, LLMTraceRecorder, LLMUsage} from './types.js'
+import type {GenerateObjectRequest, GenerateTextRequest, LLMTraceOperation, LLMTraceRecord, LLMTraceRecorder, LLMUsage} from '../types.js'
 
 export interface TraceContext {
   operation: LLMTraceOperation

@@ -2,7 +2,7 @@ import type {LLMUsage} from '@video-agent/llm'
 
 import {extname} from 'node:path'
 
-import type {MediaInput} from './contracts.js'
+import type {MediaInput} from '../contracts.js'
 
 export function createAudioDataUri(audio: Uint8Array, mediaType: string): string {
   return createFileDataUri(audio, mediaType)

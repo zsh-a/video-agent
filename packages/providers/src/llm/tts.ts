@@ -4,13 +4,13 @@ import {mkdir, writeFile} from 'node:fs/promises'
 import {join, posix} from 'node:path'
 
 import type {NarrationSegment} from '@video-agent/ir'
-import type {TTSProvider, TTSProviderSynthesizeOptions, TTSSegment} from './contracts.js'
+import type {TTSProvider, TTSProviderSynthesizeOptions, TTSSegment} from '../contracts.js'
 
 import {probeMedia} from '@video-agent/media'
-import {isRecord, normalizeBaseURL, normalizeOptionalString, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './llm-media-utils.js'
-import {attachProviderMetadata} from './metadata.js'
-import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from './profiles.js'
-import {TtsSegmentsSchema} from './schemas.js'
+import {isRecord, normalizeBaseURL, normalizeOptionalString, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './media-utils.js'
+import {attachProviderMetadata} from '../metadata.js'
+import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
+import {TtsSegmentsSchema} from '../schemas.js'
 
 export const MIMO_TTS_BASE_URL = MIMO_PROVIDER_BASE_URL
 export const MIMO_TTS_DEFAULT_VOICE = 'mimo_default'

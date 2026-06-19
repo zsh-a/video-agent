@@ -1,5 +1,5 @@
 import {TitleBlock} from '../../components/index.js'
-import {slideTiming} from '../../motion-helpers.js'
+import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {sectionManifest} from './manifest.js'
 import {sectionStyles} from './styles.js'

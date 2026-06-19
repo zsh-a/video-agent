@@ -1,5 +1,5 @@
 import {CtaBlock, TitleBlock} from '../../components/index.js'
-import {slideTiming} from '../../motion-helpers.js'
+import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {ctaManifest} from './manifest.js'
 import {ctaStyles} from './styles.js'

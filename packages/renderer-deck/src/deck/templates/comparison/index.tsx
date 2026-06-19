@@ -1,6 +1,6 @@
 import {ComparisonBlock, TitleBlock} from '../../components/index.js'
-import {titlePresetFor} from '../../motion.js'
-import {slideTiming} from '../../motion-helpers.js'
+import {titlePresetFor} from '../../motion/index.js'
+import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {ReadableFallback, comparisonForSlide} from '../helpers.js'
 import {comparisonManifest} from './manifest.js'

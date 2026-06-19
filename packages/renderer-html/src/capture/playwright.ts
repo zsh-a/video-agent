@@ -8,7 +8,7 @@ import type {
   DeckHtmlKeyframe,
   PlaywrightFrameSequenceCaptureManifest,
   PlaywrightKeyframeCaptureManifest,
-} from './capture-types.js'
+} from './types.js'
 
 import {runProcess} from '@video-agent/media'
 import {deckCanvasSize, writeDeckHtmlCapturePage} from '@video-agent/renderer-deck'
@@ -16,8 +16,8 @@ import {mkdir, stat, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
-import {createDeckHtmlFrameSequence, createDeckHtmlKeyframes} from './capture-planning.js'
-import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange} from './capture-utils.js'
+import {createDeckHtmlFrameSequence, createDeckHtmlKeyframes} from './planning.js'
+import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange} from './utils.js'
 
 export class PlaywrightCaptureError extends Error {
   constructor(

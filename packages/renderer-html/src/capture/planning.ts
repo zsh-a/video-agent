@@ -1,5 +1,5 @@
 import type {TimedDeck} from '@video-agent/ir'
-import type {DeckHtmlFrameSequenceFrame, DeckHtmlKeyframe} from './capture-types.js'
+import type {DeckHtmlFrameSequenceFrame, DeckHtmlKeyframe} from './types.js'
 
 import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'

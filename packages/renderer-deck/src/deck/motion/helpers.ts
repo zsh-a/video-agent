@@ -1,4 +1,4 @@
-import {clamp} from './motion.js'
+import {clamp} from './index.js'
 
 export interface SlideTimingConfig {
   contentAt: number

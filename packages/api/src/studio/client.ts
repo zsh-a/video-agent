@@ -1,5 +1,5 @@
-import {STUDIO_CLIENT_API_SCRIPT} from './studio-client-api.js'
-import {STUDIO_CLIENT_DIAGNOSTICS_SCRIPT} from './studio-client-diagnostics.js'
+import {STUDIO_CLIENT_API_SCRIPT} from './client-api.js'
+import {STUDIO_CLIENT_DIAGNOSTICS_SCRIPT} from './client-diagnostics.js'
 
 export const STUDIO_CLIENT_SCRIPT = [STUDIO_CLIENT_API_SCRIPT, String.raw`
     const renderProviderEnvironment = (report) => {

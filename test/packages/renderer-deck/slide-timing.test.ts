@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {slideTiming} from '../../../packages/renderer-deck/src/deck/motion-helpers.js'
+import {slideTiming} from '../../../packages/renderer-deck/src/deck/motion/helpers.js'
 
 describe('slideTiming', () => {
   it('returns fast config for short slides (< 20s)', () => {

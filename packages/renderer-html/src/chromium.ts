@@ -8,19 +8,19 @@ import type {
   CaptureDeckHtmlKeyframesResult,
   DeckHtmlFrame,
   DeckHtmlFrameSequenceFrame,
-} from './capture-types.js'
+} from './capture/types.js'
 
 import {runProcess} from '@video-agent/media'
 import {deckCanvasSize, writeDeckHtmlCapturePage} from '@video-agent/renderer-deck'
 import {mkdir, stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {buildChromiumScreenshotArgs, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from './capture-planning.js'
-import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange, runConcurrent} from './capture-utils.js'
-import {captureDeckHtmlFrameSequenceWithPlaywright, captureDeckHtmlKeyframesWithPlaywright} from './playwright-capture.js'
+import {buildChromiumScreenshotArgs, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from './capture/planning.js'
+import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange, runConcurrent} from './capture/utils.js'
+import {captureDeckHtmlFrameSequenceWithPlaywright, captureDeckHtmlKeyframesWithPlaywright} from './capture/playwright.js'
 
-export {buildChromiumScreenshotArgs, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime, selectDeckHtmlKeyframes} from './capture-planning.js'
-export {PlaywrightCaptureError} from './playwright-capture.js'
+export {buildChromiumScreenshotArgs, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime, selectDeckHtmlKeyframes} from './capture/planning.js'
+export {PlaywrightCaptureError} from './capture/playwright.js'
 export type {
   CaptureDeckHtmlFrameSequenceOptions,
   CaptureDeckHtmlFrameSequenceResult,
@@ -35,7 +35,7 @@ export type {
   DeckHtmlKeyframeCaptureBackend,
   PlaywrightFrameSequenceCaptureManifest,
   PlaywrightKeyframeCaptureManifest,
-} from './capture-types.js'
+} from './capture/types.js'
 
 export class ChromiumCaptureError extends Error {
   constructor(

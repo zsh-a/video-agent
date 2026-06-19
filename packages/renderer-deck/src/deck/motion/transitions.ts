@@ -1,6 +1,6 @@
 import type {TimedDeck} from '@video-agent/ir'
 
-import type {DeckMotionSlide} from './motion.js'
+import type {DeckMotionSlide} from './index.js'
 
 export interface DeckMotionTransition {
   from: string

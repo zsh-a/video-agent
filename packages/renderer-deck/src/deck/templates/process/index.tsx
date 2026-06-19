@@ -1,6 +1,6 @@
 import {ProcessList, TitleBlock} from '../../components/index.js'
-import {titlePresetFor} from '../../motion.js'
-import {slideTiming} from '../../motion-helpers.js'
+import {titlePresetFor} from '../../motion/index.js'
+import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {processManifest} from './manifest.js'
 import {processStyles} from './styles.js'

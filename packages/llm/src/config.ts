@@ -5,7 +5,7 @@ import {createOpenAICompatible} from '@ai-sdk/openai-compatible'
 
 import type {LLMClient, LLMTraceRecorder} from './types.js'
 
-import {AISDKLLMClient} from './ai-sdk-adapter.js'
+import {AISDKLLMClient} from './ai-sdk/adapter.js'
 import {bunEnv} from './bun-runtime.js'
 
 export type LLMProviderName = 'anthropic' | 'openai-compatible'
