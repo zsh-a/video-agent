@@ -1,7 +1,15 @@
 import {IdeaCard, TitleBlock} from '../../components/index.js'
-import {defineSlideTemplate, defineSlideTemplateModule} from '../define-template.js'
+import {titlePresetFor} from '../../motion.js'
+import {slideTiming} from '../../motion-helpers.js'
+import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {oneBigIdeaManifest} from './manifest.js'
 import {oneBigIdeaStyles} from './styles.js'
+
+const oneBigIdeaMotionSteps: TemplateMotionStep[] = [
+  {selector: '.slide__title', preset: (m) => titlePresetFor(m), at: (d) => d * slideTiming(d).enterAt, duration: (d) => slideTiming(d).titleDuration(d)},
+  {selector: '.slide__subtitle', preset: 'fade-in', at: (d) => d * (slideTiming(d).enterAt + 0.08), duration: (d) => slideTiming(d).contentDuration(d)},
+  {selector: '.idea-card, .point', preset: 'stagger-up', at: (d) => d * slideTiming(d).contentAt, duration: (d) => slideTiming(d).contentDuration(d), stagger: 0.16},
+]
 
 export const oneBigIdeaTemplate = defineSlideTemplate({
   render: (slide) => (
@@ -15,6 +23,7 @@ export const oneBigIdeaTemplate = defineSlideTemplate({
 
 export const oneBigIdeaTemplateModule = defineSlideTemplateModule({
   manifest: oneBigIdeaManifest,
+  motionSteps: oneBigIdeaMotionSteps,
   styles: oneBigIdeaStyles,
   template: oneBigIdeaTemplate,
 })

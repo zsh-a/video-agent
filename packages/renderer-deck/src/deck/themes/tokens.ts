@@ -23,7 +23,7 @@ interface ThemeTokenSet {
 const THEME_TOKEN_SETS: readonly ThemeTokenSet[] = [
   {
     name: 'elegant-dark',
-    values: ['#080b12', '#111827', 'rgb(244 248 255 / 8%)', 'rgb(244 248 255 / 14%)', 'rgb(15 23 42 / 72%)', '#f7fafc', '#aeb9c8', 'rgb(217 226 239 / 22%)', 'rgb(217 226 239 / 10%)', '#56d6ff', '#58e6a9', '#f6c96b', 'rgb(0 0 0 / 34%)'],
+    values: ['#080b12', '#111827', 'rgb(244 248 255 / 12%)', 'rgb(244 248 255 / 22%)', 'rgb(15 23 42 / 72%)', '#f7fafc', '#aeb9c8', 'rgb(217 226 239 / 22%)', 'rgb(217 226 239 / 10%)', '#56d6ff', '#58e6a9', '#f6c96b', 'rgb(0 0 0 / 34%)'],
   },
   {
     colorScheme: 'light',
@@ -32,11 +32,11 @@ const THEME_TOKEN_SETS: readonly ThemeTokenSet[] = [
   },
   {
     name: 'finance-terminal',
-    values: ['#07100f', '#111b1d', 'rgb(237 248 244 / 8%)', 'rgb(237 248 244 / 15%)', 'rgb(9 28 27 / 74%)', '#f4fff9', '#a7bbb3', 'rgb(196 231 218 / 20%)', 'rgb(196 231 218 / 9%)', '#43e59b', '#4cc9f0', '#f2c15d', 'rgb(0 0 0 / 36%)'],
+    values: ['#07100f', '#111b1d', 'rgb(237 248 244 / 12%)', 'rgb(237 248 244 / 22%)', 'rgb(9 28 27 / 74%)', '#f4fff9', '#a7bbb3', 'rgb(196 231 218 / 20%)', 'rgb(196 231 218 / 9%)', '#43e59b', '#4cc9f0', '#f2c15d', 'rgb(0 0 0 / 36%)'],
   },
   {
     name: 'tech-gradient',
-    values: ['#071019', '#101827', 'rgb(226 240 255 / 8%)', 'rgb(226 240 255 / 15%)', 'rgb(15 24 38 / 78%)', '#f8fbff', '#a8b8c9', 'rgb(213 233 255 / 20%)', 'rgb(213 233 255 / 9%)', '#31d8ff', '#b8ec5b', '#fb8b96', 'rgb(0 0 0 / 34%)'],
+    values: ['#071019', '#101827', 'rgb(226 240 255 / 12%)', 'rgb(226 240 255 / 22%)', 'rgb(15 24 38 / 78%)', '#f8fbff', '#a8b8c9', 'rgb(213 233 255 / 20%)', 'rgb(213 233 255 / 9%)', '#31d8ff', '#b8ec5b', '#fb8b96', 'rgb(0 0 0 / 34%)'],
   },
   {
     colorScheme: 'light',

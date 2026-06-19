@@ -10,6 +10,8 @@ import {compileDeckMotionPlan, type DeckMotionPlan} from '../motion.js'
 import {createDeckRuntimeScript} from '../runtime.js'
 import {renderDeckStage} from '../stage/render-stage.js'
 import {compileDeckTailwindCss} from '../tailwind.js'
+import {validateSlideAgainstTemplateManifest} from '../templates/manifest.js'
+import {resolveMotionStepsForTemplate} from '../templates/registry.js'
 
 const require = createRequire(import.meta.url)
 const DECK_FONT_FILES = [
@@ -122,7 +124,15 @@ function createDeckHtmlRenderPlan(input: {
   stylesPath: string
   timedDeck: TimedDeck
 }): DeckHtmlRenderPlan {
-  const motion = compileDeckMotionPlan(input.timedDeck)
+  for (const slide of input.timedDeck.deck.slides) {
+    const issues = validateSlideAgainstTemplateManifest(slide)
+
+    if (issues.length > 0) {
+      throw new Error(`Slide "${slide.slideId}" (${slide.type}) failed template validation: ${issues.join('; ')}`)
+    }
+  }
+
+  const motion = compileDeckMotionPlan(input.timedDeck, resolveMotionStepsForTemplate)
 
   return {
     ...(input.timedDeck.audioRef === undefined ? {} : {audioRef: input.timedDeck.audioRef}),

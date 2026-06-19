@@ -12,6 +12,7 @@
     {"path": "../packages/mcp"},
     {"path": "../packages/providers"},
     {"path": "../packages/renderer-ffmpeg"},
+    {"path": "../packages/renderer-deck"},
     {"path": "../packages/renderer-html"},
     {"path": "../packages/renderer-hyperframes"},
     {"path": "../packages/quality"},

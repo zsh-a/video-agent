@@ -43,6 +43,21 @@ export function componentCss(): string {
   line-height: 1.2;
 }
 
+.process-step__badge {
+  align-items: center;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-radius: 999px;
+  color: var(--bg);
+  display: grid;
+  font-size: var(--font-caption);
+  font-weight: 700;
+  height: 38px;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  place-items: center;
+  width: 38px;
+}
+
 .point p,
 .process-list p,
 .timeline__item p {

@@ -25,8 +25,17 @@ export interface SlideTemplate {
   type: DeckSlideType
 }
 
+export interface TemplateMotionStep {
+  selector: string
+  preset: DeckMotionPreset | ((slideMotion: DeckMotionPreset) => DeckMotionPreset)
+  at: (slideDuration: number) => number
+  duration: (slideDuration: number) => number
+  stagger?: number
+}
+
 export interface SlideTemplateModule {
   manifest: DeckTemplateManifestEntry
+  motionSteps?: TemplateMotionStep[]
   styles: string
   template: SlideTemplate
 }

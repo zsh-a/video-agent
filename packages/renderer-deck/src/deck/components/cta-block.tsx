@@ -7,8 +7,10 @@ export function CtaBlock({slide}: {slide: Slide}): ReactNode {
   const label = slide.points[0] ?? slide.subtitle ?? 'Next step'
 
   return (
-    <Card className="cta-block relative grid gap-[28px] overflow-hidden rounded-deck-card border border-deck-line bg-deck-surface p-[44px_48px] shadow-deck-card">
-      <p className="m-0 max-w-[25em] text-[calc(var(--font-heading)*0.9)] font-bold leading-[1.18] text-deck-fg">{label}</p>
+    <Card className="cta-block relative grid gap-[28px] overflow-hidden rounded-deck-card border-2 border-deck-accent bg-deck-surface p-[48px_52px] shadow-deck-card text-center justify-items-center">
+      <p className="cta-block__label m-0 max-w-[22em] text-[calc(var(--font-heading)*0.92)] font-bold leading-[1.18] text-deck-fg">{label}</p>
+      <span className="cta-block__arrow text-deck-accent text-[var(--font-heading)] font-bold" aria-hidden="true">→</span>
+      <div className="cta-block__glow" aria-hidden="true" />
     </Card>
   )
 }

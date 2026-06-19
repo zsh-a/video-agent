@@ -1,7 +1,13 @@
 import {CtaBlock, TitleBlock} from '../../components/index.js'
-import {defineSlideTemplate, defineSlideTemplateModule} from '../define-template.js'
+import {slideTiming} from '../../motion-helpers.js'
+import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
 import {ctaManifest} from './manifest.js'
 import {ctaStyles} from './styles.js'
+
+const ctaMotionSteps: TemplateMotionStep[] = [
+  {selector: '.slide__title', preset: 'zoom-focus', at: (d) => d * slideTiming(d).enterAt, duration: (d) => slideTiming(d).titleDuration(d)},
+  {selector: '.cta-block', preset: 'soft-scale', at: (d) => d * slideTiming(d).contentAt, duration: (d) => slideTiming(d).titleDuration(d)},
+]
 
 export const ctaTemplate = defineSlideTemplate({
   render: (slide) => (
@@ -15,6 +21,7 @@ export const ctaTemplate = defineSlideTemplate({
 
 export const ctaTemplateModule = defineSlideTemplateModule({
   manifest: ctaManifest,
+  motionSteps: ctaMotionSteps,
   styles: ctaStyles,
   template: ctaTemplate,
 })

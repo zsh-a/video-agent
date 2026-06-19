@@ -162,5 +162,13 @@ body {
 
 .slide--dense .slide__title {
   font-size: calc(var(--font-heading) * 0.92);
+}
+
+.slide--quiet .slide__content {
+  gap: 42px;
+}
+
+.slide--quiet .slide__title {
+  font-size: var(--font-title);
 }`
 }

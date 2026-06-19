@@ -26,7 +26,7 @@ export function DeckStageView({
 
   return (
     <Stage>
-      {slides.map((item) => <DeckSlide item={item} key={item.slide.slideId} style={slideStyle?.(item)} />)}
+      {slides.map((item) => <DeckSlide item={item} key={item.slide.slideId} language={deck.language} style={slideStyle?.(item)} />)}
     </Stage>
   )
 }
@@ -39,13 +39,13 @@ export function deckStageItems(deck: Deck, options: Pick<DeckStageViewOptions, '
     .filter((item) => options.captureSlideId === undefined || item.slide.slideId === options.captureSlideId)
 }
 
-function DeckSlide({item, style}: {item: SlideRenderItem; style?: CSSProperties}): ReactNode {
+function DeckSlide({item, language, style}: {item: SlideRenderItem; language: string; style?: CSSProperties}): ReactNode {
   const {index, slide, timing} = item
   const start = timing?.start ?? 0
   const end = timing?.end ?? start + (slide.duration ?? 1)
   const className = classNames(
     `slide--${slide.type}`,
-    slideDensityClass(slide),
+    slideDensityClass(slide, language),
     `slide--points-${Math.min(slide.points.length, 4)}`,
     'absolute inset-0 grid grid-rows-[auto_minmax(0,1fr)] overflow-hidden opacity-0',
   )
@@ -80,7 +80,7 @@ function round(value: number): number {
   return Math.round(value * 1000) / 1000
 }
 
-function slideDensityClass(slide: Slide): string {
+function slideDensityClass(slide: Slide, language: string): string {
   const textLength = [
     slide.title,
     slide.subtitle ?? '',
@@ -92,11 +92,15 @@ function slideDensityClass(slide: Slide): string {
     ...(slide.comparison?.right.points ?? []),
   ].join('').length
 
-  if (textLength >= 180) {
+  const isChinese = language.startsWith('zh')
+  const denseThreshold = isChinese ? 130 : 180
+  const quietThreshold = isChinese ? 50 : 72
+
+  if (textLength >= denseThreshold) {
     return 'slide--dense'
   }
 
-  if (textLength <= 72) {
+  if (textLength <= quietThreshold) {
     return 'slide--quiet'
   }
 

@@ -1,6 +1,6 @@
 import type {DeckSlideType} from '@video-agent/ir'
 
-import type {DeckTemplateManifestEntry, SlideTemplate, SlideTemplateModule} from './define-template.js'
+import type {DeckTemplateManifestEntry, SlideTemplate, SlideTemplateModule, TemplateMotionStep} from './define-template.js'
 import {chartTemplateModule} from './chart/index.js'
 import {codeTemplateModule} from './code/index.js'
 import {comparisonTemplateModule} from './comparison/index.js'
@@ -41,6 +41,16 @@ export const slideTemplateRegistry = new Map<DeckSlideType, SlideTemplate>(
   slideTemplates.map((template) => [template.type, template]),
 )
 
+export const slideTemplateMotionSteps = new Map<DeckSlideType, TemplateMotionStep[]>(
+  slideTemplateModules
+    .filter((module) => module.motionSteps !== undefined && module.motionSteps.length > 0)
+    .map((module) => [module.template.type, module.motionSteps!]),
+)
+
 export function resolveSlideTemplate(type: DeckSlideType): SlideTemplate {
   return slideTemplateRegistry.get(type) ?? threePointsTemplateModule.template
+}
+
+export function resolveMotionStepsForTemplate(type: DeckSlideType): TemplateMotionStep[] | undefined {
+  return slideTemplateMotionSteps.get(type)
 }
