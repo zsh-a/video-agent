@@ -11,7 +11,6 @@ import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js
 import {writeConfig} from '../../../packages/runtime/src/config.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
 import {readProjectVisualSamples} from '../../../packages/runtime/src/project-visual-samples.js'
-import {renderProject} from '../../../packages/runtime/src/render-project.js'
 import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/runtime/src/deck-project.js'
 
 function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<unknown>) => void): LLMClient {
@@ -63,7 +62,7 @@ function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<u
 }
 
 describe('deck explainer project', () => {
-  it('creates a renderable PPT-style HyperFrames project from text', async () => {
+  it('creates a PPT-style deck project from text', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-'))
     const inputPath = join(root, 'notes.md')
 
@@ -118,27 +117,6 @@ describe('deck explainer project', () => {
       expect(narration.segments.every((segment) => segment.text.length > 0)).to.equal(true)
       expect(quality.ok).to.equal(true)
       expect(quality.content).to.deep.equal({errors: 0, issues: 0, warnings: 0})
-
-      const render = await renderProject('deck-demo', {workspaceDir: root})
-
-      expect(render.renderer).to.equal('hyperframes')
-
-      if (render.renderer === 'hyperframes') {
-        const html = await readFile(render.entryHtml, 'utf8')
-
-        expect(html).to.contain('Slide 1')
-        expect(html).to.contain('scene__bullets')
-        expect(html).to.contain('安卓开源软件推荐')
-      }
-
-      const exported = await exportProject({
-        outputPath: join(root, 'out'),
-        projectId: 'deck-demo',
-        workspaceDir: root,
-      })
-
-      expect(exported.format).to.equal('hyperframes')
-      expect((await stat(join(exported.outputPath, 'index.html'))).isFile()).to.equal(true)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

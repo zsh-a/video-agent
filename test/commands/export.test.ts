@@ -83,7 +83,7 @@ function createProjectQualityReport(): ProjectQualityReport {
       outputErrors: 5,
       outputWarnings: 6,
       rendered: true,
-      renderer: 'hyperframes',
+      renderer: 'ffmpeg',
       subtitleErrors: 7,
       subtitleWarnings: 8,
       templateErrors: 9,

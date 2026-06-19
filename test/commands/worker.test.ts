@@ -7,7 +7,7 @@ describe('worker command', () => {
     expect(formatWorkerResult({
       changedArtifacts: ['timeline.json'],
       error: 'Checkpoint IR validation failed.',
-      fromStage: 'quality',
+      fromStage: 'quality-check',
       missingArtifacts: ['narration.json'],
       projectId: 'demo',
       schemaInvalidArtifacts: ['clip-plan.json'],
@@ -21,6 +21,6 @@ describe('worker command', () => {
           path: ['source'],
         },
       ],
-    })).to.equal('demo\tskipped\tquality\tcheckpoint-invalid\tCheckpoint IR validation failed.; missing: narration.json; changed: timeline.json; schema invalid: clip-plan.json; untracked: render-plan.json; source: Too small: expected string to have >=1 characters')
+    })).to.equal('demo\tskipped\tquality-check\tcheckpoint-invalid\tCheckpoint IR validation failed.; missing: narration.json; changed: timeline.json; schema invalid: clip-plan.json; untracked: render-plan.json; source: Too small: expected string to have >=1 characters')
   })
 })

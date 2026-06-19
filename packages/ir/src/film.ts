@@ -52,7 +52,7 @@ export const ASRResultSchema = z.object({
 export const SilencePeriodSchema = z.object({
   end: z.number().finite().nonnegative(),
   id: z.string().min(1),
-  reason: z.enum(['detected', 'no-audio', 'placeholder']).default('placeholder'),
+  reason: z.enum(['detected', 'no-audio', 'synthetic']).default('synthetic'),
   start: z.number().finite().nonnegative(),
 }).refine((period) => period.end >= period.start, {
   message: 'Silence period end must be greater than or equal to start.',

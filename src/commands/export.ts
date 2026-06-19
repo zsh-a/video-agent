@@ -9,8 +9,8 @@ export default class Export extends Command {
   }
   static description = 'Export a rendered project'
   static flags = {
-    'clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats'}),
-    format: Flags.string({description: 'Export format. Omit to infer from the latest render output.', options: ['video', 'hyperframes', 'bundle']}),
+    'clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting bundle format'}),
+    format: Flags.string({description: 'Export format. Omit to infer from the latest render output.', options: ['video', 'bundle']}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     output: Flags.string({description: 'Output file or directory path'}),
     'require-quality': Flags.boolean({description: 'Refuse export when project quality, render diagnostics, or artifact integrity are not clean'}),

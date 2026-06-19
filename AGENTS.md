@@ -70,7 +70,7 @@ local provider services or binaries
 ## LLM Semantic Intelligence
 
 - Do not add keyword lists, regex matching, n-gram overlap scoring, hard-coded semantic labels, fixed position heuristics, rule-based scoring, template narration, or deterministic text splitting for semantic understanding or generation.
-- Film Recap, Deck Explainer, and the initial explainer pipeline must get scene semantics, story/chapter summaries, selected moments, storyboard content, slide/deck content, narration/script content, narrative beat types, character relationships, and semantic clip selection from LLM/VLM structured outputs validated by Zod schemas.
+- Film Recap and Deck Explainer must get scene semantics, story/chapter summaries, selected moments, storyboard content, slide/deck content, narration/script content, narrative beat types, character relationships, and semantic clip selection from LLM/VLM structured outputs validated by Zod schemas.
 - TypeScript runtime code may still orchestrate deterministic media, evidence, and timeline operations such as ffmpeg scene-change detection, silence boundaries, transcript/sourceRange clipping, sourceRange validation, duration clamping, artifact schema validation, provider-call tracing, and render/audio filter construction.
 - If no LLM is configured for semantic understanding or generation, fail clearly instead of falling back to rule-based logic, text matching, deterministic semantic templates, or placeholder generation.
 

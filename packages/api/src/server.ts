@@ -27,7 +27,6 @@ import {
   type RecoveryOrderBy,
   renderProject,
   rerunProject,
-  runInitialPipeline,
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
@@ -139,19 +138,6 @@ async function routeRequest(request: Request, workspaceDir: string): Promise<Res
   }
 
   if (segments.length === 1 && segments[0] === 'projects') {
-    if (request.method === 'POST') {
-      const body = await readJsonBody(request)
-
-      return jsonResponse(
-        await runInitialPipeline({
-          fromStage: parseOptionalEnum(readStringField(body, 'fromStage'), ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']),
-          inputPath: readRequiredStringField(body, 'inputPath'),
-          projectId: readStringField(body, 'projectId') ?? undefined,
-          workspaceDir,
-        }),
-      )
-    }
-
     if (request.method !== 'GET') {
       return methodNotAllowed()
     }
@@ -221,12 +207,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
         duckingRatio: readNumberField(body, 'duckingRatio'),
         duckingReleaseMs: readNumberField(body, 'duckingReleaseMs'),
         duckingThreshold: readNumberField(body, 'duckingThreshold'),
-        hyperframesCommand: readStringArrayField(body, 'hyperframesCommand'),
-        hyperframesOutput: readStringField(body, 'hyperframesOutput') ?? undefined,
-        hyperframesRender: readBooleanField(body, 'hyperframesRender'),
-        hyperframesValidate: readBooleanField(body, 'hyperframesValidate'),
         output: readStringField(body, 'output') ?? undefined,
-        renderer: parseOptionalEnum(readStringField(body, 'renderer'), ['ffmpeg', 'hyperframes']),
         sourceVolume: readNumberField(body, 'sourceVolume'),
         subtitles: readBooleanField(body, 'subtitles'),
         voiceoverVolume: readNumberField(body, 'voiceoverVolume'),
@@ -387,7 +368,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
     return jsonResponse(
       await exportProject({
         cleanOutput: readBooleanField(body, 'cleanOutput'),
-        format: parseOptionalEnum(readStringField(body, 'format'), ['video', 'hyperframes', 'bundle']),
+        format: parseOptionalEnum(readStringField(body, 'format'), ['video', 'bundle']),
         outputPath: readStringField(body, 'outputPath') ?? undefined,
         projectId,
         requireQuality: readBooleanField(body, 'requireQuality'),
@@ -534,16 +515,6 @@ function parseEnvAssignments(values: string[]): Record<string, string> {
   }
 
   return env
-}
-
-function readRequiredStringField(body: Record<string, unknown>, field: string): string {
-  const value = readStringField(body, field)
-
-  if (value === null || value.trim() === '') {
-    throw new TypeError(`Field ${field} is required.`)
-  }
-
-  return value
 }
 
 function readCommandPrefix(params: URLSearchParams): string | undefined {
@@ -1046,13 +1017,6 @@ function renderStudioHtml(): string {
           <button id="provider-test-action" type="button">Provider test</button>
         </div>
         <div class="control-grid">
-          <label class="control">Renderer
-            <select id="render-renderer">
-              <option value="">auto</option>
-              <option value="ffmpeg">ffmpeg</option>
-              <option value="hyperframes">hyperframes</option>
-            </select>
-          </label>
           <label class="control">Subtitles
             <input id="render-subtitles" type="checkbox" checked>
           </label>
@@ -1068,23 +1032,10 @@ function renderStudioHtml(): string {
           <label class="control">Voiceover volume
             <input id="render-voiceover-volume" inputmode="decimal" placeholder="1">
           </label>
-          <label class="control">HF validate
-            <input id="render-hf-validate" type="checkbox">
-          </label>
-          <label class="control">HF render
-            <input id="render-hf-render" type="checkbox">
-          </label>
-          <label class="control">HF command JSON
-            <input id="render-hf-command" placeholder='["npx","hyperframes"]'>
-          </label>
-          <label class="control">HF output
-            <input id="render-hf-output" placeholder="./hyperframes.mp4">
-          </label>
           <label class="control">Export format
             <select id="export-format">
               <option value="">auto</option>
               <option value="video">video</option>
-              <option value="hyperframes">hyperframes</option>
               <option value="bundle">bundle</option>
             </select>
           </label>
@@ -1280,15 +1231,10 @@ function renderStudioHtml(): string {
       const options = {
         audio: byId("render-audio").checked,
         audioDucking: byId("render-audio-ducking").checked,
-        hyperframesRender: byId("render-hf-render").checked,
-        hyperframesValidate: byId("render-hf-validate").checked,
         subtitles: byId("render-subtitles").checked,
       };
-      maybe(options, "renderer", optionalString("render-renderer"));
       maybe(options, "sourceVolume", optionalNumber("render-source-volume"));
       maybe(options, "voiceoverVolume", optionalNumber("render-voiceover-volume"));
-      maybe(options, "hyperframesCommand", optionalStringArray("render-hf-command"));
-      maybe(options, "hyperframesOutput", optionalString("render-hf-output"));
       return options;
     };
     const readExportOptions = () => {

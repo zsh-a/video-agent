@@ -44,7 +44,7 @@ export class LLMASRProvider implements ASRProvider {
             instructions: [
               'Infer a concise transcript from available media metadata or path context.',
               'Use seconds for segment start and end values.',
-              'If exact speech is unavailable, return a minimal faithful placeholder that clearly references the input.',
+              'If speech cannot be identified from the available evidence, return an empty transcript with no segments instead of inventing speech.',
             ],
           }),
           role: 'user',

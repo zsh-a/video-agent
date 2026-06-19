@@ -27,8 +27,8 @@ describe('tui command', () => {
       error: {
         changedArtifacts: ['timeline.json'],
         code: 'checkpoint_invalid',
-        fromStage: 'quality',
-        message: 'Cannot resume from quality; checkpoint artifact issue(s): missing: narration.json; changed: timeline.json.',
+        fromStage: 'quality-check',
+        message: 'Cannot resume from quality-check; checkpoint artifact issue(s): missing: narration.json; changed: timeline.json.',
         missingArtifacts: ['narration.json'],
         name: 'PipelineCheckpointError',
         schemaInvalidArtifacts: [],
@@ -37,13 +37,13 @@ describe('tui command', () => {
       projectId: 'demo',
       type: 'checkpoint-error',
     })).to.equal([
-      'Action: rerun demo from quality -> checkpoint-invalid',
-      '  Checkpoint blocked: cannot resume from quality.',
+      'Action: rerun demo from quality-check -> checkpoint-invalid',
+      '  Checkpoint blocked: cannot resume from quality-check.',
       '  Missing artifacts: narration.json',
       '  Changed artifacts: timeline.json',
       '  Schema invalid artifacts: none',
       '  Untracked required artifacts: none',
-      '  Message: Cannot resume from quality; checkpoint artifact issue(s): missing: narration.json; changed: timeline.json.',
+      '  Message: Cannot resume from quality-check; checkpoint artifact issue(s): missing: narration.json; changed: timeline.json.',
     ].join('\n'))
     expect(formatTuiActionResult({
       dryRun: true,
@@ -59,7 +59,7 @@ describe('tui command', () => {
         {
           changedArtifacts: ['timeline.json'],
           error: 'Checkpoint IR validation failed.',
-          fromStage: 'quality',
+          fromStage: 'quality-check',
           missingArtifacts: ['narration.json'],
           projectId: 'demo',
           schemaInvalidArtifacts: ['clip-plan.json'],
@@ -79,7 +79,7 @@ describe('tui command', () => {
       type: 'worker',
     })).to.equal([
       'Action: worker dry-run -> recovered 0, skipped 1',
-      '  demo skipped from quality (checkpoint-invalid) - Checkpoint IR validation failed.',
+      '  demo skipped from quality-check (checkpoint-invalid) - Checkpoint IR validation failed.',
       '    missing: narration.json',
       '    changed: timeline.json',
       '    schema invalid: clip-plan.json',
@@ -93,17 +93,17 @@ describe('tui command', () => {
       result: {
         artifactPath: '/tmp/project/artifacts/export-output.json',
         cleanOutput: true,
-        format: 'hyperframes',
+        format: 'bundle',
         outputPath: '/tmp/out',
         projectDir: '/tmp/project',
         projectId: 'demo',
         requireQuality: true,
-        sourcePath: '/tmp/project/renders/hyperframes',
+        sourcePath: '/tmp/project',
       },
       type: 'export',
     })).to.equal([
-      'Action: export demo -> hyperframes',
-      'Source: /tmp/project/renders/hyperframes',
+      'Action: export demo -> bundle',
+      'Source: /tmp/project',
       'Output: /tmp/out',
       'Clean output: yes',
       'Quality gate: required',
@@ -134,25 +134,19 @@ describe('tui command', () => {
     expect(formatTuiActionResult({
       result: {
         artifactPath: '/tmp/project/artifacts/render-output.json',
-        entryHtml: '/tmp/project/renders/hyperframes/index.html',
-        outputDir: '/tmp/project/renders/hyperframes',
+        audioInputs: 1,
+        outputPath: '/tmp/project/renders/final.mp4',
         projectDir: '/tmp/project',
         projectId: 'demo',
-        renderer: 'hyperframes',
-        templateQuality: {
-          errors: 0,
-          issues: [],
-          ok: true,
-          warnings: 0,
-        },
+        renderer: 'ffmpeg',
+        subtitlePath: '/tmp/project/renders/subtitles.srt',
       },
       type: 'render',
     })).to.equal([
-      'Action: render demo -> hyperframes',
-      'Output: /tmp/project/renders/hyperframes',
-      'Entry: /tmp/project/renders/hyperframes/index.html',
-      'Validated: no',
-      'Rendered: no',
+      'Action: render demo -> ffmpeg',
+      'Output: /tmp/project/renders/final.mp4',
+      'Audio inputs: 1',
+      'Subtitles: /tmp/project/renders/subtitles.srt',
       'Artifact: /tmp/project/artifacts/render-output.json',
     ].join('\n'))
   })
@@ -392,11 +386,10 @@ describe('tui command', () => {
         commandPrefix: 'vagent',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
         renderAudio: false,
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -420,11 +413,10 @@ describe('tui command', () => {
         commandPrefix: 'vagent',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
         qualityDetails: true,
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -453,10 +445,9 @@ describe('tui command', () => {
         commandPrefix: 'vagent',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -481,9 +472,8 @@ describe('tui command', () => {
         commandPrefix: 'vagent',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         providerRole: 'all',
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -511,10 +501,9 @@ describe('tui command', () => {
         eventProviderStatus: 'failed',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -544,10 +533,9 @@ describe('tui command', () => {
         commandPrefix: 'vagent',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -572,10 +560,9 @@ describe('tui command', () => {
         commandPrefix: 'vagent',
         exportFormat: 'video',
         exportRequireQuality: true,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
-        renderRenderer: 'ffmpeg',
         status: 'active',
         visualIncludeContent: true,
         workspaceDir: root,
@@ -592,37 +579,6 @@ describe('tui command', () => {
         size: 5,
         timestamp: 0,
       })
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('runs render action against a HyperFrames project', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-tui-render-'))
-    const outputPath = join(root, 'hyperframes-output')
-
-    try {
-      await createRenderableProject(root, 'demo')
-
-      const result = await runTuiAction({
-        action: 'render',
-        artifactLimit: 5,
-        commandPrefix: 'vagent',
-        exportFormat: 'video',
-        exportRequireQuality: true,
-        fromStage: 'quality',
-        projectId: 'demo',
-        providerRole: 'all',
-        renderOutputPath: outputPath,
-        renderRenderer: 'hyperframes',
-        status: 'active',
-        workspaceDir: root,
-      })
-
-      expect(result.type).to.equal('render')
-      expect(result.type === 'render' && result.result.renderer).to.equal('hyperframes')
-      expect(result.type === 'render' && result.result.renderer === 'hyperframes' && result.result.outputDir).to.equal(outputPath)
-      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.contain('data-duration="1"')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -646,10 +602,9 @@ describe('tui command', () => {
         exportFormat: 'video',
         exportOutputPath: outputPath,
         exportRequireQuality: false,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         projectId: 'demo',
         providerRole: 'all',
-        renderRenderer: 'ffmpeg',
         status: 'active',
         workspaceDir: root,
       })
@@ -894,7 +849,7 @@ describe('tui command', () => {
     expect(output).to.include('Test providers')
     expect(output).to.include('Inspect status')
     expect(output).to.include('bun run dev tui --project demo --action status --workspace .video-agent')
-    expect(output).to.include('Rerun from ingest')
+    expect(output.includes('Rerun from ingest')).to.equal(false)
   })
 
   it('creates copyable command suggestions with quoted arguments', () => {
@@ -915,10 +870,11 @@ describe('tui command', () => {
         job: {
           createdAt: '2026-06-15T00:00:00.000Z',
           inputPath: '/tmp/input.mp4',
+          pipeline: 'film',
           projectId: 'demo project',
           stages: [
             {
-              name: 'quality',
+              name: 'quality-check',
               status: 'pending',
             },
           ],
@@ -974,7 +930,7 @@ describe('tui command', () => {
     ])
     expect(commands.find((item) => item.id === 'rerun-suggested-stage')).to.include({
       category: 'rerun',
-      description: 'Rerun the focused project from the first unfinished stage, quality.',
+      description: 'Rerun the focused project from the first unfinished stage, quality-check.',
       priority: 15,
     })
     expect(commands.find((item) => item.id === 'provider-test')).to.include({
@@ -994,10 +950,10 @@ describe('tui command', () => {
     expect(commands.find((item) => item.id === 'provider-test')?.command).to.equal("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'worker-dry-run')?.command).to.equal("vagent tui --action worker --dry-run --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'open-artifact')?.command).to.equal("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
-    expect(commands.find((item) => item.id === 'rerun-suggested-stage')?.command).to.equal("vagent tui --project 'demo project' --action rerun --from-stage quality --workspace 'workspace dir'")
+    expect(commands.find((item) => item.id === 'rerun-suggested-stage')?.command).to.equal("vagent tui --project 'demo project' --action rerun --from-stage quality-check --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'render-final-video')?.command).to.equal("vagent tui --project 'demo project' --action render --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'export-output')?.command).to.equal("vagent tui --project 'demo project' --action export --export-require-quality --workspace 'workspace dir'")
-    expect(commands.find((item) => item.id === 'export-hyperframes-clean')?.command).to.equal("vagent tui --project 'demo project' --action export --export-format hyperframes --export-clean-output --export-require-quality --workspace 'workspace dir'")
+    expect(commands.some((item) => item.id.startsWith('export-') && item.command.includes('--export-format'))).to.equal(false)
   })
 
   it('formats and resolves guided command selections', () => {
@@ -1043,6 +999,7 @@ function createProjectStatus(): ProjectStatus {
     job: {
       createdAt: '2026-06-15T00:00:00.000Z',
       inputPath: '/tmp/input.mp4',
+      pipeline: 'film',
       projectId: 'demo',
       stages: [
         {
@@ -1150,7 +1107,7 @@ function createProjectQualityReport(): ProjectQualityReport {
       outputErrors: 5,
       outputWarnings: 6,
       rendered: true,
-      renderer: 'hyperframes',
+      renderer: 'ffmpeg',
       subtitleErrors: 7,
       subtitleWarnings: 8,
       templateErrors: 9,
@@ -1165,56 +1122,6 @@ function createProjectQualityReport(): ProjectQualityReport {
   }
 }
 
-async function createRenderableProject(root: string, projectId: string): Promise<void> {
-  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
-
-  await mkdir(artifactsDir, {recursive: true})
-  await Promise.all([
-    writeFile(
-      join(artifactsDir, 'timeline.json'),
-      `${JSON.stringify({
-        duration: 1,
-        fps: 30,
-        items: [],
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'storyboard.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        scenes: [
-          {
-            duration: 1,
-            evidence: [],
-            id: 'scene-1',
-            narration: 'hello',
-            start: 0,
-            visualStyle: 'documentary',
-          },
-        ],
-        targetPlatform: 'generic',
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'narration.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        segments: [
-          {
-            duration: 1,
-            id: 'narration-1',
-            start: 0,
-            text: 'hello',
-          },
-        ],
-        version: 1,
-      })}\n`,
-    ),
-  ])
-}
-
 async function createQualityProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
@@ -1222,8 +1129,9 @@ async function createQualityProject(root: string, projectId: string): Promise<vo
   await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
-    stages: ['ingest', 'quality'],
+    stages: ['ingest', 'quality-check'],
   })
   await writeFile(
     join(artifactsDir, 'quality-report.json'),
@@ -1254,8 +1162,9 @@ async function createEventsProject(root: string, projectId: string): Promise<voi
   await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
-    stages: ['ingest', 'understand'],
+    stages: ['ingest', 'understand-source'],
   })
   await writeFile(
     join(artifactsDir, 'pipeline-events.jsonl'),

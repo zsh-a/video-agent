@@ -1,9 +1,8 @@
 import type {Narration} from '@video-agent/ir'
 import type {AudioLoudnessQualityResult, RenderedMediaQualityResult, SubtitleQualityResult, VisualSmokeQualityResult} from '@video-agent/quality'
 import type {FfmpegAudioOptions, FfmpegVoiceoverInput} from '@video-agent/renderer-ffmpeg'
-import type {HyperframesCliResult, HyperframesTemplateQualityResult} from '@video-agent/renderer-hyperframes'
 
-import {NarrationSchema, StoryboardSchema, TimelineSchema} from '@video-agent/ir'
+import {NarrationSchema, TimelineSchema} from '@video-agent/ir'
 import {extractVideoFrame, inspectAudioVolume, inspectVideoBlackDetect, probeMedia} from '@video-agent/media'
 import {
   addVisualFrameSamples,
@@ -16,7 +15,6 @@ import {
   createVisualSmokeProbeFailure,
 } from '@video-agent/quality'
 import {narrationToSrt, renderTimelineWithFfmpeg} from '@video-agent/renderer-ffmpeg'
-import {checkHyperframesTemplateProject, renderHyperframesProject, validateHyperframesProject, writeHyperframesProject} from '@video-agent/renderer-hyperframes'
 import {createHash} from 'node:crypto'
 import {stat} from 'node:fs/promises'
 import {isAbsolute, resolve} from 'node:path'
@@ -24,7 +22,7 @@ import {isAbsolute, resolve} from 'node:path'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {createProjectWorkspace} from './workspace.js'
 
-export type ProjectRenderer = 'ffmpeg' | 'hyperframes'
+export type ProjectRenderer = 'ffmpeg'
 
 export interface RenderProjectOptions {
   audio?: boolean
@@ -33,19 +31,14 @@ export interface RenderProjectOptions {
   duckingRatio?: number
   duckingReleaseMs?: number
   duckingThreshold?: number
-  hyperframesCommand?: string[]
-  hyperframesOutput?: string
-  hyperframesRender?: boolean
-  hyperframesValidate?: boolean
   output?: string
-  renderer?: ProjectRenderer
   sourceVolume?: number
   subtitles?: boolean
   voiceoverVolume?: number
   workspaceDir?: string
 }
 
-export type RenderProjectResult = FfmpegProjectRenderResult | HyperframesProjectRenderResult
+export type RenderProjectResult = FfmpegProjectRenderResult
 
 export interface FfmpegProjectRenderResult {
   artifactPath: string
@@ -98,40 +91,13 @@ export interface MissingVoiceoverDiagnostic {
   resolvedPath?: string
 }
 
-export interface HyperframesProjectRenderResult {
-  artifactPath: string
-  entryHtml: string
-  outputDir: string
-  projectDir: string
-  projectId: string
-  rendered?: HyperframesCliResult
-  renderer: 'hyperframes'
-  templateQuality: HyperframesTemplateQualityResult
-  validation?: HyperframesCliResult
-}
-
 export async function renderProject(projectId: string, options: RenderProjectOptions = {}): Promise<RenderProjectResult> {
   const workspace = await createProjectWorkspace({
     projectId,
     workspaceDir: options.workspaceDir,
   })
-  const renderer = options.renderer ?? await inferProjectRenderer(workspace)
 
-  return renderer === 'hyperframes' ? renderProjectWithHyperframes(workspace, options) : renderProjectWithFfmpeg(workspace, options)
-}
-
-async function inferProjectRenderer(workspace: Awaited<ReturnType<typeof createProjectWorkspace>>): Promise<ProjectRenderer> {
-  try {
-    const storyboard = StoryboardSchema.parse(await workspace.store.readJson('storyboard.json'))
-
-    return storyboard.scenes.length > 0 && storyboard.scenes.every((scene) => scene.visualStyle === 'slide_explainer') ? 'hyperframes' : 'ffmpeg'
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return 'ffmpeg'
-    }
-
-    throw error
-  }
+  return renderProjectWithFfmpeg(workspace, options)
 }
 
 export async function inspectFfmpegAudio(projectId: string, options: RenderProjectOptions = {}): Promise<FfmpegAudioDiagnostics> {
@@ -298,59 +264,6 @@ function createFrameSampleTimes(duration?: number): Array<{label: string; timest
 
 function roundTimestamp(value: number): number {
   return Math.round(value * 1000) / 1000
-}
-
-async function renderProjectWithHyperframes(workspace: Awaited<ReturnType<typeof createProjectWorkspace>>, options: RenderProjectOptions): Promise<HyperframesProjectRenderResult> {
-  const timeline = TimelineSchema.parse(await workspace.store.readJson('timeline.json'))
-  const storyboard = StoryboardSchema.parse(await workspace.store.readJson('storyboard.json'))
-  const narration = await readNarrationIfAvailable(workspace)
-  const outputDir = options.output === undefined ? resolve(workspace.rendersDir, 'hyperframes') : resolve(options.output)
-  const result = await writeHyperframesProject({
-    narration,
-    outputDir,
-    storyboard,
-    timeline,
-  })
-  const templateQuality = await checkHyperframesTemplateProject({
-    entryHtml: result.entryHtml,
-    narration,
-    planPath: result.planPath,
-    storyboard,
-    stylesPath: result.stylesPath,
-    timeline,
-  })
-  const validation = options.hyperframesValidate === true ? await validateHyperframesProject({command: options.hyperframesCommand, projectDir: result.outputDir}) : undefined
-  const rendered =
-    options.hyperframesRender === true
-      ? await renderHyperframesProject({
-          command: options.hyperframesCommand,
-          outputPath: options.hyperframesOutput === undefined ? resolve(result.outputDir, 'output.mp4') : resolve(options.hyperframesOutput),
-          projectDir: result.outputDir,
-        })
-      : undefined
-  const artifactPath = await workspace.store.writeJson('render-output.json', {
-    completedAt: new Date().toISOString(),
-    entryHtml: result.entryHtml,
-    outputDir: result.outputDir,
-    planPath: result.planPath,
-    rendered,
-    renderer: 'hyperframes',
-    templateQuality,
-    validation,
-    version: 1,
-  })
-
-  return {
-    artifactPath,
-    entryHtml: result.entryHtml,
-    outputDir: result.outputDir,
-    projectDir: workspace.projectDir,
-    projectId: workspace.projectId,
-    ...(rendered === undefined ? {} : {rendered}),
-    renderer: 'hyperframes',
-    templateQuality,
-    ...(validation === undefined ? {} : {validation}),
-  }
 }
 
 async function writeSubtitlesIfAvailable(workspace: Awaited<ReturnType<typeof createProjectWorkspace>>): Promise<string | undefined> {

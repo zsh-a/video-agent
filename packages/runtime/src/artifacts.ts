@@ -106,7 +106,7 @@ const RenderOutputSchema = z.object({
   completedAt: z.string().min(1).optional(),
   outputPath: z.string().min(1).optional(),
   outputQuality: IssueCountSchema.optional(),
-  renderer: z.enum(['ffmpeg', 'html', 'hyperframes', 'remotion']),
+  renderer: z.enum(['ffmpeg', 'html', 'remotion']),
   subtitleQuality: IssueCountSchema.optional(),
   templateQuality: IssueCountSchema.optional(),
   version: z.literal(1),
@@ -116,7 +116,7 @@ const RenderOutputSchema = z.object({
 const ExportOutputSchema = z.object({
   cleanOutput: z.boolean(),
   completedAt: z.string().min(1),
-  format: z.enum(['bundle', 'hyperframes', 'video']),
+  format: z.enum(['bundle', 'video']),
   outputPath: z.string().min(1),
   requireQuality: z.boolean(),
   sourcePath: z.string().min(1),

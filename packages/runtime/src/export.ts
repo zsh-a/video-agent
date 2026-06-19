@@ -8,7 +8,7 @@ import {readOptionalJson} from './file-io.js'
 import {readProjectQuality} from './project-quality.js'
 import {createProjectWorkspace} from './workspace.js'
 
-export type ExportFormat = 'bundle' | 'hyperframes' | 'video'
+export type ExportFormat = 'bundle' | 'video'
 
 export interface ExportProjectOptions {
   cleanOutput?: boolean
@@ -42,11 +42,7 @@ export class ExportQualityError extends Error {
 }
 
 interface RenderOutputExportReference {
-  outputDir?: string
   outputPath?: string
-  rendered?: {
-    command?: string[]
-  }
   renderer?: string
 }
 
@@ -114,29 +110,15 @@ function defaultOutputPath(projectId: string, format: ExportFormat): string {
 }
 
 function inferExportFormat(renderOutput: RenderOutputExportReference | undefined): ExportFormat {
-  if (renderOutput?.renderer !== 'hyperframes') {
-    return 'video'
-  }
-
-  return extractHyperframesRenderOutputPath(renderOutput.rendered?.command) === undefined ? 'hyperframes' : 'video'
+  return renderOutput?.renderer === undefined ? 'bundle' : 'video'
 }
 
 function resolveExportSource(projectDir: string, format: ExportFormat, renderOutput: RenderOutputExportReference | undefined): string {
   if (format === 'video') {
-    return resolveProjectPath(projectDir, extractHyperframesRenderOutputPath(renderOutput?.rendered?.command) ?? renderOutput?.outputPath ?? 'renders/final.mp4')
-  }
-
-  if (format === 'hyperframes') {
-    return resolveProjectPath(projectDir, renderOutput?.outputDir ?? 'renders/hyperframes')
+    return resolveProjectPath(projectDir, renderOutput?.outputPath ?? 'renders/final.mp4')
   }
 
   return projectDir
-}
-
-function extractHyperframesRenderOutputPath(command: string[] | undefined): string | undefined {
-  const outputFlagIndex = command?.lastIndexOf('--output') ?? -1
-
-  return outputFlagIndex < 0 ? undefined : command?.[outputFlagIndex + 1]
 }
 
 function resolveProjectPath(projectDir: string, path: string): string {

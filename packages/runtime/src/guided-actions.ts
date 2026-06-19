@@ -2,6 +2,7 @@ import type {ProjectArtifact} from './artifacts.js'
 import type {ProjectStatus} from './project-status.js'
 
 import {listProjectArtifacts} from './artifacts.js'
+import {detectPipelineKind, FILM_PIPELINE_DEFINITION, isPipelineStage} from './pipeline-definitions.js'
 import {readProjectStatus} from './project-status.js'
 import {listProjects} from './projects.js'
 
@@ -181,7 +182,7 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
     createGuidedAction(commandPrefix, {
       args: ['tui', '--project', projectId, '--action', 'render', '--workspace', options.workspaceDir],
       category: 'render',
-      description: 'Render the focused project with auto renderer selection; slide explainers use HyperFrames.',
+      description: 'Render the focused project timeline with ffmpeg.',
       id: 'render-final-video',
       label: 'Render output',
       priority: 60,
@@ -193,14 +194,6 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       id: 'export-output',
       label: 'Export output',
       priority: 70,
-    }),
-    createGuidedAction(commandPrefix, {
-      args: ['tui', '--project', projectId, '--action', 'export', '--export-format', 'hyperframes', '--export-clean-output', '--export-require-quality', '--workspace', options.workspaceDir],
-      category: 'export',
-      description: 'Export the HyperFrames render directory after cleaning stale output files and passing project quality.',
-      id: 'export-hyperframes-clean',
-      label: 'Export clean HyperFrames',
-      priority: 71,
     }),
   )
 
@@ -264,10 +257,17 @@ function shellQuote(value: string): string {
 }
 
 function findSuggestedRerunStage(status: ProjectStatus): string | undefined {
-  const rerunnableStages = new Set(['ingest', 'plan', 'quality', 'script', 'understand', 'voiceover'])
+  try {
+    if (detectPipelineKind(status.job) !== 'film') {
+      return undefined
+    }
+  } catch {
+    return undefined
+  }
+
   const stage = status.job.stages.find((item) => item.status === 'failed') ?? status.job.stages.find((item) => item.status === 'running') ?? status.job.stages.find((item) => item.status === 'pending')
 
-  if (stage === undefined || !rerunnableStages.has(stage.name)) {
+  if (!isPipelineStage(FILM_PIPELINE_DEFINITION, stage?.name)) {
     return undefined
   }
 

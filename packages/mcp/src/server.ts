@@ -1,4 +1,4 @@
-import type {ExportFormat, InitialPipelineStage, PipelineStage, ProjectRenderer, ProviderSmokeTestRole} from '@video-agent/runtime'
+import type {ExportFormat, PipelineStage, ProviderSmokeTestRole} from '@video-agent/runtime'
 
 import {
   ALL_PIPELINE_STAGES,
@@ -26,7 +26,6 @@ import {
   recoverWorkspaceJobs,
   renderProject,
   rerunProject,
-  runInitialPipeline,
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
@@ -76,7 +75,6 @@ export interface McpServer {
   tools: McpTool[]
 }
 
-const STAGE_VALUES: InitialPipelineStage[] = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality']
 const RERUN_STAGE_VALUES: PipelineStage[] = [...ALL_PIPELINE_STAGES]
 const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 const TOOL_DEFINITIONS: McpTool[] = [
@@ -121,26 +119,16 @@ const TOOL_DEFINITIONS: McpTool[] = [
   }),
   createTool('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {artifactName: stringSchema('Optional artifact filename, such as media-info.json or quality-report.json.'), projectId: projectIdSchema()}),
   createTool('video_agent_verify_artifacts', 'Verify artifact manifest hashes and known IR schemas for a project.', {projectId: projectIdSchema()}),
-  createTool('video_agent_run', 'Run the initial pipeline from an input media path.', {
-    fromStage: enumSchema(STAGE_VALUES, 'Optional checkpoint stage. Defaults to ingest for a full run.'),
-    inputPath: stringSchema('Path to the source media file to inspect and process.'),
-    projectId: stringSchema('Optional stable project id. Defaults to a slug generated from the input filename and timestamp.'),
-  }),
   createTool('video_agent_rerun', 'Rerun an existing project from a checkpoint stage.', {fromStage: enumSchema(RERUN_STAGE_VALUES, 'Checkpoint stage to resume from. Defaults to the project pipeline default.'), projectId: projectIdSchema()}),
-  createTool('video_agent_render', 'Render a project with ffmpeg or HyperFrames.', {
+  createTool('video_agent_render', 'Render a project timeline with ffmpeg.', {
     audio: booleanSchema('When false, render without source or voiceover audio. Defaults to true.'),
     audioDucking: booleanSchema('Enable sidechain ducking so voiceover lowers source audio.'),
     duckingAttackMs: numberSchema('Sidechain compressor attack in milliseconds.'),
     duckingRatio: numberSchema('Sidechain compressor ratio.'),
     duckingReleaseMs: numberSchema('Sidechain compressor release in milliseconds.'),
     duckingThreshold: numberSchema('Sidechain compressor threshold in dB.'),
-    hyperframesCommand: stringArraySchema('External HyperFrames command prefix, for example ["npx","hyperframes"].'),
-    hyperframesOutput: stringSchema('Output path passed to the HyperFrames render command.'),
-    hyperframesRender: booleanSchema('When true, invoke the external HyperFrames renderer after generating the HTML project.'),
-    hyperframesValidate: booleanSchema('When true, invoke the external HyperFrames validator after generating the HTML project.'),
-    output: stringSchema('Output video path for ffmpeg or output directory for HyperFrames.'),
+    output: stringSchema('Output video path.'),
     projectId: projectIdSchema(),
-    renderer: enumSchema(['ffmpeg', 'hyperframes'], 'Renderer implementation. Omit to auto-select from project artifacts; slide_explainer storyboards use HyperFrames.'),
     sourceVolume: numberSchema('Source audio volume multiplier.'),
     subtitles: booleanSchema('When false, skip generated subtitle burn-in. Defaults to true for ffmpeg.'),
     voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
@@ -205,9 +193,9 @@ const TOOL_DEFINITIONS: McpTool[] = [
     sourceVolume: numberSchema('Source audio volume multiplier.'),
     voiceoverVolume: numberSchema('Voiceover audio volume multiplier.'),
   }),
-  createTool('video_agent_export', 'Export final video, HyperFrames directory, or full project bundle.', {
-    cleanOutput: booleanSchema('When true for directory exports, remove the existing output directory before copying the new HyperFrames or bundle output.'),
-    format: enumSchema(['video', 'hyperframes', 'bundle'], 'Export format. Defaults to video.'),
+  createTool('video_agent_export', 'Export final video or full project bundle.', {
+    cleanOutput: booleanSchema('When true for directory exports, remove the existing output directory before copying the new bundle output.'),
+    format: enumSchema(['video', 'bundle'], 'Export format. Defaults to video.'),
     outputPath: stringSchema('Destination path for the exported output.'),
     projectId: projectIdSchema(),
     requireQuality: booleanSchema('When true, refuse export unless project quality is clean.'),
@@ -314,7 +302,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     case 'video_agent_export': {
       return exportProject({
         cleanOutput: readOptionalBoolean(args, 'cleanOutput'),
-        format: readOptionalEnum(args, 'format', ['video', 'hyperframes', 'bundle']) as ExportFormat | undefined,
+        format: readOptionalEnum(args, 'format', ['video', 'bundle']) as ExportFormat | undefined,
         outputPath: readOptionalString(args, 'outputPath'),
         projectId: readRequiredString(args, 'projectId'),
         requireQuality: readOptionalBoolean(args, 'requireQuality'),
@@ -387,12 +375,7 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
         duckingRatio: readOptionalNumber(args, 'duckingRatio'),
         duckingReleaseMs: readOptionalNumber(args, 'duckingReleaseMs'),
         duckingThreshold: readOptionalNumber(args, 'duckingThreshold'),
-        hyperframesCommand: readOptionalStringArray(args, 'hyperframesCommand'),
-        hyperframesOutput: readOptionalString(args, 'hyperframesOutput'),
-        hyperframesRender: readOptionalBoolean(args, 'hyperframesRender'),
-        hyperframesValidate: readOptionalBoolean(args, 'hyperframesValidate'),
         output: readOptionalString(args, 'output'),
-        renderer: readOptionalEnum(args, 'renderer', ['ffmpeg', 'hyperframes']) as ProjectRenderer | undefined,
         sourceVolume: readOptionalNumber(args, 'sourceVolume'),
         subtitles: readOptionalBoolean(args, 'subtitles'),
         voiceoverVolume: readOptionalNumber(args, 'voiceoverVolume'),
@@ -473,15 +456,6 @@ async function callTool(params: ToolCallParams, options: McpServerOptions): Prom
     case 'video_agent_rerun': {
       return rerunProject(readRequiredString(args, 'projectId'), {
         fromStage: readOptionalEnum(args, 'fromStage', RERUN_STAGE_VALUES),
-        workspaceDir,
-      })
-    }
-
-    case 'video_agent_run': {
-      return runInitialPipeline({
-        fromStage: readOptionalEnum(args, 'fromStage', STAGE_VALUES),
-        inputPath: readRequiredString(args, 'inputPath'),
-        projectId: readOptionalString(args, 'projectId'),
         workspaceDir,
       })
     }

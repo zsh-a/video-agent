@@ -1,7 +1,7 @@
 import {expect} from '#test/expect'
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {dirname, join} from 'node:path'
+import {join} from 'node:path'
 
 import {createApiFetchHandler} from '../../../packages/api/src/server.js'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
@@ -258,16 +258,11 @@ describe('api server handler', () => {
     expect(html).to.include('id="artifact-integrity-issues"')
     expect(html).to.include('schema invalid')
     expect(html).to.include('summary.errors + " errors, " + summary.warnings + " warnings')
-    expect(html).to.include('id="render-renderer"')
     expect(html).to.include('id="render-subtitles"')
     expect(html).to.include('id="render-audio"')
     expect(html).to.include('id="render-audio-ducking"')
     expect(html).to.include('id="render-source-volume"')
     expect(html).to.include('id="render-voiceover-volume"')
-    expect(html).to.include('id="render-hf-validate"')
-    expect(html).to.include('id="render-hf-render"')
-    expect(html).to.include('id="render-hf-command"')
-    expect(html).to.include('id="render-hf-output"')
     expect(html).to.include('id="export-format"')
     expect(html).to.include('id="export-output"')
     expect(html).to.include('id="export-require-quality"')
@@ -292,7 +287,6 @@ describe('api server handler', () => {
     expect(html).to.include('copyGuidedAction(action.command)')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/render')
     expect(html).to.include('body: JSON.stringify(readRenderOptions())')
-    expect(html).to.include('hyperframesCommand')
     expect(html).to.include('sourceVolume')
     expect(html).to.include('/projects/" + encodeURIComponent(state.projectId) + "/export')
     expect(html).to.include('body: JSON.stringify(readExportOptions())')
@@ -314,35 +308,6 @@ describe('api server handler', () => {
     const response = await fetch(new Request('http://localhost/studio', {method: 'POST'}))
 
     expect(response.status).to.equal(405)
-  })
-
-  it('runs a project from the API', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
-    const inputPath = join(root, 'demo.mp4')
-
-    try {
-      await createApiProject(root, 'demo')
-      await writeRerunArtifacts(root, 'demo')
-
-      const fetch = createApiFetchHandler({workspaceDir: root})
-      const result = await readJson<{projectId: string; status: string}>(
-        fetch,
-        '/projects',
-        {
-          body: JSON.stringify({
-            fromStage: 'quality',
-            inputPath,
-            projectId: 'demo',
-          }),
-          method: 'POST',
-        },
-      )
-
-      expect(result.projectId).to.equal('demo')
-      expect(result.status).to.equal('completed')
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
   })
 
   it('dry-runs workspace job recovery from the API', async () => {
@@ -445,7 +410,7 @@ describe('api server handler', () => {
         fetch,
         '/projects/demo/rerun',
         {
-          body: JSON.stringify({fromStage: 'quality'}),
+          body: JSON.stringify({fromStage: 'quality-check'}),
           method: 'POST',
         },
       )
@@ -466,7 +431,7 @@ describe('api server handler', () => {
       const fetch = createApiFetchHandler({workspaceDir: root})
       const response = await fetch(
         new Request('http://localhost/projects/demo/rerun', {
-          body: JSON.stringify({fromStage: 'quality'}),
+          body: JSON.stringify({fromStage: 'quality-check'}),
           method: 'POST',
         }),
       )
@@ -475,8 +440,8 @@ describe('api server handler', () => {
       expect(response.status).to.equal(409)
       expect(result.error.code).to.equal('checkpoint_invalid')
       expect(result.error.name).to.equal('PipelineCheckpointError')
-      expect(result.error.fromStage).to.equal('quality')
-      expect(result.error.missingArtifacts).to.include.members(['ingest-report.json', 'tts-segments.json'])
+      expect(result.error.fromStage).to.equal('quality-check')
+      expect(result.error.missingArtifacts).to.include.members(['render-output.json', 'tts-segments.json'])
       expect(result.error.changedArtifacts).to.deep.equal([])
       expect(result.error.untrackedArtifacts).to.deep.equal([])
     } finally {
@@ -492,13 +457,13 @@ describe('api server handler', () => {
       await writeRerunArtifacts(root, 'demo')
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
-      await writeFile(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await writeFile(join(artifactsDir, 'output-timeline-map.json'), '{"version":1,"source":"","outputDuration":1,"clips":[]}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const fetch = createApiFetchHandler({workspaceDir: root})
       const response = await fetch(
         new Request('http://localhost/projects/demo/rerun', {
-          body: JSON.stringify({fromStage: 'quality'}),
+          body: JSON.stringify({fromStage: 'quality-check'}),
           method: 'POST',
         }),
       )
@@ -507,33 +472,9 @@ describe('api server handler', () => {
       expect(response.status).to.equal(409)
       expect(result.error.code).to.equal('checkpoint_invalid')
       expect(result.error.name).to.equal('PipelineCheckpointError')
-      expect(result.error.fromStage).to.equal('quality')
-      expect(result.error.message).to.include('schema invalid: clip-plan.json')
-      expect(result.error.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('renders a project from the API', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
-
-    try {
-      await createApiProject(root, 'demo')
-      await writeRerunArtifacts(root, 'demo')
-
-      const fetch = createApiFetchHandler({workspaceDir: root})
-      const result = await readJson<{projectId: string; renderer: string}>(
-        fetch,
-        '/projects/demo/render',
-        {
-          body: JSON.stringify({renderer: 'hyperframes'}),
-          method: 'POST',
-        },
-      )
-
-      expect(result.projectId).to.equal('demo')
-      expect(result.renderer).to.equal('hyperframes')
+      expect(result.error.fromStage).to.equal('quality-check')
+      expect(result.error.message).to.include('schema invalid: output-timeline-map.json')
+      expect(result.error.schemaInvalidArtifacts).to.deep.equal(['output-timeline-map.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -699,6 +640,14 @@ describe('api server handler', () => {
       await createApiProject(root, 'demo')
       await mkdir(join(root, 'projects', 'demo', 'renders'), {recursive: true})
       await writeFile(join(root, 'projects', 'demo', 'renders', 'final.mp4'), 'video')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'render-output.json'),
+        `${JSON.stringify({
+          outputPath: 'renders/final.mp4',
+          renderer: 'ffmpeg',
+          version: 1,
+        })}\n`,
+      )
 
       const fetch = createApiFetchHandler({workspaceDir: root})
       const result = await readJson<{format: string; outputPath: string}>(
@@ -724,11 +673,10 @@ describe('api server handler', () => {
     try {
       await createApiProject(root, 'demo')
 
-      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
-      const outputPath = join(root, 'hyperframes-export')
+      const projectDir = join(root, 'projects', 'demo')
+      const outputPath = join(root, 'bundle-export')
 
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+      await writeFile(join(projectDir, 'notes.txt'), 'bundle')
       await mkdir(outputPath, {recursive: true})
       await writeFile(join(outputPath, 'stale.txt'), 'old')
 
@@ -737,7 +685,7 @@ describe('api server handler', () => {
         new Request('http://localhost/projects/demo/export', {
           body: JSON.stringify({
             cleanOutput: true,
-            format: 'hyperframes',
+            format: 'bundle',
             outputPath,
           }),
           method: 'POST',
@@ -748,7 +696,7 @@ describe('api server handler', () => {
       expect(response.status).to.equal(200)
       expect(result.cleanOutput).to.equal(true)
       expect(result.outputPath).to.equal(outputPath)
-      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(await readFile(join(outputPath, 'notes.txt'), 'utf8')).to.equal('bundle')
       expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -823,6 +771,7 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath,
+    pipeline: 'film',
     projectId,
     stages: ['ingest'],
   })
@@ -887,6 +836,8 @@ async function writeVisualSamples(root: string, projectId: string): Promise<void
   await writeFile(
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
+      renderer: 'ffmpeg',
+      version: 1,
       visualQuality: {
         frameSamples: [
           {
@@ -939,97 +890,14 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
   const artifactsDir = join(projectDir, 'artifacts')
   const inputPath = join(root, `${projectId}.mp4`)
 
-  await mkdir(join(projectDir, 'tts'), {recursive: true})
+  await mkdir(artifactsDir, {recursive: true})
   await Promise.all([
     writeFile(
-      join(artifactsDir, 'ingest-report.json'),
+      join(artifactsDir, 'render-output.json'),
       `${JSON.stringify({
-        artifacts: {},
         completedAt: '2026-01-01T00:00:00.000Z',
-        inputPath,
-        stage: 'ingest',
-        version: 1,
-      })}\n`,
-    ),
-    ...writeLongVideoArtifacts(artifactsDir, inputPath),
-    writeFile(
-      join(artifactsDir, 'scene-analysis.json'),
-      `${JSON.stringify([
-        {
-          description: 'scene',
-          evidence: [],
-          sceneId: 'scene-1',
-        },
-      ])}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'scene-batches.json'),
-      `${JSON.stringify([
-        {
-          frames: [],
-          sceneId: 'scene-1',
-          timeRange: [0, 1],
-        },
-      ])}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'transcript.json'),
-      `${JSON.stringify({
-        segments: [],
-        text: 'transcript',
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'storyboard.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        scenes: [
-          {
-            duration: 1,
-            evidence: [],
-            id: 'scene-1',
-            start: 0,
-            visualStyle: 'documentary',
-          },
-        ],
-        targetPlatform: 'generic',
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'clip-plan.json'),
-      `${JSON.stringify({
-        clips: [
-          {
-            duration: 1,
-            id: 'clip-1',
-            sceneId: 'scene-1',
-            source: inputPath,
-            sourceRange: [0, 1],
-            start: 0,
-          },
-        ],
-        duration: 1,
-        source: inputPath,
-        sourceDuration: 1,
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'timeline.json'),
-      `${JSON.stringify({
-        duration: 1,
-        fps: 30,
-        items: [
-          {
-            duration: 1,
-            id: 'video-1',
-            source: inputPath,
-            sourceRange: [0, 1],
-            start: 0,
-            track: 'video',
-          },
-        ],
+        outputPath: 'renders/final.mp4',
+        renderer: 'ffmpeg',
         version: 1,
       })}\n`,
     ),
@@ -1037,167 +905,23 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       join(artifactsDir, 'narration.json'),
       `${JSON.stringify({
         language: 'zh-CN',
-        segments: [
-          {
-            duration: 1,
-            id: 'narration-1',
-            start: 0,
-            text: 'hello',
-          },
-        ],
+        segments: [],
         version: 1,
       })}\n`,
     ),
     writeFile(
       join(artifactsDir, 'tts-segments.json'),
-      `${JSON.stringify([
-        {
-          duration: 1,
-          narrationId: 'narration-1',
-          path: 'tts/narration-1.wav',
-        },
-      ])}\n`,
+      '[]\n',
     ),
-    writeFile(join(projectDir, 'tts', 'narration-1.wav'), 'placeholder wav'),
+    writeFile(
+      join(artifactsDir, 'output-timeline-map.json'),
+      `${JSON.stringify({
+        clips: [],
+        outputDuration: 1,
+        source: inputPath,
+        version: 1,
+      })}\n`,
+    ),
   ])
   await refreshArtifactManifest(artifactsDir)
-}
-
-function writeLongVideoArtifacts(artifactsDir: string, inputPath: string): Array<Promise<void>> {
-  const chunkSummary = {
-    chunkId: 'chunk-000',
-    contentRange: [0, 1],
-    keyMoments: [
-      {
-        chunkId: 'chunk-000',
-        evidence: [],
-        id: 'chunk-000-moment-001',
-        score: 0.5,
-        sourceRange: [0, 1],
-        summary: 'Test chunk moment.',
-        title: 'Moment chunk-000',
-      },
-    ],
-    silenceRanges: [],
-    summary: 'Test chunk summary.',
-  }
-  const chapter = {
-    chunkIds: ['chunk-000'],
-    evidence: [],
-    id: 'chapter-001',
-    index: 0,
-    keyMoments: chunkSummary.keyMoments,
-    sourceRange: [0, 1],
-    summary: chunkSummary.summary,
-    title: 'Chapter 1',
-  }
-
-  return [
-    writeFile(
-      join(artifactsDir, 'chunk-plan.json'),
-      `${JSON.stringify({
-        chunks: [
-          {
-            analysisRange: [0, 1],
-            artifactPrefix: 'chunks/000',
-            contentRange: [0, 1],
-            duration: 1,
-            id: 'chunk-000',
-            index: 0,
-          },
-        ],
-        defaults: {
-          asrChunking: true,
-          chunkDuration: 300,
-          chunkOverlap: 10,
-          frameSampleFps: 1,
-          sceneDetection: true,
-          vlmBatchSize: 16,
-          vlmFrameSampleFps: 0.2,
-        },
-        source: inputPath,
-        sourceDuration: 1,
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'frames.json'),
-      `${JSON.stringify({
-        frameCount: 0,
-        framePattern: 'frames/frame_%05d.jpg',
-        frames: [],
-        sampleFps: 1,
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'chunk-summaries.json'),
-      `${JSON.stringify({
-        chunks: [chunkSummary],
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'chapters.json'),
-      `${JSON.stringify({
-        chapters: [chapter],
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'global-outline.json'),
-      `${JSON.stringify({
-        chapters: [chapter],
-        language: 'zh-CN',
-        source: inputPath,
-        sourceDuration: 1,
-        storyBeats: [
-          {
-            chapterIds: ['chapter-001'],
-            evidence: [],
-            id: 'beat-001',
-            sourceRange: [0, 1],
-            summary: chapter.summary,
-            title: chapter.title,
-          },
-        ],
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'selected-moments.json'),
-      `${JSON.stringify({
-        moments: [
-          {
-            ...chunkSummary.keyMoments[0],
-            reason: 'Test selection.',
-          },
-        ],
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeJsonArtifact(artifactsDir, 'chunks/000/summary.json', chunkSummary),
-    writeJsonArtifact(artifactsDir, 'chunks/000/silence.json', {
-      chunkId: 'chunk-000',
-      contentRange: [0, 1],
-      silenceRanges: [],
-      version: 1,
-    }),
-    writeJsonArtifact(artifactsDir, 'chunks/000/transcript.json', {
-      segments: [],
-      text: '',
-    }),
-    writeJsonArtifact(artifactsDir, 'chunks/000/vlm.json', []),
-  ]
-}
-
-async function writeJsonArtifact(artifactsDir: string, name: string, value: unknown): Promise<void> {
-  const path = join(artifactsDir, name)
-
-  await mkdir(dirname(path), {recursive: true})
-  await writeFile(path, `${JSON.stringify(value)}\n`)
 }

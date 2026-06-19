@@ -1,4 +1,4 @@
-import type {ClipPlan, MediaInfo, Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {ClipPlan, MediaInfo, Storyboard, Timeline} from '@video-agent/ir'
 
 export interface TranscriptInsight {
   language?: string
@@ -12,21 +12,11 @@ export interface TranscriptSegmentInsight {
   text?: string
 }
 
-export interface SceneAnalysisInsight {
-  description?: string
-  evidence?: string[]
-  sceneId?: string
-}
-
 export interface SceneBoundaryInsight {
   end: number
   id: string
   start: number
   text?: string
-}
-
-export function createPlaceholderStoryboard(_mediaInfo: MediaInfo): Storyboard {
-  throw new Error('Storyboard generation requires an LLM provider. Deterministic placeholder storyboard generation is disabled.')
 }
 
 export function createSceneBoundariesFromTranscript(transcript: TranscriptInsight | undefined, mediaDuration: number): SceneBoundaryInsight[] {
@@ -60,17 +50,6 @@ export function createSceneBoundariesFromTranscript(transcript: TranscriptInsigh
       text: transcript?.text,
     },
   ]
-}
-
-export function createStoryboardFromProviderInsights(
-  _mediaInfo: MediaInfo,
-  _options: {
-    sceneAnalysis?: SceneAnalysisInsight[]
-    targetPlatform?: Storyboard['targetPlatform']
-    transcript?: TranscriptInsight
-  },
-): Storyboard {
-  throw new Error('Storyboard generation requires an LLM provider. Deterministic provider-insight storyboard generation is disabled.')
 }
 
 export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
@@ -124,18 +103,6 @@ export function createTimelineFromClipPlan(mediaInfo: MediaInfo, clipPlan: ClipP
     })),
     version: 1,
   }
-}
-
-export function createPlaceholderTimeline(_mediaInfo: MediaInfo): Timeline {
-  throw new Error('Timeline placeholder generation requires an LLM-generated storyboard. Deterministic placeholder timeline generation is disabled.')
-}
-
-export function createNarrationFromClipPlan(_storyboard: Storyboard, _clipPlan: ClipPlan): Narration {
-  throw new Error('Narration generation requires an LLM provider. Deterministic clip-plan narration generation is disabled.')
-}
-
-export function createPlaceholderNarration(_storyboard: Storyboard): Narration {
-  throw new Error('Narration generation requires an LLM provider. Deterministic placeholder narration generation is disabled.')
 }
 
 function clamp(value: number, min: number, max: number): number {

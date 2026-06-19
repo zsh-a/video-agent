@@ -7,62 +7,6 @@ import {runProcess} from '../../../packages/media/src/process.js'
 import {inspectFfmpegAudio, renderProject} from '../../../packages/runtime/src/render-project.js'
 
 describe('render project', () => {
-  it('generates a HyperFrames project through the runtime API', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
-
-    try {
-      await createRenderableProject(root, 'demo')
-
-      const result = await renderProject('demo', {
-        renderer: 'hyperframes',
-        workspaceDir: root,
-      })
-
-      expect(result.renderer).to.equal('hyperframes')
-
-      if (result.renderer === 'hyperframes') {
-        expect(await readFile(result.entryHtml, 'utf8')).to.contain('data-duration="1"')
-        expect(result.templateQuality).to.deep.equal({
-          errors: 0,
-          issues: [],
-          ok: true,
-          warnings: 0,
-        })
-      }
-
-      const renderOutput = JSON.parse(await readFile(join(root, 'projects', 'demo', 'artifacts', 'render-output.json'), 'utf8')) as {templateQuality?: unknown}
-
-      expect(renderOutput.templateQuality).to.deep.equal({
-        errors: 0,
-        issues: [],
-        ok: true,
-        warnings: 0,
-      })
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('uses HyperFrames by default for slide explainer projects', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
-
-    try {
-      await createRenderableProject(root, 'demo', {visualStyle: 'slide_explainer'})
-
-      const result = await renderProject('demo', {
-        workspaceDir: root,
-      })
-
-      expect(result.renderer).to.equal('hyperframes')
-
-      if (result.renderer === 'hyperframes') {
-        expect(await readFile(result.entryHtml, 'utf8')).to.contain('scene__bullets')
-      }
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
   it('writes subtitle quality diagnostics when subtitles are enabled', async () => {
     if (!(await hasFfmpeg())) {
       return

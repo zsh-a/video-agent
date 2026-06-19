@@ -20,14 +20,22 @@ export default class Film extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Film)
-    const output = await runFilmRecapPipeline({
-      inputPath: resolve(args.input),
-      maxScenes: flags['max-scenes'],
-      projectId: flags['project-id'],
-      targetDurationSeconds: flags.target === undefined ? undefined : parseDurationSeconds(flags.target),
-      trace: flags.trace,
-      workspaceDir: flags.workspace,
-    })
+    let output: Awaited<ReturnType<typeof runFilmRecapPipeline>>
+
+    try {
+      output = await runFilmRecapPipeline({
+        inputPath: resolve(args.input),
+        maxScenes: flags['max-scenes'],
+        projectId: flags['project-id'],
+        targetDurationSeconds: flags.target === undefined ? undefined : parseDurationSeconds(flags.target),
+        trace: flags.trace,
+        workspaceDir: flags.workspace,
+      })
+    } catch (error) {
+      this.errorToStderr(error)
+      process.exitCode = 1
+      return
+    }
 
     if (flags.json) {
       this.log(JSON.stringify(output, null, 2))
@@ -42,6 +50,12 @@ export default class Film extends Command {
     this.log(`Clips: ${output.clipPlan.clips}`)
     this.log(`Final: ${output.finalRender.outputPath}`)
     this.log(`Quality errors: ${output.quality.qualityReport.summary.errors}`)
+  }
+
+  private errorToStderr(error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error)
+
+    this.error(message === '' ? 'Film Recap pipeline failed.' : message, {exit: false})
   }
 }
 

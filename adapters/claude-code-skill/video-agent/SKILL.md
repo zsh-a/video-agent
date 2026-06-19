@@ -44,10 +44,10 @@ bun run dev provider-test --json --workspace .video-agent
 bun run dev inspect ./input.mp4 --workspace .video-agent
 ```
 
-4. Run the pipeline:
+4. Run an explicit business pipeline:
 
 ```sh
-bun run dev run ./input.mp4 --workspace .video-agent
+bun run dev film ./input.mp4 --workspace .video-agent
 ```
 
 5. Review project state:

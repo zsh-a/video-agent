@@ -22,8 +22,9 @@ describe('workspace worker recovery', () => {
       expect(report.recovered).to.equal(0)
       expect(report.results.find((result) => result.projectId === 'demo')).to.include({
         attempt: 1,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         jobStatus: 'failed',
+        pipeline: 'film',
         projectId: 'demo',
         status: 'would-recover',
       })
@@ -42,7 +43,7 @@ describe('workspace worker recovery', () => {
 
       expect(report.recovered).to.equal(1)
       expect(report.results[0]?.status).to.equal('recovered')
-      expect(report.results[0]?.fromStage).to.equal('quality')
+      expect(report.results[0]?.fromStage).to.equal('quality-check')
       expect(report.results[0]?.result?.status).to.equal('completed')
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -65,8 +66,9 @@ describe('workspace worker recovery', () => {
       expect(report.skipped).to.equal(1)
       expect(report.results.find((result) => result.projectId === 'demo')).to.include({
         attempt: 1,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         jobStatus: 'failed',
+        pipeline: 'film',
         projectId: 'demo',
         skipReason: 'attempt-limit',
         status: 'skipped',
@@ -150,10 +152,10 @@ describe('workspace worker recovery', () => {
       expect(report.skipped).to.equal(1)
       expect(report.results).to.deep.include({
         attempt: 1,
-	        fromStage: 'quality',
-	        jobStatus: 'running',
-	        pipeline: 'initial',
-	        projectId: 'demo',
+        fromStage: 'quality-check',
+        jobStatus: 'running',
+        pipeline: 'film',
+        projectId: 'demo',
         skipReason: 'running-active',
         status: 'skipped',
         updatedAt: report.results[0]?.updatedAt,
@@ -181,14 +183,15 @@ describe('workspace worker recovery', () => {
       expect(report.skipped).to.equal(1)
       expect(result).to.include({
         attempt: 1,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         jobStatus: 'failed',
+        pipeline: 'film',
         projectId: 'demo',
         skipReason: 'checkpoint-invalid',
         status: 'skipped',
       })
       expect(result?.missingArtifacts).to.deep.equal(['tts-segments.json'])
-      expect(result?.error).to.include('Cannot resume from quality')
+      expect(result?.error).to.include('Cannot resume from quality-check')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -199,7 +202,7 @@ describe('workspace worker recovery', () => {
 
     try {
       await createRecoverableProject(root, 'demo')
-      await writeFile(join(root, 'projects', 'demo', 'artifacts', 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await writeFile(join(root, 'projects', 'demo', 'artifacts', 'output-timeline-map.json'), '{"version":1,"source":"","outputDuration":1,"clips":[]}\n')
 
       const report = await recoverWorkspaceJobs({
         dryRun: true,
@@ -211,14 +214,15 @@ describe('workspace worker recovery', () => {
       expect(report.skipped).to.equal(1)
       expect(result).to.include({
         attempt: 1,
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         jobStatus: 'failed',
+        pipeline: 'film',
         projectId: 'demo',
         skipReason: 'checkpoint-invalid',
         status: 'skipped',
       })
-      expect(result?.error).to.include('schema invalid: clip-plan.json')
-      expect(result?.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
+      expect(result?.error).to.include('schema invalid: output-timeline-map.json')
+      expect(result?.schemaInvalidArtifacts).to.deep.equal(['output-timeline-map.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -241,10 +245,11 @@ async function createRecoverableProject(root: string, projectId: string, options
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath,
+    pipeline: 'film',
     projectId,
-    stages: ['quality'],
+    stages: ['quality-check'],
   })
-  await new JsonJobStore(join(projectDir, 'job-state.json')).updateStage('quality', stageStatus, 'previous failure', options.attempt ?? 1)
+  await new JsonJobStore(join(projectDir, 'job-state.json')).updateStage('quality-check', stageStatus, 'previous failure', options.attempt ?? 1)
 
   if (options.updatedAt !== undefined) {
     await patchJobUpdatedAt(join(projectDir, 'job-state.json'), options.updatedAt)
@@ -291,12 +296,24 @@ async function createRecoverableProject(root: string, projectId: string, options
       items: [],
       version: 1,
     }),
+    writeJson(artifactsDir, 'render-output.json', {
+      completedAt: '2026-01-01T00:00:00.000Z',
+      outputPath: 'renders/final.mp4',
+      renderer: 'ffmpeg',
+      version: 1,
+    }),
     writeJson(artifactsDir, 'narration.json', {
       language: 'zh-CN',
       segments: [],
       version: 1,
     }),
     writeJson(artifactsDir, 'tts-segments.json', []),
+    writeJson(artifactsDir, 'output-timeline-map.json', {
+      clips: [],
+      outputDuration: 1,
+      source: inputPath,
+      version: 1,
+    }),
   ])
   await refreshArtifactManifest(artifactsDir)
 }

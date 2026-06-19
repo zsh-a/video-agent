@@ -44,7 +44,7 @@ describe('guided actions', () => {
       ])
       expect(result.actions.find((action) => action.id === 'rerun-suggested-stage')).to.include({
         category: 'rerun',
-        description: 'Rerun the focused project from the first unfinished stage, quality.',
+        description: 'Rerun the focused project from the first unfinished stage, quality-check.',
       })
       expect(result.actions.find((action) => action.id === 'inspect-quality-details')).to.include({
         category: 'inspect',
@@ -52,17 +52,12 @@ describe('guided actions', () => {
       })
       expect(result.actions.find((action) => action.id === 'render-final-video')).to.include({
         category: 'render',
-        description: 'Render the focused project with auto renderer selection; slide explainers use HyperFrames.',
+        description: 'Render the focused project timeline with ffmpeg.',
         label: 'Render output',
       })
       expect(result.actions.find((action) => action.id === 'inspect-audio')).to.include({
         category: 'inspect',
         description: 'Inspect ffmpeg audio inputs and voiceover alignment without rendering.',
-      })
-      expect(result.actions.find((action) => action.id === 'export-hyperframes-clean')).to.include({
-        category: 'export',
-        description: 'Export the HyperFrames render directory after cleaning stale output files and passing project quality.',
-        label: 'Export clean HyperFrames',
       })
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action status --workspace ${root}`)
@@ -73,7 +68,6 @@ describe('guided actions', () => {
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action audio --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action render --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action export --export-require-quality --workspace ${root}`)
-      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action export --export-format hyperframes --export-clean-output --export-require-quality --workspace ${root}`)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -89,8 +83,9 @@ async function createProject(root: string, projectId: string): Promise<void> {
 
   await store.initialize({
     inputPath: join(root, 'input.mp4'),
+    pipeline: 'film',
     projectId,
-    stages: ['ingest', 'quality'],
+    stages: ['ingest', 'quality-check'],
   })
   await store.updateStage('ingest', 'completed')
   await writeText(join(artifactsDir, 'quality report.json'), '{"ok":true}\n')

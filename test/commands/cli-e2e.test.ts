@@ -258,40 +258,6 @@ describe('cli end-to-end workflow', () => {
     }
   })
 
-  it('inspects media and fails the initial pipeline clearly when no LLM is configured', async () => {
-    if (!(await hasMediaTools())) {
-      return
-    }
-
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-e2e-'))
-    const workspaceDir = join(root, 'workspace')
-    const inputPath = join(root, 'input.mp4')
-    const projectId = 'cli-e2e'
-
-    try {
-      await createSampleVideo(inputPath)
-
-      const inspect = await runCliJson<{
-        duration?: number
-        projectId: string
-        streams: number
-      }>(['inspect', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--json'])
-
-      expect(inspect.projectId).to.equal(projectId)
-      expect(inspect.streams).to.be.greaterThan(0)
-      expect(inspect.duration).to.be.greaterThan(0)
-
-      const run = await runCli(['run', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--verbose'])
-
-      expect(run.code).to.equal(1)
-      expect(run.stdout).to.include('[pipeline] ingest started')
-      expect(run.stdout).to.include('[provider] asr mock transcribe succeeded')
-      expect(run.stdout).to.include('[provider] vlm mock analyzeScenes succeeded')
-      expect(run.stderr).to.include('Initial explainer understanding requires an LLM provider')
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
 
   it('fails Film Recap semantic stages clearly when no LLM is configured', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-film-'))
@@ -414,26 +380,6 @@ describe('cli end-to-end workflow', () => {
   })
 })
 
-async function createSampleVideo(inputPath: string): Promise<void> {
-  await expectCommand([
-    'ffmpeg',
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-f',
-    'lavfi',
-    '-i',
-    'testsrc=size=160x90:rate=10',
-    '-t',
-    '1',
-    '-pix_fmt',
-    'yuv420p',
-    '-c:v',
-    'mpeg4',
-    inputPath,
-  ])
-}
-
 async function createSampleVideoWithAudio(inputPath: string): Promise<void> {
   await expectCommand([
     'ffmpeg',
@@ -511,15 +457,5 @@ async function expectCommand(command: string[], env?: Record<string, string>): P
   return {
     stderr: result.stderr,
     stdout: result.stdout,
-  }
-}
-
-async function hasMediaTools(): Promise<boolean> {
-  try {
-    const [ffmpeg, ffprobe] = await Promise.all([runProcess(['ffmpeg', '-version']), runProcess(['ffprobe', '-version'])])
-
-    return ffmpeg.code === 0 && ffprobe.code === 0
-  } catch {
-    return false
   }
 }

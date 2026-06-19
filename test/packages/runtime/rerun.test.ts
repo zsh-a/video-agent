@@ -1,40 +1,30 @@
 import {expect} from '#test/expect'
-import {writeText} from '#test/fs'
-import {mkdir, mkdtemp, rm} from 'node:fs/promises'
+import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {dirname, join} from 'node:path'
+import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {PipelineCheckpointError} from '../../../packages/runtime/src/job-runner.js'
+import {PipelineCheckpointError} from '../../../packages/runtime/src/checkpoint.js'
 import {rerunProject} from '../../../packages/runtime/src/rerun.js'
 
 describe('rerun project', () => {
-  it('reruns an existing project from job state input path', async () => {
+  it('reruns an existing film project from job state input path', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
 
     try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['quality'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await refreshArtifactManifest(artifactsDir)
+      await createFilmQualityCheckpoint(root, 'demo')
 
       const result = await rerunProject('demo', {
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         workspaceDir: root,
       })
 
       expect(result.projectId).to.equal('demo')
+      expect(result.fromStage).to.equal('quality-check')
+      expect(result.completedStages).to.deep.equal(['quality-check'])
       expect(result.status).to.equal('completed')
-      expect(result.artifacts.qualityReport).to.contain('quality-report.json')
+      expect(result.quality?.artifactPath).to.contain('quality-report.json')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -42,33 +32,20 @@ describe('rerun project', () => {
 
   it('fails with a checkpoint error when required artifacts are missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
 
     try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['quality'],
-      })
+      await createFilmQualityCheckpoint(root, 'demo', {writeArtifacts: false})
 
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'quality',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
+      const error = await catchRerun(root, 'demo')
 
       expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
-      expect((error as PipelineCheckpointError).missingArtifacts).to.include.members(['ingest-report.json', 'tts-segments.json'])
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality-check')
+      expect((error as PipelineCheckpointError).missingArtifacts).to.include.members([
+        'narration.json',
+        'output-timeline-map.json',
+        'render-output.json',
+        'tts-segments.json',
+      ])
       expect((error as PipelineCheckpointError).changedArtifacts).to.deep.equal([])
       expect((error as PipelineCheckpointError).untrackedArtifacts).to.deep.equal([])
     } finally {
@@ -78,240 +55,15 @@ describe('rerun project', () => {
 
   it('fails with a checkpoint error when the artifact manifest is missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
 
     try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['quality'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
+      await createFilmQualityCheckpoint(root, 'demo', {refreshManifest: false})
 
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'quality',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
+      const error = await catchRerun(root, 'demo')
 
       expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality-check')
       expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['artifact-manifest.json'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails with a checkpoint error when ingest side artifacts are missing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['understand'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath, {
-        artifacts: {
-          sourceAudio: join(projectDir, 'audio', 'source.wav'),
-        },
-      })
-      await refreshArtifactManifest(artifactsDir)
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'understand',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
-      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['audio/source.wav'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails with a checkpoint error when the ingest preview is missing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['understand'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath, {
-        artifacts: {
-          preview: join(projectDir, 'renders', 'preview.mp4'),
-        },
-      })
-      await refreshArtifactManifest(artifactsDir)
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'understand',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
-      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['renders/preview.mp4'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails with a checkpoint error when analysis frame manifest entries are missing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['understand'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await writeText(
-        join(artifactsDir, 'frames.json'),
-        `${JSON.stringify({
-          frameCount: 1,
-          framePattern: join(projectDir, 'frames', 'frame_%05d.jpg'),
-          frames: [
-            {
-              path: join(projectDir, 'frames', 'frame_00001.jpg'),
-              timestamp: 0,
-            },
-          ],
-          sampleFps: 1,
-          source: inputPath,
-          version: 1,
-        })}\n`,
-      )
-      await refreshArtifactManifest(artifactsDir)
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'understand',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
-      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['frames/frame_00001.jpg'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails with a checkpoint error when TTS segment files are missing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['quality'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await refreshArtifactManifest(artifactsDir)
-      await rm(join(projectDir, 'tts', 'narration-1.wav'), {force: true})
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'quality',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
-      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['tts/narration-1.wav'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails with a checkpoint error when per-chunk artifacts are missing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['plan'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await refreshArtifactManifest(artifactsDir)
-      await rm(join(artifactsDir, 'chunks', '000', 'vlm.json'), {force: true})
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'plan',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('plan')
-      expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal(['chunks/000/vlm.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -319,38 +71,22 @@ describe('rerun project', () => {
 
   it('fails with a checkpoint error when manifest-tracked artifacts changed', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
 
     try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['quality'],
+      const artifactsDir = await createFilmQualityCheckpoint(root, 'demo')
+      await writeJson(artifactsDir, 'render-output.json', {
+        completedAt: '2026-01-01T00:00:00.000Z',
+        outputPath: 'renders/changed.mp4',
+        renderer: 'ffmpeg',
+        version: 1,
       })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await refreshArtifactManifest(artifactsDir)
-      await writeText(join(artifactsDir, 'timeline.json'), '{"version":1,"duration":999,"fps":30,"items":[]}\n')
 
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'quality',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
+      const error = await catchRerun(root, 'demo')
 
       expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
-      expect((error as PipelineCheckpointError).changedArtifacts).to.deep.equal(['timeline.json'])
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality-check')
+      expect((error as PipelineCheckpointError).changedArtifacts).to.deep.equal(['render-output.json'])
       expect((error as PipelineCheckpointError).missingArtifacts).to.deep.equal([])
-      expect((error as PipelineCheckpointError).untrackedArtifacts).to.deep.equal([])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -358,390 +94,85 @@ describe('rerun project', () => {
 
   it('fails when checkpoint IR artifacts do not match their schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
 
     try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['quality'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await writeText(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      const artifactsDir = await createFilmQualityCheckpoint(root, 'demo')
+      await writeFile(join(artifactsDir, 'output-timeline-map.json'), '{"version":1,"source":"","outputDuration":1,"clips":[]}\n')
       await refreshArtifactManifest(artifactsDir)
 
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'quality',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
+      const error = await catchRerun(root, 'demo')
 
       expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('quality')
-      expect((error as PipelineCheckpointError).schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails when the checkpoint ingest report does not match its schema', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['understand'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await writeText(join(artifactsDir, 'ingest-report.json'), '{"version":1,"stage":"plan","inputPath":""}\n')
-      await refreshArtifactManifest(artifactsDir)
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'understand',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('understand')
-      expect((error as PipelineCheckpointError).schemaInvalidArtifacts).to.deep.equal(['ingest-report.json'])
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('fails when checkpoint provider artifacts do not match their schemas', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-'))
-    const projectDir = join(root, 'projects', 'demo')
-    const artifactsDir = join(projectDir, 'artifacts')
-    const inputPath = join(root, 'input.mp4')
-
-    try {
-      await mkdir(artifactsDir, {recursive: true})
-      await writeText(inputPath, 'placeholder')
-      await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
-        inputPath,
-        projectId: 'demo',
-        stages: ['plan'],
-      })
-      await writeRequiredArtifacts(artifactsDir, inputPath)
-      await writeText(join(artifactsDir, 'transcript.json'), '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}\n')
-      await refreshArtifactManifest(artifactsDir)
-
-      let error: unknown
-
-      try {
-        await rerunProject('demo', {
-          fromStage: 'plan',
-          workspaceDir: root,
-        })
-      } catch (error_) {
-        error = error_
-      }
-
-      expect(error).to.be.instanceOf(PipelineCheckpointError)
-      expect((error as PipelineCheckpointError).fromStage).to.equal('plan')
-      expect((error as PipelineCheckpointError).schemaInvalidArtifacts).to.deep.equal(['transcript.json'])
+      expect((error as PipelineCheckpointError).fromStage).to.equal('quality-check')
+      expect((error as PipelineCheckpointError).schemaInvalidArtifacts).to.deep.equal(['output-timeline-map.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 })
 
-interface WriteRequiredArtifactsOptions {
-  artifacts?: Record<string, string>
+async function catchRerun(root: string, projectId: string): Promise<unknown> {
+  try {
+    await rerunProject(projectId, {
+      fromStage: 'quality-check',
+      workspaceDir: root,
+    })
+  } catch (error) {
+    return error
+  }
+
+  return undefined
 }
 
-async function writeRequiredArtifacts(artifactsDir: string, inputPath: string, options: WriteRequiredArtifactsOptions = {}): Promise<void> {
-  await mkdir(join(dirname(artifactsDir), 'tts'), {recursive: true})
+interface CreateFilmQualityCheckpointOptions {
+  refreshManifest?: boolean
+  writeArtifacts?: boolean
+}
 
-  await Promise.all([
-    writeText(
-      join(artifactsDir, 'ingest-report.json'),
-      `${JSON.stringify({
-        artifacts: options.artifacts ?? {},
+async function createFilmQualityCheckpoint(root: string, projectId: string, options: CreateFilmQualityCheckpointOptions = {}): Promise<string> {
+  const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
+  const inputPath = join(root, 'input.mp4')
+
+  await mkdir(artifactsDir, {recursive: true})
+  await writeFile(inputPath, 'placeholder')
+  await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
+    inputPath,
+    pipeline: 'film',
+    projectId,
+    stages: ['quality-check'],
+  })
+
+  if (options.writeArtifacts !== false) {
+    await Promise.all([
+      writeJson(artifactsDir, 'render-output.json', {
         completedAt: '2026-01-01T00:00:00.000Z',
-        inputPath,
-        stage: 'ingest',
+        outputPath: 'renders/final.mp4',
+        renderer: 'ffmpeg',
         version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'media-info.json'),
-      `${JSON.stringify({
-        duration: 1,
-        inputPath,
-        probedAt: '2026-01-01T00:00:00.000Z',
-        streams: [],
-        version: 1,
-      })}\n`,
-    ),
-    ...writeLongVideoArtifacts(artifactsDir, inputPath),
-    writeText(
-      join(artifactsDir, 'scene-analysis.json'),
-      `${JSON.stringify([
-        {
-          description: 'scene',
-          evidence: [],
-          sceneId: 'scene-1',
-        },
-      ])}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'scene-batches.json'),
-      `${JSON.stringify([
-        {
-          frames: [],
-          sceneId: 'scene-1',
-          timeRange: [0, 1],
-        },
-      ])}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'transcript.json'),
-      `${JSON.stringify({
+      }),
+      writeJson(artifactsDir, 'narration.json', {
+        language: 'zh-CN',
         segments: [],
-        text: 'transcript',
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'storyboard.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        scenes: [
-          {
-            duration: 1,
-            evidence: [],
-            id: 'scene-1',
-            start: 0,
-            visualStyle: 'documentary',
-          },
-        ],
-        targetPlatform: 'generic',
         version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'clip-plan.json'),
-      `${JSON.stringify({
-        clips: [
-          {
-            duration: 1,
-            id: 'clip-1',
-            sceneId: 'scene-1',
-            source: inputPath,
-            sourceRange: [0, 1],
-            start: 0,
-          },
-        ],
-        duration: 1,
+      }),
+      writeJson(artifactsDir, 'tts-segments.json', []),
+      writeJson(artifactsDir, 'output-timeline-map.json', {
+        clips: [],
+        outputDuration: 1,
         source: inputPath,
-        sourceDuration: 1,
         version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'timeline.json'),
-      `${JSON.stringify({
-        duration: 1,
-        fps: 30,
-        items: [
-          {
-            duration: 1,
-            id: 'video-1',
-            source: inputPath,
-            sourceRange: [0, 1],
-            start: 0,
-            track: 'video',
-          },
-        ],
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'narration.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        segments: [
-          {
-            duration: 1,
-            id: 'narration-1',
-            start: 0,
-            text: 'hello',
-          },
-        ],
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'tts-segments.json'),
-      `${JSON.stringify([
-        {
-          duration: 1,
-          narrationId: 'narration-1',
-          path: 'tts/narration-1.wav',
-        },
-      ])}\n`,
-    ),
-    writeText(join(dirname(artifactsDir), 'tts', 'narration-1.wav'), 'placeholder wav'),
-  ])
-}
-
-function writeLongVideoArtifacts(artifactsDir: string, inputPath: string): Array<Promise<void>> {
-  const chunkSummary = {
-    chunkId: 'chunk-000',
-    contentRange: [0, 1],
-    keyMoments: [
-      {
-        chunkId: 'chunk-000',
-        evidence: [],
-        id: 'chunk-000-moment-001',
-        score: 0.5,
-        sourceRange: [0, 1],
-        summary: 'Test chunk moment.',
-        title: 'Moment chunk-000',
-      },
-    ],
-    silenceRanges: [],
-    summary: 'Test chunk summary.',
-  }
-  const chapter = {
-    chunkIds: ['chunk-000'],
-    evidence: [],
-    id: 'chapter-001',
-    index: 0,
-    keyMoments: chunkSummary.keyMoments,
-    sourceRange: [0, 1],
-    summary: chunkSummary.summary,
-    title: 'Chapter 1',
+      }),
+    ])
   }
 
-  return [
-    writeText(
-      join(artifactsDir, 'chunk-plan.json'),
-      `${JSON.stringify({
-        chunks: [
-          {
-            analysisRange: [0, 1],
-            artifactPrefix: 'chunks/000',
-            contentRange: [0, 1],
-            duration: 1,
-            id: 'chunk-000',
-            index: 0,
-          },
-        ],
-        defaults: {
-          asrChunking: true,
-          chunkDuration: 300,
-          chunkOverlap: 10,
-          frameSampleFps: 1,
-          sceneDetection: true,
-          vlmBatchSize: 16,
-          vlmFrameSampleFps: 0.2,
-        },
-        source: inputPath,
-        sourceDuration: 1,
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'frames.json'),
-      `${JSON.stringify({
-        frameCount: 0,
-        framePattern: 'frames/frame_%05d.jpg',
-        frames: [],
-        sampleFps: 1,
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'chunk-summaries.json'),
-      `${JSON.stringify({
-        chunks: [chunkSummary],
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'chapters.json'),
-      `${JSON.stringify({
-        chapters: [chapter],
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'global-outline.json'),
-      `${JSON.stringify({
-        chapters: [chapter],
-        language: 'zh-CN',
-        source: inputPath,
-        sourceDuration: 1,
-        storyBeats: [
-          {
-            chapterIds: ['chapter-001'],
-            evidence: [],
-            id: 'beat-001',
-            sourceRange: [0, 1],
-            summary: chapter.summary,
-            title: chapter.title,
-          },
-        ],
-        version: 1,
-      })}\n`,
-    ),
-    writeText(
-      join(artifactsDir, 'selected-moments.json'),
-      `${JSON.stringify({
-        moments: [
-          {
-            ...chunkSummary.keyMoments[0],
-            reason: 'Test selection.',
-          },
-        ],
-        source: inputPath,
-        version: 1,
-      })}\n`,
-    ),
-    writeJsonArtifact(artifactsDir, 'chunks/000/summary.json', chunkSummary),
-    writeJsonArtifact(artifactsDir, 'chunks/000/silence.json', {
-      chunkId: 'chunk-000',
-      contentRange: [0, 1],
-      silenceRanges: [],
-      version: 1,
-    }),
-    writeJsonArtifact(artifactsDir, 'chunks/000/transcript.json', {
-      segments: [],
-      text: '',
-    }),
-    writeJsonArtifact(artifactsDir, 'chunks/000/vlm.json', []),
-  ]
+  if (options.refreshManifest !== false) {
+    await refreshArtifactManifest(artifactsDir)
+  }
+
+  return artifactsDir
 }
 
-async function writeJsonArtifact(artifactsDir: string, name: string, value: unknown): Promise<void> {
-  const path = join(artifactsDir, name)
-
-  await mkdir(dirname(path), {recursive: true})
-  await writeText(path, `${JSON.stringify(value)}\n`)
+async function writeJson(dir: string, name: string, value: unknown): Promise<void> {
+  await writeFile(join(dir, name), `${JSON.stringify(value)}\n`)
 }

@@ -85,18 +85,18 @@ bun run dev doctor
 bun run dev config --json
 ```
 
-Run a local media file through the pipeline:
+Inspect media, run a business pipeline, and inspect/export project output:
 
 ```sh
 bun run dev inspect ./input.mp4
-bun run dev run ./input.mp4
-bun run dev run ./input.mp4 --progress
+bun run dev film ./episode.mp4 --project-id episode-demo --target 10m
+bun run dev deck ./notes.md --duration 3m --project-id notes-demo
 bun run dev status <projectId>
 bun run dev render <projectId>
 bun run dev export <projectId> --output ./output
 ```
 
-`run --progress` enables an Ink-rendered live progress view for interactive terminals. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
+`film` and `deck` own workflow behavior. The root `render` command is an ffmpeg timeline renderer for projects that have `timeline.json`; Deck final rendering should use `deck render`, and Film final rendering should use `film render` or the full `film` pipeline. `export` copies the latest rendered video when `render-output.json` is present, or a project bundle when no rendered output exists. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
 
 Deck final rendering defaults to Remotion. The runtime compiles DeckIR plus MotionIR into a Remotion composition, renders a silent H.264 video with JPEG intermediate frames, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The Deck HTML renderer remains available through `deck render PROJECT --renderer html` for compatibility and inspection workflows. The HTML path uses the template manifest, React server rendering, Tailwind CSS, CSS variables, and a seekable runtime for deterministic browser frame capture; it defaults to Playwright and can use Chromium through `--frame-capture-backend chromium` / `--keyframe-capture-backend chromium`. HTML frame capture still supports bounded concurrency, frame shards, shard batch retry, and `--finalize-only`, but it is no longer the default full-video path. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
 

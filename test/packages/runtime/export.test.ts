@@ -12,10 +12,7 @@ describe('export project', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
 
     try {
-      const renderDir = join(root, 'projects', 'demo', 'renders')
-
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'final.mp4'), 'video')
+      await createRenderedProject(root, 'demo')
 
       const outputPath = join(root, 'out.mp4')
       const result = await exportProject({
@@ -24,6 +21,7 @@ describe('export project', () => {
         workspaceDir: root,
       })
 
+      expect(result.format).to.equal('video')
       expect(result.outputPath).to.equal(outputPath)
       expect(result.cleanOutput).to.equal(false)
       expect(result.requireQuality).to.equal(false)
@@ -34,151 +32,65 @@ describe('export project', () => {
     }
   })
 
-  it('exports a hyperframes directory', async () => {
+  it('exports a project bundle when no rendered output exists', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
 
     try {
-      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
+      await createBundleProject(root, 'demo')
 
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
-
-      const outputPath = join(root, 'out-hyperframes')
+      const outputPath = join(root, 'out-bundle')
       const result = await exportProject({
-        format: 'hyperframes',
         outputPath,
         projectId: 'demo',
         workspaceDir: root,
       })
 
-      expect(result.outputPath).to.equal(outputPath)
-      expect(result.cleanOutput).to.equal(false)
-      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(result.format).to.equal('bundle')
+      expect(result.sourcePath).to.equal(join(root, 'projects', 'demo'))
+      expect(await readFile(join(outputPath, 'notes.txt'), 'utf8')).to.equal('bundle')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('exports a hyperframes directory by default when the latest render is a HyperFrames project', async () => {
+  it('can clean stale bundle output before exporting', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
 
     try {
-      const projectDir = join(root, 'projects', 'demo')
-      const artifactsDir = join(projectDir, 'artifacts')
-      const renderDir = join(projectDir, 'renders', 'hyperframes')
-
-      await mkdir(artifactsDir, {recursive: true})
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
-      await writeFile(
-        join(artifactsDir, 'render-output.json'),
-        `${JSON.stringify({
-          outputDir: renderDir,
-          renderer: 'hyperframes',
-          version: 1,
-        })}\n`,
-      )
-
-      const result = await exportProject({
-        projectId: 'demo',
-        workspaceDir: root,
-      })
-
-      expect(result.format).to.equal('hyperframes')
-      expect(result.outputPath).to.equal(join(process.cwd(), 'demo-hyperframes'))
-      expect(await readFile(join(result.outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
-    } finally {
-      await rm(root, {force: true, recursive: true})
-      await rm(join(process.cwd(), 'demo-hyperframes'), {force: true, recursive: true})
-    }
-  })
-
-  it('exports a HyperFrames-rendered video when video export is requested', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
-
-    try {
-      const projectDir = join(root, 'projects', 'demo')
-      const artifactsDir = join(projectDir, 'artifacts')
-      const renderDir = join(projectDir, 'renders', 'hyperframes')
-      const renderedPath = join(renderDir, 'output.mp4')
-      const outputPath = join(root, 'out.mp4')
-
-      await mkdir(artifactsDir, {recursive: true})
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(renderedPath, 'hyperframes video')
-      await writeFile(
-        join(artifactsDir, 'render-output.json'),
-        `${JSON.stringify({
-          outputDir: renderDir,
-          rendered: {
-            command: ['hyperframes', 'render', renderDir, '--output', renderedPath],
-          },
-          renderer: 'hyperframes',
-          version: 1,
-        })}\n`,
-      )
-
-      const result = await exportProject({
-        format: 'video',
-        outputPath,
-        projectId: 'demo',
-        workspaceDir: root,
-      })
-
-      expect(result.format).to.equal('video')
-      expect(result.sourcePath).to.equal(renderedPath)
-      expect(await readFile(outputPath, 'utf8')).to.equal('hyperframes video')
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
-  it('can clean stale directory output before exporting', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
-
-    try {
-      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
-
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
-
-      const outputPath = join(root, 'out-hyperframes')
+      await createBundleProject(root, 'demo')
+      const outputPath = join(root, 'out-bundle')
 
       await mkdir(outputPath, {recursive: true})
       await writeFile(join(outputPath, 'stale.txt'), 'old')
 
       const result = await exportProject({
         cleanOutput: true,
-        format: 'hyperframes',
+        format: 'bundle',
         outputPath,
         projectId: 'demo',
         workspaceDir: root,
       })
 
       expect(result.cleanOutput).to.equal(true)
-      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(await readFile(join(outputPath, 'notes.txt'), 'utf8')).to.equal('bundle')
       expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('keeps stale directory output when clean output is not requested', async () => {
+  it('keeps stale bundle output when clean output is not requested', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
 
     try {
-      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
-
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
-
-      const outputPath = join(root, 'out-hyperframes')
+      await createBundleProject(root, 'demo')
+      const outputPath = join(root, 'out-bundle')
 
       await mkdir(outputPath, {recursive: true})
       await writeFile(join(outputPath, 'stale.txt'), 'old')
 
       await exportProject({
-        format: 'hyperframes',
+        format: 'bundle',
         outputPath,
         projectId: 'demo',
         workspaceDir: root,
@@ -190,22 +102,20 @@ describe('export project', () => {
     }
   })
 
-  it('rejects directory export targets that overlap the source directory', async () => {
+  it('rejects bundle export targets that overlap the source directory', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
 
     try {
-      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
-
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+      await createBundleProject(root, 'demo')
+      const projectDir = join(root, 'projects', 'demo')
 
       let insideError: unknown
       let containingError: unknown
 
       try {
         await exportProject({
-          format: 'hyperframes',
-          outputPath: join(renderDir, 'nested-export'),
+          format: 'bundle',
+          outputPath: join(projectDir, 'nested-export'),
           projectId: 'demo',
           workspaceDir: root,
         })
@@ -215,8 +125,8 @@ describe('export project', () => {
 
       try {
         await exportProject({
-          format: 'hyperframes',
-          outputPath: join(root, 'projects', 'demo', 'renders'),
+          format: 'bundle',
+          outputPath: join(root, 'projects'),
           projectId: 'demo',
           workspaceDir: root,
         })
@@ -302,15 +212,34 @@ async function exists(path: string): Promise<boolean> {
 
 async function createRenderedProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
   const renderDir = join(projectDir, 'renders')
 
+  await mkdir(artifactsDir, {recursive: true})
   await mkdir(renderDir, {recursive: true})
   await writeFile(join(renderDir, 'final.mp4'), 'video')
+  await writeFile(
+    join(artifactsDir, 'render-output.json'),
+    `${JSON.stringify({
+      outputPath: 'renders/final.mp4',
+      renderer: 'ffmpeg',
+      version: 1,
+    })}\n`,
+  )
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
-    stages: ['ingest', 'quality'],
+    stages: ['render-final', 'quality-check'],
   })
+  await refreshArtifactManifest(artifactsDir)
+}
+
+async function createBundleProject(root: string, projectId: string): Promise<void> {
+  const projectDir = join(root, 'projects', projectId)
+
+  await mkdir(projectDir, {recursive: true})
+  await writeFile(join(projectDir, 'notes.txt'), 'bundle')
 }
 
 async function writeQualityArtifacts(root: string, projectId: string, summary: {errors: number; warnings: number}): Promise<void> {
@@ -331,21 +260,6 @@ async function writeQualityArtifacts(root: string, projectId: string, summary: {
             ]
           : [],
       summary,
-      version: 1,
-    })}\n`,
-  )
-  await writeFile(
-    join(artifactsDir, 'render-output.json'),
-    `${JSON.stringify({
-      outputQuality: {
-        errors: 0,
-        warnings: 0,
-      },
-      renderer: 'ffmpeg',
-      subtitleQuality: {
-        errors: 0,
-        warnings: 0,
-      },
       version: 1,
     })}\n`,
   )

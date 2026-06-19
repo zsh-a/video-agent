@@ -49,7 +49,7 @@ The simplified LLM path is resolved from the active profile or from explicit run
 }
 ```
 
-When `llm` is present, ASR/VLM/TTS plus `plan` and `script` can use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. Semantic understanding and generation require LLM/VLM structured outputs across Film Recap, Deck Explainer, and the initial explainer pipeline. When `llm` is absent, semantic stages fail clearly instead of using deterministic text-matching fallbacks, template generation, or local rule-based planning. Media roles must use `mock` or `command` when no hosted provider is configured.
+When `llm` is present, ASR/VLM/TTS plus planning and script stages can use `@video-agent/llm`, which currently wraps the latest Vercel AI SDK. Semantic understanding and generation require LLM/VLM structured outputs across Film Recap and Deck Explainer. When `llm` is absent, semantic stages fail clearly instead of using deterministic text-matching fallbacks, template generation, or local rule-based planning. Media roles must use `mock` or `command` when no hosted provider is configured.
 
 ## Mimo Profile
 

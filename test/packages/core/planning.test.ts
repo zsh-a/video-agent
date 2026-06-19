@@ -4,15 +4,11 @@ import type {ClipPlanItem, TimelineItem} from '../../../packages/ir/src/index.js
 
 import {
   createClipPlan,
-  createNarrationFromClipPlan,
-  createPlaceholderStoryboard,
-  createPlaceholderTimeline,
   createSceneBoundariesFromTranscript,
-  createStoryboardFromProviderInsights,
   createTimelineFromClipPlan,
-} from '../../../packages/core/src/placeholders.js'
+} from '../../../packages/core/src/planning.js'
 
-describe('placeholder IR', () => {
+describe('core planning helpers', () => {
   const mediaInfo = {
     duration: 12.5,
     inputPath: '/tmp/input.mp4',
@@ -26,14 +22,6 @@ describe('placeholder IR', () => {
     ],
     version: 1 as const,
   }
-
-  it('rejects placeholder storyboard generation without an LLM', () => {
-    expect(() => createPlaceholderStoryboard(mediaInfo)).to.throw('Storyboard generation requires an LLM provider')
-  })
-
-  it('rejects placeholder timeline generation without an LLM-generated storyboard', () => {
-    expect(() => createPlaceholderTimeline(mediaInfo)).to.throw('Timeline placeholder generation requires an LLM-generated storyboard')
-  })
 
   it('uses stream duration when container duration is unavailable', () => {
     const streamDurationMediaInfo = {
@@ -78,27 +66,6 @@ describe('placeholder IR', () => {
     expect(timeline).to.include({
       duration: 12,
     })
-  })
-
-  it('rejects provider-insight storyboard generation without an LLM', () => {
-    expect(() => createStoryboardFromProviderInsights(mediaInfo, {
-      transcript: {
-        language: 'en',
-        segments: [
-          {
-            end: 5,
-            start: 0,
-            text: 'Opening narration.',
-          },
-          {
-            end: 12.5,
-            start: 5,
-            text: 'Second beat narration.',
-          },
-        ],
-        text: 'Opening narration. Second beat narration.',
-      },
-    })).to.throw('Storyboard generation requires an LLM provider')
   })
 
   it('keeps generated scene boundary ids contiguous after filtering invalid transcript segments', () => {
@@ -251,32 +218,4 @@ describe('placeholder IR', () => {
     expect(clipPlan.duration).to.equal(6)
   })
 
-  it('rejects deterministic narration generation from a clip plan', () => {
-    const storyboard = {
-      language: 'zh-CN',
-      scenes: [
-        {
-          duration: 5,
-          evidence: [],
-          id: 'scene-1',
-          narration: 'Opening beat.',
-          start: 0,
-          visualStyle: 'documentary',
-        },
-        {
-          duration: 10,
-          evidence: [],
-          id: 'scene-2',
-          narration: 'Follow-up beat.',
-          start: 8,
-          visualStyle: 'documentary',
-        },
-      ],
-      targetPlatform: 'generic' as const,
-      version: 1 as const,
-    }
-    const clipPlan = createClipPlan(storyboard, mediaInfo)
-
-    expect(() => createNarrationFromClipPlan(storyboard, clipPlan)).to.throw('Narration generation requires an LLM provider')
-  })
 })

@@ -1,4 +1,4 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, PipelineCheckpointError as PipelineCheckpointErrorType, PipelineStage, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectRenderer, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, PipelineCheckpointError as PipelineCheckpointErrorType, PipelineStage, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
 import {ALL_PIPELINE_STAGES, createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
@@ -45,8 +45,8 @@ export default class Tui extends Command {
     'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: ['failed', 'succeeded']}),
     'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
     'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
-    'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting hyperframes or bundle formats when --action export is used'}),
-    'export-format': Flags.string({description: 'Export format when --action export is used. Omit to infer from the latest render output.', options: ['video', 'hyperframes', 'bundle']}),
+    'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting bundle format when --action export is used'}),
+    'export-format': Flags.string({description: 'Export format when --action export is used. Omit to infer from the latest render output.', options: ['video', 'bundle']}),
     'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),
     'export-require-quality': Flags.boolean({allowNo: true, default: true, description: 'Refuse export unless project quality is clean when --action export is used'}),
     frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
@@ -70,12 +70,7 @@ export default class Tui extends Command {
     'render-ducking-ratio': Flags.integer({description: 'Audio ducking compressor ratio when --action render is used'}),
     'render-ducking-release-ms': Flags.integer({description: 'Audio ducking compressor release in milliseconds when --action render is used'}),
     'render-ducking-threshold': Flags.string({description: 'Audio ducking compressor threshold when --action render is used'}),
-    'render-hyperframes-command': Flags.string({description: 'HyperFrames command prefix, either a binary name or JSON string array, when --action render is used'}),
-    'render-hyperframes-output': Flags.string({description: 'Output path for HyperFrames CLI render when --action render is used'}),
-    'render-hyperframes-render': Flags.boolean({description: 'Run HyperFrames CLI render after project generation when --action render is used'}),
-    'render-hyperframes-validate': Flags.boolean({description: 'Run HyperFrames CLI validate after project generation when --action render is used'}),
-    'render-output': Flags.string({description: 'Output video path or HyperFrames project directory when --action render is used'}),
-    'render-renderer': Flags.string({description: 'Renderer to use when --action render is used. Omit to auto-select from project artifacts.', options: ['ffmpeg', 'hyperframes']}),
+    'render-output': Flags.string({description: 'Output video path when --action render is used'}),
     'render-source-volume': Flags.string({description: 'Source audio volume multiplier when --action render is used'}),
     'render-subtitles': Flags.boolean({allowNo: true, default: true, description: 'Burn narration subtitles when --action render is used'}),
     'render-voiceover-volume': Flags.string({description: 'Voiceover audio volume multiplier when --action render is used'}),
@@ -165,12 +160,7 @@ export default class Tui extends Command {
       renderDuckingRatio: flags['render-ducking-ratio'],
       renderDuckingReleaseMs: flags['render-ducking-release-ms'],
       renderDuckingThreshold: parseOptionalNumber(flags['render-ducking-threshold'], 'render-ducking-threshold'),
-      renderHyperframesCommand: parseCommandPrefix(flags['render-hyperframes-command']),
-      renderHyperframesOutput: flags['render-hyperframes-output'],
-      renderHyperframesRender: flags['render-hyperframes-render'],
-      renderHyperframesValidate: flags['render-hyperframes-validate'],
       renderOutputPath: flags['render-output'],
-      renderRenderer: flags['render-renderer'] as ProjectRenderer | undefined,
       renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
       renderSubtitles: flags['render-subtitles'],
       renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
@@ -274,12 +264,7 @@ interface ParsedTuiFlags {
   'render-ducking-ratio'?: number
   'render-ducking-release-ms'?: number
   'render-ducking-threshold'?: string
-  'render-hyperframes-command'?: string
-  'render-hyperframes-output'?: string
-  'render-hyperframes-render'?: boolean
-  'render-hyperframes-validate'?: boolean
   'render-output'?: string
-  'render-renderer'?: string
   'render-source-volume'?: string
   'render-subtitles'?: boolean
   'render-voiceover-volume'?: string
@@ -324,12 +309,7 @@ function createTuiManagerActionOptions(flags: ParsedTuiFlags, request: TuiManage
     renderDuckingRatio: flags['render-ducking-ratio'],
     renderDuckingReleaseMs: flags['render-ducking-release-ms'],
     renderDuckingThreshold: parseOptionalNumber(flags['render-ducking-threshold'], 'render-ducking-threshold'),
-    renderHyperframesCommand: parseCommandPrefix(flags['render-hyperframes-command']),
-    renderHyperframesOutput: flags['render-hyperframes-output'],
-    renderHyperframesRender: flags['render-hyperframes-render'],
-    renderHyperframesValidate: flags['render-hyperframes-validate'],
     renderOutputPath: flags['render-output'],
-    renderRenderer: flags['render-renderer'] as ProjectRenderer | undefined,
     renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
     renderSubtitles: flags['render-subtitles'],
     renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
@@ -379,12 +359,7 @@ export interface RunTuiActionOptions {
   renderDuckingRatio?: number
   renderDuckingReleaseMs?: number
   renderDuckingThreshold?: number
-  renderHyperframesCommand?: string[]
-  renderHyperframesOutput?: string
-  renderHyperframesRender?: boolean
-  renderHyperframesValidate?: boolean
   renderOutputPath?: string
-  renderRenderer?: ProjectRenderer
   renderSourceVolume?: number
   renderSubtitles?: boolean
   renderVoiceoverVolume?: number
@@ -601,12 +576,7 @@ export async function runTuiAction(options: RunTuiActionOptions): Promise<TuiAct
         duckingRatio: options.renderDuckingRatio,
         duckingReleaseMs: options.renderDuckingReleaseMs,
         duckingThreshold: options.renderDuckingThreshold,
-        hyperframesCommand: options.renderHyperframesCommand,
-        hyperframesOutput: options.renderHyperframesOutput,
-        hyperframesRender: options.renderHyperframesRender,
-        hyperframesValidate: options.renderHyperframesValidate,
         output: options.renderOutputPath,
-        renderer: options.renderRenderer,
         sourceVolume: options.renderSourceVolume,
         subtitles: options.renderSubtitles,
         voiceoverVolume: options.renderVoiceoverVolume,
@@ -741,22 +711,11 @@ export function formatTuiActionResult(result: TuiActionResult): string {
   }
 
   if (result.type === 'render') {
-    if (result.result.renderer === 'ffmpeg') {
-      return [
-        `Action: render ${result.result.projectId} -> ffmpeg`,
-        `Output: ${result.result.outputPath}`,
-        `Audio inputs: ${result.result.audioInputs}`,
-        `Subtitles: ${result.result.subtitlePath ?? 'none'}`,
-        `Artifact: ${result.result.artifactPath}`,
-      ].join('\n')
-    }
-
     return [
-      `Action: render ${result.result.projectId} -> hyperframes`,
-      `Output: ${result.result.outputDir}`,
-      `Entry: ${result.result.entryHtml}`,
-      `Validated: ${result.result.validation === undefined ? 'no' : 'yes'}`,
-      `Rendered: ${result.result.rendered === undefined ? 'no' : 'yes'}`,
+      `Action: render ${result.result.projectId} -> ffmpeg`,
+      `Output: ${result.result.outputPath}`,
+      `Audio inputs: ${result.result.audioInputs}`,
+      `Subtitles: ${result.result.subtitlePath ?? 'none'}`,
       `Artifact: ${result.result.artifactPath}`,
     ].join('\n')
   }
@@ -1166,24 +1125,4 @@ function parseOptionalNumber(value: string | undefined, flag: string): number | 
   }
 
   return parsed
-}
-
-function parseCommandPrefix(value: string | undefined): string[] | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  const trimmed = value.trim()
-
-  if (trimmed.startsWith('[')) {
-    const parsed = JSON.parse(trimmed) as unknown
-
-    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== 'string' || part.length === 0)) {
-      throw new Error('HyperFrames command JSON must be a non-empty string array.')
-    }
-
-    return parsed
-  }
-
-  return [trimmed]
 }

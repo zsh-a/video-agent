@@ -1,6 +1,6 @@
 import type {JobState} from '@video-agent/db'
 
-export const INITIAL_PIPELINE_STAGES = ['ingest', 'understand', 'plan', 'script', 'voiceover', 'quality'] as const
+export const DECK_PIPELINE_STAGES = ['ingest', 'transcribe', 'understand', 'plan', 'script', 'align', 'synthesize-voice', 'update-timing', 'render-final', 'quality'] as const
 export const FILM_PIPELINE_STAGES = [
   'ingest',
   'understand-source',
@@ -16,10 +16,10 @@ export const FILM_PIPELINE_STAGES = [
   'quality-check',
 ] as const
 
-export type InitialPipelineStage = typeof INITIAL_PIPELINE_STAGES[number]
+export type DeckPipelineStage = typeof DECK_PIPELINE_STAGES[number]
 export type FilmPipelineStage = typeof FILM_PIPELINE_STAGES[number]
-export type PipelineKind = 'film' | 'initial'
-export type PipelineStage = FilmPipelineStage | InitialPipelineStage
+export type PipelineKind = 'deck' | 'film'
+export type PipelineStage = DeckPipelineStage | FilmPipelineStage
 
 export interface PipelineDefinition<K extends PipelineKind = PipelineKind, S extends string = PipelineStage> {
   checkpointArtifactsByStage: Partial<Record<PipelineStage, readonly string[]>>
@@ -28,13 +28,17 @@ export interface PipelineDefinition<K extends PipelineKind = PipelineKind, S ext
   stages: readonly S[]
 }
 
-export const INITIAL_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<InitialPipelineStage, readonly string[]> = {
+export const DECK_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<DeckPipelineStage, readonly string[]> = {
   ingest: [],
-  plan: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json'],
-  quality: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json', 'tts-segments.json'],
-  script: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json'],
-  understand: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json'],
-  voiceover: ['ingest-report.json', 'media-info.json', 'chunk-plan.json', 'frames.json', 'scene-analysis.json', 'scene-batches.json', 'transcript.json', 'chunk-summaries.json', 'chapters.json', 'global-outline.json', 'selected-moments.json', 'storyboard.json', 'clip-plan.json', 'timeline.json', 'narration.json'],
+  transcribe: ['media-info.json'],
+  understand: ['document.json', 'media-info.json'],
+  plan: ['document.json', 'content-blocks.json', 'outline.json'],
+  script: ['deck.json', 'timed-deck.json', 'speaker-script.json'],
+  align: ['deck.json', 'timed-deck.json', 'speaker-script.json'],
+  'synthesize-voice': ['narration.json', 'timed-deck.json'],
+  'update-timing': ['deck-voiceover.json', 'tts-segments.json'],
+  'render-final': ['timed-deck.json', 'deck-voiceover.json'],
+  quality: ['render-output.json', 'deck-quality-report.json'],
 }
 
 export const FILM_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<FilmPipelineStage, readonly string[]> = {
@@ -49,14 +53,14 @@ export const FILM_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<FilmPipelineStage, reado
   'mix-audio': ['source-manifest.json', 'output-timeline-map.json', 'narration.json', 'tts-segments.json'],
   subtitle: ['narration.json'],
   'render-final': ['audio-mix.json', 'subtitles.json', 'output-timeline-map.json'],
-  'quality-check': ['render-output.json', 'narration.json', 'tts-segments.json'],
+  'quality-check': ['render-output.json', 'narration.json', 'tts-segments.json', 'output-timeline-map.json'],
 }
 
-export const INITIAL_PIPELINE_DEFINITION: PipelineDefinition<'initial', InitialPipelineStage> = {
-  checkpointArtifactsByStage: INITIAL_CHECKPOINT_ARTIFACTS_BY_STAGE,
-  defaultRerunStage: 'plan',
-  kind: 'initial',
-  stages: INITIAL_PIPELINE_STAGES,
+export const DECK_PIPELINE_DEFINITION: PipelineDefinition<'deck', DeckPipelineStage> = {
+  checkpointArtifactsByStage: DECK_CHECKPOINT_ARTIFACTS_BY_STAGE,
+  defaultRerunStage: 'script',
+  kind: 'deck',
+  stages: DECK_PIPELINE_STAGES,
 }
 
 export const FILM_PIPELINE_DEFINITION: PipelineDefinition<'film', FilmPipelineStage> = {
@@ -67,20 +71,28 @@ export const FILM_PIPELINE_DEFINITION: PipelineDefinition<'film', FilmPipelineSt
 }
 
 export const PIPELINE_DEFINITIONS = {
+  deck: DECK_PIPELINE_DEFINITION,
   film: FILM_PIPELINE_DEFINITION,
-  initial: INITIAL_PIPELINE_DEFINITION,
 } as const
 
-export const ALL_PIPELINE_STAGES = [...INITIAL_PIPELINE_STAGES, ...FILM_PIPELINE_STAGES.filter((stage) => !INITIAL_PIPELINE_STAGES.includes(stage as InitialPipelineStage))] as const
+export const ALL_PIPELINE_STAGES = [...DECK_PIPELINE_STAGES, ...FILM_PIPELINE_STAGES.filter((stage) => !DECK_PIPELINE_STAGES.includes(stage as DeckPipelineStage))] as const
 
 export function detectPipelineKind(job: Pick<JobState, 'stages'> & {pipeline?: string}): PipelineKind {
-  if (job.pipeline === 'film' || job.pipeline === 'initial') {
+  if (job.pipeline === 'deck' || job.pipeline === 'film') {
     return job.pipeline
   }
 
   const stageNames = new Set(job.stages.map((stage) => stage.name))
 
-  return FILM_PIPELINE_STAGES.some((stage) => stage !== 'ingest' && stageNames.has(stage)) ? 'film' : 'initial'
+  if (FILM_PIPELINE_STAGES.some((stage) => stage !== 'ingest' && stageNames.has(stage))) {
+    return 'film'
+  }
+
+  if (DECK_PIPELINE_STAGES.some((stage) => stage !== 'ingest' && stageNames.has(stage))) {
+    return 'deck'
+  }
+
+  throw new Error('Cannot determine project pipeline kind from job-state.json.')
 }
 
 export function getPipelineDefinition(kind: PipelineKind): PipelineDefinition {

@@ -103,7 +103,7 @@ packages/
   db/                 Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The root oclif CLI remains the primary local adapter. It includes an optional Ink-rendered `run --progress` live view over pipeline events and an interactive Ink `vagent tui` manager over runtime state, project navigation, artifact inspection, events, guided commands, rerun, render/export, and worker recovery actions. Non-TTY, `--json`, `--watch`, and `--no-interactive` paths keep the script-friendly dashboard/action output. Dynamic terminal UI code must stay in the CLI adapter and consume runtime APIs/events instead of owning workflow behavior.
+The root oclif CLI remains the primary local adapter. Business workflow entry points are explicit pipeline commands such as `film` and `deck`; generic adapter commands inspect state, render ffmpeg timelines, export artifacts, rerun supported checkpoints, and recover worker jobs through runtime APIs. The interactive Ink `vagent tui` manager sits over runtime state, project navigation, artifact inspection, events, guided commands, rerun, render/export, and worker recovery actions. Non-TTY, `--json`, `--watch`, and `--no-interactive` paths keep the script-friendly dashboard/action output. Dynamic terminal UI code must stay in the CLI adapter and consume runtime APIs/events instead of owning workflow behavior.
 
 ## Target Adapter Layout
 
@@ -124,35 +124,9 @@ These folders should call `@video-agent/core` and `@video-agent/runtime` instead
 
 ## Shared Stage Runtime
 
-The runtime executes stage graphs. Stage outputs must be serializable artifacts so runs can resume from checkpoints.
+The runtime owns jobs, events, checkpoints, artifacts, provider setup, media wrappers, render/export utilities, and quality checks. Business stage graphs live in pipeline definitions instead of a generic "initial" pipeline. Film Recap and Deck Explainer declare their own stage lists and checkpoint artifact sets; adapters call those package/runtime APIs rather than building workflow behavior locally.
 
-```text
-ingest
-  validate input, probe media, create workspace
-
-understand
-  ASR, OCR/VLM, scene evidence extraction
-
-plan
-  build storyboard and timeline candidate
-
-script
-  generate narration, bind claims to evidence, wait for review if needed
-
-voiceover
-  synthesize TTS, align narration segments
-
-render
-  render through HyperFrames or ffmpeg; slide_explainer storyboards auto-select HyperFrames unless a renderer is explicit
-
-quality
-  inspect storyboard source ranges, clip plan consistency, timeline bounds, narration timing, TTS coverage, long-video explainer structure, generated subtitles, rendered media streams/duration, audio loudness, black-frame smoke checks, visual smoke checks
-
-export
-  copy final video, HyperFrames render directory, or project bundle to a user-selected path
-```
-
-Each stage accepts typed input, writes artifacts, emits events, and returns typed output. CLI runs can resume from a later stage with `run --from-stage` or `rerun <projectId> --from-stage`. Before resuming, the runtime validates the upstream artifact set and fails without mutating job state when artifacts are missing, changed, untracked, or invalid against the relevant IR schema.
+Each stage accepts typed input, writes serializable artifacts, emits events, and returns typed output. Film jobs can resume from supported checkpoint stages with `rerun <projectId> --from-stage` or worker recovery. Deck recovery is handled through dedicated deck commands rather than generic rerun. Before resuming, the runtime validates the upstream artifact set and fails without mutating job state when artifacts are missing, changed, untracked, or invalid against the relevant IR schema.
 
 ## Film Recap Pipeline
 
@@ -326,7 +300,7 @@ ScriptProvider
 AssetProvider
 ```
 
-Concrete providers can wrap local command adapters, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. Semantic understanding and generation must not use deterministic fallback logic: Film Recap, Deck Explainer, and initial explainer story summaries, selected moments, storyboard content, script/narration, narrative beat classification, and semantic clip selection come from LLM/VLM structured outputs. Deterministic TypeScript logic is limited to media, evidence, validation, and timeline orchestration.
+Concrete providers can wrap local command adapters, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. Semantic understanding and generation must not use deterministic fallback logic: Film Recap and Deck Explainer story summaries, selected moments, storyboard/deck content, script/narration, narrative beat classification, and semantic clip selection come from LLM/VLM structured outputs. Deterministic TypeScript logic is limited to media, evidence, validation, and timeline orchestration.
 
 If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/storyboard/script providers that select `llm`. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms when possible. Binary media endpoints such as MiMo TTS stay behind provider interfaces when they need to write artifacts directly.
 

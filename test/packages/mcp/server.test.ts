@@ -24,10 +24,9 @@ describe('mcp server', () => {
       'video_agent_provider_env',
       'video_agent_provider_test',
       'video_agent_guided_actions',
-      'video_agent_visual_samples',
-      'video_agent_status',
-      'video_agent_run',
-      'video_agent_rerun',
+	      'video_agent_visual_samples',
+	      'video_agent_status',
+	      'video_agent_rerun',
       'video_agent_deck_export_backend',
       'video_agent_deck_plan_shards',
       'video_agent_deck_render',
@@ -50,7 +49,7 @@ describe('mcp server', () => {
     const deckRenderBackendProperties = toolsByName.get('video_agent_deck_render_backend')?.inputSchema.properties ?? {}
     const deckRunShardProperties = toolsByName.get('video_agent_deck_run_shards')?.inputSchema.properties ?? {}
 
-    expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'hyperframesCommand', 'hyperframesOutput', 'hyperframesRender', 'hyperframesValidate', 'sourceVolume', 'voiceoverVolume'])
+    expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(deckRenderProperties)).to.include.members(['chromiumCommand', 'finalizeOnly', 'frameCaptureBackend', 'frameStart', 'frameEnd', 'keyframeCaptureBackend', 'playwrightCommand'])
     expect(Object.keys(deckBackendProperties)).to.include.members(['backend', 'compositionId', 'fps', 'outputDir'])
     expect(Object.keys(deckRenderBackendProperties)).to.include.members(['backend', 'command', 'compositionId', 'outputPath'])
@@ -66,23 +65,19 @@ describe('mcp server', () => {
     const toolsByName = new Map(server.tools.map((tool) => [tool.name, tool]))
     const renderProperties = toolsByName.get('video_agent_render')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const workerProperties = toolsByName.get('video_agent_worker')?.inputSchema.properties as Record<string, {description?: string}> | undefined
-    const runProperties = toolsByName.get('video_agent_run')?.inputSchema.properties as Record<string, {description?: string}> | undefined
-    const deckShardProperties = toolsByName.get('video_agent_deck_plan_shards')?.inputSchema.properties as Record<string, {description?: string}> | undefined
+	    const deckShardProperties = toolsByName.get('video_agent_deck_plan_shards')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const deckRunShardProperties = toolsByName.get('video_agent_deck_run_shards')?.inputSchema.properties as Record<string, {description?: string}> | undefined
     const guidedActionProperties = toolsByName.get('video_agent_guided_actions')?.inputSchema.properties as Record<string, {description?: string}> | undefined
 
     expect(guidedActionProperties?.artifactLimit.description).to.include('Maximum number of project artifacts')
     expect(renderProperties?.projectId.description).to.equal('Project id inside the video-agent workspace.')
-    expect(renderProperties?.hyperframesCommand.description).to.include('External HyperFrames command prefix')
     expect(renderProperties?.audio.description).to.include('render without source or voiceover audio')
     expect(workerProperties?.runningStaleAfterMs.description).to.include('Skip running jobs')
     expect(workerProperties?.orderBy.description).to.include('Recovery candidate ordering')
-    expect(runProperties?.inputPath.description).to.include('source media file')
-    expect(deckShardProperties?.frameShardSize.description).to.include('Frame count per planned shard')
-    expect(deckRunShardProperties?.shardConcurrency.description).to.include('Maximum shards')
-    expect(runProperties?.workspaceDir.description).to.include('Workspace directory override')
-    expect(guidedActionProperties?.commandPrefix.description).to.include('Command prefix')
-  })
+	    expect(deckShardProperties?.frameShardSize.description).to.include('Frame count per planned shard')
+	    expect(deckRunShardProperties?.shardConcurrency.description).to.include('Maximum shards')
+	    expect(guidedActionProperties?.commandPrefix.description).to.include('Command prefix')
+	  })
 
   it('calls runtime tools and returns text content', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
@@ -432,44 +427,6 @@ describe('mcp server', () => {
     }
   })
 
-  it('calls render with extended HyperFrames options', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
-
-    try {
-      await createProject(root, 'demo')
-      await writeRenderableArtifacts(root, 'demo')
-
-      const server = createVideoAgentMcpServer({workspaceDir: root})
-      const response = await server.handleMessage({
-        id: 'render-1',
-        jsonrpc: '2.0',
-        method: 'tools/call',
-        params: {
-          arguments: {
-            audio: false,
-            hyperframesCommand: ['hyperframes'],
-            hyperframesRender: false,
-            hyperframesValidate: false,
-            output: join(root, 'hyperframes-output'),
-            projectId: 'demo',
-            renderer: 'hyperframes',
-            sourceVolume: 0.5,
-            subtitles: false,
-            voiceoverVolume: 1.1,
-          },
-          name: 'video_agent_render',
-        },
-      })
-      const {content} = response?.result as {content: Array<{text: string; type: string}>}
-      const result = JSON.parse(content[0]?.text ?? '{}') as {outputDir: string; renderer: string}
-
-      expect(result.renderer).to.equal('hyperframes')
-      expect(result.outputDir).to.equal(join(root, 'hyperframes-output'))
-    } finally {
-      await rm(root, {force: true, recursive: true})
-    }
-  })
-
   it('calls Deck shard planning and backend export tools', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
 
@@ -625,11 +582,10 @@ describe('mcp server', () => {
     try {
       await createProject(root, 'demo')
 
-      const renderDir = join(root, 'projects', 'demo', 'renders', 'hyperframes')
-      const outputPath = join(root, 'hyperframes-export')
+      const projectDir = join(root, 'projects', 'demo')
+      const outputPath = join(root, 'bundle-export')
 
-      await mkdir(renderDir, {recursive: true})
-      await writeFile(join(renderDir, 'index.html'), '<html></html>')
+      await writeFile(join(projectDir, 'notes.txt'), 'bundle')
       await mkdir(outputPath, {recursive: true})
       await writeFile(join(outputPath, 'stale.txt'), 'old')
 
@@ -641,7 +597,7 @@ describe('mcp server', () => {
         params: {
           arguments: {
             cleanOutput: true,
-            format: 'hyperframes',
+            format: 'bundle',
             outputPath,
             projectId: 'demo',
           },
@@ -653,7 +609,7 @@ describe('mcp server', () => {
 
       expect(result.cleanOutput).to.equal(true)
       expect(result.outputPath).to.equal(outputPath)
-      expect(await readFile(join(outputPath, 'index.html'), 'utf8')).to.equal('<html></html>')
+      expect(await readFile(join(outputPath, 'notes.txt'), 'utf8')).to.equal('bundle')
       expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -806,20 +762,20 @@ describe('mcp server', () => {
         method: 'tools/call',
         params: {
           arguments: {
-            fromStage: 'quality',
+            fromStage: 'quality-check',
             projectId: 'demo',
           },
           name: 'video_agent_rerun',
         },
       })
 
-      expect(response?.error?.message).to.include('Cannot resume from quality')
+      expect(response?.error?.message).to.include('Cannot resume from quality-check')
       expect(response?.error?.data).to.deep.include({
         code: 'checkpoint_invalid',
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         name: 'PipelineCheckpointError',
       })
-      expect((response?.error?.data as {missingArtifacts?: string[]}).missingArtifacts).to.include('ingest-report.json')
+      expect((response?.error?.data as {missingArtifacts?: string[]}).missingArtifacts).to.include('render-output.json')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -833,7 +789,7 @@ describe('mcp server', () => {
       await writeRerunArtifacts(root, 'demo')
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
-      await writeFile(join(artifactsDir, 'clip-plan.json'), '{"version":1,"duration":1,"source":"","sourceDuration":1,"clips":[]}\n')
+      await writeFile(join(artifactsDir, 'output-timeline-map.json'), '{"version":1,"source":"","outputDuration":1,"clips":[]}\n')
       await refreshArtifactManifest(artifactsDir)
 
       const server = createVideoAgentMcpServer({workspaceDir: root})
@@ -843,7 +799,7 @@ describe('mcp server', () => {
         method: 'tools/call',
         params: {
           arguments: {
-            fromStage: 'quality',
+            fromStage: 'quality-check',
             projectId: 'demo',
           },
           name: 'video_agent_rerun',
@@ -851,13 +807,13 @@ describe('mcp server', () => {
       })
       const data = response?.error?.data as {code?: string; fromStage?: string; name?: string; schemaInvalidArtifacts?: string[]}
 
-      expect(response?.error?.message).to.include('schema invalid: clip-plan.json')
+      expect(response?.error?.message).to.include('schema invalid: output-timeline-map.json')
       expect(data).to.deep.include({
         code: 'checkpoint_invalid',
-        fromStage: 'quality',
+        fromStage: 'quality-check',
         name: 'PipelineCheckpointError',
       })
-      expect(data.schemaInvalidArtifacts).to.deep.equal(['clip-plan.json'])
+      expect(data.schemaInvalidArtifacts).to.deep.equal(['output-timeline-map.json'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -884,8 +840,9 @@ async function createProject(root: string, projectId: string): Promise<void> {
   await mkdir(join(projectDir, 'artifacts'), {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
-    stages: ['ingest', 'quality'],
+    stages: ['ingest', 'quality-check'],
   })
 }
 
@@ -934,8 +891,9 @@ async function createRerunProject(root: string, projectId: string): Promise<stri
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath,
+    pipeline: 'film',
     projectId,
-    stages: ['quality'],
+    stages: ['quality-check'],
   })
 
   return inputPath
@@ -946,106 +904,14 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
   const artifactsDir = join(projectDir, 'artifacts')
   const inputPath = join(root, `${projectId}.mp4`)
 
-  await mkdir(join(projectDir, 'tts'), {recursive: true})
+  await mkdir(artifactsDir, {recursive: true})
   await Promise.all([
     writeFile(
-      join(artifactsDir, 'ingest-report.json'),
+      join(artifactsDir, 'render-output.json'),
       `${JSON.stringify({
-        artifacts: {},
         completedAt: '2026-01-01T00:00:00.000Z',
-        inputPath,
-        stage: 'ingest',
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'media-info.json'),
-      `${JSON.stringify({
-        duration: 1,
-        inputPath,
-        probedAt: '2026-01-01T00:00:00.000Z',
-        streams: [],
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'scene-analysis.json'),
-      `${JSON.stringify([
-        {
-          description: 'scene',
-          evidence: [],
-          sceneId: 'scene-1',
-        },
-      ])}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'scene-batches.json'),
-      `${JSON.stringify([
-        {
-          frames: [],
-          sceneId: 'scene-1',
-          timeRange: [0, 1],
-        },
-      ])}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'transcript.json'),
-      `${JSON.stringify({
-        segments: [],
-        text: 'transcript',
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'storyboard.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        scenes: [
-          {
-            duration: 1,
-            evidence: [],
-            id: 'scene-1',
-            start: 0,
-            visualStyle: 'documentary',
-          },
-        ],
-        targetPlatform: 'generic',
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'clip-plan.json'),
-      `${JSON.stringify({
-        clips: [
-          {
-            duration: 1,
-            id: 'clip-1',
-            sceneId: 'scene-1',
-            source: inputPath,
-            sourceRange: [0, 1],
-            start: 0,
-          },
-        ],
-        duration: 1,
-        source: inputPath,
-        sourceDuration: 1,
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'timeline.json'),
-      `${JSON.stringify({
-        duration: 1,
-        fps: 30,
-        items: [
-          {
-            duration: 1,
-            id: 'video-1',
-            source: inputPath,
-            sourceRange: [0, 1],
-            start: 0,
-            track: 'video',
-          },
-        ],
+        outputPath: 'renders/final.mp4',
+        renderer: 'ffmpeg',
         version: 1,
       })}\n`,
     ),
@@ -1053,77 +919,25 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       join(artifactsDir, 'narration.json'),
       `${JSON.stringify({
         language: 'zh-CN',
-        segments: [
-          {
-            duration: 1,
-            id: 'narration-1',
-            start: 0,
-            text: 'hello',
-          },
-        ],
+        segments: [],
         version: 1,
       })}\n`,
     ),
     writeFile(
       join(artifactsDir, 'tts-segments.json'),
-      `${JSON.stringify([
-        {
-          duration: 1,
-          narrationId: 'narration-1',
-          path: 'tts/narration-1.wav',
-        },
-      ])}\n`,
-    ),
-    writeFile(join(projectDir, 'tts', 'narration-1.wav'), 'placeholder wav'),
-  ])
-}
-
-async function writeRenderableArtifacts(root: string, projectId: string): Promise<void> {
-  const artifactsDir = join(root, 'projects', projectId, 'artifacts')
-
-  await Promise.all([
-    writeFile(
-      join(artifactsDir, 'timeline.json'),
-      `${JSON.stringify({
-        duration: 1,
-        fps: 30,
-        items: [],
-        version: 1,
-      })}\n`,
+      '[]\n',
     ),
     writeFile(
-      join(artifactsDir, 'storyboard.json'),
+      join(artifactsDir, 'output-timeline-map.json'),
       `${JSON.stringify({
-        language: 'zh-CN',
-        scenes: [
-          {
-            duration: 1,
-            evidence: [],
-            id: 'scene-1',
-            start: 0,
-            visualStyle: 'documentary',
-          },
-        ],
-        targetPlatform: 'generic',
-        version: 1,
-      })}\n`,
-    ),
-    writeFile(
-      join(artifactsDir, 'narration.json'),
-      `${JSON.stringify({
-        language: 'zh-CN',
-        segments: [
-          {
-            duration: 1,
-            id: 'narration-1',
-            start: 0,
-            text: 'hello',
-          },
-        ],
+        clips: [],
+        outputDuration: 1,
+        source: inputPath,
         version: 1,
       })}\n`,
     ),
   ])
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeDeckArtifacts(root: string, projectId: string): Promise<void> {
@@ -1169,6 +983,8 @@ async function writeVisualSamples(root: string, projectId: string): Promise<void
   await writeFile(
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
+      renderer: 'ffmpeg',
+      version: 1,
       visualQuality: {
         frameSample: {
           ok: true,

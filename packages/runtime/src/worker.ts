@@ -2,7 +2,7 @@ import type {JobRunStatus, JobStageState} from '@video-agent/db'
 
 import {ZodError} from 'zod'
 
-import {assertPipelineCheckpointArtifacts, PipelineCheckpointError} from './job-runner.js'
+import {assertPipelineCheckpointArtifacts, PipelineCheckpointError} from './checkpoint.js'
 import type {RerunProjectResult} from './rerun.js'
 import {detectPipelineKind, getPipelineDefinition, isPipelineStage, type PipelineKind, type PipelineStage} from './pipeline-definitions.js'
 import {readProjectStatus} from './project-status.js'
@@ -98,7 +98,19 @@ interface ReadRecoveryCandidateOptions {
 async function readRecoveryCandidate(projectId: string, workspaceDir: string, options: ReadRecoveryCandidateOptions): Promise<RecoverWorkspaceJobResult> {
   const status = await readProjectStatus(projectId, workspaceDir)
   const {status: jobStatus, updatedAt} = status.job
-  const pipeline = detectPipelineKind(status.job)
+  const pipeline = detectRecoverablePipeline(status.job)
+
+  if (pipeline === undefined || pipeline !== 'film') {
+    return {
+      jobStatus,
+      ...(pipeline === undefined ? {} : {pipeline}),
+      projectId,
+      skipReason: 'not-recoverable',
+      status: 'skipped',
+      updatedAt,
+    }
+  }
+
   const stage = options.statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages, pipeline) : undefined
 
   if (stage === undefined) {
@@ -167,6 +179,14 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
     projectId,
     status: 'would-recover',
     updatedAt,
+  }
+}
+
+function detectRecoverablePipeline(job: Pick<Parameters<typeof detectPipelineKind>[0], 'pipeline' | 'stages'>): PipelineKind | undefined {
+  try {
+    return detectPipelineKind(job)
+  } catch {
+    return undefined
   }
 }
 

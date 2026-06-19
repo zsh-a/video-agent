@@ -2,7 +2,6 @@ import {resolve} from 'node:path'
 
 import {readConfig} from './config.js'
 import {runFilmRecapProject, type RunFilmRecapProjectResult} from './film-project.js'
-import {type InitialPipelineStage, runInitialPipeline, type RunInitialPipelineResult} from './job-runner.js'
 import {createConfiguredJobStore} from './job-store.js'
 import {assertPipelineStage, detectPipelineKind, getPipelineDefinition, type FilmPipelineStage, type PipelineStage} from './pipeline-definitions.js'
 
@@ -11,7 +10,7 @@ export interface RerunProjectOptions {
   workspaceDir?: string
 }
 
-export type RerunProjectResult = RunFilmRecapProjectResult | RunInitialPipelineResult
+export type RerunProjectResult = RunFilmRecapProjectResult
 
 export async function rerunProject(projectId: string, options: RerunProjectOptions = {}): Promise<RerunProjectResult> {
   const workspaceDir = resolve(options.workspaceDir ?? '.video-agent')
@@ -36,10 +35,5 @@ export async function rerunProject(projectId: string, options: RerunProjectOptio
     })
   }
 
-  return runInitialPipeline({
-    fromStage: fromStage as InitialPipelineStage,
-    inputPath: job.inputPath,
-    projectId,
-    workspaceDir,
-  })
+  throw new Error(`Rerun is not implemented for ${pipelineKind} projects. Use the dedicated deck commands for deck stage recovery.`)
 }

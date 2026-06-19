@@ -43,12 +43,8 @@ export default class Rerun extends Command {
 
     this.log(`Project: ${output.projectId}`)
     this.log(`Workspace: ${output.projectDir}`)
-    if ('artifacts' in output) {
-      this.log(`Artifacts: ${Object.keys(output.artifacts).length}`)
-    } else {
-      this.log(`Pipeline: ${output.pipeline}`)
-      this.log(`Stages: ${output.completedStages.join(', ')}`)
-    }
+    this.log(`Pipeline: ${output.pipeline}`)
+    this.log(`Stages: ${output.completedStages.join(', ')}`)
     this.log(`Status: ${output.status}`)
   }
 }

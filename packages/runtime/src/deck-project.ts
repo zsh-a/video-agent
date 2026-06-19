@@ -28,6 +28,7 @@ import {refreshArtifactManifest} from './artifact-store.js'
 import {bunFile, bunWrite} from './bun-runtime.js'
 import {readConfig} from './config.js'
 import {assertFileExists} from './file-io.js'
+import {DECK_PIPELINE_DEFINITION} from './pipeline-definitions.js'
 import {createRuntimeLLMClient, createRuntimeProviders} from './runtime-providers.js'
 import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
 
@@ -508,6 +509,7 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
 
   await jobStore.initialize({
     inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId: workspace.projectId,
     stages: DECK_STAGES,
   })
@@ -555,6 +557,7 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
 
   await jobStore.initialize({
     inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId: workspace.projectId,
     stages: DECK_SUMMARIZE_STAGES,
   })
@@ -664,6 +667,7 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
 
   await jobStore.initialize({
     inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId: workspace.projectId,
     stages: DECK_AUDIO_ANCHORED_STAGES,
   })
@@ -788,6 +792,7 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
 
   await jobStore.initialize({
     inputPath: state.inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId,
     stages: DECK_STAGES,
   })
@@ -1018,6 +1023,7 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
 
   await jobStore.initialize({
     inputPath: state.inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId,
     stages: DECK_STAGES,
   })
@@ -1351,6 +1357,7 @@ async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalRenderPr
 
   await jobStore.initialize({
     inputPath: state.inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId,
     stages: DECK_STAGES,
   })
@@ -1605,6 +1612,7 @@ async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRend
 
   await jobStore.initialize({
     inputPath: state.inputPath,
+    pipeline: DECK_PIPELINE_DEFINITION.kind,
     projectId,
     stages: DECK_STAGES,
   })
