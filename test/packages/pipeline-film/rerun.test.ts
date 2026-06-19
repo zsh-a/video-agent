@@ -5,8 +5,8 @@ import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {PipelineCheckpointError} from '../../../packages/runtime/src/checkpoint.js'
-import {rerunProject} from '../../../packages/runtime/src/rerun.js'
+import {PipelineCheckpointError} from '@video-agent/runtime'
+import {rerunProject} from '../../../packages/pipeline-film/src/rerun.js'
 
 describe('rerun project', () => {
   it('reruns an existing film project from job state input path', async () => {

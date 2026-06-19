@@ -4,7 +4,14 @@ import {
   createDeckFinalRenderProject,
   createDeckSummarizeProject,
   createDeckVoiceoverProject,
-} from '@video-agent/runtime'
+} from './deck-project.js'
+
+export {
+  DECK_CHECKPOINT_ARTIFACTS_BY_STAGE,
+  DECK_PIPELINE_DEFINITION,
+  DECK_PIPELINE_STAGES,
+} from './pipeline.js'
+export type {DeckPipelineStage} from './pipeline.js'
 
 export {
   createDeckAudioAnchoredProject,
@@ -16,7 +23,7 @@ export {
   createDeckRendererBackendProject,
   createDeckSummarizeProject,
   createDeckVoiceoverProject,
-} from '@video-agent/runtime'
+} from './deck-project.js'
 
 import type {
   CreateDeckAudioAnchoredProjectResult,
@@ -25,7 +32,7 @@ import type {
   CreateDeckFinalRenderProjectResult,
   CreateDeckSummarizeProjectResult,
   CreateDeckVoiceoverProjectResult,
-} from '@video-agent/runtime'
+} from './deck-project.js'
 
 export type {
   CreateDeckAudioAnchoredProjectOptions,
@@ -48,7 +55,7 @@ export type {
   CreateDeckVoiceoverProjectOptions,
   CreateDeckVoiceoverProjectResult,
   DeckRendererBackend,
-} from '@video-agent/runtime'
+} from './deck-project.js'
 
 export type DeckExplainerPipelineMode = 'audio-anchored' | 'script-generated' | 'summarize'
 

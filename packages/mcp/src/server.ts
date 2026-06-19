@@ -1,13 +1,19 @@
 import type {ExportFormat, PipelineStage, ProviderSmokeTestRole} from '@video-agent/runtime'
 
 import {
-  ALL_PIPELINE_STAGES,
-  checkRuntimeHealth,
   createDeckFinalRenderProject,
   createDeckFrameShardBatchProject,
   createDeckFrameShardPlanProject,
   createDeckRemotionRenderProject,
   createDeckRendererBackendProject,
+} from '@video-agent/pipeline-deck'
+import {
+  FILM_PIPELINE_STAGES,
+  recoverWorkspaceJobs,
+  rerunProject,
+} from '@video-agent/pipeline-film'
+import {
+  checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
   exportProject,
   ExportQualityError,
@@ -24,9 +30,7 @@ import {
   readProjectVisualSamples,
   readProviderEnvironment,
   readVideoAgentGuidedActions,
-  recoverWorkspaceJobs,
   renderProject,
-  rerunProject,
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
@@ -76,7 +80,7 @@ export interface McpServer {
   tools: McpTool[]
 }
 
-const RERUN_STAGE_VALUES: PipelineStage[] = [...ALL_PIPELINE_STAGES]
+const RERUN_STAGE_VALUES: PipelineStage[] = [...FILM_PIPELINE_STAGES]
 const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 const TOOL_DEFINITIONS: McpTool[] = [
   createTool('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {

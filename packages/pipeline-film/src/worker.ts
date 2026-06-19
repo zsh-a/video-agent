@@ -2,11 +2,9 @@ import type {JobRunStatus, JobStageState} from '@video-agent/db'
 
 import {ZodError} from 'zod'
 
-import {assertPipelineCheckpointArtifacts, PipelineCheckpointError} from './checkpoint.js'
 import type {RerunProjectResult} from './rerun.js'
-import {detectPipelineKind, getPipelineDefinition, isPipelineStage, type PipelineKind, type PipelineStage} from './pipeline-definitions.js'
-import {readProjectStatus} from './project-status.js'
-import {listProjects} from './projects.js'
+import {FILM_PIPELINE_DEFINITION} from './pipeline.js'
+import {assertPipelineCheckpointArtifacts, detectPipelineKind, isPipelineStage, listProjects, PipelineCheckpointError, readProjectStatus, type PipelineKind, type PipelineStage} from '@video-agent/runtime'
 import {rerunProject} from './rerun.js'
 
 export interface RecoverWorkspaceJobsOptions {
@@ -182,7 +180,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
   }
 }
 
-function detectRecoverablePipeline(job: Pick<Parameters<typeof detectPipelineKind>[0], 'pipeline' | 'stages'>): PipelineKind | undefined {
+function detectRecoverablePipeline(job: {pipeline?: string}): PipelineKind | undefined {
   try {
     return detectPipelineKind(job)
   } catch {
@@ -240,9 +238,12 @@ type RecoverableStage = JobStageState & {
 
 function findRecoveryStage(stages: JobStageState[], pipeline: PipelineKind): RecoverableStage | undefined {
   const stage = stages.find((item) => item.status === 'failed') ?? stages.find((item) => item.status === 'running') ?? stages.find((item) => item.status === 'pending')
-  const definition = getPipelineDefinition(pipeline)
 
-  return isPipelineStage(definition, stage?.name) ? {...stage, name: stage.name} : undefined
+  if (pipeline !== 'film') {
+    return undefined
+  }
+
+  return isPipelineStage(FILM_PIPELINE_DEFINITION, stage?.name) ? {...stage, name: stage.name} : undefined
 }
 
 interface RecoverProjectOptions {
@@ -297,8 +298,12 @@ export interface CheckpointValidationIssue {
 }
 
 async function readCheckpointIssue(projectId: string, workspaceDir: string, pipeline: PipelineKind, fromStage: PipelineStage): Promise<CheckpointIssue | undefined> {
+  if (pipeline !== 'film') {
+    return undefined
+  }
+
   try {
-    await assertPipelineCheckpointArtifacts(projectId, workspaceDir, getPipelineDefinition(pipeline), fromStage)
+    await assertPipelineCheckpointArtifacts(projectId, workspaceDir, FILM_PIPELINE_DEFINITION, fromStage)
     return undefined
   } catch (error) {
     if (error instanceof PipelineCheckpointError) {

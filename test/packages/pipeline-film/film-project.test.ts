@@ -7,7 +7,7 @@ import {join} from 'node:path'
 import {probeMedia} from '../../../packages/media/src/ffmpeg.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
-import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmRecapScriptProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/runtime/src/film-project.js'
+import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmRecapScriptProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/pipeline-film/src/film-project.js'
 
 describe('film recap project', () => {
   it('creates an ingest checkpoint with source manifest evidence', async () => {

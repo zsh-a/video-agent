@@ -9,6 +9,18 @@
   },
   "include": ["src/**/*"],
   "references": [
+    {"path": "../db"},
+    {"path": "../ir"},
+    {"path": "../llm"},
+    {"path": "../media"},
+    {"path": "../providers"},
+    {"path": "../quality"},
+    {"path": "../renderer-deck"},
+    {"path": "../renderer-ffmpeg"},
+    {"path": "../renderer-html"},
+    {"path": "../renderer-hyperframes"},
+    {"path": "../renderer-motion-canvas"},
+    {"path": "../renderer-remotion"},
     {"path": "../runtime"}
   ]
 }

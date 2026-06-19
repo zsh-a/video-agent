@@ -2,7 +2,7 @@ import type {ProjectArtifact} from './artifacts.js'
 import type {ProjectStatus} from './project-status.js'
 
 import {listProjectArtifacts} from './artifacts.js'
-import {detectPipelineKind, FILM_PIPELINE_DEFINITION, isPipelineStage} from './pipeline-definitions.js'
+import {detectPipelineKind} from './pipeline-definitions.js'
 import {readProjectStatus} from './project-status.js'
 import {listProjects} from './projects.js'
 
@@ -267,7 +267,7 @@ function findSuggestedRerunStage(status: ProjectStatus): string | undefined {
 
   const stage = status.job.stages.find((item) => item.status === 'failed') ?? status.job.stages.find((item) => item.status === 'running') ?? status.job.stages.find((item) => item.status === 'pending')
 
-  if (!isPipelineStage(FILM_PIPELINE_DEFINITION, stage?.name)) {
+  if (stage?.name === undefined || stage.name.length === 0) {
     return undefined
   }
 

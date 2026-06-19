@@ -1,7 +1,9 @@
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, PipelineCheckpointError as PipelineCheckpointErrorType, PipelineStage, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
+import type {RecoverableJobStatus, RecoverWorkspaceJobResult, RecoveryOrderBy} from '@video-agent/pipeline-film'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, PipelineCheckpointError as PipelineCheckpointErrorType, PipelineStage, ProjectArtifact, ProjectEventKind, ProjectEventRecord, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRole, ReadProjectArtifactResult, RenderProjectResult, VideoAgentGuidedAction} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {ALL_PIPELINE_STAGES, createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, recoverWorkspaceJobs, renderProject, rerunProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {FILM_PIPELINE_STAGES, recoverWorkspaceJobs, rerunProject} from '@video-agent/pipeline-film'
+import {createVideoAgentGuidedActions, exportProject, ExportQualityError, inspectFfmpegAudio, listProjectArtifacts, listProjects, PipelineCheckpointError, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, renderProject, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {type TuiManagerActionRequest, launchTuiManager} from '../ui/tui-manager.js'
@@ -52,7 +54,7 @@ export default class Tui extends Command {
     frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
     'from-stage': Flags.string({
       description: 'Stage to start from when --action rerun is used',
-      options: [...ALL_PIPELINE_STAGES],
+      options: [...FILM_PIPELINE_STAGES],
     }),
     interactive: Flags.boolean({allowNo: true, default: true, description: 'Use the interactive Ink manager when a TTY is available'}),
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),

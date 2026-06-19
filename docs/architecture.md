@@ -71,14 +71,14 @@ Deck Explainer Pipeline
   The content structure is the main line, and visuals are generated as slides, diagrams, charts, images, and animation.
 ```
 
-Do not force both products into one generic `ingest -> understand -> plan -> script -> render` flow. The shared runtime should execute typed stages, but each business pipeline chooses its own stage graph and first-class IR.
+Do not force both products into one generic `ingest -> understand -> plan -> script -> render` flow. The shared runtime should provide execution, workspace, artifact, checkpoint, event, and job facilities, but each business pipeline owns its own stage graph, first-class IR flow, provider calls, renderer orchestration, and quality gates.
 
-Pipeline facade packages expose the business orchestration surface while reusing the shared runtime implementations:
+Pipeline packages expose the business orchestration surface while reusing shared runtime facilities:
 
 ```text
 packages/
-  pipeline-film/    film recap orchestration facade over runtime/core/media/providers/renderers
-  pipeline-deck/    deck explainer orchestration facade over runtime/core/providers/renderer-deck/renderers
+  pipeline-film/    film recap orchestration over runtime/core/media/providers/renderers
+  pipeline-deck/    deck explainer orchestration over runtime/core/providers/renderer-deck/renderers
 ```
 
 ## Package Layout
@@ -120,11 +120,11 @@ adapters/
   mcp/
 ```
 
-These folders should call `@video-agent/core` and `@video-agent/runtime` instead of duplicating workflow behavior.
+These folders should call `@video-agent/core`, `@video-agent/runtime`, and the pipeline packages instead of duplicating workflow behavior.
 
 ## Shared Stage Runtime
 
-The runtime owns jobs, events, checkpoints, artifacts, provider setup, media wrappers, render/export utilities, and quality checks. Business stage graphs live in pipeline definitions instead of a generic "initial" pipeline. Film Recap and Deck Explainer declare their own stage lists and checkpoint artifact sets; adapters call those package/runtime APIs rather than building workflow behavior locally.
+The runtime owns jobs, events, checkpoints, artifacts, workspace IO, provider setup helpers, and shared render/export utilities. Business stage graphs live in pipeline packages instead of a generic "initial" pipeline or runtime monolith. Film Recap and Deck Explainer declare their own stage lists and checkpoint artifact sets; adapters call pipeline/runtime APIs rather than building workflow behavior locally.
 
 Each stage accepts typed input, writes serializable artifacts, emits events, and returns typed output. Film jobs can resume from supported checkpoint stages with `rerun <projectId> --from-stage` or worker recovery. Deck recovery is handled through dedicated deck commands rather than generic rerun. Before resuming, the runtime validates the upstream artifact set and fails without mutating job state when artifacts are missing, changed, untracked, or invalid against the relevant IR schema.
 
@@ -207,7 +207,7 @@ deck/motion.ts     deterministic motion presets compiled into a seekable timelin
 
 Templates compose lower layers and declare semantic structure only. `deck/templates/registry.tsx` is the renderer-side catalog for template modules; `template-manifest.ts` remains the LLM-facing catalog of allowed choices, limits, repair behavior, and quality rules. Themes own style tokens, motion presets own animation behavior, and LLM output remains limited to DeckIR fields selected from the manifest.
 
-The primary renderer for this pipeline is Remotion. The runtime compiles DeckIR plus MotionIR into a Remotion composition under `renders/remotion/`, renders a silent H.264 video with `imageFormat=jpeg`, `jpegQuality=85`, `x264Preset=veryfast`, and `concurrency=75%`, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The static React HTML renderer is retained as an explicit fallback through `renderer: "html"` or CLI `--renderer html`; it is best suited for compatibility, inspection, and keyframe visual QC rather than default full-video rendering. The HTML path can capture Playwright or Chromium frame sequences, write `deck-frame-manifest.json`, reuse existing non-empty frames, plan shards with `--plan-shards`, run shard batches with retry, and finalize from complete frame manifests. A Remotion final render removes stale HTML frame artifacts so interrupted browser-frame renders do not pollute the artifact manifest. HyperFrames remains an optional backend for compatible HTML project rendering. `createDeckRendererBackendProject` and CLI `deck export-backend` compile the same DeckIR plus MotionIR into standalone Remotion or Motion Canvas projects and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json`. `createDeckRemotionRenderProject` and CLI `deck render-backend --backend remotion` still run an explicit external Remotion command inside `renders/remotion/`, expect `out/final.mp4` by default, and record `deck-renderer-remotion-output.json`.
+The primary renderer for this pipeline is Remotion. `@video-agent/pipeline-deck` compiles DeckIR plus MotionIR into a Remotion composition under `renders/remotion/`, renders a silent H.264 video with `imageFormat=jpeg`, `jpegQuality=85`, `x264Preset=veryfast`, and `concurrency=75%`, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The static React HTML renderer is retained as an explicit fallback through `renderer: "html"` or CLI `--renderer html`; it is best suited for compatibility, inspection, and keyframe visual QC rather than default full-video rendering. The HTML path can capture Playwright or Chromium frame sequences, write `deck-frame-manifest.json`, reuse existing non-empty frames, plan shards with `--plan-shards`, run shard batches with retry, and finalize from complete frame manifests. A Remotion final render removes stale HTML frame artifacts so interrupted browser-frame renders do not pollute the artifact manifest. HyperFrames remains an optional backend for compatible HTML project rendering. `createDeckRendererBackendProject` and CLI `deck export-backend` compile the same DeckIR plus MotionIR into standalone Remotion or Motion Canvas projects and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json`. `createDeckRemotionRenderProject` and CLI `deck render-backend --backend remotion` still run an explicit external Remotion command inside `renders/remotion/`, expect `out/final.mp4` by default, and record `deck-renderer-remotion-output.json`.
 
 Quality checks focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
 

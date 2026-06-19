@@ -24,7 +24,7 @@ src/commands/              root oclif CLI adapter
 
 packages/ir/               Zod schemas and shared IR types
 packages/core/             stage and pipeline orchestration contracts
-packages/runtime/          workspace, artifacts, jobs, config, events, workflow APIs
+packages/runtime/          workspace, artifacts, jobs, config, events, checkpoint/runtime APIs
 packages/media/            ffmpeg / ffprobe / subprocess wrappers
 packages/providers/        ASR, VLM, TTS, storyboard, and script provider contracts
 packages/pipeline-deck/    Deck Explainer business pipeline boundary over runtime APIs
@@ -60,7 +60,7 @@ Deck Explainer Pipeline
   Used for text, article, podcast, course, and audio material rendered as PPT-style video.
 ```
 
-The shared runtime owns jobs, events, checkpoints, artifacts, providers, media wrappers, renderers, and quality checks. Pipeline-specific IR lives in `packages/ir`.
+The shared runtime owns jobs, events, checkpoints, artifacts, workspace IO, and provider setup helpers. Pipeline packages own business workflow behavior, provider calls, renderer orchestration, and quality gates. Pipeline-specific IR lives in `packages/ir`.
 
 ## Setup
 
@@ -101,7 +101,7 @@ bun run dev export <projectId> --output ./output
 
 Use `provider-report <projectId>` to audit real provider calls and LLM traces after a run. It summarizes calls by role, provider, and model, plus traced LLM operations by provider/model, including failures, latency, usage, and cost from `artifacts/provider-calls.jsonl` and `artifacts/llm-traces.jsonl`; the same report is available from `GET /projects/:projectId/provider-report` and the `video_agent_provider_report` MCP tool.
 
-Deck final rendering defaults to Remotion. The runtime compiles DeckIR plus MotionIR into a Remotion composition, renders a silent H.264 video with JPEG intermediate frames, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The Deck HTML renderer remains available through `deck render PROJECT --renderer html` for compatibility and inspection workflows. The HTML path uses the template manifest, React server rendering, Tailwind CSS, CSS variables, and a seekable runtime for deterministic browser frame capture; it defaults to Playwright and can use Chromium through `--frame-capture-backend chromium` / `--keyframe-capture-backend chromium`. HTML frame capture still supports bounded concurrency, frame shards, shard batch retry, and `--finalize-only`, but it is no longer the default full-video path. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
+Deck final rendering defaults to Remotion. `@video-agent/pipeline-deck` compiles DeckIR plus MotionIR into a Remotion composition, renders a silent H.264 video with JPEG intermediate frames, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The Deck HTML renderer remains available through `deck render PROJECT --renderer html` for compatibility and inspection workflows. The HTML path uses the template manifest, React server rendering, Tailwind CSS, CSS variables, and a seekable runtime for deterministic browser frame capture; it defaults to Playwright and can use Chromium through `--frame-capture-backend chromium` / `--keyframe-capture-backend chromium`. HTML frame capture still supports bounded concurrency, frame shards, shard batch retry, and `--finalize-only`, but it is no longer the default full-video path. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
 
 Optional renderer backend projects can be exported from the same Deck artifacts without making Remotion or Motion Canvas part of the default runtime renderer:
 

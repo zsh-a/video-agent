@@ -16,11 +16,6 @@
     {"path": "../media"},
     {"path": "../providers"},
     {"path": "../quality"},
-    {"path": "../renderer-deck"},
-    {"path": "../renderer-ffmpeg"},
-    {"path": "../renderer-html"},
-    {"path": "../renderer-hyperframes"},
-    {"path": "../renderer-motion-canvas"},
-    {"path": "../renderer-remotion"}
+    {"path": "../renderer-ffmpeg"}
   ]
 }

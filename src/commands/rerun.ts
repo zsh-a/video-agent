@@ -1,5 +1,6 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {ALL_PIPELINE_STAGES, type PipelineStage, PipelineCheckpointError, rerunProject} from '@video-agent/runtime'
+import {FILM_PIPELINE_STAGES, rerunProject} from '@video-agent/pipeline-film'
+import {type PipelineStage, PipelineCheckpointError} from '@video-agent/runtime'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
 
@@ -11,7 +12,7 @@ export default class Rerun extends Command {
   static flags = {
     'from-stage': Flags.string({
       description: 'Stage to start from when checkpoint artifacts already exist',
-      options: [...ALL_PIPELINE_STAGES],
+      options: [...FILM_PIPELINE_STAGES],
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),

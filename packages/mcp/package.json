@@ -11,6 +11,8 @@
     }
   },
   "dependencies": {
+    "@video-agent/pipeline-deck": "workspace:*",
+    "@video-agent/pipeline-film": "workspace:*",
     "@video-agent/runtime": "workspace:*",
     "zod": "^4.1.13"
   }

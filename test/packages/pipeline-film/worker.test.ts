@@ -5,7 +5,7 @@ import {dirname, join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {recoverWorkspaceJobs} from '../../../packages/runtime/src/worker.js'
+import {recoverWorkspaceJobs} from '../../../packages/pipeline-film/src/worker.js'
 
 describe('workspace worker recovery', () => {
   it('lists recoverable jobs in dry-run mode', async () => {

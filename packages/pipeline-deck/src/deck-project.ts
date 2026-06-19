@@ -24,14 +24,9 @@ import {mkdir, readdir, rm, stat} from 'node:fs/promises'
 import {extname, isAbsolute, join, resolve} from 'node:path'
 import {z} from 'zod'
 
-import {refreshArtifactManifest} from './artifact-store.js'
-import {bunFile, bunWrite} from './bun-runtime.js'
-import {readConfig} from './config.js'
 import {DEFAULT_DECK_REVIEW_FRAME_CONCURRENCY, DECK_REVIEW_FRAME_RENDERER, removeDeckReviewArtifacts, toVisualFrameSample, writeDeckReviewArtifacts, type DeckKeyframeArtifact, type DeckKeyframeSample, type DeckKeyframeTarget, type DeckReviewFrameRenderer} from './deck-review.js'
-import {assertFileExists} from './file-io.js'
-import {DECK_PIPELINE_DEFINITION} from './pipeline-definitions.js'
-import {createRuntimeLLMClient, createRuntimeProviders} from './runtime-providers.js'
-import {createProjectWorkspace, type ProjectWorkspace} from './workspace.js'
+import {DECK_PIPELINE_DEFINITION} from './pipeline.js'
+import {assertFileExists, bunFile, bunWrite, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest, type ProjectWorkspace} from '@video-agent/runtime'
 
 export interface CreateDeckExplainerProjectOptions {
   deckFormat?: DeckFormat

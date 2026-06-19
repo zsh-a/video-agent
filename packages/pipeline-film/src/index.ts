@@ -11,7 +11,14 @@ import {
   createFilmSubtitleProject,
   createFilmUnderstandingProject,
   createFilmVoiceoverProject,
-} from '@video-agent/runtime'
+} from './film-project.js'
+
+export {
+  FILM_CHECKPOINT_ARTIFACTS_BY_STAGE,
+  FILM_PIPELINE_DEFINITION,
+  FILM_PIPELINE_STAGES,
+} from './pipeline.js'
+export type {FilmPipelineStage} from './pipeline.js'
 
 export {
   createFilmAudioMixProject,
@@ -26,7 +33,10 @@ export {
   createFilmSubtitleProject,
   createFilmUnderstandingProject,
   createFilmVoiceoverProject,
-} from '@video-agent/runtime'
+  runFilmRecapProject,
+} from './film-project.js'
+export {recoverWorkspaceJobs} from './worker.js'
+export {rerunProject} from './rerun.js'
 
 import type {
   CreateFilmAudioMixProjectResult,
@@ -45,7 +55,7 @@ import type {
   CreateFilmUnderstandingProjectOptions,
   CreateFilmUnderstandingProjectResult,
   CreateFilmVoiceoverProjectResult,
-} from '@video-agent/runtime'
+} from './film-project.js'
 
 export type {
   CreateFilmAudioMixProjectOptions,
@@ -72,7 +82,11 @@ export type {
   CreateFilmUnderstandingProjectResult,
   CreateFilmVoiceoverProjectOptions,
   CreateFilmVoiceoverProjectResult,
-} from '@video-agent/runtime'
+  RunFilmRecapProjectOptions,
+  RunFilmRecapProjectResult,
+} from './film-project.js'
+export type {RecoverableJobStatus, RecoverWorkspaceJobResult, RecoverWorkspaceJobsOptions, RecoverWorkspaceJobsReport, RecoveryOrderBy} from './worker.js'
+export type {RerunProjectOptions, RerunProjectResult} from './rerun.js'
 
 export interface RunFilmRecapPipelineOptions extends CreateFilmIngestProjectOptions {
   llmClient?: CreateFilmStoryIndexProjectOptions['llmClient']

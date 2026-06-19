@@ -1,5 +1,5 @@
 import {Command, Flags} from '@oclif/core'
-import {type RecoverableJobStatus, type RecoverWorkspaceJobResult, recoverWorkspaceJobs, type RecoveryOrderBy} from '@video-agent/runtime'
+import {type RecoverableJobStatus, type RecoverWorkspaceJobResult, recoverWorkspaceJobs, type RecoveryOrderBy} from '@video-agent/pipeline-film'
 
 export default class Worker extends Command {
   static description = 'Recover failed or interrupted local pipeline jobs'

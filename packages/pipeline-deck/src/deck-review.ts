@@ -5,8 +5,7 @@ import type {DeckHtmlKeyframeCaptureBackend} from '@video-agent/renderer-html'
 import {mkdir, rm} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {bunWrite} from './bun-runtime.js'
-import type {ProjectWorkspace} from './workspace.js'
+import {bunWrite, type ProjectWorkspace} from '@video-agent/runtime'
 
 export const DECK_REVIEW_FRAME_RENDERER = 'remotion'
 export const DEFAULT_DECK_REVIEW_FRAME_CONCURRENCY = 4

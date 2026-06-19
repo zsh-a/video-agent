@@ -1,14 +1,21 @@
 import {
-  checkRuntimeHealth,
   createDeckFinalRenderProject,
   createDeckFrameShardBatchProject,
   createDeckFrameShardPlanProject,
   createDeckRemotionRenderProject,
   createDeckRendererBackendProject,
+} from '@video-agent/pipeline-deck'
+import {
+  FILM_PIPELINE_STAGES,
+  recoverWorkspaceJobs,
+  type RecoveryOrderBy,
+  rerunProject,
+} from '@video-agent/pipeline-film'
+import {
+  checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
   exportProject,
   ExportQualityError,
-  ALL_PIPELINE_STAGES,
   inspectFfmpegAudio,
   listProjectArtifacts,
   listProjects,
@@ -24,10 +31,7 @@ import {
   readProjectVisualSamples,
   readProviderEnvironment,
   readVideoAgentGuidedActions,
-  recoverWorkspaceJobs,
-  type RecoveryOrderBy,
   renderProject,
-  rerunProject,
   runProviderSmokeTest,
   verifyProjectArtifacts,
 } from '@video-agent/runtime'
@@ -189,7 +193,7 @@ async function routeProjectRequest(request: Request, segments: string[], url: UR
 
     return jsonResponse(
       await rerunProject(projectId, {
-        fromStage: parseOptionalEnum(readStringField(body, 'fromStage'), ALL_PIPELINE_STAGES),
+        fromStage: parseOptionalEnum(readStringField(body, 'fromStage'), FILM_PIPELINE_STAGES),
         workspaceDir,
       }),
     )
