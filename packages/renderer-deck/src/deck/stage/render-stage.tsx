@@ -9,9 +9,6 @@ export interface RenderDeckStageOptions {
   timings: SlideTiming[]
 }
 
-export type {DeckStageViewOptions, SlideRenderItem} from './view.js'
-export {DeckStageView, deckStageItems} from './view.js'
-
 export function renderDeckStage(deck: Deck, options: RenderDeckStageOptions): string {
   return renderToStaticMarkup(<DeckStageView deck={deck} timings={options.timings} captureSlideId={options.captureSlideId} />)
 }
