@@ -151,42 +151,44 @@ function alternateRepeatedPointTemplate(slide: NormalizedLLMTextDeckSlide, repea
 }
 
 function repairLLMTextDeckSlide(slide: NormalizedLLMTextDeckSlide): NormalizedLLMTextDeckSlide[] {
-  if (slide.type === 'comparison' && slide.comparison !== undefined) {
+  const normalizedSlide = applyDeckTemplateTextLimits(slide)
+
+  if (normalizedSlide.type === 'comparison' && normalizedSlide.comparison !== undefined) {
     return [{
-      ...slide,
+      ...normalizedSlide,
       comparison: {
         left: {
-          ...slide.comparison.left,
-          points: slide.comparison.left.points.slice(0, findDeckTemplateManifestEntry('comparison').limits.left_points),
+          ...normalizedSlide.comparison.left,
+          points: normalizedSlide.comparison.left.points.slice(0, findDeckTemplateManifestEntry('comparison').limits.left_points),
         },
         right: {
-          ...slide.comparison.right,
-          points: slide.comparison.right.points.slice(0, findDeckTemplateManifestEntry('comparison').limits.right_points),
+          ...normalizedSlide.comparison.right,
+          points: normalizedSlide.comparison.right.points.slice(0, findDeckTemplateManifestEntry('comparison').limits.right_points),
         },
       },
     }]
   }
 
-  const maxPoints = maxPointsForDeckTemplate(slide.type)
+  const maxPoints = maxPointsForDeckTemplate(normalizedSlide.type)
 
-  if (maxPoints === undefined || slide.points.length <= maxPoints) {
-    return [slide]
+  if (maxPoints === undefined || normalizedSlide.points.length <= maxPoints) {
+    return [normalizedSlide]
   }
 
-  if (findDeckTemplateManifestEntry(slide.type).repair !== 'split-points') {
-    return [{
-      ...slide,
-      points: slide.points.slice(0, maxPoints),
-    }]
+  if (findDeckTemplateManifestEntry(normalizedSlide.type).repair !== 'split-points') {
+    return [applyDeckTemplateTextLimits({
+      ...normalizedSlide,
+      points: normalizedSlide.points.slice(0, maxPoints),
+    })]
   }
 
-  const chunks = chunk(slide.points, maxPoints)
+  const chunks = chunk(normalizedSlide.points, maxPoints)
 
-  return chunks.map((points, index) => ({
-    ...slide,
+  return chunks.map((points, index) => applyDeckTemplateTextLimits({
+    ...normalizedSlide,
     points,
-    title: index === 0 ? slide.title : `${slide.title}（续）`,
-    type: index === 0 ? slide.type : continuationTemplateType(slide.type),
+    title: index === 0 ? normalizedSlide.title : `${normalizedSlide.title}（续）`,
+    type: index === 0 ? normalizedSlide.type : continuationTemplateType(normalizedSlide.type),
   }))
 }
 
@@ -196,6 +198,45 @@ function continuationTemplateType(type: DeckSlideType): DeckSlideType {
   }
 
   return type
+}
+
+function applyDeckTemplateTextLimits(slide: NormalizedLLMTextDeckSlide): NormalizedLLMTextDeckSlide {
+  const limits = findDeckTemplateManifestEntry(slide.type).limits
+  const pointLimit = limits.point_chars
+  const subtitle = fitOptionalTemplateText(slide.subtitle, limits.subtitle_chars)
+
+  return {
+    ...slide,
+    ...(slide.comparison === undefined || pointLimit === undefined ? {} : {
+      comparison: {
+        left: {
+          ...slide.comparison.left,
+          points: slide.comparison.left.points.map((point) => fitTemplateText(point, pointLimit)),
+        },
+        right: {
+          ...slide.comparison.right,
+          points: slide.comparison.right.points.map((point) => fitTemplateText(point, pointLimit)),
+        },
+      },
+    }),
+    points: pointLimit === undefined ? slide.points : slide.points.map((point) => fitTemplateText(point, pointLimit)),
+    ...(subtitle === undefined ? {} : {subtitle}),
+    title: fitTemplateText(slide.title, limits.title_chars),
+  }
+}
+
+function fitOptionalTemplateText(value: string | undefined, limit: number | undefined): string | undefined {
+  return value === undefined ? undefined : fitTemplateText(value, limit)
+}
+
+function fitTemplateText(value: string, limit: number | undefined): string {
+  if (limit === undefined || value.length <= limit) {
+    return value
+  }
+
+  const clipped = value.slice(0, limit).trim()
+
+  return clipped === '' ? value.slice(0, limit) : clipped
 }
 
 function normalizeLLMComparison(comparison: LLMTextDeckSlide['comparison']): NormalizedLLMTextDeckSlide['comparison'] {

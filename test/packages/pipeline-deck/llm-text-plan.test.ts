@@ -2,6 +2,8 @@ import {expect} from '#test/expect'
 
 import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMEvent, StreamTextRequest} from '../../../packages/llm/src/index.js'
 import {createLLMTextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/llm-text-plan.js'
+import {createTextDeckProjectPlanFromLLM} from '../../../packages/pipeline-deck/src/planning/text-plan-builder.js'
+import {findDeckTemplateManifestEntry, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-deck/src/deck/templates/manifest.js'
 
 describe('Deck Explainer LLM text planning', () => {
   it('asks the LLM to preserve source code examples as code slides', async () => {
@@ -87,5 +89,67 @@ describe('Deck Explainer LLM text planning', () => {
     expect(payload.instructions.join('\n')).to.include('preserve the executable command')
     expect(payload.instructions.join('\n')).to.include('end with a summary slide')
     expect(payload.target.requiredSlideTypes).to.deep.equal(['hero', 'process', 'code', 'summary'])
+  })
+
+  it('repairs visible point text to template character limits before quality validation', () => {
+    const plan = createTextDeckProjectPlanFromLLM(
+      '/tmp/provider-hardening.md',
+      'Provider certification needs stable failures, costs, retries, and traces.',
+      {
+        slides: [
+          {
+            points: ['Provider checks'],
+            speakerNote: 'Open with the provider hardening target.',
+            title: 'Providers',
+            type: 'hero',
+          },
+          {
+            points: ['把失败信息成本重试trace都稳定到可认证状态'],
+            speakerNote: 'Explain the single certification idea.',
+            title: 'Certification',
+            type: 'one-big-idea',
+          },
+          {
+            points: [
+              'Capture structured provider failures before retry',
+              'Record cost and usage beside each trace',
+              'Gate certification on stable retry output',
+            ],
+            speakerNote: 'Walk through the provider certification process.',
+            title: 'Process',
+            type: 'process',
+          },
+          {
+            points: [
+              'Failures are readable and traceable',
+              'Cost stays visible during reruns',
+              'Retries produce certified artifacts',
+            ],
+            speakerNote: 'Summarize the provider hardening outcome.',
+            title: 'Summary',
+            type: 'summary',
+          },
+        ],
+        summary: 'Provider certification stabilizes failures, cost, retries, and traces.',
+        title: 'Provider Hardening',
+      },
+      {
+        deckFormat: 'portrait_1080x1920',
+        durationTargetSeconds: 90,
+        language: 'zh-CN',
+        maxSlideCharacters: 260,
+        slideSeconds: 22,
+      },
+    )
+
+    for (const slide of plan.deck.slides) {
+      const pointLimit = findDeckTemplateManifestEntry(slide.type).limits.point_chars
+
+      if (pointLimit !== undefined) {
+        expect(slide.points.every((point) => point.length <= pointLimit)).to.equal(true)
+      }
+
+      expect(validateSlideAgainstTemplateManifest(slide)).to.have.length(0)
+    }
   })
 })
