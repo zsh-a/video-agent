@@ -5,7 +5,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {createJsonlProviderCallRecorder, instrumentProviders} from '../../../packages/runtime/src/provider-calls.js'
+import {createJsonlProviderCallRecorder, instrumentProviders} from '../../../packages/runtime/src/provider/calls.js'
 
 describe('provider call recorder', () => {
   it('records provider request metadata on successful calls', async () => {

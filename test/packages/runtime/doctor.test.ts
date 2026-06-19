@@ -4,8 +4,8 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {writeConfig} from '../../../packages/runtime/src/config.js'
-import {checkRuntimeHealth} from '../../../packages/runtime/src/doctor.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
+import {checkRuntimeHealth} from '../../../packages/runtime/src/doctor/index.js'
 
 describe('doctor', () => {
   it('reports required runtime checks', async () => {

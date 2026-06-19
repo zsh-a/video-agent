@@ -7,8 +7,8 @@ import {join} from 'node:path'
 import type {GenerateObjectRequest, LLMClient} from '../../../packages/llm/src/index.js'
 
 import {MIMO_PROVIDER_MODEL_IDS} from '../../../packages/providers/src/index.js'
-import {writeConfig} from '../../../packages/runtime/src/config.js'
-import {runProviderSmokeTest} from '../../../packages/runtime/src/provider-smoke-test.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
+import {runProviderSmokeTest} from '../../../packages/runtime/src/provider/smoke-test.js'
 
 const asrOptionsKey = 'asr_options'
 const completionTokensKey = 'completion_tokens'

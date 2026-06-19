@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {runProcess} from '../../../packages/media/src/process.js'
-import {inspectFfmpegAudio, renderProject} from '../../../packages/runtime/src/render-project.js'
+import {inspectFfmpegAudio, renderProject} from '../../../packages/runtime/src/render/project.js'
 
 describe('render project', () => {
   it('writes subtitle quality diagnostics when subtitles are enabled', async () => {

@@ -3,7 +3,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {createConfiguredJobStore} from '../../../packages/runtime/src/job-store.js'
+import {createConfiguredJobStore} from '../../../packages/runtime/src/shared/job-store.js'
 
 describe('runtime job store', () => {
   it('uses the JSON job store by default', async () => {

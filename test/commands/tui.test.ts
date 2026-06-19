@@ -3,11 +3,11 @@ import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import type {ProjectQualityReport} from '../../packages/runtime/src/project-quality.js'
-import type {ProjectStatus} from '../../packages/runtime/src/project-status.js'
+import type {ProjectQualityReport} from '../../packages/runtime/src/project/quality.js'
+import type {ProjectStatus} from '../../packages/runtime/src/project/status.js'
 
 import {JsonJobStore} from '../../packages/db/src/job-store.js'
-import {refreshArtifactManifest} from '../../packages/runtime/src/artifact-store.js'
+import {refreshArtifactManifest} from '../../packages/runtime/src/artifacts/store.js'
 import {runTuiAction} from '../../src/ui/actions/index.js'
 import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../../src/ui/format/console.js'
 

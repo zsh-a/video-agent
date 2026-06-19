@@ -4,7 +4,7 @@ import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {readProjectEvents} from '../../../packages/runtime/src/project-events.js'
+import {readProjectEvents} from '../../../packages/runtime/src/project/events-reader.js'
 
 describe('project events', () => {
   it('reads sorted pipeline events and provider calls with filters', async () => {

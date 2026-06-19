@@ -4,7 +4,7 @@ import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {readProjectProviderReport} from '../../../packages/runtime/src/provider-report.js'
+import {readProjectProviderReport} from '../../../packages/runtime/src/provider/report.js'
 
 describe('project provider report', () => {
   it('summarizes provider usage, cost, latency, and filtered calls', async () => {

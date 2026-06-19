@@ -4,7 +4,7 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {createProjectId, createProjectWorkspace} from '../../../packages/runtime/src/workspace.js'
+import {createProjectId, createProjectWorkspace} from '../../../packages/runtime/src/shared/workspace.js'
 
 describe('workspace', () => {
   it('creates deterministic project ids from media names and timestamps', () => {

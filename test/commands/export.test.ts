@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import type {ProjectQualityReport} from '../../packages/runtime/src/project-quality.js'
+import type {ProjectQualityReport} from '../../packages/runtime/src/project/quality.js'
 
 import {createExportQualityFailurePayload, formatExportQualityFailure} from '../../src/commands/export.js'
 

@@ -5,8 +5,8 @@ import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {createVideoAgentMcpServer} from '../../../packages/mcp/src/server.js'
-import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {writeConfig} from '../../../packages/runtime/src/config.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('mcp server', () => {
   it('lists video-agent tools', async () => {

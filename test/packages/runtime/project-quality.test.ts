@@ -5,8 +5,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {readProjectQuality, readProjectQualityDetails} from '../../../packages/runtime/src/project-quality.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
+import {readProjectQuality, readProjectQualityDetails} from '../../../packages/runtime/src/project/quality.js'
 
 describe('project quality', () => {
   it('summarizes pipeline, render, and artifact quality', async () => {

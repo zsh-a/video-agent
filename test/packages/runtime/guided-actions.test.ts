@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {createVideoAgentGuidedActions, readVideoAgentGuidedActions} from '../../../packages/runtime/src/guided-actions.js'
+import {createVideoAgentGuidedActions, readVideoAgentGuidedActions} from '../../../packages/runtime/src/project/guided-actions.js'
 
 describe('guided actions', () => {
   it('creates sorted workspace actions without a selected project', () => {

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {MIMO_PROVIDER_MODEL_IDS} from '../../../packages/providers/src/index.js'
-import {readConfig, writeConfig} from '../../../packages/runtime/src/config.js'
+import {readConfig, writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('config', () => {
   it('returns mock defaults before a config file exists', async () => {

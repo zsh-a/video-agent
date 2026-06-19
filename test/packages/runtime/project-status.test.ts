@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {readProjectStatus} from '../../../packages/runtime/src/project-status.js'
+import {readProjectStatus} from '../../../packages/runtime/src/project/status.js'
 
 describe('project status', () => {
   it('summarizes pipeline events and provider calls', async () => {

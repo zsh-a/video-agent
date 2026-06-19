@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {listProjects} from '../../../packages/runtime/src/projects.js'
+import {listProjects} from '../../../packages/runtime/src/project/projects.js'
 
 describe('projects', () => {
   it('lists project summaries sorted by update time', async () => {

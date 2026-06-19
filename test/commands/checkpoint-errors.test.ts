@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {PipelineCheckpointError} from '../../packages/runtime/src/checkpoint.js'
+import {PipelineCheckpointError} from '../../packages/runtime/src/project/checkpoint.js'
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../../src/utils/checkpoint-errors.js'
 
 describe('checkpoint CLI errors', () => {

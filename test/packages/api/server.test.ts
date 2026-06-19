@@ -5,8 +5,8 @@ import {join} from 'node:path'
 
 import {createApiFetchHandler} from '../../../packages/api/src/server.js'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {writeConfig} from '../../../packages/runtime/src/config.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('api server handler', () => {
   it('serves health, projects, status, events, and artifacts', async () => {

@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {findCjkSubtitleFont, isReliableCjkSubtitleFontPath} from '../../../packages/runtime/src/subtitle-fonts.js'
+import {findCjkSubtitleFont, isReliableCjkSubtitleFontPath} from '../../../packages/runtime/src/render/subtitle-fonts.js'
 
 describe('runtime subtitle fonts', () => {
   it('accepts Source Han Sans CN as a reliable CJK subtitle font', () => {

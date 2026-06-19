@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
 import {PipelineCheckpointError} from '@video-agent/runtime'
 import {rerunProject} from '../../../packages/pipeline-film/src/rerun.js'
 

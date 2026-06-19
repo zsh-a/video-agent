@@ -4,8 +4,8 @@ import {mkdir, mkdtemp, rm, unlink, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {listProjectArtifacts, readProjectArtifact, verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
+import {listProjectArtifacts, readProjectArtifact, verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
 
 describe('artifacts', () => {
   it('lists and reads project artifacts', async () => {

@@ -4,8 +4,8 @@ import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {writeConfig} from '../../../packages/runtime/src/config.js'
-import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '../../../packages/runtime/src/provider-environment.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
+import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '../../../packages/runtime/src/provider/environment.js'
 
 describe('provider environment', () => {
   it('returns no requirements for mock providers', async () => {

@@ -4,7 +4,7 @@ import {mkdir, mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {readProjectVisualSamples} from '../../../packages/runtime/src/project-visual-samples.js'
+import {readProjectVisualSamples} from '../../../packages/runtime/src/project/visual-samples.js'
 
 describe('project visual samples', () => {
   it('reads rendered frame sample metadata and optional content', async () => {

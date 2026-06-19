@@ -4,8 +4,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {refreshArtifactManifest} from '../../../packages/runtime/src/artifact-store.js'
-import {exportProject, ExportQualityError} from '../../../packages/runtime/src/export.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
+import {exportProject, ExportQualityError} from '../../../packages/runtime/src/render/export.js'
 
 describe('export project', () => {
   it('exports a rendered video file', async () => {
