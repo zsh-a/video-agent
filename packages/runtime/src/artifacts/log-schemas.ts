@@ -75,6 +75,8 @@ export const ProviderCallLogLineSchema = z.object({
 })
 
 const LLMUsageSchema = z.object({
+  cacheReadTokens: z.number().nonnegative().optional(),
+  cacheWriteTokens: z.number().nonnegative().optional(),
   inputTokens: z.number().nonnegative().optional(),
   outputTokens: z.number().nonnegative().optional(),
   totalTokens: z.number().nonnegative().optional(),
@@ -94,6 +96,11 @@ export const LLMTraceLogLineSchema = z.object({
   operation: z.enum(['generateObject', 'generateObjectFallbackText', 'generateObjectJsonText', 'generateText', 'streamText']),
   provider: z.string().min(1).optional(),
   request: z.object({
+    cache: z.object({
+      key: z.string().min(1),
+      messageIndex: z.number().int().nonnegative().optional(),
+      mode: z.literal('ephemeral'),
+    }).strict().optional(),
     messages: z.array(z.unknown()).optional(),
     prompt: z.string().optional(),
     providerOptions: z.record(z.string(), z.unknown()).optional(),

@@ -77,6 +77,7 @@ export async function recordAISDKTrace(input: {
 
 function traceRequest(request: GenerateTextRequest | GenerateObjectRequest<unknown>): LLMTraceRecord['request'] {
   return {
+    ...(request.cache === undefined ? {} : {cache: request.cache}),
     ...(request.messages === undefined ? {} : {messages: sanitizeTraceMessages(request.messages)}),
     ...(request.prompt === undefined ? {} : {prompt: request.prompt}),
     ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),

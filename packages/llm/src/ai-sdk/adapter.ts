@@ -14,9 +14,11 @@ import type {
   StreamTextRequest,
 } from '../types.js'
 
-import {createJsonFallbackRequest, parseJsonFromText, shouldFallbackToJsonText} from './json-fallback.js'
+import {createJsonFallbackRequest, createJsonTextRepairRequest, parseJsonFromText, shouldFallbackToJsonText} from './json-fallback.js'
 import {recordAISDKTrace, startTrace, type TraceContext} from './tracing.js'
 import {normalizeUsage} from './usage.js'
+
+const JSON_TEXT_REPAIR_ATTEMPTS = 2
 
 export interface AISDKLLMClientOptions {
   model: LanguageModel
@@ -141,20 +143,30 @@ export class AISDKLLMClient implements LLMClient {
       originalError?: unknown
     },
   ): Promise<GenerateObjectResult<T>> {
-    const trace = startTrace(options.operation)
-    const fallbackRequest = createJsonFallbackRequest(request)
+    return this.generateObjectFromJsonTextAttempt(request, createJsonFallbackRequest(request), options, 0)
+  }
 
+  private async generateObjectFromJsonTextAttempt<T>(
+    request: GenerateObjectRequest<T>,
+    currentRequest: GenerateTextRequest,
+    options: {
+      operation: 'generateObjectFallbackText' | 'generateObjectJsonText'
+      originalError?: unknown
+    },
+    attempt: number,
+  ): Promise<GenerateObjectResult<T>> {
+    const trace = startTrace(options.operation)
     let result: Awaited<ReturnType<typeof generateText>>
 
     try {
       result = await generateText({
-        ...createPromptInput(fallbackRequest),
+        ...createPromptInput(currentRequest),
         model: this.options.model,
-        ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
-        ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
+        ...(currentRequest.providerOptions === undefined ? {} : {providerOptions: currentRequest.providerOptions}),
+        ...(currentRequest.temperature === undefined ? {} : {temperature: currentRequest.temperature}),
       })
     } catch (error) {
-      await this.recordTrace(trace, fallbackRequest, {error})
+      await this.recordTrace(trace, currentRequest, {error})
       throw error
     }
 
@@ -164,7 +176,7 @@ export class AISDKLLMClient implements LLMClient {
         usage: normalizeUsage(result.usage),
       }
 
-      await this.recordTrace(trace, fallbackRequest, {
+      await this.recordTrace(trace, currentRequest, {
         object: output.object,
         text: result.text,
         usage: output.usage,
@@ -172,15 +184,28 @@ export class AISDKLLMClient implements LLMClient {
 
       return output
     } catch (error) {
-      await this.recordTrace(trace, fallbackRequest, {
+      await this.recordTrace(trace, currentRequest, {
         error,
         text: result.text,
         usage: normalizeUsage(result.usage),
       })
 
-      throw new Error(jsonObjectFailureMessage(options.operation, error), {
-        cause: options.originalError,
-      })
+      if (attempt >= JSON_TEXT_REPAIR_ATTEMPTS) {
+        throw new Error(jsonObjectFailureMessage(options.operation, error), {
+          cause: options.originalError,
+        })
+      }
+
+      return this.generateObjectFromJsonTextAttempt(
+        request,
+        createJsonTextRepairRequest(currentRequest, {
+          attemptsRemaining: JSON_TEXT_REPAIR_ATTEMPTS - attempt,
+          invalidText: result.text,
+          parseError: error instanceof Error ? error.message : String(error),
+        }),
+        options,
+        attempt + 1,
+      )
     }
   }
 
@@ -210,7 +235,7 @@ function jsonObjectFailureMessage(operation: 'generateObjectFallbackText' | 'gen
 function createPromptInput(request: GenerateTextRequest): {messages: ModelMessage[]} | {prompt: string} {
   if (request.messages !== undefined) {
     return {
-      messages: request.messages,
+      messages: applyCacheHintToMessages(request.messages, request.cache),
     }
   }
 
@@ -221,4 +246,29 @@ function createPromptInput(request: GenerateTextRequest): {messages: ModelMessag
   }
 
   throw new Error('LLM request requires either prompt or messages.')
+}
+
+function applyCacheHintToMessages(messages: ModelMessage[], cache: GenerateTextRequest['cache']): ModelMessage[] {
+  if (cache === undefined) {
+    return messages
+  }
+
+  const messageIndex = cache.messageIndex ?? messages.length - 1
+
+  if (messageIndex < 0 || messageIndex >= messages.length) {
+    return messages
+  }
+
+  return messages.map((message, index) => index === messageIndex
+    ? {
+        ...message,
+        providerOptions: {
+          ...message.providerOptions,
+          anthropic: {
+            ...message.providerOptions?.anthropic,
+            cacheControl: {type: cache.mode},
+          },
+        },
+      } as ModelMessage
+    : message)
 }

@@ -81,6 +81,56 @@ describe('AI SDK LLM adapter', () => {
     expect(result.usage?.totalTokens).to.equal(13)
   })
 
+  it('applies cache hints to message provider options', async () => {
+    let generateInput: {prompt?: Array<{providerOptions?: Record<string, Record<string, unknown>>}>} | undefined
+    const model = createMockLanguageModel({
+      generateResult(input) {
+        generateInput = input as typeof generateInput
+
+        return {
+          content: [
+            {
+              text: 'cached result',
+              type: 'text',
+            },
+          ],
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 21,
+            outputTokens: 2,
+            totalTokens: 23,
+          },
+          warnings: [],
+        }
+      },
+    })
+    const client = new AISDKLLMClient({model})
+
+    const result = await client.generateText({
+      cache: {
+        key: 'deck:slide-plan:test',
+        messageIndex: 0,
+        mode: 'ephemeral',
+      },
+      messages: [
+        {
+          content: 'Stable deck planning context',
+          role: 'user',
+        },
+        {
+          content: 'Dynamic rewrite feedback',
+          role: 'user',
+        },
+      ],
+    })
+
+    expect(generateInput?.prompt?.[0]?.providerOptions?.anthropic).to.deep.equal({
+      cacheControl: {type: 'ephemeral'},
+    })
+    expect(generateInput?.prompt?.[1]?.providerOptions).to.equal(undefined)
+    expect(result.usage?.totalTokens).to.equal(23)
+  })
+
   it('falls back to text JSON when structured object generation returns no object', async () => {
     let calls = 0
     const model = createMockLanguageModel({
@@ -276,9 +326,10 @@ describe('AI SDK LLM adapter', () => {
       expect(error).to.be.instanceOf(Error)
     }
 
-    expect(traces).to.have.length(2)
+    expect(traces).to.have.length(4)
     const structuredTrace = traces[0] as {error: {details?: {requestBodyValues?: unknown; responseBody?: unknown; statusCode?: number; url?: string}; message: string}; model: string; operation: string; provider: string; request: {prompt?: string; schema?: unknown}; requestId: string; status: string; version: number}
     const fallbackTrace = traces[1] as {error: {message: string; name: string}; operation: string; response: {text: string}; status: string; usage: {totalTokens: number}}
+    const finalRepairTrace = traces[3] as {operation: string; status: string}
 
     expect(structuredTrace.operation).to.equal('generateObject')
     expect(structuredTrace.status).to.equal('failed')
@@ -297,6 +348,8 @@ describe('AI SDK LLM adapter', () => {
     expect(fallbackTrace.error.name).to.equal('ZodError')
     expect(fallbackTrace.response.text).to.equal('{"ok":"not boolean"}')
     expect(fallbackTrace.usage.totalTokens).to.equal(7)
+    expect(finalRepairTrace.operation).to.equal('generateObjectFallbackText')
+    expect(finalRepairTrace.status).to.equal('failed')
   })
 
   it('lifts retryable API errors into traces', async () => {
@@ -457,12 +510,14 @@ describe('AI SDK LLM adapter', () => {
       expect(String(error)).to.include('LLM JSON fallback failed')
     }
 
-    expect(traces).to.have.length(2)
+    expect(traces).to.have.length(4)
     expect((traces[1] as {operation: string; status: string}).operation).to.equal('generateObjectFallbackText')
     expect((traces[1] as {status: string}).status).to.equal('failed')
+    expect((traces[3] as {operation: string; status: string}).operation).to.equal('generateObjectFallbackText')
+    expect((traces[3] as {status: string}).status).to.equal('failed')
   })
 
-  it('rejects fenced fallback JSON instead of extracting it locally', async () => {
+  it('asks the LLM to rewrite fenced fallback JSON instead of extracting it locally', async () => {
     let calls = 0
     const traces: unknown[] = []
     const model = createMockLanguageModel({
@@ -479,10 +534,28 @@ describe('AI SDK LLM adapter', () => {
           })
         }
 
+        if (calls === 2) {
+          return {
+            content: [
+              {
+                text: '```json\n{"ok":true}\n```',
+                type: 'text',
+              },
+            ],
+            finishReason: 'stop',
+            usage: {
+              inputTokens: 4,
+              outputTokens: 3,
+              totalTokens: 7,
+            },
+            warnings: [],
+          }
+        }
+
         return {
           content: [
             {
-              text: '```json\n{"ok":true}\n```',
+              text: '{"ok":true}',
               type: 'text',
             },
           ],
@@ -505,25 +578,24 @@ describe('AI SDK LLM adapter', () => {
       },
     })
 
-    try {
-      await client.generateObject({
-        prompt: 'Return JSON',
-        schema: z.object({
-          ok: z.boolean(),
-        }),
-      })
-      expect.fail('Expected fenced fallback JSON to fail.')
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error)
-      expect(String(error)).to.include('LLM JSON fallback failed')
-    }
+    const result = await client.generateObject({
+      prompt: 'Return JSON',
+      schema: z.object({
+        ok: z.boolean(),
+      }),
+    })
 
-    expect(traces).to.have.length(2)
+    expect(result.object).to.deep.equal({ok: true})
+    expect(traces).to.have.length(3)
     const fallbackTrace = traces[1] as {operation: string; response: {text: string}; status: string}
+    const repairTrace = traces[2] as {operation: string; response: {text: string}; status: string}
 
     expect(fallbackTrace.operation).to.equal('generateObjectFallbackText')
     expect(fallbackTrace.status).to.equal('failed')
     expect(fallbackTrace.response.text).to.equal('```json\n{"ok":true}\n```')
+    expect(repairTrace.operation).to.equal('generateObjectFallbackText')
+    expect(repairTrace.status).to.equal('succeeded')
+    expect(repairTrace.response.text).to.equal('{"ok":true}')
   })
 
   it('streams text events while preserving final usage', async () => {
@@ -592,11 +664,11 @@ describe('AI SDK LLM adapter', () => {
 })
 
 function createMockLanguageModel(options: {
-  generateResult?: (() => unknown) | unknown
+  generateResult?: ((input: unknown) => unknown) | unknown
   streamResult?: unknown
 }): LanguageModel {
   return {
-    doGenerate: async () => typeof options.generateResult === 'function' ? options.generateResult() : options.generateResult,
+    doGenerate: async (input: unknown) => typeof options.generateResult === 'function' ? options.generateResult(input) : options.generateResult,
     doStream: async () => options.streamResult,
     modelId: 'mock-model',
     provider: 'mock-provider',

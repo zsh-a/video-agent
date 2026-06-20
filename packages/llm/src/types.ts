@@ -8,7 +8,14 @@ export type LLMProviderOptions = Record<string, Record<string, LLMJsonValue>>
 
 export type LLMJsonValue = boolean | LLMJsonValue[] | null | number | string | {[key: string]: LLMJsonValue | undefined}
 
+export interface LLMCacheHint {
+  key: string
+  messageIndex?: number
+  mode: 'ephemeral'
+}
+
 export interface GenerateTextRequest {
+  cache?: LLMCacheHint
   messages?: LLMMessage[]
   prompt?: string
   providerOptions?: LLMProviderOptions
@@ -43,6 +50,8 @@ export type LLMEvent =
     }
 
 export interface LLMUsage {
+  cacheReadTokens?: number
+  cacheWriteTokens?: number
   inputTokens?: number
   outputTokens?: number
   totalTokens?: number
@@ -65,6 +74,7 @@ export interface LLMTraceRecord {
   operation: LLMTraceOperation
   provider?: string
   request: {
+    cache?: LLMCacheHint
     messages?: LLMMessage[]
     prompt?: string
     providerOptions?: LLMProviderOptions

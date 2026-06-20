@@ -324,6 +324,98 @@ describe('Deck Explainer LLM text planning', () => {
     expect(plan.document.source.sourceType).to.equal('text')
   })
 
+  it('sends all template validation issues to a cached slide-plan rewrite request', async () => {
+    const invalidPlan = createOneSlideRawPlan()
+    const fixedPlan = createOneSlideRawPlan()
+    invalidPlan.slides[0] = {
+      ...invalidPlan.slides[0],
+      points: [
+        'Demand-driven alpha identification',
+        'Structured workflow and template',
+      ],
+      semantic: deckSemantic('Summarize alpha identification and workflow.'),
+      speakerNote: 'Summarize alpha identification and workflow.',
+      title: 'Key Takeaways',
+    }
+    fixedPlan.slides[0] = {
+      ...fixedPlan.slides[0],
+      points: [
+        'Demand-led alpha',
+        'Structured workflow',
+      ],
+      semantic: deckSemantic('Summarize alpha identification and workflow.'),
+      speakerNote: 'Summarize alpha identification and workflow.',
+      title: 'Key Takeaways',
+    }
+
+    let useFixedPlan = false
+    let capturedRewriteRequest: GenerateObjectRequest<unknown> | undefined
+    let capturedIssues: unknown[] = []
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        const stage = requestStage(request as GenerateObjectRequest<unknown>)
+        const isRewrite = (request.messages?.length ?? 0) > 1
+
+        if (stage === 'slide-plan' && isRewrite) {
+          capturedRewriteRequest = request as GenerateObjectRequest<unknown>
+          const feedback = JSON.parse(String(request.messages?.[2]?.content ?? '{}')) as {issues?: unknown[]}
+          capturedIssues = feedback.issues ?? []
+          useFixedPlan = true
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, useFixedPlan ? fixedPlan : invalidPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/source.md', 'Explain alpha workflow.', {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    expect(plan.deck.slides[0]?.points).to.deep.equal(['Demand-led alpha', 'Structured workflow'])
+    expect(capturedIssues).to.have.length(2)
+    expect(capturedIssues).to.deep.include({
+      actual: 34,
+      code: 'TEMPLATE_TEXT_LENGTH_LIMIT',
+      field: 'point 1',
+      limit: 30,
+      message: 'LLM Deck plan slide "Key Takeaways" point 1 has 34 characters, exceeding summary limit 30. Rewrite the slide in LLM output.',
+      path: 'slides[0].points[0]',
+      slideIndex: 0,
+      slideTitle: 'Key Takeaways',
+      stage: 'slide-plan',
+      template: 'summary',
+    })
+    expect(capturedIssues).to.deep.include({
+      actual: 32,
+      code: 'TEMPLATE_TEXT_LENGTH_LIMIT',
+      field: 'point 2',
+      limit: 30,
+      message: 'LLM Deck plan slide "Key Takeaways" point 2 has 32 characters, exceeding summary limit 30. Rewrite the slide in LLM output.',
+      path: 'slides[0].points[1]',
+      slideIndex: 0,
+      slideTitle: 'Key Takeaways',
+      stage: 'slide-plan',
+      template: 'summary',
+    })
+    expect(capturedRewriteRequest?.cache).to.deep.include({
+      messageIndex: 0,
+      mode: 'ephemeral',
+    })
+    expect(capturedRewriteRequest?.cache?.key).to.match(/^deck:slide-plan:[a-f0-9]{24}$/u)
+  })
+
   it('rejects direct artifact planning without explicit sourceType instead of inferring it by extension', () => {
     expect(() => createStrictTextDeckProjectPlanFromLLM(
       '/tmp/provider.md',
@@ -722,9 +814,9 @@ describe('Deck Explainer LLM text planning', () => {
       issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(7)
-    expect(firstRewritePayload.attemptsRemaining).to.equal(2)
-    expect(secondRewritePayload.attemptsRemaining).to.equal(1)
+    expect(requests.length).to.equal(6)
+    expect(firstRewritePayload.attemptsRemaining).to.equal(4)
+    expect(secondRewritePayload.attemptsRemaining).to.equal(3)
     expect(secondRewritePayload.issues[0]?.message).to.include('exceeding one-big-idea limit')
     expect(plan.deck.slides[0]?.points).to.deep.equal(['Stable trace'])
   })

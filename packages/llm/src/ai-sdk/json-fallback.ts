@@ -21,6 +21,7 @@ export function createJsonFallbackRequest<T>(request: GenerateObjectRequest<T>):
 
   if (request.messages !== undefined) {
     return {
+      ...(request.cache === undefined ? {} : {cache: request.cache}),
       messages: [
         ...request.messages,
         {
@@ -35,7 +36,60 @@ export function createJsonFallbackRequest<T>(request: GenerateObjectRequest<T>):
 
   if (request.prompt !== undefined) {
     return {
+      ...(request.cache === undefined ? {} : {cache: request.cache}),
       prompt: `${request.prompt}\n\n${instruction}`,
+      ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
+      ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
+    }
+  }
+
+  throw new Error('LLM request requires either prompt or messages.')
+}
+
+export function createJsonTextRepairRequest(request: GenerateTextRequest, input: {
+  attemptsRemaining: number
+  invalidText: string
+  parseError: string
+}): GenerateTextRequest {
+  const instruction = [
+    'The previous response was not directly parseable JSON.',
+    'Return a complete replacement response as raw JSON only.',
+    'Do not include markdown fences, prose, XML tags, or any other delimiter.',
+    'The first non-whitespace character must be "{" and the last non-whitespace character must be "}".',
+    `JSON.parse error: ${input.parseError}`,
+    `Attempts remaining: ${input.attemptsRemaining}`,
+  ].join('\n')
+
+  if (request.messages !== undefined) {
+    return {
+      ...(request.cache === undefined ? {} : {cache: request.cache}),
+      messages: [
+        ...request.messages,
+        {
+          content: input.invalidText,
+          role: 'assistant',
+        },
+        {
+          content: instruction,
+          role: 'user',
+        },
+      ],
+      ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
+      ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
+    }
+  }
+
+  if (request.prompt !== undefined) {
+    return {
+      ...(request.cache === undefined ? {} : {cache: request.cache}),
+      prompt: [
+        request.prompt,
+        '',
+        'Previous invalid response:',
+        input.invalidText,
+        '',
+        instruction,
+      ].join('\n'),
       ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
       ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
     }

@@ -1,13 +1,18 @@
 import type {GenerateObjectRequest, LLMClient, LLMMessage} from '@video-agent/llm'
 
+import {createHash} from 'node:crypto'
+
 import {deckTemplateManifestForLLM} from '@video-agent/renderer-deck'
 
 import {
   LLM_TEXT_DECK_MAX_SLIDES,
+  LLMTextDeckValidationError,
   LLMTextDeckContentAnalysisSchema,
   LLMTextDeckPlanSchema,
   LLMTextDeckScriptSemanticsSchema,
   LLMTextDeckSlidePlanSchema,
+  validateLLMTextDeckSlidePlanTemplateConstraints,
+  type LLMTextDeckValidationIssue,
   type LLMTextDeckContentAnalysis,
   type LLMTextDeckPlan,
   type LLMTextDeckScriptSemantics,
@@ -20,7 +25,8 @@ import {createTextDeckProjectPlanFromLLM} from './text-plan-builder.js'
 const DECK_LLM_SOURCE_TEXT_CHUNK_CHARACTERS = 60_000
 const DECK_LLM_TRANSCRIPT_SEGMENT_CHUNK_SIZE = 500
 const DECK_LLM_TRANSCRIPT_SEGMENT_TEXT_MAX_CHARACTERS = 500
-const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 3
+const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
+const DECK_LLM_CACHE_KEY_HASH_CHARACTERS = 24
 
 type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'script-semantics' | 'slide-plan'
 
@@ -43,12 +49,26 @@ interface StagedDeckPlan {
   slidePlan: LLMTextDeckSlidePlan
 }
 
-interface DeckPlanningValidationIssue {
-  code: string
-  message: string
-  path?: string
-  slideIndex?: number
+type DeckPlanningValidationIssue = LLMTextDeckValidationIssue & {
   stage: DeckLLMPlanningStage | 'final-build'
+}
+
+function createDeckLLMCacheHint(stage: DeckLLMPlanningStage, message: LLMMessage): NonNullable<GenerateObjectRequest<unknown>['cache']> {
+  return {
+    key: `deck:${stage}:${hashCacheMessage(message)}`,
+    messageIndex: 0,
+    mode: 'ephemeral',
+  }
+}
+
+function hashCacheMessage(message: LLMMessage): string {
+  return createHash('sha256')
+    .update(JSON.stringify({
+      content: message.content,
+      role: message.role,
+    }))
+    .digest('hex')
+    .slice(0, DECK_LLM_CACHE_KEY_HASH_CHARACTERS)
 }
 
 export async function createLLMTextDeckProjectPlan(
@@ -126,8 +146,11 @@ function createContentAnalysisRequest(
   chunk: DeckPlanningSourceChunk,
   options: TextDeckProjectPlanOptions,
 ): GenerateObjectRequest<LLMTextDeckContentAnalysis> {
+  const baseMessage = createContentAnalysisMessage(inputPath, chunk, options)
+
   return {
-    messages: [createContentAnalysisMessage(inputPath, chunk, options)],
+    cache: createDeckLLMCacheHint('content-analysis', baseMessage),
+    messages: [baseMessage],
     schema: LLMTextDeckContentAnalysisSchema,
     temperature: 0.2,
   }
@@ -166,23 +189,26 @@ function createContentAnalysisMergeRequest(
   analyses: LLMTextDeckContentAnalysis[],
   options: TextDeckProjectPlanOptions,
 ): GenerateObjectRequest<LLMTextDeckContentAnalysis> {
+  const baseMessage: LLMMessage = {
+    content: JSON.stringify({
+      goal: 'Merge chunk-level Deck content analyses into one source-grounded content analysis. Do not design slides or write speaker notes.',
+      instructions: [
+        'Preserve every major source idea, concrete example, caveat, evidence path, and output shape from the chunk analyses.',
+        'Deduplicate overlapping sections without losing source-grounded specificity.',
+        'Return stable section ids that can be referenced by later slide planning.',
+        'Keep keyClaims tied to the merged section where they are most useful.',
+      ],
+      inputPath,
+      partialAnalyses: analyses,
+      stage: 'content-analysis-merge',
+      target: createDeckPlanningTarget(options, {includeTemplateManifest: false}),
+    }),
+    role: 'user',
+  }
+
   return {
-    messages: [{
-      content: JSON.stringify({
-        goal: 'Merge chunk-level Deck content analyses into one source-grounded content analysis. Do not design slides or write speaker notes.',
-        instructions: [
-          'Preserve every major source idea, concrete example, caveat, evidence path, and output shape from the chunk analyses.',
-          'Deduplicate overlapping sections without losing source-grounded specificity.',
-          'Return stable section ids that can be referenced by later slide planning.',
-          'Keep keyClaims tied to the merged section where they are most useful.',
-        ],
-        inputPath,
-        partialAnalyses: analyses,
-        stage: 'content-analysis-merge',
-        target: createDeckPlanningTarget(options, {includeTemplateManifest: false}),
-      }),
-      role: 'user',
-    }],
+    cache: createDeckLLMCacheHint('content-analysis-merge', baseMessage),
+    messages: [baseMessage],
     schema: LLMTextDeckContentAnalysisSchema,
     temperature: 0.2,
   }
@@ -243,6 +269,7 @@ function createSlidePlanRequest(
 
   if (rewrite === undefined) {
     return {
+      cache: createDeckLLMCacheHint('slide-plan', baseMessage),
       messages: [baseMessage],
       schema: LLMTextDeckSlidePlanSchema,
       temperature: 0.2,
@@ -250,6 +277,7 @@ function createSlidePlanRequest(
   }
 
   return {
+    cache: createDeckLLMCacheHint('slide-plan', baseMessage),
     messages: [
       baseMessage,
       {
@@ -266,6 +294,8 @@ function createSlidePlanRequest(
           goal: 'Rewrite the slide-plan stage output so it satisfies the structured validation issues. Return a complete replacement slide-plan object, not a patch.',
           instructions: [
             'Use issues as binding field-level feedback.',
+            'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
+            'Before returning, count every generated title, subtitle, point, comparison point, and chart label with JavaScript string length semantics and ensure each value is within its listed issue.limit and the target.templateManifest limit.',
             'Only change slide structure, visible text, template data, visual kind, motion, theme, platform, and transition choices needed to satisfy the issues.',
             'Keep source-grounded meaning and required slide types.',
             'Do not write speaker notes, source ranges, outline, or semantic metadata in this stage.',
@@ -339,6 +369,7 @@ function createScriptSemanticsRequest(
 
   if (rewrite === undefined) {
     return {
+      cache: createDeckLLMCacheHint('script-semantics', baseMessage),
       messages: [baseMessage],
       schema: LLMTextDeckScriptSemanticsSchema,
       temperature: 0.2,
@@ -346,6 +377,7 @@ function createScriptSemanticsRequest(
   }
 
   return {
+    cache: createDeckLLMCacheHint('script-semantics', baseMessage),
     messages: [
       baseMessage,
       {
@@ -362,6 +394,7 @@ function createScriptSemanticsRequest(
           goal: 'Rewrite the script-semantics stage output so it satisfies the structured validation issues. Return a complete replacement script-semantics object, not a patch.',
           instructions: [
             'Use issues as binding field-level feedback.',
+            'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
             'Only change speaker notes, durations, source ranges, outline, and semantic metadata needed to satisfy the issues.',
             'Keep all slidePlan visible text, template data, motion, visual, and transition choices unchanged.',
             'Do not ask the runtime to infer, clip, shorten, or repair semantic content.',
@@ -423,6 +456,22 @@ async function attemptStagedDeckPlanRewrite(
       invalidOutput: state.stagedPlan.slidePlan,
       issues,
     })
+
+    stagedPlan = {
+      ...state.stagedPlan,
+      slidePlan,
+    }
+
+    try {
+      validateLLMTextDeckSlidePlanTemplateConstraints(slidePlan)
+    } catch (error) {
+      return attemptStagedDeckPlanRewrite(llm, input, {
+        attempt: state.attempt + 1,
+        lastError: error,
+        stagedPlan,
+      })
+    }
+
     const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, slidePlan, input.options)
 
     stagedPlan = {
@@ -645,6 +694,10 @@ function summarizeTranscriptSegments(segments: NonNullable<TextDeckProjectPlanOp
 }
 
 function createDeckPlanningValidationIssues(error: unknown): DeckPlanningValidationIssue[] {
+  if (error instanceof LLMTextDeckValidationError) {
+    return error.issues
+  }
+
   const message = formatErrorMessage(error)
   const slideIndex = parseSlideIndex(message)
   const path = parseIssuePath(message)

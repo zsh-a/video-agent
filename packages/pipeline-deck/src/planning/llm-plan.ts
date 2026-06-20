@@ -179,6 +179,29 @@ type LLMTextDeckSlide = LLMTextDeckPlan['slides'][number]
 
 export type LLMTextDeckSlideSemantic = z.infer<typeof LLMTextDeckSlideSemanticSchema>
 
+export interface LLMTextDeckValidationIssue {
+  actual?: number
+  code: string
+  field?: string
+  limit?: number
+  message: string
+  path?: string
+  slideIndex?: number
+  slideTitle?: string
+  stage: 'final-build' | 'script-semantics' | 'slide-plan'
+  template?: DeckSlideType
+}
+
+export class LLMTextDeckValidationError extends Error {
+  readonly issues: LLMTextDeckValidationIssue[]
+
+  constructor(issues: LLMTextDeckValidationIssue[]) {
+    super(formatLLMTextDeckValidationErrorMessage(issues))
+    this.name = 'LLMTextDeckValidationError'
+    this.issues = issues
+  }
+}
+
 export interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'chart' | 'code' | 'comparison' | 'motion' | 'points' | 'quote' | 'sourceRange' | 'stat' | 'subtitle' | 'transitionOut' | 'type' | 'visual'> {
   chart?: NonNullable<LLMTextDeckSlide['chart']>
   code?: NonNullable<LLMTextDeckSlide['code']>
@@ -203,6 +226,27 @@ export interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'char
   transitionOut?: DeckTransition
   type: DeckSlideType
   visual: LLMTextDeckSlide['visual']
+}
+
+interface LLMTextDeckTemplateValidationSlide {
+  chart?: NonNullable<LLMTextDeckSlide['chart']>
+  code?: NonNullable<LLMTextDeckSlide['code']>
+  comparison?: {
+    left: {
+      label: string
+      points: string[]
+    }
+    right: {
+      label: string
+      points: string[]
+    }
+  }
+  points: string[]
+  quote?: NonNullable<LLMTextDeckSlide['quote']>
+  stat?: NonNullable<LLMTextDeckSlide['stat']>
+  subtitle?: string
+  title: string
+  type: DeckSlideType
 }
 
 export function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDeckSlide[] {
@@ -248,6 +292,33 @@ export function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLM
   }
 
   return normalizedSlides
+}
+
+export function validateLLMTextDeckSlidePlanTemplateConstraints(plan: LLMTextDeckSlidePlan): void {
+  const slides = plan.slides.map((slide, index): LLMTextDeckTemplateValidationSlide => {
+    const chart = normalizeLLMChart(slide.chart)
+    const code = normalizeLLMCode(slide.code)
+    const comparison = normalizeLLMComparison(slide.comparison)
+    const points = cleanGeneratedPoints(slide.points, `slide ${index + 1} points`)
+    const quote = normalizeLLMQuote(slide.quote)
+    const stat = normalizeLLMStat(slide.stat)
+    const subtitle = cleanOptionalLLMText(slide.subtitle, `slide ${index + 1} subtitle`)
+    const title = cleanRequiredLLMText(slide.title, `slide ${index + 1} title`)
+
+    return {
+      ...(chart === undefined ? {} : {chart}),
+      ...(code === undefined ? {} : {code}),
+      ...(comparison === undefined ? {} : {comparison}),
+      points,
+      ...(quote === undefined ? {} : {quote}),
+      ...(stat === undefined ? {} : {stat}),
+      ...(subtitle === undefined ? {} : {subtitle}),
+      title,
+      type: slide.type,
+    }
+  })
+
+  applyLLMTextDeckTemplateConstraints(slides)
 }
 
 function normalizeLLMSourceRange(sourceRange: LLMTextDeckSlide['sourceRange'], index: number): [number, number] {
@@ -300,87 +371,180 @@ function normalizeLLMSlideSemantic(semantic: LLMTextDeckSlideSemantic, index: nu
   }
 }
 
-function applyLLMTextDeckTemplateConstraints(slides: NormalizedLLMTextDeckSlide[]): NormalizedLLMTextDeckSlide[] {
-  return slides.map((slide) => applyLLMTextDeckTemplateConstraint(slide))
+function applyLLMTextDeckTemplateConstraints<T extends LLMTextDeckTemplateValidationSlide>(slides: T[]): T[] {
+  const issues = slides.flatMap((slide, index) => collectLLMSlideTemplateIssues(slide, index))
+
+  if (issues.length > 0) {
+    throw new LLMTextDeckValidationError(issues)
+  }
+
+  return slides
 }
 
-function applyLLMTextDeckTemplateConstraint(slide: NormalizedLLMTextDeckSlide): NormalizedLLMTextDeckSlide {
-  assertLLMSlideTemplateLimits(slide)
-
-  return slide
-}
-
-function assertLLMSlideTemplateLimits(slide: NormalizedLLMTextDeckSlide): void {
+function collectLLMSlideTemplateIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number): LLMTextDeckValidationIssue[] {
+  const issues: LLMTextDeckValidationIssue[] = []
   const maxPoints = maxPointsForDeckTemplate(slide.type)
 
   if (maxPoints !== undefined && slide.points.length > maxPoints) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" has ${slide.points.length} points, exceeding ${slide.type} limit ${maxPoints}. Split or rewrite the slide in LLM output.`)
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: slide.points.length,
+      code: 'TEMPLATE_POINT_COUNT_LIMIT',
+      field: 'points',
+      limit: maxPoints,
+      message: `LLM Deck plan slide "${slide.title}" has ${slide.points.length} points, exceeding ${slide.type} limit ${maxPoints}. Split or rewrite the slide in LLM output.`,
+      path: `slides[${slideIndex}].points`,
+    }))
   }
 
   const minPoints = minPointsForDeckTemplate(slide.type)
 
   if (minPoints !== undefined && slide.points.length < minPoints) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" has ${slide.points.length} points, below ${slide.type} minimum ${minPoints}. Rewrite the slide in LLM output.`)
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: slide.points.length,
+      code: 'TEMPLATE_POINT_COUNT_MINIMUM',
+      field: 'points',
+      limit: minPoints,
+      message: `LLM Deck plan slide "${slide.title}" has ${slide.points.length} points, below ${slide.type} minimum ${minPoints}. Rewrite the slide in LLM output.`,
+      path: `slides[${slideIndex}].points`,
+    }))
   }
 
-  assertLLMSlideTemplateData(slide)
+  issues.push(...collectLLMSlideTemplateDataIssues(slide, slideIndex))
 
   const limits = findDeckTemplateManifestEntry(slide.type).limits
 
-  assertTextLimit(slide, 'title', slide.title, limits.title_chars)
-  assertTextLimit(slide, 'subtitle', slide.subtitle, limits.subtitle_chars)
+  pushTextLimitIssue(issues, slide, slideIndex, 'title', `slides[${slideIndex}].title`, slide.title, limits.title_chars)
+  pushTextLimitIssue(issues, slide, slideIndex, 'subtitle', `slides[${slideIndex}].subtitle`, slide.subtitle, limits.subtitle_chars)
 
   for (const [index, point] of slide.points.entries()) {
-    assertTextLimit(slide, `point ${index + 1}`, point, limits.point_chars)
+    pushTextLimitIssue(issues, slide, slideIndex, `point ${index + 1}`, `slides[${slideIndex}].points[${index}]`, point, limits.point_chars)
   }
 
   if (slide.comparison !== undefined && limits.left_points !== undefined && slide.comparison.left.points.length > limits.left_points) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" has ${slide.comparison.left.points.length} left comparison points, exceeding ${slide.type} limit ${limits.left_points}.`)
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: slide.comparison.left.points.length,
+      code: 'TEMPLATE_COMPARISON_LEFT_COUNT_LIMIT',
+      field: 'comparison.left.points',
+      limit: limits.left_points,
+      message: `LLM Deck plan slide "${slide.title}" has ${slide.comparison.left.points.length} left comparison points, exceeding ${slide.type} limit ${limits.left_points}.`,
+      path: `slides[${slideIndex}].comparison.left.points`,
+    }))
   }
 
   if (slide.comparison !== undefined && limits.right_points !== undefined && slide.comparison.right.points.length > limits.right_points) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" has ${slide.comparison.right.points.length} right comparison points, exceeding ${slide.type} limit ${limits.right_points}.`)
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: slide.comparison.right.points.length,
+      code: 'TEMPLATE_COMPARISON_RIGHT_COUNT_LIMIT',
+      field: 'comparison.right.points',
+      limit: limits.right_points,
+      message: `LLM Deck plan slide "${slide.title}" has ${slide.comparison.right.points.length} right comparison points, exceeding ${slide.type} limit ${limits.right_points}.`,
+      path: `slides[${slideIndex}].comparison.right.points`,
+    }))
   }
 
   if (slide.chart !== undefined && limits.bars !== undefined && slide.chart.bars.length > limits.bars) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" has ${slide.chart.bars.length} chart bars, exceeding ${slide.type} limit ${limits.bars}.`)
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: slide.chart.bars.length,
+      code: 'TEMPLATE_CHART_BAR_COUNT_LIMIT',
+      field: 'chart.bars',
+      limit: limits.bars,
+      message: `LLM Deck plan slide "${slide.title}" has ${slide.chart.bars.length} chart bars, exceeding ${slide.type} limit ${limits.bars}.`,
+      path: `slides[${slideIndex}].chart.bars`,
+    }))
   }
 
   for (const [index, point] of slide.comparison?.left.points.entries() ?? []) {
-    assertTextLimit(slide, `left comparison point ${index + 1}`, point, limits.point_chars)
+    pushTextLimitIssue(issues, slide, slideIndex, `left comparison point ${index + 1}`, `slides[${slideIndex}].comparison.left.points[${index}]`, point, limits.point_chars)
   }
 
   for (const [index, point] of slide.comparison?.right.points.entries() ?? []) {
-    assertTextLimit(slide, `right comparison point ${index + 1}`, point, limits.point_chars)
+    pushTextLimitIssue(issues, slide, slideIndex, `right comparison point ${index + 1}`, `slides[${slideIndex}].comparison.right.points[${index}]`, point, limits.point_chars)
   }
 
   for (const [index, bar] of slide.chart?.bars.entries() ?? []) {
-    assertTextLimit(slide, `chart bar ${index + 1} label`, bar.label, limits.point_chars)
+    pushTextLimitIssue(issues, slide, slideIndex, `chart bar ${index + 1} label`, `slides[${slideIndex}].chart.bars[${index}].label`, bar.label, limits.point_chars)
   }
+
+  return issues
 }
 
-function assertLLMSlideTemplateData(slide: NormalizedLLMTextDeckSlide): void {
-  assertExclusiveTemplateData(slide, 'chart', slide.chart, 'chart data')
-  assertExclusiveTemplateData(slide, 'code', slide.code, 'code data')
-  assertExclusiveTemplateData(slide, 'comparison', slide.comparison, 'comparison data')
-  assertExclusiveTemplateData(slide, 'quote', slide.quote, 'quote data')
-  assertExclusiveTemplateData(slide, 'stat', slide.stat, 'stat data')
+function collectLLMSlideTemplateDataIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number): LLMTextDeckValidationIssue[] {
+  return [
+    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'chart', slide.chart, 'chart data'),
+    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'code', slide.code, 'code data'),
+    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'comparison', slide.comparison, 'comparison data'),
+    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'quote', slide.quote, 'quote data'),
+    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'stat', slide.stat, 'stat data'),
+  ]
 }
 
-function assertExclusiveTemplateData(slide: NormalizedLLMTextDeckSlide, templateType: DeckSlideType, value: unknown, label: string): void {
+function collectExclusiveTemplateDataIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number, templateType: DeckSlideType, value: unknown, label: string): LLMTextDeckValidationIssue[] {
   if (slide.type === templateType && value === undefined) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" uses ${templateType} template without ${label}. Rewrite the slide in LLM output.`)
+    return [createLLMSlideTemplateIssue(slide, slideIndex, {
+      code: 'TEMPLATE_REQUIRED_DATA_MISSING',
+      field: templateType,
+      message: `LLM Deck plan slide "${slide.title}" uses ${templateType} template without ${label}. Rewrite the slide in LLM output.`,
+      path: `slides[${slideIndex}].${templateType}`,
+    })]
   }
 
   if (slide.type !== templateType && value !== undefined) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" includes ${label} on non-${templateType} template ${slide.type}. Rewrite the slide in LLM output.`)
+    return [createLLMSlideTemplateIssue(slide, slideIndex, {
+      code: 'TEMPLATE_EXTRANEOUS_DATA',
+      field: templateType,
+      message: `LLM Deck plan slide "${slide.title}" includes ${label} on non-${templateType} template ${slide.type}. Rewrite the slide in LLM output.`,
+      path: `slides[${slideIndex}].${templateType}`,
+    })]
+  }
+
+  return []
+}
+
+function pushTextLimitIssue(
+  issues: LLMTextDeckValidationIssue[],
+  slide: LLMTextDeckTemplateValidationSlide,
+  slideIndex: number,
+  field: string,
+  path: string,
+  value: string | undefined,
+  limit: number | undefined,
+): void {
+  if (limit !== undefined && (value?.length ?? 0) > limit) {
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: value?.length ?? 0,
+      code: 'TEMPLATE_TEXT_LENGTH_LIMIT',
+      field,
+      limit,
+      message: `LLM Deck plan slide "${slide.title}" ${field} has ${value?.length ?? 0} characters, exceeding ${slide.type} limit ${limit}. Rewrite the slide in LLM output.`,
+      path,
+    }))
   }
 }
 
-function assertTextLimit(slide: NormalizedLLMTextDeckSlide, field: string, value: string | undefined, limit: number | undefined): void {
-  if (limit !== undefined && (value?.length ?? 0) > limit) {
-    throw new Error(`LLM Deck plan slide "${slide.title}" ${field} has ${value?.length ?? 0} characters, exceeding ${slide.type} limit ${limit}. Rewrite the slide in LLM output.`)
+function createLLMSlideTemplateIssue(
+  slide: LLMTextDeckTemplateValidationSlide,
+  slideIndex: number,
+  issue: Omit<LLMTextDeckValidationIssue, 'slideIndex' | 'slideTitle' | 'stage' | 'template'>,
+): LLMTextDeckValidationIssue {
+  return {
+    ...issue,
+    slideIndex,
+    slideTitle: slide.title,
+    stage: 'slide-plan',
+    template: slide.type,
   }
+}
+
+function formatLLMTextDeckValidationErrorMessage(issues: LLMTextDeckValidationIssue[]): string {
+  const first = issues[0]
+
+  if (first === undefined) {
+    return 'LLM Deck plan failed validation.'
+  }
+
+  return issues.length === 1
+    ? first.message
+    : `${first.message} ${issues.length - 1} additional validation issue(s) found.`
 }
 
 function cleanRequiredLLMText(value: string, field: string): string {
