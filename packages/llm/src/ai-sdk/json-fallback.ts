@@ -12,6 +12,9 @@ export function shouldFallbackToJsonText(error: unknown): boolean {
 export function createJsonFallbackRequest<T>(request: GenerateObjectRequest<T>): GenerateTextRequest {
   const instruction = [
     'Return only valid JSON. Do not include markdown fences, prose, or commentary.',
+    'The first non-whitespace character of the response must be "{" and the last non-whitespace character must be "}".',
+    'The complete response must be directly parseable by JSON.parse without removing or rewriting any characters.',
+    'Do not wrap the JSON in ```json, ```, XML tags, or any other delimiter.',
     'The JSON must conform to this JSON Schema:',
     JSON.stringify(toJSONSchema(request.schema), null, 2),
   ].join('\n')
@@ -48,17 +51,7 @@ export function parseJsonFromText(text: string): unknown {
     throw new Error('LLM returned empty text.')
   }
 
-  try {
-    return parseJsonCandidate(trimmed)
-  } catch {
-    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(trimmed)
-
-    if (fenced?.[1] !== undefined) {
-      return parseJsonCandidate(fenced[1])
-    }
-
-    return parseJsonCandidate(extractJsonSubstring(trimmed))
-  }
+  return parseJsonCandidate(trimmed)
 }
 
 function isBadRequestApiError(error: unknown): boolean {
@@ -66,42 +59,5 @@ function isBadRequestApiError(error: unknown): boolean {
 }
 
 function parseJsonCandidate(text: string): unknown {
-  try {
-    return JSON.parse(text) as unknown
-  } catch (error) {
-    const repaired = repairCommonLLMJson(text)
-
-    if (repaired !== text) {
-      return JSON.parse(repaired) as unknown
-    }
-
-    throw error
-  }
-}
-
-function repairCommonLLMJson(text: string): string {
-  return text.replace(
-    /("comparison"\s*:\s*\{\s*"left"\s*:\s*\{[\s\S]*?\}\s*,)\s*\{\s*("label"\s*:)/g,
-    '$1 "right": { $2',
-  )
-}
-
-function extractJsonSubstring(text: string): string {
-  const objectStart = text.indexOf('{')
-  const arrayStart = text.indexOf('[')
-  const start = objectStart === -1 ? arrayStart : arrayStart === -1 ? objectStart : Math.min(objectStart, arrayStart)
-
-  if (start === -1) {
-    throw new Error('LLM text did not contain JSON.')
-  }
-
-  const objectEnd = text.lastIndexOf('}')
-  const arrayEnd = text.lastIndexOf(']')
-  const end = Math.max(objectEnd, arrayEnd)
-
-  if (end < start) {
-    throw new Error('LLM text contained incomplete JSON.')
-  }
-
-  return text.slice(start, end + 1)
+  return JSON.parse(text) as unknown
 }
