@@ -62,6 +62,105 @@ function withDeckTransitions<T extends {slides: Array<{transitionOut?: {duration
   }
 }
 
+function stagedDeckObjectForRequest<T>(request: GenerateObjectRequest<T>, rawPlan: LLMTextDeckPlan): T {
+  const payload = requestPayload(request) as {
+    partialAnalyses?: unknown[]
+    stage?: string
+  }
+
+  if (payload.stage === 'content-analysis') {
+    return {
+      ...(rawPlan.audience === undefined ? {} : {audience: rawPlan.audience}),
+      language: rawPlan.language,
+      sections: rawPlan.slides.map((slide, index) => ({
+        id: `section-${String(index + 1).padStart(3, '0')}`,
+        importance: slide.semantic.momentScore,
+        keyClaims: [
+          slide.semantic.claim === null
+            ? {
+                confidence: 0.7,
+                sourceQuoteText: slide.semantic.sourceQuoteText,
+                text: slide.semantic.blockText,
+                type: 'summary' as const,
+              }
+            : {
+                confidence: slide.semantic.claim.confidence,
+                sourceQuoteText: slide.semantic.sourceQuoteText,
+                text: slide.semantic.claim.text,
+                type: slide.semantic.claim.type,
+              },
+        ],
+        sourceRange: slide.sourceRange,
+        summary: slide.semantic.blockText,
+        title: slide.title,
+      })),
+      summary: rawPlan.summary,
+      title: rawPlan.title,
+    } as T
+  }
+
+  if (payload.stage === 'content-analysis-merge') {
+    const analysis = payload.partialAnalyses?.[0]
+
+    if (analysis === undefined) {
+      throw new Error('Expected partial analysis for merge test response.')
+    }
+
+    return analysis as T
+  }
+
+  if (payload.stage === 'slide-plan') {
+    return {
+      slides: rawPlan.slides.map((slide, index) => ({
+        ...(slide.chart === undefined ? {} : {chart: slide.chart}),
+        ...(slide.code === undefined ? {} : {code: slide.code}),
+        ...(slide.comparison === undefined ? {} : {comparison: slide.comparison}),
+        durationIntent: slide.duration,
+        motion: slide.motion,
+        points: slide.points,
+        ...(slide.quote === undefined ? {} : {quote: slide.quote}),
+        sectionIds: [`section-${String(index + 1).padStart(3, '0')}`],
+        ...(slide.stat === undefined ? {} : {stat: slide.stat}),
+        ...(slide.subtitle === undefined ? {} : {subtitle: slide.subtitle}),
+        title: slide.title,
+        transitionOut: slide.transitionOut,
+        type: slide.type,
+        visual: slide.visual,
+      })),
+      targetPlatform: rawPlan.targetPlatform,
+      theme: rawPlan.theme,
+      title: rawPlan.title,
+    } as T
+  }
+
+  if (payload.stage === 'script-semantics') {
+    return {
+      outline: rawPlan.outline,
+      slides: rawPlan.slides.map((slide, index) => ({
+        duration: slide.duration,
+        semantic: slide.semantic,
+        slideIndex: index,
+        sourceRange: slide.sourceRange,
+        speakerNote: slide.speakerNote,
+      })),
+    } as T
+  }
+
+  return rawPlan as T
+}
+
+function requestPayload<T>(request: GenerateObjectRequest<T>): Record<string, unknown> {
+  const firstMessage = request.messages?.[0]
+
+  return JSON.parse(typeof firstMessage?.content === 'string' ? firstMessage.content : '{}') as Record<string, unknown>
+}
+
+function requestStage<T>(request: GenerateObjectRequest<T>): string | undefined {
+  const stage = requestPayload(request).stage
+
+  return typeof stage === 'string' ? stage : undefined
+}
+
 function createTextDeckProjectPlanFromLLM(
   inputPath: string,
   sourceText: string,
@@ -86,6 +185,49 @@ function createUnusedLLM(): LLMClient {
       throw new Error('streamText is not used by this test.')
     },
   }
+}
+
+function createStaticStagedLLM(rawPlan: LLMTextDeckPlan, requests: Array<GenerateObjectRequest<unknown>> = []): LLMClient {
+  return {
+    async generateObject<T>(request: GenerateObjectRequest<T>) {
+      requests.push(request as GenerateObjectRequest<unknown>)
+
+      return {
+        object: stagedDeckObjectForRequest(request, rawPlan),
+      }
+    },
+    async generateText(_request: GenerateTextRequest) {
+      throw new Error('generateText is not used by this test.')
+    },
+    streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+      throw new Error('streamText is not used by this test.')
+    },
+  }
+}
+
+function createOneSlideRawPlan(sourceRange: [number, number] = [0, 8]): LLMTextDeckPlan {
+  return withDeckTransitions({
+    language: 'en-US',
+    outline: deckOutline(),
+    slides: [
+      {
+        duration: sourceRange[1] - sourceRange[0],
+        motion: 'soft-scale',
+        points: ['Chunked planning'],
+        semantic: deckSemantic('Chunked planning keeps long sources auditable.'),
+        sourceRange,
+        speakerNote: 'Explain how chunked planning keeps long sources auditable.',
+        title: 'Chunked Planning',
+        transitionOut: null,
+        type: 'summary',
+        visual: deckVisual('text'),
+      },
+    ],
+    summary: 'Chunked planning keeps long sources auditable.',
+    targetPlatform: 'generic',
+    theme: 'elegant-dark',
+    title: 'Chunked Planning',
+  })
 }
 
 describe('Deck Explainer LLM text planning', () => {
@@ -134,8 +276,7 @@ describe('Deck Explainer LLM text planning', () => {
       async generateObject<T>(request: GenerateObjectRequest<T>) {
         capturedRequest = request as GenerateObjectRequest<unknown>
 
-        return {
-          object: withDeckTransitions({
+        const rawPlan = withDeckTransitions({
             language: 'en-US',
             outline: deckOutline(),
             slides: [
@@ -155,7 +296,10 @@ describe('Deck Explainer LLM text planning', () => {
             targetPlatform: 'generic',
             theme: 'elegant-dark',
             title: 'Provider Certification',
-          }) as T,
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
         }
       },
       async generateText(_request: GenerateTextRequest) {
@@ -215,13 +359,12 @@ describe('Deck Explainer LLM text planning', () => {
   })
 
   it('asks the LLM to preserve source code examples as code slides', async () => {
-    let capturedRequest: GenerateObjectRequest<unknown> | undefined
+    const requests: Array<GenerateObjectRequest<unknown>> = []
     const llm: LLMClient = {
       async generateObject<T>(request: GenerateObjectRequest<T>) {
-        capturedRequest = request as GenerateObjectRequest<unknown>
+        requests.push(request as GenerateObjectRequest<unknown>)
 
-        return {
-          object: withDeckTransitions({
+        const rawPlan = withDeckTransitions({
             language: 'en-US',
             outline: deckOutline(3),
             slides: [
@@ -267,7 +410,10 @@ describe('Deck Explainer LLM text planning', () => {
             targetPlatform: 'generic',
             theme: 'tech-gradient',
             title: 'Kubernetes Pods',
-          }) as T,
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
         }
       },
       async generateText(_request: GenerateTextRequest) {
@@ -304,7 +450,8 @@ describe('Deck Explainer LLM text planning', () => {
       },
     )
 
-    const message = capturedRequest?.messages?.[0]
+    const slidePlanRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan')
+    const message = slidePlanRequest?.messages?.[0]
     const payload = JSON.parse(typeof message?.content === 'string' ? message.content : '') as {
       instructions: string[]
       target: {
@@ -365,19 +512,22 @@ describe('Deck Explainer LLM text planning', () => {
   it('asks the LLM to rewrite invalid template output with validation feedback', async () => {
     const requests: Array<GenerateObjectRequest<unknown>> = []
     const invalidPoint = 'Provider certification needs stable failures cost retry traces and certification evidence.'
+    let slidePlanCalls = 0
     const llm: LLMClient = {
       async generateObject<T>(request: GenerateObjectRequest<T>) {
         requests.push(request as GenerateObjectRequest<unknown>)
+        if (requestStage(request) === 'slide-plan') {
+          slidePlanCalls += 1
+        }
 
-        return {
-          object: withDeckTransitions({
+        const rawPlan = withDeckTransitions({
             language: 'en-US',
             outline: deckOutline(),
             slides: [
               {
                 duration: 18,
                 motion: 'spotlight',
-                points: requests.length === 1 ? [invalidPoint] : ['Stable trace'],
+                points: slidePlanCalls === 1 ? [invalidPoint] : ['Stable trace'],
                 semantic: deckSemantic('Provider certification needs stable trace evidence.'),
                 sourceRange: [0, 18],
                 speakerNote: 'Explain the provider certification trace requirement.',
@@ -390,7 +540,10 @@ describe('Deck Explainer LLM text planning', () => {
             targetPlatform: 'generic',
             theme: 'elegant-dark',
             title: 'Provider Hardening',
-          }) as T,
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
         }
       },
       async generateText(_request: GenerateTextRequest) {
@@ -413,28 +566,32 @@ describe('Deck Explainer LLM text planning', () => {
         sourceType: 'markdown',
       },
     )
-    const retryMessage = requests[1]?.messages?.at(-1)
+    const retryRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && (request.messages?.length ?? 0) > 1)
+    const retryMessage = retryRequest?.messages?.at(-1)
     const retryPayload = JSON.parse(typeof retryMessage?.content === 'string' ? retryMessage.content : '') as {
       goal: string
       instructions: string[]
-      validationError: string
+      issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(2)
-    expect(retryPayload.goal).to.include('complete replacement object')
-    expect(retryPayload.instructions.join('\n')).to.include('validationError as binding feedback')
-    expect(retryPayload.validationError).to.include('exceeding one-big-idea limit')
+    expect(requests.length).to.equal(5)
+    expect(retryPayload.goal).to.include('complete replacement slide-plan object')
+    expect(retryPayload.instructions.join('\n')).to.include('issues as binding field-level feedback')
+    expect(retryPayload.issues[0]?.message).to.include('exceeding one-big-idea limit')
     expect(plan.deck.slides[0]?.points).to.deep.equal(['Stable trace'])
   })
 
   it('asks the LLM to rewrite slides with missing template-specific data before quality/render', async () => {
     const requests: Array<GenerateObjectRequest<unknown>> = []
+    let slidePlanCalls = 0
     const llm: LLMClient = {
       async generateObject<T>(request: GenerateObjectRequest<T>) {
         requests.push(request as GenerateObjectRequest<unknown>)
+        if (requestStage(request) === 'slide-plan') {
+          slidePlanCalls += 1
+        }
 
-        return {
-          object: withDeckTransitions({
+        const rawPlan = withDeckTransitions({
             language: 'en-US',
             outline: deckOutline(),
             slides: [
@@ -442,7 +599,7 @@ describe('Deck Explainer LLM text planning', () => {
                 duration: 12,
                 motion: 'fade-in',
                 points: ['Evidence quote'],
-                ...(requests.length === 1
+                ...(slidePlanCalls === 1
                   ? {}
                   : {quote: {attribution: 'Provider guide', text: 'Stable failures need traceable evidence.'}}),
                 semantic: deckSemantic('Stable failures need traceable evidence.', 'quote'),
@@ -457,7 +614,10 @@ describe('Deck Explainer LLM text planning', () => {
             targetPlatform: 'generic',
             theme: 'clean-white',
             title: 'Provider Evidence',
-          }) as T,
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
         }
       },
       async generateText(_request: GenerateTextRequest) {
@@ -480,12 +640,13 @@ describe('Deck Explainer LLM text planning', () => {
         sourceType: 'markdown',
       },
     )
-    const retryPayload = JSON.parse(String(requests[1]?.messages?.at(-1)?.content ?? '{}')) as {
-      validationError: string
+    const retryRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && (request.messages?.length ?? 0) > 1)
+    const retryPayload = JSON.parse(String(retryRequest?.messages?.at(-1)?.content ?? '{}')) as {
+      issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(2)
-    expect(retryPayload.validationError).to.include('uses quote template without quote data')
+    expect(requests.length).to.equal(5)
+    expect(retryPayload.issues[0]?.message).to.include('uses quote template without quote data')
     expect(plan.deck.slides[0]?.quote?.text).to.equal('Stable failures need traceable evidence.')
   })
 
@@ -496,13 +657,16 @@ describe('Deck Explainer LLM text planning', () => {
       'Provider certification still exceeds the visible point limit for this template.',
       'Stable trace',
     ]
+    let slidePlanCalls = 0
     const llm: LLMClient = {
       async generateObject<T>(request: GenerateObjectRequest<T>) {
         requests.push(request as GenerateObjectRequest<unknown>)
-        const point = invalidPoints[Math.min(requests.length - 1, invalidPoints.length - 1)] ?? 'Stable trace'
+        if (requestStage(request) === 'slide-plan') {
+          slidePlanCalls += 1
+        }
+        const point = invalidPoints[Math.min(slidePlanCalls - 1, invalidPoints.length - 1)] ?? 'Stable trace'
 
-        return {
-          object: withDeckTransitions({
+        const rawPlan = withDeckTransitions({
             language: 'en-US',
             outline: deckOutline(),
             slides: [
@@ -522,7 +686,10 @@ describe('Deck Explainer LLM text planning', () => {
             targetPlatform: 'generic',
             theme: 'elegant-dark',
             title: 'Provider Hardening',
-          }) as T,
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
         }
       },
       async generateText(_request: GenerateTextRequest) {
@@ -545,19 +712,20 @@ describe('Deck Explainer LLM text planning', () => {
         sourceType: 'markdown',
       },
     )
-    const firstRewritePayload = JSON.parse(String(requests[1]?.messages?.at(-1)?.content ?? '{}')) as {
+    const rewriteRequests = requests.filter((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && (request.messages?.length ?? 0) > 1)
+    const firstRewritePayload = JSON.parse(String(rewriteRequests[0]?.messages?.at(-1)?.content ?? '{}')) as {
       attemptsRemaining: number
-      validationError: string
+      issues: Array<{message: string}>
     }
-    const secondRewritePayload = JSON.parse(String(requests[2]?.messages?.at(-1)?.content ?? '{}')) as {
+    const secondRewritePayload = JSON.parse(String(rewriteRequests[1]?.messages?.at(-1)?.content ?? '{}')) as {
       attemptsRemaining: number
-      validationError: string
+      issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(3)
+    expect(requests.length).to.equal(7)
     expect(firstRewritePayload.attemptsRemaining).to.equal(2)
     expect(secondRewritePayload.attemptsRemaining).to.equal(1)
-    expect(secondRewritePayload.validationError).to.include('exceeding one-big-idea limit')
+    expect(secondRewritePayload.issues[0]?.message).to.include('exceeding one-big-idea limit')
     expect(plan.deck.slides[0]?.points).to.deep.equal(['Stable trace'])
   })
 
@@ -595,13 +763,12 @@ describe('Deck Explainer LLM text planning', () => {
   })
 
   it('passes timed transcript segments to the LLM and preserves authored audio source ranges', async () => {
-    let capturedRequest: GenerateObjectRequest<unknown> | undefined
+    const requests: Array<GenerateObjectRequest<unknown>> = []
     const llm: LLMClient = {
       async generateObject<T>(request: GenerateObjectRequest<T>) {
-        capturedRequest = request as GenerateObjectRequest<unknown>
+        requests.push(request as GenerateObjectRequest<unknown>)
 
-        return {
-          object: withDeckTransitions({
+        const rawPlan = withDeckTransitions({
             language: 'en-US',
             outline: deckOutline(),
             slides: [
@@ -621,7 +788,10 @@ describe('Deck Explainer LLM text planning', () => {
             targetPlatform: 'generic',
             theme: 'clean-white',
             title: 'Timed Audio Deck',
-          }) as T,
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
         }
       },
       async generateText(_request: GenerateTextRequest) {
@@ -648,7 +818,8 @@ describe('Deck Explainer LLM text planning', () => {
       },
     )
 
-    const message = capturedRequest?.messages?.[0]
+    const contentAnalysisRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'content-analysis')
+    const message = contentAnalysisRequest?.messages?.[0]
     const payload = JSON.parse(typeof message?.content === 'string' ? message.content : '') as {
       source: {transcriptSegments?: Array<{end: number; start: number; text: string}>}
       target: {requiresSlideSourceRanges?: boolean}
@@ -656,7 +827,7 @@ describe('Deck Explainer LLM text planning', () => {
 
     expect(payload.target.requiresSlideSourceRanges).to.equal(true)
     expect(payload.source.transcriptSegments).to.deep.equal([
-      {end: 10, index: 1, start: 0, text: 'Timed transcript evidence should drive slide alignment.'},
+      {end: 10, index: 0, start: 0, text: 'Timed transcript evidence should drive slide alignment.'},
     ])
     expect(plan.selectedMoments.moments[0]?.sourceRange).to.deep.equal([0, 10])
     expect(plan.storyboard.scenes[0]?.sourceRange).to.deep.equal([0, 10])
@@ -1712,49 +1883,58 @@ outline: deckOutline(),
     )).to.throw('is not renderable by the Deck renderer')
   })
 
-  it('rejects oversized source text instead of silently truncating the LLM prompt input', async () => {
-    try {
-      await createLLMTextDeckProjectPlan(
-        createUnusedLLM(),
-        '/tmp/long.md',
-        'x'.repeat(60_001),
-        {
-          deckFormat: 'portrait_1080x1920',
-          durationTargetSeconds: 90,
-          language: 'en-US',
-          maxSlideCharacters: 260,
-          sourceType: 'markdown',
-        },
-      )
-      throw new Error('Expected oversized source text to be rejected.')
-    } catch (error) {
-      expect((error as Error).message).to.include('no silent truncation is allowed')
-    }
+  it('chunks oversized source text instead of silently truncating the LLM prompt input', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const plan = await createLLMTextDeckProjectPlan(
+      createStaticStagedLLM(createOneSlideRawPlan([0, 90]), requests),
+      '/tmp/long.md',
+      'x'.repeat(60_001),
+      {
+        deckFormat: 'portrait_1080x1920',
+        durationTargetSeconds: 90,
+        language: 'en-US',
+        maxSlideCharacters: 260,
+        sourceType: 'markdown',
+      },
+    )
+    const stages = requests.map((request) => requestStage(request as GenerateObjectRequest<unknown>))
+
+    expect(stages.filter((stage) => stage === 'content-analysis')).to.have.length(2)
+    expect(stages).to.include('content-analysis-merge')
+    expect(plan.deck.slides[0]?.title).to.equal('Chunked Planning')
   })
 
-  it('rejects oversized timed transcript batches instead of silently dropping segments', async () => {
-    try {
-      await createLLMTextDeckProjectPlan(
-        createUnusedLLM(),
-        '/tmp/long.wav',
-        'short transcript',
-        {
-          deckFormat: 'portrait_1080x1920',
-          durationTargetSeconds: 600,
-          language: 'en-US',
-          maxSlideCharacters: 260,
-          sourceType: 'audio',
-          transcriptSegments: Array.from({length: 501}, (_, index) => ({
-            end: index + 1,
-            start: index,
-            text: `segment ${index + 1}`,
-          })),
-        },
-      )
-      throw new Error('Expected oversized transcript batch to be rejected.')
-    } catch (error) {
-      expect((error as Error).message).to.include('no silent transcript truncation is allowed')
+  it('chunks oversized timed transcript batches instead of silently dropping segments', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const plan = await createLLMTextDeckProjectPlan(
+      createStaticStagedLLM(createOneSlideRawPlan([0, 600]), requests),
+      '/tmp/long.wav',
+      'short transcript',
+      {
+        deckFormat: 'portrait_1080x1920',
+        durationTargetSeconds: 600,
+        language: 'en-US',
+        maxSlideCharacters: 260,
+        sourceType: 'audio',
+        transcriptSegments: Array.from({length: 501}, (_, index) => ({
+          end: index + 1,
+          start: index,
+          text: `segment ${index + 1}`,
+        })),
+      },
+    )
+    const contentAnalysisRequests = requests.filter((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'content-analysis')
+    const firstPayload = requestPayload(contentAnalysisRequests[0] as GenerateObjectRequest<unknown>) as {
+      source: {transcriptSegments: unknown[]}
     }
+    const secondPayload = requestPayload(contentAnalysisRequests[1] as GenerateObjectRequest<unknown>) as {
+      source: {transcriptSegments: unknown[]}
+    }
+
+    expect(contentAnalysisRequests).to.have.length(2)
+    expect(firstPayload.source.transcriptSegments).to.have.length(500)
+    expect(secondPayload.source.transcriptSegments).to.have.length(1)
+    expect(plan.deck.slides[0]?.title).to.equal('Chunked Planning')
   })
 
   it('rejects empty timed transcript segments instead of silently dropping them', async () => {

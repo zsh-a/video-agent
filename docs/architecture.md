@@ -161,9 +161,10 @@ Deck explainer is for text, article, podcast, audio, tutorial, research, product
 text / audio
   -> content ingest
   -> transcript / document normalize
-  -> outline planning
-  -> deck storyboard
-  -> speaker script
+  -> LLM content analysis
+  -> LLM slide plan
+  -> LLM script + semantic metadata
+  -> deterministic DeckIR artifact build
   -> timing
   -> Template + Theme + MotionPreset
   -> seekable HTML runtime
@@ -178,7 +179,9 @@ Two modes:
 
 Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`. `Slide` is semantic: it chooses a controlled slide type (`hero`, `three-points`, `comparison`, `process`, `timeline`, `quote`, `stat`, `chart`, `code`, `summary`, `cta`) plus structured content and a motion preset. LLM providers generate DeckIR only; they do not generate HTML, CSS, absolute positions, fonts, colors, or animation curves.
 
-Template selection is manifest-driven. `packages/renderer-deck/src/deck/templates/manifest.ts` is the source of truth for built-in template `type`, `use_when`, supported fields, content limits, allowed motion presets, repair strategy, and template quality rules. Runtime planning passes this manifest to the LLM as `target.templateManifest`; prompts require the LLM to choose only from that manifest, split over-limit content into multiple slides, and avoid mixing unrelated themes on one page. Runtime normalization still enforces the same limits before creating DeckIR, so overfilled slides are split or downgraded before rendering.
+LLM text planning is staged rather than a single all-purpose deck prompt. `@video-agent/pipeline-deck` first asks the LLM for source-grounded content analysis, then passes that smaller analysis plus the renderer template manifest to a slide-plan call, then asks for speaker notes, semantic metadata, source ranges, durations, and outline against the approved slide plan. The deterministic builder merges those stage outputs into the same final DeckIR-adjacent plan object and validates it before artifacts are written. Long source text and oversized transcript batches are chunked for content analysis, merged by a separate content-analysis merge call, and only then sent to slide planning.
+
+Template selection is manifest-driven. `packages/renderer-deck/src/deck/templates/manifest.ts` is the source of truth for built-in template `type`, `use_when`, supported fields, content limits, allowed motion presets, repair strategy, and template quality rules. Runtime planning passes this manifest only to the slide-plan LLM stage as `target.templateManifest`; prompts require the LLM to choose only from that manifest, split over-limit content into multiple slides, and avoid mixing unrelated themes on one page. Runtime normalization enforces the same limits before creating DeckIR. Invalid output fails validation and is routed back to the responsible LLM stage as structured issues; the runtime does not silently split, trim, downgrade, or infer semantic content.
 
 `packages/renderer-deck` owns the reusable DeckIR presentation system:
 
