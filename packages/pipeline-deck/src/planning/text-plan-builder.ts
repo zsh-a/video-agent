@@ -1,4 +1,4 @@
-import type {Claim, Claims, ContentBlock, Deck, DeckBrief, DeckContentAnalysis, DeckSlideOutline, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, Timeline} from '@video-agent/ir'
+import type {Claim, Claims, ContentBlock, Deck, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, Timeline} from '@video-agent/ir'
 
 import {ClaimsSchema, ContentBlocksSchema, DeckBriefSchema, DeckContentAnalysisSchema, DeckSchema, DeckSlideOutlineSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
 
@@ -10,7 +10,6 @@ import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report
 import {createDeckNarrationFromTimings, createDeckStoryboard, createSlideTimingsFromSpeakerScript, createTextTimeline} from './timing.js'
 import {createDeckCoverageReport, assertDeckCoverage} from '../quality/coverage.js'
 import {assertDeckScriptTiming, createDeckScriptTimingReport} from '../quality/script-timing.js'
-import {createDeckSourceMap} from './source-map.js'
 
 export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string, rawPlan: LLMTextDeckPlan, options: TextDeckProjectPlanOptions): TextDeckProjectPlan {
   const planTitle = options.title ?? requireLLMPlanText(rawPlan.title, 'title')
@@ -18,16 +17,10 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
   const planLanguage = requireLLMPlanText(rawPlan.language, 'language')
   const slides = normalizeLLMTextDeckSlides(rawPlan)
   const sourceType = requireDeckSourceType(options.sourceType)
-  const sourceMap = options.sourceMap ?? createDeckSourceMap({
-    inputPath,
-    language: planLanguage,
-    sourceType,
-    text: sourceText,
-    title: planTitle,
-  })
-  const contentAnalysis = normalizeContentAnalysis(options.contentAnalysis, rawPlan, sourceMap)
-  const deckBrief = normalizeDeckBrief(options.deckBrief, rawPlan, contentAnalysis, options.durationTargetSeconds)
-  const slideOutline = normalizeSlideOutline(options.slideOutline, rawPlan, deckBrief)
+  const sourceMap = requireDeckSourceMap(options.sourceMap)
+  const contentAnalysis = DeckContentAnalysisSchema.parse(requireStagedArtifact(options.contentAnalysis, 'content-analysis.json'))
+  const deckBrief = DeckBriefSchema.parse(requireStagedArtifact(options.deckBrief, 'deck-brief.json'))
+  const slideOutline = DeckSlideOutlineSchema.parse(requireStagedArtifact(options.slideOutline, 'slide-outline.json'))
   const preDeckCoverageReport = createDeckCoverageReport({
     analysis: contentAnalysis,
     brief: deckBrief,
@@ -153,112 +146,20 @@ function assertDeckVisibleTextWithinLimit(deck: Deck, limit: number): void {
   }
 }
 
-function normalizeContentAnalysis(
-  contentAnalysis: DeckContentAnalysis | undefined,
-  rawPlan: LLMTextDeckPlan,
-  sourceMap: DeckSourceMap,
-): DeckContentAnalysis {
-  if (contentAnalysis !== undefined) {
-    return DeckContentAnalysisSchema.parse(contentAnalysis)
+function requireDeckSourceMap(sourceMap: DeckSourceMap | undefined): DeckSourceMap {
+  if (sourceMap === undefined) {
+    throw new Error('Deck artifact build requires source-map.json from the source-map stage; no semantic source map fallback is allowed.')
   }
 
-  return DeckContentAnalysisSchema.parse({
-    audience: rawPlan.audience,
-    generatedAt: new Date().toISOString(),
-    language: rawPlan.language,
-    sections: rawPlan.slides.map((slide, index) => {
-      const sourceSection = sourceMap.sections[index] ?? sourceMap.sections.at(-1)
-      const sectionId = sourceSection?.id ?? `source-section-${String(index + 1).padStart(3, '0')}`
-
-      return {
-        id: sectionId,
-        importance: slide.semantic.momentScore,
-        keyClaims: [
-          slide.semantic.claim === null
-            ? {
-                confidence: 0.7,
-                sourceQuoteText: slide.semantic.sourceQuoteText,
-                text: slide.semantic.blockText,
-                type: 'summary' as const,
-              }
-            : {
-                confidence: slide.semantic.claim.confidence,
-                sourceQuoteText: slide.semantic.sourceQuoteText,
-                text: slide.semantic.claim.text,
-                type: slide.semantic.claim.type,
-              },
-        ],
-        mustCover: true,
-        role: slide.semantic.blockType,
-        sourceRange: sourceSection?.sourceRange ?? slide.sourceRange,
-        summary: slide.semantic.blockText,
-        title: slide.title,
-        visualRole: slide.semantic.visualStyle,
-      }
-    }),
-    source: 'source-map.json',
-    summary: rawPlan.summary,
-    title: rawPlan.title,
-    version: 1,
-  })
+  return sourceMap
 }
 
-function normalizeDeckBrief(
-  deckBrief: DeckBrief | undefined,
-  rawPlan: LLMTextDeckPlan,
-  contentAnalysis: DeckContentAnalysis,
-  durationTargetSeconds: number | undefined,
-): DeckBrief {
-  if (deckBrief !== undefined) {
-    return DeckBriefSchema.parse(deckBrief)
+function requireStagedArtifact<T>(artifact: T | undefined, artifactName: string): T {
+  if (artifact === undefined) {
+    throw new Error(`Deck artifact build requires ${artifactName} from staged LLM generation; no raw-plan semantic fallback is allowed.`)
   }
 
-  const requiredSectionIds = contentAnalysis.sections.filter((section) => section.mustCover).map((section) => section.id)
-
-  return DeckBriefSchema.parse({
-    audience: rawPlan.audience,
-    densityPolicy: 'Use one slide per coherent source-backed idea and keep narration within the authored duration budget.',
-    generatedAt: new Date().toISOString(),
-    language: rawPlan.language,
-    narrativeArc: rawPlan.outline.sections.map((section) => section.goal),
-    objective: rawPlan.summary,
-    optionalSectionIds: contentAnalysis.sections.filter((section) => !section.mustCover).map((section) => section.id),
-    requiredSectionIds,
-    source: 'content-analysis.json',
-    styleIntent: 'Source-grounded explainer deck.',
-    ...(durationTargetSeconds === undefined ? {} : {targetDurationSeconds: durationTargetSeconds}),
-    targetSlideCount: rawPlan.slides.length,
-    title: rawPlan.title,
-    version: 1,
-  })
-}
-
-function normalizeSlideOutline(
-  slideOutline: DeckSlideOutline | undefined,
-  rawPlan: LLMTextDeckPlan,
-  deckBrief: DeckBrief,
-): DeckSlideOutline {
-  if (slideOutline !== undefined) {
-    return DeckSlideOutlineSchema.parse(slideOutline)
-  }
-
-  const fallbackRequired = deckBrief.requiredSectionIds.length === 0 ? ['source-section-001'] : deckBrief.requiredSectionIds
-
-  return DeckSlideOutlineSchema.parse({
-    generatedAt: new Date().toISOString(),
-    slides: rawPlan.slides.map((slide, index) => ({
-      goal: rawPlan.outline.sections[index]?.goal ?? slide.semantic.momentReason,
-      informationRole: slide.semantic.blockType,
-      mustCover: true,
-      narrationBudgetSeconds: slide.duration,
-      outlineId: `outline-${String(index + 1).padStart(3, '0')}`,
-      sourceSectionIds: slide.sectionIds ?? [fallbackRequired[Math.min(index, fallbackRequired.length - 1)] ?? 'source-section-001'],
-      templateIntent: slide.type,
-      visualIntent: slide.semantic.visualStyle,
-    })),
-    source: 'deck-brief.json',
-    version: 1,
-  })
+  return artifact
 }
 
 function createLLMTextDocument(

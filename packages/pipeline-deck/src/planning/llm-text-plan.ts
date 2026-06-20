@@ -57,7 +57,7 @@ interface StagedDeckPlan {
   slidePlan: LLMTextDeckSlidePlan
 }
 
-type DeckPlanningValidationIssue = LLMTextDeckValidationIssue & {
+type DeckPlanningValidationIssue = Omit<LLMTextDeckValidationIssue, 'stage'> & {
   stage: DeckLLMPlanningStage | 'final-build'
 }
 
@@ -265,8 +265,13 @@ async function generateSlideOutline(
   analysis: LLMTextDeckContentAnalysis,
   brief: LLMTextDeckBrief,
   options: TextDeckProjectPlanOptions,
+  rewrite?: {
+    attemptsRemaining: number
+    invalidOutput: LLMTextDeckSlideOutline
+    issues: DeckPlanningValidationIssue[]
+  },
 ): Promise<LLMTextDeckSlideOutline> {
-  const result = await llm.generateObject(createSlideOutlineRequest(inputPath, analysis, brief, options))
+  const result = await llm.generateObject(createSlideOutlineRequest(inputPath, analysis, brief, options, rewrite))
 
   return result.object
 }
@@ -276,6 +281,11 @@ function createSlideOutlineRequest(
   analysis: LLMTextDeckContentAnalysis,
   brief: LLMTextDeckBrief,
   options: TextDeckProjectPlanOptions,
+  rewrite?: {
+    attemptsRemaining: number
+    invalidOutput: LLMTextDeckSlideOutline
+    issues: DeckPlanningValidationIssue[]
+  },
 ): GenerateObjectRequest<LLMTextDeckSlideOutline> {
   const baseMessage: LLMMessage = {
     content: JSON.stringify({
@@ -296,9 +306,44 @@ function createSlideOutlineRequest(
     role: 'user',
   }
 
+  if (rewrite === undefined) {
+    return {
+      cache: createDeckLLMCacheHint('slide-outline', baseMessage),
+      messages: [baseMessage],
+      schema: LLMTextDeckSlideOutlineSchema,
+      temperature: 0.2,
+    }
+  }
+
   return {
     cache: createDeckLLMCacheHint('slide-outline', baseMessage),
-    messages: [baseMessage],
+    messages: [
+      baseMessage,
+      {
+        content: JSON.stringify({
+          invalidOutput: rewrite.invalidOutput,
+          issues: rewrite.issues,
+          stage: 'slide-outline',
+        }),
+        role: 'assistant',
+      },
+      {
+        content: JSON.stringify({
+          attemptsRemaining: rewrite.attemptsRemaining,
+          goal: 'Rewrite the slide-outline stage output so it satisfies the structured validation issues. Return a complete replacement slide-outline object, not a patch.',
+          instructions: [
+            'Use issues as binding coverage and outline feedback.',
+            'Every brief.requiredSectionIds entry and every mustCover analysis section must appear in at least one slides[].sourceSectionIds array.',
+            'If a slide covers too many unrelated source sections, split it into multiple coherent outline slides instead of compressing them.',
+            'Preserve source section ids exactly; do not invent ids that are absent from analysis.sections or brief required/optional ids.',
+            'Keep narrationBudgetSeconds realistic for the slide goal and target duration; do not inflate budgets to hide overlong narration.',
+            'Do not write visible slide text, speaker notes, transitions, motion, or semantic metadata in this stage.',
+          ],
+          issues: rewrite.issues,
+        }),
+        role: 'user',
+      },
+    ],
     schema: LLMTextDeckSlideOutlineSchema,
     temperature: 0.2,
   }
@@ -587,7 +632,41 @@ async function attemptStagedDeckPlanRewrite(
   const attemptsRemaining = DECK_LLM_VALIDATION_REWRITE_ATTEMPTS - state.attempt
   let stagedPlan: StagedDeckPlan
 
-  if (rewriteStage === 'slide-plan') {
+  if (rewriteStage === 'slide-outline') {
+    const slideOutline = await generateSlideOutline(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, input.options, {
+      attemptsRemaining,
+      invalidOutput: state.stagedPlan.slideOutline,
+      issues,
+    })
+    const slidePlan = await generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, input.options)
+
+    stagedPlan = {
+      ...state.stagedPlan,
+      slideOutline,
+      slidePlan,
+    }
+
+    try {
+      validateLLMTextDeckSlidePlanTemplateConstraints(slidePlan)
+    } catch (error) {
+      return attemptStagedDeckPlanRewrite(llm, input, {
+        attempt: state.attempt + 1,
+        lastError: error,
+        stagedPlan,
+      })
+    }
+
+    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, input.options)
+
+    stagedPlan = {
+      analysis: state.stagedPlan.analysis,
+      brief: state.stagedPlan.brief,
+      finalPlan: assembleFinalDeckPlan(state.stagedPlan.analysis, slidePlan, scriptSemantics),
+      scriptSemantics,
+      slideOutline,
+      slidePlan,
+    }
+  } else if (rewriteStage === 'slide-plan') {
     const slidePlan = await generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, input.options, {
       attemptsRemaining,
       invalidOutput: state.stagedPlan.slidePlan,
@@ -893,11 +972,25 @@ function createDeckPlanningValidationIssues(error: unknown): DeckPlanningValidat
   }]
 }
 
-function chooseRewriteStage(issues: DeckPlanningValidationIssue[]): 'script-semantics' | 'slide-plan' {
+function chooseRewriteStage(issues: DeckPlanningValidationIssue[]): 'script-semantics' | 'slide-outline' | 'slide-plan' {
+  if (issues.some((issue) => issue.stage === 'slide-outline')) {
+    return 'slide-outline'
+  }
+
   return issues.some((issue) => issue.stage === 'slide-plan') ? 'slide-plan' : 'script-semantics'
 }
 
 function classifyValidationStage(message: string): DeckPlanningValidationIssue['stage'] {
+  if (
+    message.includes('slide outline')
+    || message.includes('required source section')
+    || message.includes('requiredSectionIds')
+    || message.includes('mustCover')
+    || message.includes('sourceSectionIds')
+  ) {
+    return 'slide-outline'
+  }
+
   if (
     message.includes('template')
     || message.includes('visible characters')
@@ -931,6 +1024,19 @@ function classifyValidationStage(message: string): DeckPlanningValidationIssue['
 }
 
 function classifyIssueCode(message: string): string {
+  if (
+    message.includes('required source section')
+    || message.includes('requiredSectionIds')
+    || message.includes('mustCover')
+    || message.includes('sourceSectionIds')
+  ) {
+    return 'SOURCE_COVERAGE'
+  }
+
+  if (message.includes('speakerNote timing preflight') || message.includes('underestimated speakerNote')) {
+    return 'SCRIPT_TIMING'
+  }
+
   if (message.includes('maxSlideCharacters') || message.includes('visible characters')) {
     return 'VISIBLE_TEXT_LIMIT'
   }
@@ -969,6 +1075,19 @@ function parseSlideIndex(message: string): number | undefined {
 }
 
 function parseIssuePath(message: string): string | undefined {
+  if (
+    message.includes('required source section')
+    || message.includes('requiredSectionIds')
+    || message.includes('mustCover')
+    || message.includes('sourceSectionIds')
+  ) {
+    return 'slideOutline.slides[].sourceSectionIds'
+  }
+
+  if (message.includes('speakerNote timing preflight') || message.includes('underestimated speakerNote')) {
+    return 'scriptSemantics.slides[].speakerNote'
+  }
+
   if (message.includes('speakerNote')) {
     return 'slides[].speakerNote'
   }

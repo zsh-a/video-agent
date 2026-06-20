@@ -63,7 +63,7 @@ Deck Explainer Pipeline
 
 The shared runtime owns jobs, events, checkpoints, artifacts, workspace IO, and provider setup helpers. Pipeline packages own business workflow behavior, provider calls, renderer orchestration, and quality gates. Pipeline-specific IR lives in `packages/ir`.
 
-Deck text planning uses a staged generation pipeline: deterministic source mapping, LLM content analysis, deck brief, slide outline, slide plan, script semantics, timing preflight, optional TTS timing repair, visual preflight, final render, and review. Long text and large transcript batches are chunked for content analysis and merged before brief/outline planning, so the runtime avoids silent truncation while keeping source coverage, template validation, timing validation, and no-runtime-repair behavior.
+Deck text planning uses a staged generation pipeline: deterministic source mapping, LLM content analysis, deck brief, slide outline, slide plan, script semantics, timing preflight, optional TTS timing repair, visual preflight, final render, and review. Long text and large transcript batches are chunked for content analysis and merged before brief/outline planning. Deterministic checks for source coverage, template limits, and speaker-note timing are fed back to the responsible LLM stage as structured rewrite issues; artifact build no longer derives semantic planning artifacts from the final raw plan.
 
 ## Setup
 

@@ -5,6 +5,7 @@ import {toJSONSchema} from 'zod'
 import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMEvent, StreamTextRequest} from '../../../packages/llm/src/index.js'
 import {LLMTextDeckPlanSchema, type LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 import {createLLMTextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/llm-text-plan.js'
+import {createDeckSourceMap} from '../../../packages/pipeline-deck/src/planning/source-map.js'
 import {createTextDeckProjectPlanFromLLM as createStrictTextDeckProjectPlanFromLLM} from '../../../packages/pipeline-deck/src/planning/text-plan-builder.js'
 import type {TextDeckProjectPlanOptions} from '../../../packages/pipeline-deck/src/planning/types.js'
 import {runDeckExplainerPipeline} from '../../../packages/pipeline-deck/src/runner.js'
@@ -211,9 +212,88 @@ function createTextDeckProjectPlanFromLLM(
   rawPlan: LLMTextDeckPlan,
   options: TextDeckProjectPlanOptions,
 ) {
+  const sourceType = options.sourceType ?? 'markdown'
+  const sourceMap = createDeckSourceMap({
+    inputPath,
+    language: rawPlan.language,
+    sourceType,
+    text: sourceText,
+    title: rawPlan.title,
+  })
+  const sourceSectionIds = rawPlan.slides.map((_, index) => sourceMap.sections[index]?.id ?? sourceMap.sections.at(-1)?.id ?? 'source-section-001')
+  const contentAnalysis = {
+    ...(rawPlan.audience === undefined ? {} : {audience: rawPlan.audience}),
+    generatedAt: new Date().toISOString(),
+    language: rawPlan.language,
+    sections: rawPlan.slides.map((slide, index) => ({
+      id: sourceSectionIds[index] ?? 'source-section-001',
+      importance: slide.semantic.momentScore,
+      keyClaims: [
+        slide.semantic.claim === null
+          ? {
+              confidence: 0.7,
+              sourceQuoteText: slide.semantic.sourceQuoteText,
+              text: slide.semantic.blockText,
+              type: 'summary' as const,
+            }
+          : {
+              confidence: slide.semantic.claim.confidence,
+              sourceQuoteText: slide.semantic.sourceQuoteText,
+              text: slide.semantic.claim.text,
+              type: slide.semantic.claim.type,
+            },
+      ],
+      mustCover: true,
+      role: slide.semantic.blockType,
+      sourceRange: sourceMap.sections[index]?.sourceRange ?? slide.sourceRange,
+      summary: slide.semantic.blockText,
+      title: slide.title,
+      visualRole: slide.semantic.visualStyle,
+    })),
+    source: 'source-map.json' as const,
+    summary: rawPlan.summary,
+    title: rawPlan.title,
+    version: 1 as const,
+  }
+  const deckBrief = {
+    ...(rawPlan.audience === undefined ? {} : {audience: rawPlan.audience}),
+    densityPolicy: 'Keep each slide source-grounded and within narration budget.',
+    generatedAt: new Date().toISOString(),
+    language: rawPlan.language,
+    narrativeArc: rawPlan.outline.sections.map((section) => section.goal),
+    objective: rawPlan.summary,
+    optionalSectionIds: [],
+    requiredSectionIds: sourceSectionIds,
+    source: 'content-analysis.json' as const,
+    styleIntent: 'test deck',
+    ...(options.durationTargetSeconds === undefined ? {} : {targetDurationSeconds: options.durationTargetSeconds}),
+    targetSlideCount: rawPlan.slides.length,
+    title: rawPlan.title,
+    version: 1 as const,
+  }
+  const slideOutline = {
+    generatedAt: new Date().toISOString(),
+    slides: rawPlan.slides.map((slide, index) => ({
+      goal: rawPlan.outline.sections[index]?.goal ?? slide.semantic.momentReason,
+      informationRole: slide.semantic.blockType,
+      mustCover: true,
+      narrationBudgetSeconds: slide.duration,
+      outlineId: slide.outlineId ?? `outline-${String(index + 1).padStart(3, '0')}`,
+      sourceSectionIds: slide.sectionIds ?? [sourceSectionIds[index] ?? 'source-section-001'],
+      templateIntent: slide.type,
+      visualIntent: slide.semantic.visualStyle,
+    })),
+    source: 'deck-brief.json' as const,
+    version: 1 as const,
+  }
+
   return createStrictTextDeckProjectPlanFromLLM(inputPath, sourceText, withDeckTransitions(rawPlan), {
     ...options,
-    sourceType: options.sourceType ?? 'markdown',
+    contentAnalysis,
+    deckBrief,
+    slideOutline,
+    sourceMap,
+    sourceType,
   })
 }
 
@@ -460,6 +540,168 @@ describe('Deck Explainer LLM text planning', () => {
     expect(capturedRewriteRequest?.cache?.key).to.match(/^deck:slide-plan:[a-f0-9]{24}$/u)
   })
 
+  it('asks the LLM to rewrite slide outlines that miss required source coverage', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const rawPlan = withDeckTransitions({
+      language: 'en-US',
+      outline: deckOutline(2),
+      slides: [
+        {
+          duration: 6,
+          motion: 'soft-scale',
+          points: ['Coverage map'],
+          semantic: deckSemantic('Source coverage is explicit.'),
+          sourceRange: [0, 6],
+          speakerNote: 'Source coverage is explicit.',
+          title: 'Coverage',
+          type: 'summary',
+          visual: deckVisual('text'),
+        },
+        {
+          duration: 6,
+          motion: 'soft-scale',
+          points: ['Repair loop'],
+          semantic: deckSemantic('Outline repair keeps required sections visible.'),
+          sourceRange: [6, 12],
+          speakerNote: 'Outline repair keeps required sections visible.',
+          title: 'Repair',
+          type: 'summary',
+          visual: deckVisual('text'),
+        },
+      ],
+      summary: 'Coverage and repair keep deck planning source-grounded.',
+      targetPlatform: 'generic',
+      theme: 'clean-white',
+      title: 'Coverage Repair',
+    })
+    let slideOutlineCalls = 0
+
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request) === 'slide-outline') {
+          slideOutlineCalls += 1
+
+          if (slideOutlineCalls === 1) {
+            return {
+              object: {
+                slides: [
+                  {
+                    goal: 'Explain only the first required section.',
+                    informationRole: 'claim',
+                    mustCover: true,
+                    narrationBudgetSeconds: 6,
+                    outlineId: 'outline-001',
+                    sourceSectionIds: ['section-001'],
+                    templateIntent: 'summary',
+                    visualIntent: 'text',
+                  },
+                ],
+              } as T,
+            }
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/coverage.md', 'Coverage first.\n\nRepair second.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 12,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+    const rewriteRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-outline' && (request.messages?.length ?? 0) > 1)
+    const rewritePayload = JSON.parse(String(rewriteRequest?.messages?.at(-1)?.content ?? '{}')) as {
+      instructions: string[]
+      issues: Array<{code: string; path?: string; stage: string}>
+    }
+
+    expect(slideOutlineCalls).to.equal(2)
+    expect(rewritePayload.issues[0]).to.deep.include({
+      code: 'SOURCE_COVERAGE',
+      path: 'slideOutline.slides[].sourceSectionIds',
+      stage: 'slide-outline',
+    })
+    expect(rewritePayload.instructions.join('\n')).to.include('Every brief.requiredSectionIds entry')
+    expect(plan.coverageReport.summary.errors).to.equal(0)
+    expect(plan.slideOutline.slides.flatMap((slide) => slide.sourceSectionIds)).to.include('section-002')
+  })
+
+  it('asks the LLM to rewrite script semantics when speaker notes exceed timing preflight', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const invalidPlan = createOneSlideRawPlan()
+    invalidPlan.slides[0] = {
+      ...invalidPlan.slides[0],
+      duration: 4,
+      sourceRange: [0, 4],
+      speakerNote: 'Provider certification requires stable failure clarity, cost visibility, retry stability, trace coverage, artifact evidence, and operator review discipline.',
+    }
+    const fixedPlan = createOneSlideRawPlan()
+    fixedPlan.slides[0] = {
+      ...fixedPlan.slides[0],
+      duration: 4,
+      sourceRange: [0, 4],
+      speakerNote: 'Provider certification keeps traces auditable.',
+    }
+    let scriptSemanticsCalls = 0
+
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request) === 'script-semantics') {
+          scriptSemanticsCalls += 1
+          return {
+            object: stagedDeckObjectForRequest(request, scriptSemanticsCalls === 1 ? invalidPlan : fixedPlan),
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, invalidPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/script-timing.md', 'Provider certification keeps traces auditable.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 4,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+    const rewriteRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics' && (request.messages?.length ?? 0) > 1)
+    const rewritePayload = JSON.parse(String(rewriteRequest?.messages?.at(-1)?.content ?? '{}')) as {
+      issues: Array<{code: string; path?: string; stage: string}>
+    }
+
+    expect(scriptSemanticsCalls).to.equal(2)
+    expect(rewritePayload.issues[0]).to.deep.include({
+      code: 'SCRIPT_TIMING',
+      path: 'scriptSemantics.slides[].speakerNote',
+      stage: 'script-semantics',
+    })
+    expect(plan.speakerScript.segments[0]?.text).to.equal('Provider certification keeps traces auditable.')
+    expect(plan.scriptTimingReport.summary.errors).to.equal(0)
+  })
+
   it('rejects direct artifact planning without explicit sourceType instead of inferring it by extension', () => {
     expect(() => createStrictTextDeckProjectPlanFromLLM(
       '/tmp/provider.md',
@@ -492,6 +734,41 @@ describe('Deck Explainer LLM text planning', () => {
         maxSlideCharacters: 260,
       },
     )).to.throw('no artifact-time sourceType fallback is allowed')
+  })
+
+  it('rejects direct artifact planning without staged LLM artifacts instead of deriving them from rawPlan', () => {
+    expect(() => createStrictTextDeckProjectPlanFromLLM(
+      '/tmp/provider.md',
+      'Provider certification keeps traces auditable.',
+      {
+        language: 'en-US',
+        outline: deckOutline(),
+        slides: [
+          {
+            duration: 8,
+            motion: 'soft-scale',
+            points: ['Certification trace'],
+            semantic: deckSemantic('Provider certification keeps traces auditable.'),
+            sourceRange: [0, 8],
+            speakerNote: 'Provider certification keeps traces auditable.',
+            title: 'Provider Certification',
+            transitionOut: null,
+            type: 'summary',
+            visual: deckVisual('text'),
+          },
+        ],
+        summary: 'Provider certification keeps traces auditable.',
+        targetPlatform: 'generic',
+        theme: 'elegant-dark',
+        title: 'Provider Certification',
+      },
+      {
+        deckFormat: 'portrait_1080x1920',
+        language: 'en-US',
+        maxSlideCharacters: 260,
+        sourceType: 'markdown',
+      },
+    )).to.throw('no semantic source map fallback is allowed')
   })
 
   it('asks the LLM to preserve source code examples as code slides', async () => {
