@@ -2,17 +2,18 @@ import {useCallback, useEffect, useMemo, useState} from 'react'
 
 import {api, jsonPost, loadProjectData, loadWorkspaceActions, watchProject} from './api'
 import {OperationsPanel} from './components/operations-panel'
-import {OverviewGrid} from './components/overview'
 import {ProjectSidebar} from './components/project-sidebar'
 import {ConfigPanel, ProviderPanel} from './components/provider-config'
 import {QualityPanel} from './components/quality-panels'
 import {RecentEventsPanel, LlmTracePanel} from './components/report-panels'
 import {DeckReviewPanel, RenderResultPanel, VisualSamplesPanel} from './components/render-panels'
+import {RunConsole, type DiagnosticTab} from './components/run-console'
 import {StatusPill} from './components/ui'
-import {AgentPanel, ArtifactsPanel, GuidedActionsPanel, PipelinePanel} from './components/workflow-panels'
+import {ArtifactsPanel, GuidedActionsPanel} from './components/workflow-panels'
 import type {ActionState, DashboardData, ExportOptions, ProjectSummary, ProviderEnvironment, RenderOptions, RuntimeConfig} from './types'
 import {emptyData} from './types'
 import {defaultRerunStage, formatUnknownError} from './utils'
+import {createRunViewModel} from './view-models/run-status'
 
 export function App() {
   const [data, setData] = useState<DashboardData>(emptyData)
@@ -91,6 +92,7 @@ export function App() {
   const selectedProject = useMemo(() => data.projects.find((project) => project.projectId === projectId), [data.projects, projectId])
   const projectSelected = projectId !== undefined
   const controlledActionsLocked = !projectSelected || !operationsEnabled
+  const runView = useMemo(() => createRunViewModel(data, projectId), [data, projectId])
 
   const selectProject = (nextProjectId: string) => {
     setProjectId(nextProjectId)
@@ -148,6 +150,76 @@ export function App() {
     }
   }
 
+  const diagnostics = useMemo<DiagnosticTab[]>(() => [
+    {
+      content: (
+        <div className="grid gap-3 xl:grid-cols-[1fr_0.9fr]">
+          <ArtifactsPanel artifacts={data.artifacts} preview={artifactPreview} onPreview={previewArtifact} />
+          <div className="grid content-start gap-3">
+            <RenderResultPanel projectId={projectId} render={data.projectStatus?.summary.render} />
+            <DeckReviewPanel projectId={projectId} render={data.projectStatus?.summary.render} onPreview={previewArtifact} />
+            <VisualSamplesPanel samples={data.visualSamples} />
+          </div>
+        </div>
+      ),
+      id: 'output',
+      label: 'Output',
+    },
+    {
+      content: <QualityPanel quality={data.quality} renderOutput={data.renderOutput} integrity={data.integrity} />,
+      id: 'quality',
+      label: 'Quality',
+    },
+    {
+      content: (
+        <div className="grid gap-3 xl:grid-cols-2">
+          <LlmTracePanel report={data.providerReport} />
+          <RecentEventsPanel events={data.events} />
+        </div>
+      ),
+      id: 'activity',
+      label: 'Activity',
+    },
+    {
+      content: (
+        <div className="grid gap-3">
+          <OperationsPanel
+            actionState={actionState}
+            controlledActionsLocked={controlledActionsLocked}
+            exportOptions={exportOptions}
+            operationsEnabled={operationsEnabled}
+            projectId={projectId}
+            renderOptions={renderOptions}
+            rerunStage={rerunStage}
+            stages={data.projectStatus?.job.stages ?? []}
+            onExport={() => void runProjectAction('Export', `/projects/${encodeURIComponent(projectId ?? '')}/export`, exportOptions, true)}
+            onExportOptionsChange={setExportOptions}
+            onOperationsEnabledChange={setOperationsEnabled}
+            onProviderTest={() => void runWorkspaceAction('Provider test', '/provider-test', {role: 'all'})}
+            onRender={() => void runProjectAction('Render', `/projects/${encodeURIComponent(projectId ?? '')}/render`, renderOptions, true)}
+            onRenderOptionsChange={setRenderOptions}
+            onRerun={() => void runProjectAction('Rerun', `/projects/${encodeURIComponent(projectId ?? '')}/rerun`, {fromStage: rerunStage || undefined}, true)}
+            onRerunStageChange={setRerunStage}
+            onWorker={() => void runWorkspaceAction('Worker dry-run', '/worker', {dryRun: true, orderBy: 'oldest', runningStaleAfterMs: 60000, status: 'active'})}
+          />
+          <GuidedActionsPanel actions={data.actions} onCopy={copyAction} />
+        </div>
+      ),
+      id: 'operations',
+      label: 'Operations',
+    },
+    {
+      content: (
+        <div className="grid gap-3 xl:grid-cols-2">
+          <ProviderPanel report={data.providerEnv} />
+          <ConfigPanel config={data.config} />
+        </div>
+      ),
+      id: 'config',
+      label: 'Config',
+    },
+  ], [actionState, artifactPreview, controlledActionsLocked, data, exportOptions, operationsEnabled, projectId, renderOptions, rerunStage])
+
   return (
     <div className="min-h-screen bg-studio-bg text-ink">
       <header className="sticky top-0 z-10 border-b border-line bg-panel/95 px-5 py-3 backdrop-blur">
@@ -169,42 +241,7 @@ export function App() {
       <main className="grid min-h-[calc(100vh-65px)] grid-cols-1 lg:grid-cols-[300px_1fr]">
         <ProjectSidebar projects={data.projects} selectedProjectId={projectId} onSelect={selectProject} />
         <section className="grid content-start gap-3 p-4">
-          <OverviewGrid data={data} />
-          <div className="grid gap-3 xl:grid-cols-2">
-            <ProviderPanel report={data.providerEnv} />
-            <ConfigPanel config={data.config} />
-          </div>
-          <OperationsPanel
-            actionState={actionState}
-            controlledActionsLocked={controlledActionsLocked}
-            exportOptions={exportOptions}
-            operationsEnabled={operationsEnabled}
-            projectId={projectId}
-            renderOptions={renderOptions}
-            rerunStage={rerunStage}
-            stages={data.projectStatus?.job.stages ?? []}
-            onExport={() => void runProjectAction('Export', `/projects/${encodeURIComponent(projectId ?? '')}/export`, exportOptions, true)}
-            onExportOptionsChange={setExportOptions}
-            onOperationsEnabledChange={setOperationsEnabled}
-            onProviderTest={() => void runWorkspaceAction('Provider test', '/provider-test', {role: 'all'})}
-            onRender={() => void runProjectAction('Render', `/projects/${encodeURIComponent(projectId ?? '')}/render`, renderOptions, true)}
-            onRenderOptionsChange={setRenderOptions}
-            onRerun={() => void runProjectAction('Rerun', `/projects/${encodeURIComponent(projectId ?? '')}/rerun`, {fromStage: rerunStage || undefined}, true)}
-            onRerunStageChange={setRerunStage}
-            onWorker={() => void runWorkspaceAction('Worker dry-run', '/worker', {dryRun: true, orderBy: 'oldest', runningStaleAfterMs: 60000, status: 'active'})}
-          />
-          <GuidedActionsPanel actions={data.actions} onCopy={copyAction} />
-          <div className="grid gap-3 xl:grid-cols-[0.85fr_1.15fr]">
-            <PipelinePanel stages={data.projectStatus?.job.stages ?? []} />
-            <AgentPanel agent={data.projectStatus?.agent} />
-          </div>
-          <ArtifactsPanel artifacts={data.artifacts} preview={artifactPreview} onPreview={previewArtifact} />
-          <RenderResultPanel projectId={projectId} render={data.projectStatus?.summary.render} />
-          <VisualSamplesPanel samples={data.visualSamples} />
-          <QualityPanel quality={data.quality} renderOutput={data.renderOutput} integrity={data.integrity} />
-          <LlmTracePanel report={data.providerReport} />
-          <DeckReviewPanel projectId={projectId} render={data.projectStatus?.summary.render} onPreview={previewArtifact} />
-          <RecentEventsPanel events={data.events} />
+          <RunConsole diagnostics={diagnostics} view={runView} />
         </section>
       </main>
     </div>
