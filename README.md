@@ -63,6 +63,8 @@ Deck Explainer Pipeline
 
 The shared runtime owns jobs, events, checkpoints, artifacts, workspace IO, and provider setup helpers. Pipeline packages own business workflow behavior, provider calls, renderer orchestration, and quality gates. Pipeline-specific IR lives in `packages/ir`.
 
+Deck text planning uses staged LLM calls: content analysis, slide plan, then script and semantic metadata. Long text and large transcript batches are chunked for content analysis and merged before slide planning, so the runtime avoids silent truncation while keeping template validation and no-runtime-repair behavior.
+
 ## Setup
 
 Requirements:

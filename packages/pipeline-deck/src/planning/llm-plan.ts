@@ -44,60 +44,126 @@ const LLMTextDeckOutlineSchema = z.object({
   })).min(1),
 })
 
+const LLMDeckChartSchema = z.object({
+  bars: z.array(z.object({
+    caption: z.string().min(1).optional(),
+    label: z.string().min(1),
+    value: z.number().finite().min(0).max(1),
+  })).min(1).max(4),
+  valueLabel: z.string().min(1).optional(),
+})
+
+const LLMDeckCodeSchema = z.object({
+  language: z.string().min(1),
+  text: z.string().min(1),
+})
+
+const LLMDeckComparisonSchema = z.object({
+  left: z.object({
+    label: z.string().min(1),
+    points: z.array(z.string().min(1)),
+  }),
+  right: z.object({
+    label: z.string().min(1),
+    points: z.array(z.string().min(1)),
+  }),
+})
+
+const LLMDeckQuoteSchema = z.object({
+  attribution: z.string().min(1).optional(),
+  text: z.string().min(1),
+})
+
+const LLMDeckStatSchema = z.object({
+  caption: z.string().min(1).optional(),
+  label: z.string().min(1),
+  value: z.string().min(1),
+})
+
+const LLMDeckTransitionOutSchema = z.union([z.object({
+  duration: z.number().finite().positive(),
+  type: z.enum(LLM_DECK_TRANSITION_TYPES),
+}), z.null()])
+
+const LLMDeckVisualSchema = z.object({
+  assetRefs: z.array(z.string().min(1)).max(0),
+  kind: z.enum(LLM_DECK_VISUAL_KINDS, {error: 'Visual kind must be one of the controlled Deck visual kinds.'}),
+})
+
+export const LLMTextDeckContentAnalysisSchema = z.object({
+  audience: z.string().min(1).optional(),
+  language: z.string().min(1),
+  sections: z.array(z.object({
+    id: z.string().min(1),
+    importance: z.number().min(0).max(1),
+    keyClaims: z.array(z.object({
+      confidence: z.number().min(0).max(1),
+      sourceQuoteText: z.string().min(1),
+      text: z.string().min(1),
+      type: z.enum(LLM_DECK_CLAIM_TYPES),
+    })).min(1),
+    sourceRange: LLMDeckSourceRangeSchema.optional(),
+    summary: z.string().min(1),
+    title: z.string().min(1),
+  })).min(1),
+  summary: z.string().min(1),
+  title: z.string().min(1),
+})
+
+export const LLMTextDeckSlidePlanSchema = z.object({
+  slides: z.array(z.object({
+    chart: LLMDeckChartSchema.optional(),
+    code: LLMDeckCodeSchema.optional(),
+    comparison: LLMDeckComparisonSchema.optional(),
+    durationIntent: z.number().finite().positive(),
+    motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+    points: z.array(z.string().min(1)),
+    quote: LLMDeckQuoteSchema.optional(),
+    sectionIds: z.array(z.string().min(1)).min(1),
+    stat: LLMDeckStatSchema.optional(),
+    subtitle: z.string().min(1).optional(),
+    title: z.string().min(1),
+    transitionOut: LLMDeckTransitionOutSchema,
+    type: z.enum(deckTemplateTypes as [DeckSlideType, ...DeckSlideType[]], {error: 'Slide type must be one of the registered Deck template types.'}),
+    visual: LLMDeckVisualSchema,
+  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+  targetPlatform: z.enum(LLM_DECK_TARGET_PLATFORMS),
+  theme: z.enum(LLM_DECK_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
+  title: z.string().min(1),
+})
+
+export const LLMTextDeckScriptSemanticsSchema = z.object({
+  outline: LLMTextDeckOutlineSchema,
+  slides: z.array(z.object({
+    duration: z.number().finite().positive(),
+    semantic: LLMTextDeckSlideSemanticSchema,
+    slideIndex: z.number().int().nonnegative(),
+    sourceRange: LLMDeckSourceRangeSchema,
+    speakerNote: z.string().min(1),
+  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+})
+
 export const LLMTextDeckPlanSchema = z.object({
   audience: z.string().optional(),
   language: z.string().min(1),
   outline: LLMTextDeckOutlineSchema,
   slides: z.array(z.object({
-    chart: z.object({
-      bars: z.array(z.object({
-        caption: z.string().min(1).optional(),
-        label: z.string().min(1),
-        value: z.number().finite().min(0).max(1),
-      })).min(1).max(4),
-      valueLabel: z.string().min(1).optional(),
-    }).optional(),
-    code: z.object({
-      language: z.string().min(1),
-      text: z.string().min(1),
-    }).optional(),
-    comparison: z.object({
-      left: z.object({
-        label: z.string().min(1),
-        points: z.array(z.string().min(1)),
-      }),
-      right: z.object({
-        label: z.string().min(1),
-        points: z.array(z.string().min(1)),
-      }),
-    }).optional(),
+    chart: LLMDeckChartSchema.optional(),
+    code: LLMDeckCodeSchema.optional(),
+    comparison: LLMDeckComparisonSchema.optional(),
     duration: z.number().finite().positive(),
     motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1)),
-    quote: z.object({
-      attribution: z.string().min(1).optional(),
-      text: z.string().min(1),
-    }).optional(),
+    quote: LLMDeckQuoteSchema.optional(),
     semantic: LLMTextDeckSlideSemanticSchema,
     sourceRange: LLMDeckSourceRangeSchema,
     speakerNote: z.string().min(1),
-    stat: z.object({
-      caption: z.string().min(1).optional(),
-      label: z.string().min(1),
-      value: z.string().min(1),
-    }).optional(),
+    stat: LLMDeckStatSchema.optional(),
     subtitle: z.string().min(1).optional(),
     title: z.string().min(1),
-    transitionOut: z.union([z.object({
-      duration: z.number().finite().positive(),
-      type: z.enum(LLM_DECK_TRANSITION_TYPES),
-    }), z.null()]),
+    transitionOut: LLMDeckTransitionOutSchema,
     type: z.enum(deckTemplateTypes as [DeckSlideType, ...DeckSlideType[]], {error: 'Slide type must be one of the registered Deck template types.'}),
-    visual: z.object({
-      assetRefs: z.array(z.string().min(1)),
-      kind: z.enum(LLM_DECK_VISUAL_KINDS, {error: 'Visual kind must be one of the controlled Deck visual kinds.'}),
-      prompt: z.string().min(1).optional(),
-    }),
+    visual: LLMDeckVisualSchema,
   })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
   summary: z.string().min(1),
   targetPlatform: z.enum(LLM_DECK_TARGET_PLATFORMS),
@@ -105,7 +171,10 @@ export const LLMTextDeckPlanSchema = z.object({
   title: z.string().min(1),
 })
 
+export type LLMTextDeckContentAnalysis = z.infer<typeof LLMTextDeckContentAnalysisSchema>
 export type LLMTextDeckPlan = z.infer<typeof LLMTextDeckPlanSchema>
+export type LLMTextDeckScriptSemantics = z.infer<typeof LLMTextDeckScriptSemanticsSchema>
+export type LLMTextDeckSlidePlan = z.infer<typeof LLMTextDeckSlidePlanSchema>
 type LLMTextDeckSlide = LLMTextDeckPlan['slides'][number]
 
 export type LLMTextDeckSlideSemantic = z.infer<typeof LLMTextDeckSlideSemanticSchema>
@@ -425,7 +494,6 @@ function normalizeLLMCode(code: LLMTextDeckSlide['code']): NormalizedLLMTextDeck
 }
 
 function normalizeLLMVisual(visual: LLMTextDeckSlide['visual']): NormalizedLLMTextDeckSlide['visual'] {
-  const prompt = cleanOptionalLLMText(visual.prompt, 'visual.prompt')
   const assetRefs = normalizeLLMAssetRefs(visual.assetRefs)
   const kind = visual.kind as string
 
@@ -436,7 +504,6 @@ function normalizeLLMVisual(visual: LLMTextDeckSlide['visual']): NormalizedLLMTe
   return {
     assetRefs,
     kind: visual.kind,
-    ...(prompt === undefined ? {} : {prompt}),
   }
 }
 

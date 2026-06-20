@@ -12,6 +12,7 @@ import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project/quality.js'
 import {readProjectVisualSamples} from '../../../packages/runtime/src/project/visual-samples.js'
 import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/pipeline-deck/src/index.js'
+import type {LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 
 function deckSemantic(text: string, blockType: 'claim' | 'context' | 'data' | 'example' | 'quote' | 'recommendation' | 'summary' = 'claim') {
   return {
@@ -139,16 +140,18 @@ function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<u
             },
           ]
 
+      const rawPlan = withDeckTransitions({
+        language: 'zh-CN',
+        outline: deckOutline(slides.length),
+        summary: 'Serenity Alpha turns market news into testable financial hypotheses.',
+        targetPlatform: 'generic',
+        theme: 'elegant-dark',
+        title: 'Serenity Alpha',
+        slides,
+      })
+
       return {
-        object: withDeckTransitions({
-          language: 'zh-CN',
-          outline: deckOutline(slides.length),
-          summary: 'Serenity Alpha turns market news into testable financial hypotheses.',
-          targetPlatform: 'generic',
-          theme: 'elegant-dark',
-          title: 'Serenity Alpha',
-          slides,
-        }),
+        object: stagedDeckObjectForRequest(input as GenerateObjectRequest<unknown>, rawPlan),
       }
     },
     async generateText() {
@@ -160,8 +163,94 @@ function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<u
   } satisfies LLMClient
 }
 
+function stagedDeckObjectForRequest<T>(input: GenerateObjectRequest<T>, rawPlan: LLMTextDeckPlan): T {
+  const payload = parseLLMRequestPayload(input)
+
+  if (payload?.stage === 'content-analysis') {
+    return {
+      ...(rawPlan.audience === undefined ? {} : {audience: rawPlan.audience}),
+      language: rawPlan.language,
+      sections: rawPlan.slides.map((slide, index) => ({
+        id: `section-${String(index + 1).padStart(3, '0')}`,
+        importance: slide.semantic.momentScore,
+        keyClaims: [
+          slide.semantic.claim === null || slide.semantic.claim === undefined
+            ? {
+                confidence: 0.7,
+                sourceQuoteText: slide.semantic.sourceQuoteText,
+                text: slide.semantic.blockText,
+                type: 'summary' as const,
+              }
+            : {
+                confidence: slide.semantic.claim.confidence,
+                sourceQuoteText: slide.semantic.sourceQuoteText,
+                text: slide.semantic.claim.text,
+                type: slide.semantic.claim.type,
+              },
+        ],
+        sourceRange: slide.sourceRange,
+        summary: slide.semantic.blockText,
+        title: slide.title,
+      })),
+      summary: rawPlan.summary,
+      title: rawPlan.title,
+    } as T
+  }
+
+  if (payload?.stage === 'content-analysis-merge') {
+    const analysis = payload.partialAnalyses?.[0]
+
+    if (analysis === undefined) {
+      throw new Error('Expected partial content analysis in merge request.')
+    }
+
+    return analysis as T
+  }
+
+  if (payload?.stage === 'slide-plan') {
+    return {
+      slides: rawPlan.slides.map((slide, index) => ({
+        ...(slide.chart === undefined ? {} : {chart: slide.chart}),
+        ...(slide.code === undefined ? {} : {code: slide.code}),
+        ...(slide.comparison === undefined ? {} : {comparison: slide.comparison}),
+        durationIntent: slide.duration,
+        motion: slide.motion,
+        points: slide.points,
+        ...(slide.quote === undefined ? {} : {quote: slide.quote}),
+        sectionIds: [`section-${String(index + 1).padStart(3, '0')}`],
+        ...(slide.stat === undefined ? {} : {stat: slide.stat}),
+        ...(slide.subtitle === undefined ? {} : {subtitle: slide.subtitle}),
+        title: slide.title,
+        transitionOut: slide.transitionOut,
+        type: slide.type,
+        visual: slide.visual,
+      })),
+      targetPlatform: rawPlan.targetPlatform,
+      theme: rawPlan.theme,
+      title: rawPlan.title,
+    } as T
+  }
+
+  if (payload?.stage === 'script-semantics') {
+    return {
+      outline: rawPlan.outline,
+      slides: rawPlan.slides.map((slide, index) => ({
+        duration: slide.duration,
+        semantic: slide.semantic,
+        slideIndex: index,
+        sourceRange: slide.sourceRange,
+        speakerNote: slide.speakerNote,
+      })),
+    } as T
+  }
+
+  return rawPlan as T
+}
+
 function parseLLMRequestPayload(input: GenerateObjectRequest<unknown>): {
+  partialAnalyses?: unknown[]
   source?: {durationSeconds?: unknown; transcriptSegments?: Array<{end?: unknown}>}
+  stage?: string
   target?: {durationSeconds?: unknown; requiresSlideSourceRanges?: unknown}
 } | undefined {
   const content = input.messages[0]?.content
@@ -171,7 +260,9 @@ function parseLLMRequestPayload(input: GenerateObjectRequest<unknown>): {
   }
 
   return JSON.parse(content) as {
+    partialAnalyses?: unknown[]
     source?: {durationSeconds?: unknown; transcriptSegments?: Array<{end?: unknown}>}
+    stage?: string
     target?: {durationSeconds?: unknown; requiresSlideSourceRanges?: unknown}
   }
 }
@@ -328,7 +419,7 @@ describe('deck explainer project', () => {
   it('plans Markdown Deck content through an injected LLM instead of raw text chunking', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-llm-'))
     const inputPath = join(root, 'skill.md')
-    let request: GenerateObjectRequest<unknown> | undefined
+    const requests: Array<GenerateObjectRequest<unknown>> = []
     const markdownSource = [
       '---',
       'name: serenity-alpha',
@@ -369,18 +460,23 @@ describe('deck explainer project', () => {
         durationTargetSeconds: 180,
         inputPath,
         llmClient: createDeckPlanningLLMClient((input) => {
-          request = input
+          requests.push(input)
         }),
         projectId: 'deck-llm-demo',
         sourceType: 'markdown',
         workspaceDir: root,
       })
-      const prompt = JSON.parse(String(request?.messages?.[0]?.content)) as {
+      const contentRequest = requests.find((input) => parseLLMRequestPayload(input)?.stage === 'content-analysis')
+      const slidePlanRequest = requests.find((input) => parseLLMRequestPayload(input)?.stage === 'slide-plan')
+      const contentPrompt = JSON.parse(String(contentRequest?.messages?.[0]?.content)) as {
         instructions: string[]
         source: {
           structure?: unknown
           text: string
         }
+      }
+      const slidePrompt = JSON.parse(String(slidePlanRequest?.messages?.[0]?.content)) as {
+        instructions: string[]
         target: {
           slideCount?: unknown
           slideCountLimits: {maximum: number; minimum: number}
@@ -400,18 +496,18 @@ describe('deck explainer project', () => {
       const document = JSON.parse(await readFile(result.artifacts.document, 'utf8')) as {text: string}
       const speakerScript = JSON.parse(await readFile(result.artifacts.speakerScript, 'utf8')) as {segments: Array<{text: string}>}
 
-      expect(prompt.instructions.join(' ')).to.contain('Remove YAML frontmatter')
-      expect(prompt.instructions.join(' ')).to.contain('target.templateManifest')
-      expect(prompt.instructions.join(' ')).to.contain('Infer source structure')
-      expect(prompt.instructions.join(' ')).to.contain('source-domain meaning')
-      expect(prompt.source.structure).to.equal(undefined)
-      expect(prompt.source.text).to.equal(markdownSource)
-      expect(prompt.target.templateManifest.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
-      expect(prompt.target.templateManifest.templates.find((template) => template.type === 'three-points')?.limits.points).to.equal(3)
-      expect(prompt.target.slideCount).to.equal(undefined)
-      expect(prompt.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 1})
-      expect(prompt.target.speakerNoteCharactersPerSlide).to.equal(undefined)
-      expect(prompt.target.speakerNotePlanning).to.include('no fixed per-slide character estimate')
+      expect(contentPrompt.instructions.join(' ')).to.contain('Remove YAML frontmatter')
+      expect(contentPrompt.instructions.join(' ')).to.contain('Infer source structure')
+      expect(contentPrompt.instructions.join(' ')).to.contain('source-domain meaning')
+      expect(contentPrompt.source.structure).to.equal(undefined)
+      expect(contentPrompt.source.text).to.equal(markdownSource)
+      expect(slidePrompt.instructions.join(' ')).to.contain('target.templateManifest')
+      expect(slidePrompt.target.templateManifest.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
+      expect(slidePrompt.target.templateManifest.templates.find((template) => template.type === 'three-points')?.limits.points).to.equal(3)
+      expect(slidePrompt.target.slideCount).to.equal(undefined)
+      expect(slidePrompt.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 1})
+      expect(slidePrompt.target.speakerNoteCharactersPerSlide).to.equal(undefined)
+      expect(slidePrompt.target.speakerNotePlanning).to.include('no fixed per-slide character estimate')
       expect(result.slides).to.equal(4)
       expect(deck.title).to.equal('Serenity Alpha')
       expect(deck.slides[0]?.type).to.equal('hero')
@@ -438,27 +534,29 @@ describe('deck explainer project', () => {
           inputPath,
           llmClient: {
             async generateObject(input) {
+              const rawPlan = withDeckTransitions({
+                language: 'en-US',
+                summary: 'Loose plans should fail when semantic slide type is invalid.',
+                targetPlatform: 'generic',
+                theme: 'elegant-dark',
+                title: 'Loose Deck',
+                slides: [
+                  {
+                    duration: 12,
+                    motion: 'cinematic-rise',
+                    points: ['A', 'B'],
+                    semantic: deckSemantic('Loose intro should be rejected for invalid type.'),
+                    sourceRange: [0, 12],
+                    speakerNote: 'Intro note.',
+                    title: 'Loose intro',
+                    type: 'cover',
+                    visual: deckVisual('title-card'),
+                  },
+                ],
+              }) as LLMTextDeckPlan
+
               return {
-                object: input.schema.parse(withDeckTransitions({
-	                  language: 'en-US',
-	                  summary: 'Loose plans should fail when semantic slide type is invalid.',
-	                  targetPlatform: 'generic',
-	                  theme: 'elegant-dark',
-                  title: 'Loose Deck',
-                  slides: [
-                    {
-                      duration: 12,
-                      motion: 'cinematic-rise',
-	                      points: ['A', 'B'],
-	                      semantic: deckSemantic('Loose intro should be rejected for invalid type.'),
-	                      sourceRange: [0, 12],
-	                      speakerNote: 'Intro note.',
-                      title: 'Loose intro',
-                      type: 'cover',
-                      visual: deckVisual('title-card'),
-                    },
-                  ],
-                })),
+                object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
               }
             },
             async generateText() {
@@ -493,72 +591,74 @@ describe('deck explainer project', () => {
         inputPath,
         llmClient: {
           async generateObject(input) {
+            const rawPlan = withDeckTransitions({
+              language: 'zh-CN',
+              outline: deckOutline(5),
+              summary: 'Repeated point slides should not all render with the same template.',
+              targetPlatform: 'generic',
+              theme: 'tech-gradient',
+              title: 'Template Diversity',
+              slides: [
+                {
+                  duration: 12,
+                  motion: 'cinematic-rise',
+                  points: ['A', 'B'],
+                  semantic: deckSemantic('Intro keeps the LLM selected hero template.'),
+                  sourceRange: [0, 12],
+                  speakerNote: 'Intro note.',
+                  title: 'Intro',
+                  type: 'hero',
+                  visual: deckVisual('title-card'),
+                },
+                {
+                  duration: 12,
+                  motion: 'stagger-up',
+                  points: ['A1', 'A2'],
+                  semantic: deckSemantic('The first point slide remains a three-points slide.'),
+                  sourceRange: [12, 24],
+                  speakerNote: 'First point slide.',
+                  title: '第一组要点',
+                  type: 'three-points',
+                  visual: deckVisual('text'),
+                },
+                {
+                  duration: 12,
+                  motion: 'fade-in',
+                  points: ['B1', 'B2'],
+                  semantic: deckSemantic('The validation title does not force timeline locally.'),
+                  sourceRange: [24, 36],
+                  speakerNote: 'Second point slide.',
+                  title: '建立验证链',
+                  type: 'three-points',
+                  visual: deckVisual('text'),
+                },
+                {
+                  duration: 12,
+                  motion: 'slide-up',
+                  points: ['C1', 'C2'],
+                  semantic: deckSemantic('The quality title does not force summary locally.'),
+                  sourceRange: [36, 48],
+                  speakerNote: 'Third point slide.',
+                  title: '质量评分',
+                  type: 'three-points',
+                  visual: deckVisual('text'),
+                },
+                {
+                  duration: 12,
+                  motion: 'soft-scale',
+                  points: ['D1', 'D2'],
+                  semantic: deckSemantic('The final repeated point slide remains LLM selected.'),
+                  sourceRange: [48, 60],
+                  speakerNote: 'Fourth point slide.',
+                  title: '执行动作',
+                  type: 'three-points',
+                  visual: deckVisual('text'),
+                },
+              ],
+            })
+
             return {
-              object: input.schema.parse(withDeckTransitions({
-                language: 'zh-CN',
-                outline: deckOutline(5),
-                summary: 'Repeated point slides should not all render with the same template.',
-                targetPlatform: 'generic',
-                theme: 'tech-gradient',
-                title: 'Template Diversity',
-                slides: [
-	                  {
-	                    duration: 12,
-	                    motion: 'cinematic-rise',
-	                    points: ['A', 'B'],
-	                    semantic: deckSemantic('Intro keeps the LLM selected hero template.'),
-	                    sourceRange: [0, 12],
-	                    speakerNote: 'Intro note.',
-	                    title: 'Intro',
-	                    type: 'hero',
-                    visual: deckVisual('title-card'),
-                  },
-                  {
-                    duration: 12,
-	                    motion: 'stagger-up',
-	                    points: ['A1', 'A2'],
-	                    semantic: deckSemantic('The first point slide remains a three-points slide.'),
-	                    sourceRange: [12, 24],
-	                    speakerNote: 'First point slide.',
-	                    title: '第一组要点',
-                    type: 'three-points',
-                    visual: deckVisual('text'),
-                  },
-                  {
-                    duration: 12,
-	                    motion: 'fade-in',
-	                    points: ['B1', 'B2'],
-	                    semantic: deckSemantic('The validation title does not force timeline locally.'),
-	                    sourceRange: [24, 36],
-	                    speakerNote: 'Second point slide.',
-	                    title: '建立验证链',
-                    type: 'three-points',
-                    visual: deckVisual('text'),
-                  },
-                  {
-                    duration: 12,
-	                    motion: 'slide-up',
-	                    points: ['C1', 'C2'],
-	                    semantic: deckSemantic('The quality title does not force summary locally.'),
-	                    sourceRange: [36, 48],
-	                    speakerNote: 'Third point slide.',
-	                    title: '质量评分',
-                    type: 'three-points',
-                    visual: deckVisual('text'),
-                  },
-                  {
-                    duration: 12,
-	                    motion: 'soft-scale',
-	                    points: ['D1', 'D2'],
-	                    semantic: deckSemantic('The final repeated point slide remains LLM selected.'),
-	                    sourceRange: [48, 60],
-	                    speakerNote: 'Fourth point slide.',
-	                    title: '执行动作',
-                    type: 'three-points',
-                    visual: deckVisual('text'),
-                  },
-                ],
-              })),
+              object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
             }
           },
           async generateText() {
@@ -594,26 +694,28 @@ describe('deck explainer project', () => {
           inputPath,
           llmClient: {
             async generateObject(input) {
+              const rawPlan = withDeckTransitions({
+                language: 'en-US',
+                summary: 'Missing ranges should fail instead of using proportional timing.',
+                targetPlatform: 'generic',
+                theme: 'elegant-dark',
+                title: 'Source Range Deck',
+                slides: [
+                  {
+                    duration: 12,
+                    motion: 'stagger-up',
+                    points: ['Authored ranges'],
+                    semantic: deckSemantic('Selected moments need LLM-authored source ranges.'),
+                    speakerNote: 'Explain why selected moments need authored ranges.',
+                    title: 'Source Ranges',
+                    type: 'three-points',
+                    visual: deckVisual('text'),
+                  },
+                ],
+              }) as LLMTextDeckPlan
+
               return {
-                object: input.schema.parse(withDeckTransitions({
-	                  language: 'en-US',
-	                  summary: 'Missing ranges should fail instead of using proportional timing.',
-	                  targetPlatform: 'generic',
-	                  theme: 'elegant-dark',
-                  title: 'Source Range Deck',
-                  slides: [
-                    {
-                      duration: 12,
-                      motion: 'stagger-up',
-                      points: ['Authored ranges'],
-                      semantic: deckSemantic('Selected moments need LLM-authored source ranges.'),
-                      speakerNote: 'Explain why selected moments need authored ranges.',
-                      title: 'Source Ranges',
-                      type: 'three-points',
-                      visual: deckVisual('text'),
-                    },
-                  ],
-                })),
+                object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
               }
             },
             async generateText() {
@@ -652,28 +754,30 @@ describe('deck explainer project', () => {
           inputPath,
           llmClient: {
             async generateObject(input) {
+              const rawPlan = withDeckTransitions({
+                language: 'en-US',
+                outline: deckOutline(1),
+                summary: 'Overfilled slides should fail instead of being split by runtime repair.',
+                targetPlatform: 'generic',
+                theme: 'elegant-dark',
+                title: 'Point Limit Deck',
+                slides: [
+                  {
+                    duration: 12,
+                    motion: 'stagger-up',
+                    points: ['A', 'B', 'C', 'D'],
+                    semantic: deckSemantic('Runtime should not create a second slide by splitting these points.'),
+                    sourceRange: [0, 12],
+                    speakerNote: 'This overfilled slide should be rewritten by the LLM.',
+                    title: 'Too many points',
+                    type: 'three-points',
+                    visual: deckVisual('text'),
+                  },
+                ],
+              })
+
               return {
-                object: input.schema.parse(withDeckTransitions({
-	                  language: 'en-US',
-	                  outline: deckOutline(1),
-	                  summary: 'Overfilled slides should fail instead of being split by runtime repair.',
-	                  targetPlatform: 'generic',
-	                  theme: 'elegant-dark',
-                  title: 'Point Limit Deck',
-                  slides: [
-                    {
-                      duration: 12,
-                      motion: 'stagger-up',
-	                      points: ['A', 'B', 'C', 'D'],
-	                      semantic: deckSemantic('Runtime should not create a second slide by splitting these points.'),
-	                      sourceRange: [0, 12],
-	                      speakerNote: 'This overfilled slide should be rewritten by the LLM.',
-                      title: 'Too many points',
-                      type: 'three-points',
-                      visual: deckVisual('text'),
-                    },
-                  ],
-                })),
+                object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
               }
             },
             async generateText() {
@@ -711,26 +815,28 @@ describe('deck explainer project', () => {
           inputPath,
           llmClient: {
             async generateObject(input) {
+              const rawPlan = withDeckTransitions({
+                language: 'en-US',
+                summary: 'Missing notes should fail because narration belongs to the LLM.',
+                targetPlatform: 'generic',
+                theme: 'elegant-dark',
+                title: 'Missing Note Deck',
+                slides: [
+                  {
+                    duration: 12,
+                    motion: 'stagger-up',
+                    points: ['Visible point one', 'Visible point two'],
+                    semantic: deckSemantic('Visible points still need LLM-authored narration.'),
+                    sourceRange: [0, 12],
+                    title: 'Generated slide',
+                    type: 'three-points',
+                    visual: deckVisual('text'),
+                  },
+                ],
+              }) as LLMTextDeckPlan
+
               return {
-                object: input.schema.parse(withDeckTransitions({
-	                  language: 'en-US',
-	                  summary: 'Missing notes should fail because narration belongs to the LLM.',
-	                  targetPlatform: 'generic',
-	                  theme: 'elegant-dark',
-                  title: 'Missing Note Deck',
-                  slides: [
-                    {
-                      duration: 12,
-                      motion: 'stagger-up',
-	                      points: ['Visible point one', 'Visible point two'],
-	                      semantic: deckSemantic('Visible points still need LLM-authored narration.'),
-	                      sourceRange: [0, 12],
-	                      title: 'Generated slide',
-                      type: 'three-points',
-                      visual: deckVisual('text'),
-                    },
-                  ],
-                })),
+                object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
               }
             },
             async generateText() {
@@ -768,26 +874,28 @@ describe('deck explainer project', () => {
           inputPath,
           llmClient: {
             async generateObject(input) {
+              const rawPlan = withDeckTransitions({
+                language: 'en-US',
+                summary: 'Missing motion should fail because visual pacing belongs to the LLM.',
+                targetPlatform: 'generic',
+                theme: 'elegant-dark',
+                title: 'Missing Motion Deck',
+                slides: [
+                  {
+                    duration: 12,
+                    points: ['Visible point one', 'Visible point two'],
+                    semantic: deckSemantic('Visible points need LLM-selected motion.'),
+                    sourceRange: [0, 12],
+                    speakerNote: 'This slide has narration but no explicit motion.',
+                    title: 'Generated slide',
+                    type: 'three-points',
+                    visual: deckVisual('text'),
+                  },
+                ],
+              }) as LLMTextDeckPlan
+
               return {
-                object: input.schema.parse(withDeckTransitions({
-	                  language: 'en-US',
-	                  summary: 'Missing motion should fail because visual pacing belongs to the LLM.',
-	                  targetPlatform: 'generic',
-	                  theme: 'elegant-dark',
-                  title: 'Missing Motion Deck',
-                  slides: [
-                    {
-	                      duration: 12,
-	                      points: ['Visible point one', 'Visible point two'],
-	                      semantic: deckSemantic('Visible points need LLM-selected motion.'),
-	                      sourceRange: [0, 12],
-	                      speakerNote: 'This slide has narration but no explicit motion.',
-                      title: 'Generated slide',
-                      type: 'three-points',
-                      visual: deckVisual('text'),
-                    },
-                  ],
-                })),
+                object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
               }
             },
             async generateText() {
@@ -825,26 +933,28 @@ describe('deck explainer project', () => {
           inputPath,
           llmClient: {
             async generateObject(input) {
+              const rawPlan = withDeckTransitions({
+                language: 'en-US',
+                summary: 'Missing theme should fail because visual theme belongs to the LLM.',
+                targetPlatform: 'generic',
+                title: 'Missing Theme Deck',
+                slides: [
+                  {
+                    duration: 12,
+                    motion: 'stagger-up',
+                    points: ['Visible point one', 'Visible point two'],
+                    semantic: deckSemantic('Visible points need an LLM-selected theme.'),
+                    sourceRange: [0, 12],
+                    speakerNote: 'This slide has narration and motion but no deck theme.',
+                    title: 'Generated slide',
+                    type: 'three-points',
+                    visual: deckVisual('text'),
+                  },
+                ],
+              }) as LLMTextDeckPlan
+
               return {
-                object: input.schema.parse(withDeckTransitions({
-	                  language: 'en-US',
-	                  summary: 'Missing theme should fail because visual theme belongs to the LLM.',
-	                  targetPlatform: 'generic',
-	                  title: 'Missing Theme Deck',
-                  slides: [
-                    {
-                      duration: 12,
-                      motion: 'stagger-up',
-	                      points: ['Visible point one', 'Visible point two'],
-	                      semantic: deckSemantic('Visible points need an LLM-selected theme.'),
-	                      sourceRange: [0, 12],
-	                      speakerNote: 'This slide has narration and motion but no deck theme.',
-                      title: 'Generated slide',
-                      type: 'three-points',
-                      visual: deckVisual('text'),
-                    },
-                  ],
-                })),
+                object: input.schema.parse(stagedDeckObjectForRequest(input, rawPlan)),
               }
             },
             async generateText() {
