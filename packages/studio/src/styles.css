@@ -1,0 +1,148 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent: #0f6b7a;
+  --color-code: #f5f7f4;
+  --color-ink: #172026;
+  --color-line: #d7ddd7;
+  --color-muted: #61706d;
+  --color-panel: #fbfcfa;
+  --color-studio-bg: #eef1ec;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: "Aptos", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+code {
+  border-radius: 4px;
+  background: #eef1ec;
+  padding: 2px 5px;
+  font-size: 12px;
+}
+
+th {
+  border-bottom: 1px solid var(--color-line);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 8px 10px;
+  text-transform: uppercase;
+}
+
+td {
+  border-bottom: 1px solid #edf0ec;
+  padding: 9px 10px;
+  vertical-align: top;
+}
+
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+@utility panel {
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 14px;
+  box-shadow: 0 1px 1px rgb(23 32 38 / 0.03);
+}
+
+@utility section-title {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+@utility btn {
+  align-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--color-ink);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  text-decoration: none;
+}
+
+@utility field {
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--color-ink);
+  min-height: 34px;
+  padding: 6px 9px;
+  width: 100%;
+}
+
+@utility form-label {
+  color: var(--color-muted);
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
+}
+
+@utility control-toggle {
+  align-items: center;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;
+  color: var(--color-ink);
+  display: inline-flex;
+  font-size: 13px;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+.btn:disabled,
+.field:disabled {
+  background: #eef1ec;
+  color: #8c9895;
+  cursor: not-allowed;
+}
+
+.control-toggle input {
+  height: 16px;
+  width: 16px;
+}
+
+.severity {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 58px;
+  padding: 2px 7px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.severity-error {
+  background: #fde8e8;
+  color: #a61b1b;
+}
+
+.severity-warning {
+  background: #fff4d6;
+  color: #8a5a00;
+}

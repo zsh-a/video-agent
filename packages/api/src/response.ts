@@ -23,6 +23,17 @@ export function htmlResponse(value: string): Response {
   })
 }
 
+export async function staticFileResponse(rootDir: string, requestPath: string, request?: Request): Promise<Response> {
+  const filePath = resolve(rootDir, requestPath)
+  const relativePath = relative(rootDir, filePath)
+
+  if (relativePath === '' || relativePath.startsWith('..') || relativePath.split(sep).includes('..')) {
+    return jsonResponse({error: {message: 'Static file path must stay inside the asset directory.'}}, {status: 400})
+  }
+
+  return fileResponse(filePath, request)
+}
+
 export async function projectFileResponse(projectId: string, projectPath: null | string, workspaceDir: string, request?: Request): Promise<Response> {
   if (projectPath === null || projectPath.trim() === '') {
     return jsonResponse({error: {message: 'Missing project file path.'}}, {status: 400})
@@ -36,6 +47,10 @@ export async function projectFileResponse(projectId: string, projectPath: null |
     return jsonResponse({error: {message: 'Project file path must stay inside the project directory.'}}, {status: 400})
   }
 
+  return fileResponse(filePath, request)
+}
+
+async function fileResponse(filePath: string, request?: Request): Promise<Response> {
   const content = await readFile(filePath)
   const range = parseRangeHeader(request?.headers.get('range'), content.length)
   const contentType = contentTypeForPath(filePath)
@@ -122,11 +137,18 @@ function parseRangeHeader(value: null | string | undefined, size: number): 'inva
 
 function contentTypeForPath(path: string): string {
   switch (extname(path).toLowerCase()) {
+    case '.css':
+      return 'text/css; charset=utf-8'
     case '.html':
       return 'text/html; charset=utf-8'
+    case '.ico':
+      return 'image/x-icon'
     case '.jpg':
     case '.jpeg':
       return 'image/jpeg'
+    case '.js':
+    case '.mjs':
+      return 'text/javascript; charset=utf-8'
     case '.json':
       return 'application/json; charset=utf-8'
     case '.mp4':
@@ -135,6 +157,10 @@ function contentTypeForPath(path: string): string {
       return 'image/png'
     case '.srt':
       return 'text/plain; charset=utf-8'
+    case '.svg':
+      return 'image/svg+xml'
+    case '.webp':
+      return 'image/webp'
     default:
       return 'application/octet-stream'
   }

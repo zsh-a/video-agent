@@ -20,7 +20,7 @@ The runtime is Bun for local CLI, worker, workspace IO, SQLite, subprocess orche
 Development: Bun
 Local agent: Bun CLI / worker
 Production API: Bun
-Terminal UI: dependency-light CLI/TUI today; richer UI dependencies require an explicit decision
+Terminal UI: dependency-light CLI/TUI; Web Studio uses a React/Tailwind static frontend
 Media: ffmpeg / ffprobe / Chromium as external executors
 ```
 
@@ -98,12 +98,13 @@ packages/
   renderer-motion-canvas/ DeckIR + MotionIR to Motion Canvas project compiler boundary for technical diagram scenes
   renderer-remotion/  DeckIR + MotionIR to Remotion project compiler boundary; Remotion CLI remains an optional external executor
   api/                Fetch API handler for runtime state, project operations, and audio preflight diagnostics
+  studio/             React/Tailwind Web Studio frontend served as static API assets
   mcp/                Stdio MCP adapter exposing runtime operations as agent-callable tools
   quality/            Clip plan consistency, timeline, narration timing, TTS coverage, subtitle, rendered media, audio loudness, and artifact quality checks
   db/                 Persistence records, JSON-backed JobStore, and configurable Bun SQLite JobStore
 ```
 
-The root oclif CLI remains the primary local adapter. Business workflow entry points are explicit pipeline commands such as `film` and `deck`; generic adapter commands inspect state, render ffmpeg timelines, export artifacts, rerun supported checkpoints, and recover worker jobs through runtime APIs. The interactive Ink `vagent tui` manager sits over runtime state, project navigation, artifact inspection, events, guided commands, rerun, render/export, and worker recovery actions. Web Studio is a read-first review desk over the same API surfaces for status, artifacts, keyframes, quality issues, provider calls, and LLM traces, with rerun/render/export kept behind explicit project-operation controls. Non-TTY, `--json`, `--watch`, and `--no-interactive` paths keep the script-friendly dashboard/action output. Dynamic terminal UI code must stay in the CLI adapter and consume runtime APIs/events instead of owning workflow behavior.
+The root oclif CLI remains the primary local adapter. Business workflow entry points are explicit pipeline commands such as `film` and `deck`; generic adapter commands inspect state, render ffmpeg timelines, export artifacts, rerun supported checkpoints, and recover worker jobs through runtime APIs. The interactive Ink `vagent tui` manager sits over runtime state, project navigation, artifact inspection, events, guided commands, rerun, render/export, and worker recovery actions. Web Studio is a React/Tailwind read-first review desk over the same API surfaces for status, artifacts, keyframes, quality issues, provider calls, and LLM traces, with rerun/render/export kept behind explicit project-operation controls. `packages/studio` owns browser UI composition only; `packages/api` serves the static build and remains the runtime JSON adapter. Non-TTY, `--json`, `--watch`, and `--no-interactive` paths keep the script-friendly dashboard/action output. Dynamic terminal UI code must stay in the CLI adapter and consume runtime APIs/events instead of owning workflow behavior.
 
 ## Target Adapter Layout
 

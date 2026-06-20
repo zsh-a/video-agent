@@ -39,6 +39,7 @@ packages/renderer-remotion/ Remotion project compiler boundary for DeckIR + Moti
 packages/quality/          pipeline, render, and artifact quality checks
 packages/db/               JSON and Bun SQLite job stores
 packages/api/              dependency-light Fetch API adapter
+packages/studio/           React/Tailwind Web Studio frontend served by the API adapter
 packages/mcp/              stdio MCP adapter
 
 adapters/claude-code-skill/ Claude Code skill adapter over CLI/MCP
@@ -196,7 +197,7 @@ bun run dev mcp --print-config
 
 In an interactive terminal, `tui` opens the Ink manager for project navigation, artifact inspection, events, guided commands, and confirmed management actions. Use `--no-interactive`, `--json`, `--watch`, or a non-TTY shell for the script-friendly dashboard/action output.
 
-`serve` exposes Web Studio at `/studio` as a review desk for project status, artifacts, rendered video output, keyframes, quality issues, provider calls, and LLM traces. Studio starts read-only; rerun, render, and export require enabling project operations in the page.
+`serve` exposes Web Studio at `/studio` as a React/Tailwind review desk for project status, artifacts, rendered video output, keyframes, quality issues, provider calls, and LLM traces. Studio starts read-only; rerun, render, and export require enabling project operations in the page. The Studio frontend lives in `packages/studio`; `packages/api` only serves its static build and JSON runtime routes.
 
 ## Documentation
 

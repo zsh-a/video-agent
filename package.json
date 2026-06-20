@@ -27,12 +27,16 @@
   },
   "devDependencies": {
     "@eslint/js": "^9",
+    "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^18",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^9",
+    "tailwindcss": "^4.3.1",
     "typescript": "^5",
-    "typescript-eslint": "^8"
+    "typescript-eslint": "^8",
+    "vite": "^8.0.16"
   },
   "engines": {
     "bun": ">=1.3.0"
@@ -64,7 +68,7 @@
   },
   "repository": "zs/video-agent",
   "scripts": {
-    "build": "bun run clean && tsc -b && bun ./scripts/copy-css.js",
+    "build": "bun run clean && bun run --cwd packages/studio build && tsc -b && bun ./scripts/copy-css.js",
     "clean": "bun ./scripts/clean.js",
     "dev": "bun ./bin/dev.js",
     "lint": "eslint",

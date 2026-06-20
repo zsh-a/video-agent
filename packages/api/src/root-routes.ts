@@ -2,8 +2,7 @@ import {recoverWorkspaceJobs} from '@video-agent/pipeline-film'
 import {checkRuntimeHealth, createProviderEnvironmentShellTemplate, listProjects, readConfig, readProviderEnvironment, readVideoAgentGuidedActions, runProviderSmokeTest} from '@video-agent/runtime'
 
 import {parseOptionalBoolean, parseOptionalInteger, readBooleanField, readCommandPrefix, readEnvField, readEnvQuery, readJsonBody, readNumberField, readRecoveryOrderBy, readStringField, resolveProviderSmokeTestRoles, resolveRecoverableStatuses} from './request.js'
-import {htmlResponse, jsonResponse, methodNotAllowed} from './response.js'
-import {renderStudioHtml} from './studio/index.js'
+import {jsonResponse, methodNotAllowed} from './response.js'
 
 interface RootRouteContext {
   request: Request
@@ -21,7 +20,6 @@ const ROOT_ROUTES: Record<string, RootRouteHandler> = {
   projects: routeProjects,
   'provider-env': routeProviderEnvironment,
   'provider-test': routeProviderTest,
-  studio: routeStudio,
   worker: routeWorker,
 }
 
@@ -104,14 +102,6 @@ async function routeActions({request, url, workspaceDir}: RootRouteContext): Pro
     commandPrefix: readCommandPrefix(url.searchParams),
     workspaceDir,
   }))
-}
-
-async function routeStudio({request}: RootRouteContext): Promise<Response> {
-  if (request.method !== 'GET') {
-    return methodNotAllowed()
-  }
-
-  return htmlResponse(renderStudioHtml())
 }
 
 async function routeProjects({request, workspaceDir}: RootRouteContext): Promise<Response> {
