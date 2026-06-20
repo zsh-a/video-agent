@@ -160,16 +160,19 @@ Deck explainer is for text, article, podcast, audio, tutorial, research, product
 ```text
 text / audio
   -> content ingest
-  -> transcript / document normalize
+  -> source map / transcript normalize
   -> LLM content analysis
+  -> LLM deck brief
+  -> LLM slide outline
   -> LLM slide plan
   -> LLM script + semantic metadata
+  -> coverage + script timing preflight
   -> deterministic DeckIR artifact build
-  -> timing
+  -> TTS synthesis / timing repair
   -> Template + Theme + MotionPreset
-  -> seekable HTML runtime
-  -> Chromium frame sequence / frame manifest / SRT sidecar / ffmpeg mux
-  -> quality check
+  -> visual preflight
+  -> Remotion silent video / SRT sidecar / ffmpeg mux
+  -> review
 ```
 
 Two modes:
@@ -179,7 +182,9 @@ Two modes:
 
 Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`. `Slide` is semantic: it chooses a controlled slide type (`hero`, `three-points`, `comparison`, `process`, `timeline`, `quote`, `stat`, `chart`, `code`, `summary`, `cta`) plus structured content and a motion preset. LLM providers generate DeckIR only; they do not generate HTML, CSS, absolute positions, fonts, colors, or animation curves.
 
-LLM text planning is staged rather than a single all-purpose deck prompt. `@video-agent/pipeline-deck` first asks the LLM for source-grounded content analysis, then passes that smaller analysis plus the renderer template manifest to a slide-plan call, then asks for speaker notes, semantic metadata, source ranges, durations, and outline against the approved slide plan. The deterministic builder merges those stage outputs into the same final DeckIR-adjacent plan object and validates it before artifacts are written. Long source text and oversized transcript batches are chunked for content analysis, merged by a separate content-analysis merge call, and only then sent to slide planning.
+LLM text planning is staged rather than a single all-purpose deck prompt. `@video-agent/pipeline-deck` first builds a deterministic source map with structural section ids and line ranges, asks the LLM for source-grounded content analysis, asks for a deck brief with required section coverage, asks for a slide outline with narration budgets, then passes the approved outline plus the renderer template manifest to the slide-plan call. A separate script-semantics call writes speaker notes, semantic metadata, source ranges, durations, and transitions against the approved slide plan. The deterministic builder merges those stage outputs into the same final DeckIR-adjacent plan object, writes coverage and script timing reports, and fails before render when required source sections are not covered or narration is too dense for the planned slide duration. Long source text and oversized transcript batches are chunked for content analysis, merged by a separate content-analysis merge call, and only then sent to brief/outline planning.
+
+Voiceover generation remains generation-aware instead of treating TTS as a black box. TTS segment durations are compared against LLM-authored script estimates in `deck-timing-report.json`; large drift fails timing repair instead of silently stretching slide timing. Concatenated voiceover audio is normalized with ffmpeg loudness filtering, and subtitle quality checks include cue duration and line-length readability diagnostics.
 
 Template selection is manifest-driven. `packages/renderer-deck/src/deck/templates/manifest.ts` is the source of truth for built-in template `type`, `use_when`, supported fields, content limits, allowed motion presets, repair strategy, and template quality rules. Runtime planning passes this manifest only to the slide-plan LLM stage as `target.templateManifest`; prompts require the LLM to choose only from that manifest, split over-limit content into multiple slides, and avoid mixing unrelated themes on one page. Runtime normalization enforces the same limits before creating DeckIR. Invalid output fails validation and is routed back to the responsible LLM stage as structured issues; the runtime does not silently split, trim, downgrade, or infer semantic content.
 
@@ -255,7 +260,7 @@ LongVideoChunkPlan  source duration, chunk defaults, content ranges, analysis ra
 LongVideoChunk*     per-chunk summaries, silence, chapters, global outline, selected moments
 
 Film Recap IR       SceneIR, ASRSegmentIR, VLMSceneIR, StoryIndexIR, NarrativeBeatIR, OutputTimelineMapIR, OutputNarrationIR
-Deck Explainer IR   DocumentIR, ContentBlockIR, ClaimsIR, SourceQuotesIR, OutlineIR, DeckIR, SlideIR, SpeakerScriptIR, SlideTimingIR
+Deck Explainer IR   DocumentIR, ContentBlockIR, SourceMapIR, ContentAnalysisIR, DeckBriefIR, SlideOutlineIR, DeckIR, SlideIR, SpeakerScriptIR, SlideTimingIR
 ```
 
 All LLM/provider output should be validated before it enters the pipeline state.
@@ -277,6 +282,15 @@ workspace/
       chapters.json
       global-outline.json
       selected-moments.json
+      source-map.json
+      content-analysis.json
+      deck-brief.json
+      slide-outline.json
+      slide-plan.json
+      script-semantics.json
+      deck-coverage-report.json
+      script-timing-report.json
+      deck-timing-report.json
       scene-batches.json
       storyboard.json
       clip-plan.json

@@ -93,6 +93,9 @@ function stagedDeckObjectForRequest<T>(request: GenerateObjectRequest<T>, rawPla
         sourceRange: slide.sourceRange,
         summary: slide.semantic.blockText,
         title: slide.title,
+        mustCover: true,
+        role: slide.semantic.blockType,
+        visualRole: slide.semantic.visualStyle,
       })),
       summary: rawPlan.summary,
       title: rawPlan.title,
@@ -109,6 +112,46 @@ function stagedDeckObjectForRequest<T>(request: GenerateObjectRequest<T>, rawPla
     return analysis as T
   }
 
+  if (payload.stage === 'deck-brief') {
+    const analysis = payload.analysis as {
+      audience?: string
+      language: string
+      sections: Array<{id: string; mustCover?: boolean; title: string}>
+      summary: string
+      title: string
+    }
+    const requiredSectionIds = analysis.sections.filter((section) => section.mustCover !== false).map((section) => section.id)
+
+    return {
+      ...(analysis.audience === undefined ? {} : {audience: analysis.audience}),
+      densityPolicy: 'Keep each slide source-grounded and within narration budget.',
+      language: analysis.language,
+      narrativeArc: analysis.sections.map((section) => section.title),
+      objective: analysis.summary,
+      optionalSectionIds: analysis.sections.filter((section) => section.mustCover === false).map((section) => section.id),
+      requiredSectionIds,
+      styleIntent: 'test deck',
+      targetDurationSeconds: rawPlan.slides.reduce((sum, slide) => sum + slide.duration, 0),
+      targetSlideCount: rawPlan.slides.length,
+      title: rawPlan.title,
+    } as T
+  }
+
+  if (payload.stage === 'slide-outline') {
+    return {
+      slides: rawPlan.slides.map((slide, index) => ({
+        goal: rawPlan.outline.sections[index]?.goal ?? slide.semantic.momentReason,
+        informationRole: slide.semantic.blockType,
+        mustCover: true,
+        narrationBudgetSeconds: slide.duration,
+        outlineId: `outline-${String(index + 1).padStart(3, '0')}`,
+        sourceSectionIds: [`section-${String(index + 1).padStart(3, '0')}`],
+        templateIntent: slide.type,
+        visualIntent: slide.semantic.visualStyle,
+      })),
+    } as T
+  }
+
   if (payload.stage === 'slide-plan') {
     return {
       slides: rawPlan.slides.map((slide, index) => ({
@@ -117,6 +160,7 @@ function stagedDeckObjectForRequest<T>(request: GenerateObjectRequest<T>, rawPla
         ...(slide.comparison === undefined ? {} : {comparison: slide.comparison}),
         durationIntent: slide.duration,
         motion: slide.motion,
+        outlineId: `outline-${String(index + 1).padStart(3, '0')}`,
         points: slide.points,
         ...(slide.quote === undefined ? {} : {quote: slide.quote}),
         sectionIds: [`section-${String(index + 1).padStart(3, '0')}`],
@@ -551,7 +595,7 @@ describe('Deck Explainer LLM text planning', () => {
         slideCount?: unknown
         slideCountLimits: {maximum: number; minimum: number}
         speakerNoteCharactersPerSlide?: unknown
-        speakerNotePlanning: string
+        speakerNotePlanning: {policy: string}
       }
     }
 
@@ -565,7 +609,7 @@ describe('Deck Explainer LLM text planning', () => {
     expect(payload.target.slideCount).to.equal(undefined)
     expect(payload.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 4})
     expect(payload.target.speakerNoteCharactersPerSlide).to.equal(undefined)
-    expect(payload.target.speakerNotePlanning).to.include('no fixed per-slide character estimate')
+    expect(payload.target.speakerNotePlanning.policy).to.include('explicit narration budget')
   })
 
   it('rejects visible point text over template character limits instead of clipping it locally', () => {
@@ -666,7 +710,7 @@ describe('Deck Explainer LLM text planning', () => {
       issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(5)
+    expect(requests.length).to.equal(7)
     expect(retryPayload.goal).to.include('complete replacement slide-plan object')
     expect(retryPayload.instructions.join('\n')).to.include('issues as binding field-level feedback')
     expect(retryPayload.issues[0]?.message).to.include('exceeding one-big-idea limit')
@@ -737,7 +781,7 @@ describe('Deck Explainer LLM text planning', () => {
       issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(5)
+    expect(requests.length).to.equal(7)
     expect(retryPayload.issues[0]?.message).to.include('uses quote template without quote data')
     expect(plan.deck.slides[0]?.quote?.text).to.equal('Stable failures need traceable evidence.')
   })
@@ -814,7 +858,7 @@ describe('Deck Explainer LLM text planning', () => {
       issues: Array<{message: string}>
     }
 
-    expect(requests.length).to.equal(6)
+    expect(requests.length).to.equal(8)
     expect(firstRewritePayload.attemptsRemaining).to.equal(4)
     expect(secondRewritePayload.attemptsRemaining).to.equal(3)
     expect(secondRewritePayload.issues[0]?.message).to.include('exceeding one-big-idea limit')

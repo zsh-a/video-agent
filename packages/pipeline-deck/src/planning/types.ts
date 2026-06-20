@@ -1,11 +1,14 @@
-import type {Claims, ContentBlock, Deck, DeckFormat, DeckSlideType, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {Claims, ContentBlock, Deck, DeckBrief, DeckContentAnalysis, DeckCoverageReport, DeckFormat, DeckScriptTimingReport, DeckSlideOutline, DeckSlideType, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
 import type {TranscriptSegment} from '@video-agent/providers'
 
 export interface TextDeckProjectPlan {
   claims: Claims
   contentBlocks: {blocks: ContentBlock[]; version: 1}
+  contentAnalysis: DeckContentAnalysis
+  coverageReport: DeckCoverageReport
   deck: Deck
+  deckBrief: DeckBrief
   document: Document
   mediaInfo: MediaInfo
   narration: Narration
@@ -21,18 +24,25 @@ export interface TextDeckProjectPlan {
   selectedMoments: LongVideoSelectedMoments
   sourceQuotes: SourceQuotes
   speakerScript: SpeakerScript
+  scriptTimingReport: DeckScriptTimingReport
+  slideOutline: DeckSlideOutline
+  sourceMap: DeckSourceMap
   storyboard: Storyboard
   timedDeck: TimedDeck
   timeline: Timeline
 }
 
 export interface TextDeckProjectPlanOptions {
+  contentAnalysis?: DeckContentAnalysis
+  deckBrief?: DeckBrief
   deckFormat?: DeckFormat
   durationTargetSeconds?: number
   language: string
   maxSlideCharacters: number
   requiredSlideTypes?: DeckSlideType[]
+  slideOutline?: DeckSlideOutline
   sourceType?: Document['source']['sourceType']
+  sourceMap?: DeckSourceMap
   theme?: string
   title?: string
   transcriptSegments?: TranscriptSegment[]

@@ -63,7 +63,7 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     projectId: workspace.projectId,
     stages: DECK_STAGES,
   })
-  await completeDeckJobStages(jobStore, ['ingest', 'understand', 'plan', 'script', 'quality'])
+  await completeDeckJobStages(jobStore, ['ingest', 'source-map', 'understand', 'brief', 'outline', 'plan-slides', 'script', 'timing-preflight'])
   await jobStore.complete('completed')
   await refreshArtifactManifest(workspace.artifactsDir)
 

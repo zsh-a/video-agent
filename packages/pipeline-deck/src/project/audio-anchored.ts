@@ -76,7 +76,7 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     const text = requireExactTranscriptText(transcript, 'Deck audio-anchored planning')
 
     await jobStore.updateStage('transcribe', 'completed', undefined, 1)
-    await jobStore.updateStage('plan', 'running', undefined, 1)
+    await jobStore.updateStage('source-map', 'running', undefined, 1)
 
     const generatedPlan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
       deckFormat: options.deckFormat,
@@ -105,7 +105,7 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     }
     const artifacts = await writeDeckAudioAnchoredPlanArtifacts(workspace, transcript, plan, deckVoiceover, llmTrace.path)
 
-    await completeDeckJobStages(jobStore, ['plan', 'align', 'quality'])
+    await completeDeckJobStages(jobStore, ['source-map', 'understand', 'brief', 'outline', 'plan-slides', 'script', 'timing-preflight', 'align', 'visual-preflight'])
     await jobStore.complete('completed')
     await refreshArtifactManifest(workspace.artifactsDir)
 

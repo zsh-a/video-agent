@@ -10,9 +10,10 @@ export interface SrtCue {
 const HARD_BREAK_PUNCTUATION = new Set(['。', '！', '？', '!', '?', ';', '；'])
 const SOFT_BREAK_PUNCTUATION = new Set(['，', ',', '、', ':', '：'])
 const WORD_BREAK_CHARS = new Set([' ', '\t', '/', '／'])
-const DEFAULT_MAX_CUE_CHARS = 32
-const DEFAULT_MAX_LINE_CHARS = 18
+const DEFAULT_MAX_CUE_CHARS = 48
+const DEFAULT_MAX_LINE_CHARS = 24
 const MIN_SOFT_BREAK_CHARS = 10
+const MIN_REMAINDER_CHARS = 10
 
 export function narrationToSrt(narration: Narration): string {
   return `${narrationToSrtCues(narration).map(formatCue).join('\n\n')}\n`
@@ -158,7 +159,11 @@ function findSubtitleBoundaryIndex(text: string, target: number): number | undef
   for (let index = max; index >= min; index -= 1) {
     const char = text[index - 1]
 
-    if (char !== undefined && (HARD_BREAK_PUNCTUATION.has(char) || SOFT_BREAK_PUNCTUATION.has(char) || WORD_BREAK_CHARS.has(char))) {
+    if (
+      char !== undefined
+      && text.length - index >= MIN_REMAINDER_CHARS
+      && (HARD_BREAK_PUNCTUATION.has(char) || SOFT_BREAK_PUNCTUATION.has(char) || WORD_BREAK_CHARS.has(char))
+    ) {
       return index
     }
   }

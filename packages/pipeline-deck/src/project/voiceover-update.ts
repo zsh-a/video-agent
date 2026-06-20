@@ -1,4 +1,4 @@
-import type {Deck, LongVideoSelectedMoments, MediaInfo, SpeakerScript, Storyboard, TimedDeck} from '@video-agent/ir'
+import type {Deck, DeckTimingDriftReport, LongVideoSelectedMoments, MediaInfo, SpeakerScript, Storyboard, TimedDeck} from '@video-agent/ir'
 import type {TTSSegment} from '@video-agent/providers'
 
 import {NarrationSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
@@ -6,6 +6,7 @@ import {NarrationSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from
 import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report.js'
 import {createDeckNarrationFromTimings, createSlideTimingsFromTts, createTextTimeline, deckNarrationIdForIndex, updateSelectedMomentsTiming, updateStoryboardTiming} from '../planning/timing.js'
 import type {DeckVoiceover} from './voiceover-types.js'
+import {assertDeckTimingDrift, createDeckTimingDriftReport} from '../quality/timing-drift.js'
 
 export interface DeckVoiceoverUpdate {
   deckVoiceover: DeckVoiceover
@@ -21,6 +22,7 @@ export interface DeckVoiceoverUpdate {
   }
   selectedMoments: LongVideoSelectedMoments
   storyboard: ReturnType<typeof StoryboardSchema.parse>
+  timingDriftReport: DeckTimingDriftReport
   timedDeck: ReturnType<typeof TimedDeckSchema.parse>
   timeline: ReturnType<typeof TimelineSchema.parse>
   totalDuration: number
@@ -35,6 +37,13 @@ export function createDeckVoiceoverUpdate(input: {
   speakerScript: SpeakerScript
   ttsSegments: TTSSegment[]
 }): DeckVoiceoverUpdate {
+  const timingDriftReport = createDeckTimingDriftReport({
+    speakerScript: input.speakerScript,
+    ttsSegments: input.ttsSegments,
+  })
+
+  assertDeckTimingDrift(timingDriftReport)
+
   const timings = createSlideTimingsFromTts(input.speakerScript, input.currentTimedDeck, input.ttsSegments)
   const totalDuration = timings.at(-1)?.end ?? 0
   const timedDeck = TimedDeckSchema.parse({
@@ -102,6 +111,7 @@ export function createDeckVoiceoverUpdate(input: {
     qualityReport,
     selectedMoments,
     storyboard,
+    timingDriftReport,
     timedDeck,
     timeline,
     totalDuration,

@@ -43,7 +43,7 @@ export async function renderDeckVoiceover(projectDir: string, ttsSegments: TTSSe
     '-y',
     ...inputArgs,
     '-filter_complex',
-    `${concatInputs}concat=n=${ttsSegments.length}:v=0:a=1[aout]`,
+    `${concatInputs}concat=n=${ttsSegments.length}:v=0:a=1[concat];[concat]loudnorm=I=-18:TP=-2:LRA=11[aout]`,
     '-map',
     '[aout]',
     '-c:a',

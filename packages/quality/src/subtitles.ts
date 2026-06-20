@@ -16,7 +16,9 @@ export interface SubtitleQualityResult {
 
 export interface SubtitleQualityOptions {
   expectedCues?: number
+  maxLineCharacters?: number
   maxEnd?: number
+  minCueDuration?: number
   timingTolerance?: number
 }
 
@@ -33,6 +35,7 @@ export function checkSrtSubtitles(content: string, options: SubtitleQualityOptio
           },
         ]),
     ...checkCueTiming(cues, options),
+    ...checkCueReadability(cues, options),
     ...cues.flatMap((cue): QualityIssue[] =>
       cue.text.trim() === ''
         ? [
@@ -74,6 +77,46 @@ function parseCue(block: string, fallbackIndex: number): SubtitleCue {
     start: parseSrtTime(startRaw),
     text: lines.slice(2).join('\n'),
   }
+}
+
+function checkCueReadability(cues: SubtitleCue[], options: SubtitleQualityOptions): QualityIssue[] {
+  const minCueDuration = options.minCueDuration ?? 0.8
+  const maxLineCharacters = options.maxLineCharacters ?? 42
+  const issues: QualityIssue[] = []
+  let shortCues = 0
+
+  for (const cue of cues) {
+    const duration = cue.end - cue.start
+
+    if (Number.isFinite(duration) && duration > 0 && duration < minCueDuration) {
+      shortCues += 1
+      issues.push({
+        code: 'subtitle.cue.too_short',
+        message: `Subtitle cue ${cue.index} duration is ${duration.toFixed(3)}s; target is at least ${minCueDuration}s.`,
+        severity: 'warning',
+      })
+    }
+
+    const longLine = cue.text.split('\n').find((line) => [...line].length > maxLineCharacters)
+
+    if (longLine !== undefined) {
+      issues.push({
+        code: 'subtitle.line.too_long',
+        message: `Subtitle cue ${cue.index} has a line with ${[...longLine].length} characters; target is ${maxLineCharacters} or fewer.`,
+        severity: 'warning',
+      })
+    }
+  }
+
+  if (cues.length > 0 && shortCues / cues.length > 0.15) {
+    issues.push({
+      code: 'subtitle.cue.too_many_short',
+      message: `${shortCues} of ${cues.length} subtitle cues are shorter than ${minCueDuration}s.`,
+      severity: 'warning',
+    })
+  }
+
+  return issues
 }
 
 function checkCueTiming(cues: SubtitleCue[], options: SubtitleQualityOptions): QualityIssue[] {

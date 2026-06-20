@@ -72,12 +72,13 @@ export async function createDeckVoiceoverProject(options: CreateDeckVoiceoverPro
       qualityReport: voiceoverUpdate.qualityReport,
       selectedMoments: voiceoverUpdate.selectedMoments,
       storyboard: voiceoverUpdate.storyboard,
+      timingDriftReport: voiceoverUpdate.timingDriftReport,
       timedDeck: voiceoverUpdate.timedDeck,
       timeline: voiceoverUpdate.timeline,
       ttsSegments,
     })
 
-    await completeDeckJobStages(jobStore, ['synthesize-voice', 'update-timing', 'quality'])
+    await completeDeckJobStages(jobStore, ['synthesize-voice', 'timing-repair'])
     await jobStore.complete('completed')
     await refreshArtifactManifest(workspace.artifactsDir)
 

@@ -1,4 +1,4 @@
-import type {LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {DeckTimingDriftReport, LongVideoSelectedMoments, MediaInfo, Narration, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {Transcript, TTSSegment} from '@video-agent/providers'
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
@@ -7,7 +7,10 @@ import type {DeckVoiceover} from './voiceover-types.js'
 
 export interface DeckTextPlanArtifacts {
   contentBlocks: string
+  contentAnalysis: string
+  coverageReport: string
   claims: string
+  deckBrief: string
   deck: string
   document: string
   llmTrace?: string
@@ -16,7 +19,10 @@ export interface DeckTextPlanArtifacts {
   outline: string
   qualityReport: string
   selectedMoments: string
+  scriptTimingReport: string
+  slideOutline: string
   speakerScript: string
+  sourceMap: string
   sourceQuotes: string
   storyboard: string
   timedDeck: string
@@ -39,6 +45,7 @@ export interface DeckVoiceoverProjectArtifacts {
   qualityReport: string
   selectedMoments: string
   storyboard: string
+  timingDriftReport: string
   timedDeck: string
   timeline: string
   ttsSegments: string
@@ -50,6 +57,11 @@ export async function writeDeckTextPlanArtifacts(
   llmTracePath: string | undefined,
 ): Promise<DeckTextPlanArtifacts> {
   return {
+    sourceMap: await workspace.store.writeJson('source-map.json', plan.sourceMap),
+    contentAnalysis: await workspace.store.writeJson('content-analysis.json', plan.contentAnalysis),
+    deckBrief: await workspace.store.writeJson('deck-brief.json', plan.deckBrief),
+    slideOutline: await workspace.store.writeJson('slide-outline.json', plan.slideOutline),
+    coverageReport: await workspace.store.writeJson('deck-coverage-report.json', plan.coverageReport),
     document: await workspace.store.writeJson('document.json', plan.document),
     contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),
     claims: await workspace.store.writeJson('claims.json', plan.claims),
@@ -57,6 +69,7 @@ export async function writeDeckTextPlanArtifacts(
     outline: await workspace.store.writeJson('outline.json', plan.outline),
     deck: await workspace.store.writeJson('deck.json', plan.deck),
     speakerScript: await workspace.store.writeJson('speaker-script.json', plan.speakerScript),
+    scriptTimingReport: await workspace.store.writeJson('script-timing-report.json', plan.scriptTimingReport),
     timedDeck: await workspace.store.writeJson('timed-deck.json', plan.timedDeck),
     mediaInfo: await workspace.store.writeJson('media-info.json', plan.mediaInfo),
     selectedMoments: await workspace.store.writeJson('selected-moments.json', plan.selectedMoments),
@@ -102,6 +115,7 @@ export async function writeDeckVoiceoverProjectArtifacts(workspace: ProjectWorks
   qualityReport: unknown
   selectedMoments: LongVideoSelectedMoments
   storyboard: Storyboard
+  timingDriftReport: DeckTimingDriftReport
   timedDeck: TimedDeck
   timeline: Timeline
   ttsSegments: TTSSegment[]
@@ -109,6 +123,7 @@ export async function writeDeckVoiceoverProjectArtifacts(workspace: ProjectWorks
   return {
     ttsSegments: await workspace.store.writeJson('tts-segments.json', input.ttsSegments),
     deckVoiceover: await workspace.store.writeJson('deck-voiceover.json', input.deckVoiceover),
+    timingDriftReport: await workspace.store.writeJson('deck-timing-report.json', input.timingDriftReport),
     timedDeck: await workspace.store.writeJson('timed-deck.json', input.timedDeck),
     mediaInfo: await workspace.store.writeJson('media-info.json', input.mediaInfo),
     selectedMoments: await workspace.store.writeJson('selected-moments.json', input.selectedMoments),

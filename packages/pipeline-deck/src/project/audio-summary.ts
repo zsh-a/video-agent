@@ -90,12 +90,9 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
       transcriptSegments,
     })
 
-    await jobStore.updateStage('understand', 'completed', undefined, 1)
-    await jobStore.updateStage('plan', 'running', undefined, 1)
-
     const artifacts = await writeDeckAudioSummaryPlanArtifacts(workspace, transcript, plan, llmTrace.path)
 
-    await completeDeckJobStages(jobStore, ['plan', 'script', 'quality'])
+    await completeDeckJobStages(jobStore, ['source-map', 'understand', 'brief', 'outline', 'plan-slides', 'script', 'timing-preflight'])
     await jobStore.complete('completed')
     await refreshArtifactManifest(workspace.artifactsDir)
 

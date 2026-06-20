@@ -31,7 +31,7 @@ export async function openDeckFinalRenderContext(options: {projectId: string; wo
     projectId,
     stages: DECK_STAGES,
   })
-  await jobStore.updateStage('render-final', 'running', undefined, 1)
+  await jobStore.updateStage('visual-preflight', 'running', undefined, 1)
 
   return {
     jobStore,
@@ -42,7 +42,9 @@ export async function openDeckFinalRenderContext(options: {projectId: string; wo
 }
 
 export async function completeDeckFinalRender(context: DeckFinalRenderContext, message?: string): Promise<void> {
+  await context.jobStore.updateStage('visual-preflight', 'completed', undefined, 1)
   await context.jobStore.updateStage('render-final', 'completed', message, 1)
+  await context.jobStore.updateStage('review', 'completed', undefined, 1)
   await refreshArtifactManifest(context.workspace.artifactsDir)
 }
 

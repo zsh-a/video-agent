@@ -74,7 +74,7 @@ function createDeckPlanningLLMClient(onRequest?: (input: GenerateObjectRequest<u
     async generateObject(input) {
       onRequest?.(input as GenerateObjectRequest<unknown>)
       const requestPayload = parseLLMRequestPayload(input as GenerateObjectRequest<unknown>)
-      const planningDuration = Number(requestPayload.source?.durationSeconds ?? requestPayload.target?.durationSeconds ?? requestPayload.source?.transcriptSegments?.at(-1)?.end ?? 16)
+      const planningDuration = Number(requestPayload.source?.durationSeconds ?? requestPayload.target?.durationSeconds ?? requestPayload.source?.transcriptSegments?.at(-1)?.end ?? 32)
       const slideCount = Number.isFinite(planningDuration) && planningDuration < 8 ? 1 : 4
       const sourceRanges = requestPayload?.target?.requiresSlideSourceRanges === true
         ? splitDurationIntoRanges(planningDuration, slideCount)
@@ -191,6 +191,9 @@ function stagedDeckObjectForRequest<T>(input: GenerateObjectRequest<T>, rawPlan:
         sourceRange: slide.sourceRange,
         summary: slide.semantic.blockText,
         title: slide.title,
+        mustCover: true,
+        role: slide.semantic.blockType,
+        visualRole: slide.semantic.visualStyle,
       })),
       summary: rawPlan.summary,
       title: rawPlan.title,
@@ -207,6 +210,55 @@ function stagedDeckObjectForRequest<T>(input: GenerateObjectRequest<T>, rawPlan:
     return analysis as T
   }
 
+  if (payload?.stage === 'deck-brief') {
+    const outlineSections = rawPlan.outline?.sections ?? rawPlan.slides.map((slide, index) => ({
+      goal: slide.semantic.momentReason,
+      title: `Generated Section ${index + 1}`,
+    }))
+    const analysis = payload.analysis as {
+      audience?: string
+      language: string
+      sections: Array<{id: string; mustCover?: boolean; title: string}>
+      summary: string
+      title: string
+    }
+    const requiredSectionIds = analysis.sections.filter((section) => section.mustCover !== false).map((section) => section.id)
+
+    return {
+      ...(analysis.audience === undefined ? {} : {audience: analysis.audience}),
+      densityPolicy: 'Keep each slide source-grounded and within narration budget.',
+      language: analysis.language,
+      narrativeArc: outlineSections.map((section) => section.title),
+      objective: analysis.summary,
+      optionalSectionIds: analysis.sections.filter((section) => section.mustCover === false).map((section) => section.id),
+      requiredSectionIds,
+      styleIntent: 'test deck',
+      targetDurationSeconds: rawPlan.slides.reduce((sum, slide) => sum + slide.duration, 0),
+      targetSlideCount: rawPlan.slides.length,
+      title: rawPlan.title,
+    } as T
+  }
+
+  if (payload?.stage === 'slide-outline') {
+    const outlineSections = rawPlan.outline?.sections ?? rawPlan.slides.map((slide, index) => ({
+      goal: slide.semantic.momentReason,
+      title: `Generated Section ${index + 1}`,
+    }))
+
+    return {
+      slides: rawPlan.slides.map((slide, index) => ({
+        goal: outlineSections[index]?.goal ?? slide.semantic.momentReason,
+        informationRole: slide.semantic.blockType,
+        mustCover: true,
+        narrationBudgetSeconds: slide.duration,
+        outlineId: `outline-${String(index + 1).padStart(3, '0')}`,
+        sourceSectionIds: [`section-${String(index + 1).padStart(3, '0')}`],
+        templateIntent: slide.type,
+        visualIntent: slide.semantic.visualStyle,
+      })),
+    } as T
+  }
+
   if (payload?.stage === 'slide-plan') {
     return {
       slides: rawPlan.slides.map((slide, index) => ({
@@ -215,6 +267,7 @@ function stagedDeckObjectForRequest<T>(input: GenerateObjectRequest<T>, rawPlan:
         ...(slide.comparison === undefined ? {} : {comparison: slide.comparison}),
         durationIntent: slide.duration,
         motion: slide.motion,
+        outlineId: `outline-${String(index + 1).padStart(3, '0')}`,
         points: slide.points,
         ...(slide.quote === undefined ? {} : {quote: slide.quote}),
         sectionIds: [`section-${String(index + 1).padStart(3, '0')}`],
@@ -248,6 +301,7 @@ function stagedDeckObjectForRequest<T>(input: GenerateObjectRequest<T>, rawPlan:
 }
 
 function parseLLMRequestPayload(input: GenerateObjectRequest<unknown>): {
+  analysis?: unknown
   partialAnalyses?: unknown[]
   source?: {durationSeconds?: unknown; transcriptSegments?: Array<{end?: unknown}>}
   stage?: string
@@ -481,7 +535,7 @@ describe('deck explainer project', () => {
           slideCount?: unknown
           slideCountLimits: {maximum: number; minimum: number}
           speakerNoteCharactersPerSlide?: unknown
-          speakerNotePlanning: string
+          speakerNotePlanning: {policy: string}
           templateManifest: {
             templates: Array<{
               fields: string[]
@@ -507,7 +561,7 @@ describe('deck explainer project', () => {
       expect(slidePrompt.target.slideCount).to.equal(undefined)
       expect(slidePrompt.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 1})
       expect(slidePrompt.target.speakerNoteCharactersPerSlide).to.equal(undefined)
-      expect(slidePrompt.target.speakerNotePlanning).to.include('no fixed per-slide character estimate')
+      expect(slidePrompt.target.speakerNotePlanning.policy).to.include('explicit narration budget')
       expect(result.slides).to.equal(4)
       expect(deck.title).to.equal('Serenity Alpha')
       expect(deck.slides[0]?.type).to.equal('hero')
@@ -574,7 +628,7 @@ describe('deck explainer project', () => {
         error = caught
       }
 
-      expect(String(error)).to.include('Slide type must be one of the registered Deck template types')
+      expect(String(error)).to.include('registered Deck template types')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

@@ -98,6 +98,139 @@ export const ContentBlocksSchema = z.object({
   version: z.literal(1),
 })
 
+export const DeckSourceSectionKindSchema = z.enum(['frontmatter', 'heading', 'paragraph', 'list', 'table', 'code'])
+
+export const DeckSourceSectionSchema = z.object({
+  headingPath: z.array(z.string().min(1)),
+  id: z.string().min(1),
+  kind: DeckSourceSectionKindSchema,
+  sourceRange: DeckSourceRangeSchema,
+  text: z.string().min(1),
+})
+
+export const DeckSourceMapSchema = z.object({
+  generatedAt: z.string().min(1),
+  language: z.string().min(1),
+  sections: z.array(DeckSourceSectionSchema),
+  source: DocumentSourceSchema,
+  title: z.string().optional(),
+  version: z.literal(1),
+})
+
+export const DeckContentAnalysisSchema = z.object({
+  audience: z.string().min(1).optional(),
+  generatedAt: z.string().min(1),
+  language: z.string().min(1),
+  sections: z.array(z.object({
+    id: z.string().min(1),
+    importance: z.number().min(0).max(1),
+    keyClaims: z.array(z.object({
+      confidence: z.number().min(0).max(1),
+      sourceQuoteText: z.string().min(1),
+      text: z.string().min(1),
+      type: z.enum(['claim', 'data', 'recommendation', 'summary']),
+    })).min(1),
+    mustCover: z.boolean(),
+    role: z.string().min(1),
+    sourceRange: DeckSourceRangeSchema.optional(),
+    summary: z.string().min(1),
+    title: z.string().min(1),
+    visualRole: z.string().min(1).optional(),
+  })).min(1),
+  source: z.literal('source-map.json'),
+  summary: z.string().min(1),
+  title: z.string().min(1),
+  version: z.literal(1),
+})
+
+export const DeckBriefSchema = z.object({
+  audience: z.string().min(1).optional(),
+  densityPolicy: z.string().min(1),
+  generatedAt: z.string().min(1),
+  language: z.string().min(1),
+  narrativeArc: z.array(z.string().min(1)).min(1),
+  objective: z.string().min(1),
+  optionalSectionIds: z.array(z.string().min(1)),
+  requiredSectionIds: z.array(z.string().min(1)),
+  source: z.literal('content-analysis.json'),
+  styleIntent: z.string().min(1),
+  targetDurationSeconds: z.number().finite().positive().optional(),
+  targetSlideCount: z.number().int().positive(),
+  title: z.string().min(1),
+  version: z.literal(1),
+})
+
+export const DeckSlideOutlineSchema = z.object({
+  generatedAt: z.string().min(1),
+  slides: z.array(z.object({
+    goal: z.string().min(1),
+    informationRole: z.string().min(1),
+    mustCover: z.boolean(),
+    narrationBudgetSeconds: z.number().finite().positive(),
+    outlineId: z.string().min(1),
+    sourceSectionIds: z.array(z.string().min(1)).min(1),
+    templateIntent: DeckSlideTypeSchema,
+    visualIntent: z.string().min(1),
+  })).min(1),
+  source: z.literal('deck-brief.json'),
+  version: z.literal(1),
+})
+
+export const DeckCoverageReportSchema = z.object({
+  checkedAt: z.string().min(1),
+  coveredRequiredSections: z.number().int().nonnegative(),
+  requiredSections: z.number().int().nonnegative(),
+  requiredUncovered: z.array(z.string().min(1)),
+  slideCoverage: z.array(z.object({
+    outlineId: z.string().min(1),
+    slideId: z.string().min(1).optional(),
+    sourceSectionIds: z.array(z.string().min(1)),
+  })),
+  source: z.literal('slide-outline.json'),
+  summary: z.object({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+  }),
+  version: z.literal(1),
+})
+
+export const DeckScriptTimingReportSchema = z.object({
+  checkedAt: z.string().min(1),
+  estimatedSpeechDuration: z.number().finite().nonnegative(),
+  plannedDuration: z.number().finite().nonnegative(),
+  segments: z.array(z.object({
+    estimatedSpeechSeconds: z.number().finite().nonnegative(),
+    issueCodes: z.array(z.string().min(1)),
+    plannedSeconds: z.number().finite().positive(),
+    slideId: z.string().min(1),
+    textCharacters: z.number().int().nonnegative(),
+    words: z.number().int().nonnegative(),
+  })),
+  summary: z.object({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+  }),
+  version: z.literal(1),
+})
+
+export const DeckTimingDriftReportSchema = z.object({
+  checkedAt: z.string().min(1),
+  plannedDuration: z.number().finite().nonnegative(),
+  segments: z.array(z.object({
+    driftRatio: z.number().finite().nonnegative(),
+    issueCodes: z.array(z.string().min(1)),
+    plannedSeconds: z.number().finite().positive(),
+    slideId: z.string().min(1),
+    ttsSeconds: z.number().finite().positive(),
+  })),
+  summary: z.object({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+  }),
+  totalDuration: z.number().finite().nonnegative(),
+  version: z.literal(1),
+})
+
 export const ClaimSchema = z.object({
   blockId: z.string().min(1),
   confidence: z.number().finite().min(0).max(1),
@@ -341,11 +474,14 @@ export type ContentBlocks = z.infer<typeof ContentBlocksSchema>
 export type Claim = z.infer<typeof ClaimSchema>
 export type Claims = z.infer<typeof ClaimsSchema>
 export type Deck = z.infer<typeof DeckSchema>
+export type DeckBrief = z.infer<typeof DeckBriefSchema>
 export type DeckChart = z.infer<typeof DeckChartSchema>
 export type DeckChartBar = z.infer<typeof DeckChartBarSchema>
 export type DeckCodeBlock = z.infer<typeof DeckCodeBlockSchema>
 export type DeckComparison = z.infer<typeof DeckComparisonSchema>
 export type DeckComparisonSide = z.infer<typeof DeckComparisonSideSchema>
+export type DeckContentAnalysis = z.infer<typeof DeckContentAnalysisSchema>
+export type DeckCoverageReport = z.infer<typeof DeckCoverageReportSchema>
 export type DeckFormat = z.infer<typeof DeckFormatSchema>
 export type DeckInputMode = z.infer<typeof DeckInputModeSchema>
 export type DeckMotionPreset = z.infer<typeof DeckMotionPresetSchema>
@@ -354,9 +490,15 @@ export type DeckQualityReport = z.infer<typeof DeckQualityReportSchema>
 export type DeckQuote = z.infer<typeof DeckQuoteSchema>
 export type DeckSlideType = z.infer<typeof DeckSlideTypeSchema>
 export type DeckSlideQualityMetrics = z.infer<typeof DeckSlideQualityMetricsSchema>
+export type DeckScriptTimingReport = z.infer<typeof DeckScriptTimingReportSchema>
+export type DeckSlideOutline = z.infer<typeof DeckSlideOutlineSchema>
+export type DeckSourceMap = z.infer<typeof DeckSourceMapSchema>
+export type DeckSourceSection = z.infer<typeof DeckSourceSectionSchema>
+export type DeckSourceSectionKind = z.infer<typeof DeckSourceSectionKindSchema>
 export type DeckStat = z.infer<typeof DeckStatSchema>
 export type DeckTheme = z.infer<typeof DeckThemeSchema>
 export type DeckThemeTokens = z.infer<typeof DeckThemeTokensSchema>
+export type DeckTimingDriftReport = z.infer<typeof DeckTimingDriftReportSchema>
 export type DeckTransition = z.infer<typeof DeckTransitionSchema>
 export type DeckTransitionType = z.infer<typeof DeckTransitionTypeSchema>
 export type DeckVisual = z.infer<typeof DeckVisualSchema>

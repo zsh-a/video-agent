@@ -2,25 +2,31 @@ import type {GenerateObjectRequest, LLMClient, LLMMessage} from '@video-agent/ll
 
 import {createHash} from 'node:crypto'
 
+import {DeckBriefSchema, DeckContentAnalysisSchema, DeckSlideOutlineSchema} from '@video-agent/ir'
 import {deckTemplateManifestForLLM} from '@video-agent/renderer-deck'
 
 import {
   LLM_TEXT_DECK_MAX_SLIDES,
   LLMTextDeckValidationError,
+  LLMTextDeckBriefSchema,
   LLMTextDeckContentAnalysisSchema,
   LLMTextDeckPlanSchema,
   LLMTextDeckScriptSemanticsSchema,
+  LLMTextDeckSlideOutlineSchema,
   LLMTextDeckSlidePlanSchema,
   validateLLMTextDeckSlidePlanTemplateConstraints,
   type LLMTextDeckValidationIssue,
+  type LLMTextDeckBrief,
   type LLMTextDeckContentAnalysis,
   type LLMTextDeckPlan,
   type LLMTextDeckScriptSemantics,
+  type LLMTextDeckSlideOutline,
   type LLMTextDeckSlidePlan,
 } from './llm-plan.js'
 import type {TextDeckProjectPlan, TextDeckProjectPlanOptions} from './types.js'
 import {DECK_THEME_DESCRIPTIONS} from './utils.js'
 import {createTextDeckProjectPlanFromLLM} from './text-plan-builder.js'
+import {createDeckSourceMap} from './source-map.js'
 
 const DECK_LLM_SOURCE_TEXT_CHUNK_CHARACTERS = 60_000
 const DECK_LLM_TRANSCRIPT_SEGMENT_CHUNK_SIZE = 500
@@ -28,7 +34,7 @@ const DECK_LLM_TRANSCRIPT_SEGMENT_TEXT_MAX_CHARACTERS = 500
 const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
 const DECK_LLM_CACHE_KEY_HASH_CHARACTERS = 24
 
-type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'script-semantics' | 'slide-plan'
+type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'deck-brief' | 'script-semantics' | 'slide-outline' | 'slide-plan'
 
 interface DeckPlanningSourceChunk {
   chunkId: string
@@ -44,8 +50,10 @@ interface DeckPlanningSourceChunk {
 
 interface StagedDeckPlan {
   analysis: LLMTextDeckContentAnalysis
+  brief: LLMTextDeckBrief
   finalPlan: LLMTextDeckPlan
   scriptSemantics: LLMTextDeckScriptSemantics
+  slideOutline: LLMTextDeckSlideOutline
   slidePlan: LLMTextDeckSlidePlan
 }
 
@@ -79,15 +87,29 @@ export async function createLLMTextDeckProjectPlan(
 ): Promise<TextDeckProjectPlan> {
   const planOptions = {...options}
   requireDeckPlanningSourceType(planOptions.sourceType)
-  const stagedPlan = await createStagedDeckPlan(llm, inputPath, text, planOptions)
+  const sourceMap = createDeckSourceMap({
+    inputPath,
+    language: planOptions.language,
+    sourceType: requireDeckPlanningSourceType(planOptions.sourceType),
+    text,
+    title: planOptions.title,
+  })
+  const stagedPlan = await createStagedDeckPlan(llm, inputPath, text, sourceMap, planOptions)
 
   try {
-    return createTextDeckProjectPlanFromLLM(inputPath, text, stagedPlan.finalPlan, planOptions)
+    return createTextDeckProjectPlanFromLLM(inputPath, text, stagedPlan.finalPlan, {
+      ...planOptions,
+      contentAnalysis: createDeckContentAnalysisArtifact(stagedPlan.analysis),
+      deckBrief: createDeckBriefArtifact(stagedPlan.brief),
+      slideOutline: createDeckSlideOutlineArtifact(stagedPlan.slideOutline),
+      sourceMap,
+    })
   } catch (error) {
     return rewriteInvalidStagedDeckPlan(llm, {
       error,
       inputPath,
       options: planOptions,
+      sourceMap,
       stagedPlan,
       text,
     })
@@ -98,17 +120,22 @@ async function createStagedDeckPlan(
   llm: LLMClient,
   inputPath: string,
   text: string,
+  sourceMap: ReturnType<typeof createDeckSourceMap>,
   options: TextDeckProjectPlanOptions,
 ): Promise<StagedDeckPlan> {
-  const analysis = await createContentAnalysis(llm, inputPath, text, options)
-  const slidePlan = await generateSlidePlan(llm, inputPath, analysis, options)
-  const scriptSemantics = await generateScriptSemantics(llm, inputPath, analysis, slidePlan, options)
+  const analysis = await createContentAnalysis(llm, inputPath, text, sourceMap, options)
+  const brief = await generateDeckBrief(llm, inputPath, analysis, options)
+  const slideOutline = await generateSlideOutline(llm, inputPath, analysis, brief, options)
+  const slidePlan = await generateSlidePlan(llm, inputPath, analysis, brief, slideOutline, options)
+  const scriptSemantics = await generateScriptSemantics(llm, inputPath, analysis, brief, slideOutline, slidePlan, options)
   const finalPlan = assembleFinalDeckPlan(analysis, slidePlan, scriptSemantics)
 
   return {
     analysis,
+    brief,
     finalPlan,
     scriptSemantics,
+    slideOutline,
     slidePlan,
   }
 }
@@ -117,11 +144,12 @@ async function createContentAnalysis(
   llm: LLMClient,
   inputPath: string,
   text: string,
+  sourceMap: ReturnType<typeof createDeckSourceMap>,
   options: TextDeckProjectPlanOptions,
 ): Promise<LLMTextDeckContentAnalysis> {
   const chunks = createDeckPlanningSourceChunks(text, options)
   const analyses = await Promise.all(chunks.map(async (chunk) => {
-    const result = await llm.generateObject(createContentAnalysisRequest(inputPath, chunk, options))
+    const result = await llm.generateObject(createContentAnalysisRequest(inputPath, chunk, sourceMap, options))
 
     return result.object
   }))
@@ -144,9 +172,10 @@ async function createContentAnalysis(
 function createContentAnalysisRequest(
   inputPath: string,
   chunk: DeckPlanningSourceChunk,
+  sourceMap: ReturnType<typeof createDeckSourceMap>,
   options: TextDeckProjectPlanOptions,
 ): GenerateObjectRequest<LLMTextDeckContentAnalysis> {
-  const baseMessage = createContentAnalysisMessage(inputPath, chunk, options)
+  const baseMessage = createContentAnalysisMessage(inputPath, chunk, sourceMap, options)
 
   return {
     cache: createDeckLLMCacheHint('content-analysis', baseMessage),
@@ -156,7 +185,7 @@ function createContentAnalysisRequest(
   }
 }
 
-function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSourceChunk, options: TextDeckProjectPlanOptions): LLMMessage {
+function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSourceChunk, sourceMap: ReturnType<typeof createDeckSourceMap>, options: TextDeckProjectPlanOptions): LLMMessage {
   return {
     content: JSON.stringify({
       goal: 'Analyze the source content for a Deck explainer. Return document-level semantic analysis only; do not design slides or write speaker notes.',
@@ -164,6 +193,9 @@ function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSour
         'Use the final output language explicitly in the language field. If target.language is auto, choose the strongest source/user language from the input.',
         'Remove YAML frontmatter, Markdown syntax, code fences, table pipes, raw template markers, and implementation-only metadata from authored analysis fields.',
         'Infer source structure, coverage, section importance, key claims, caveats, examples, evidence, and output shape from the source.',
+        'Use sourceMap.sections ids as the authoritative section ids. Preserve those ids exactly in analysis.sections[].id.',
+        'Set mustCover true for source sections that are necessary for a faithful explainer. Do not mark a section optional if omitting it would change the source workflow, caveats, output shape, or quality bar.',
+        'Use role to describe the semantic purpose of the source section in a short source-grounded label. Do not use fixed taxonomy values unless they fit the source.',
         'For agent skills, internal instruction documents, methods, or frameworks, preserve workflow, input/output shape, quality bar, validation criteria, caveats, and concrete examples as first-class sections.',
         'When translating or rewriting, preserve the source-domain meaning of technical terms and object nouns. Do not substitute terms from unrelated domains unless the source uses them.',
         'Do not split text by character count for meaning. Merge related source details into coherent source-grounded sections.',
@@ -173,6 +205,7 @@ function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSour
         chunkId: chunk.chunkId,
         durationSeconds: options.durationTargetSeconds,
         path: inputPath,
+        sourceMap,
         sourceType: requireDeckPlanningSourceType(options.sourceType),
         text: chunk.text,
         transcriptSegments: chunk.transcriptSegments,
@@ -181,6 +214,93 @@ function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSour
       target: createDeckPlanningTarget(options, {includeTemplateManifest: false}),
     }),
     role: 'user',
+  }
+}
+
+async function generateDeckBrief(
+  llm: LLMClient,
+  inputPath: string,
+  analysis: LLMTextDeckContentAnalysis,
+  options: TextDeckProjectPlanOptions,
+): Promise<LLMTextDeckBrief> {
+  const result = await llm.generateObject(createDeckBriefRequest(inputPath, analysis, options))
+
+  return result.object
+}
+
+function createDeckBriefRequest(
+  inputPath: string,
+  analysis: LLMTextDeckContentAnalysis,
+  options: TextDeckProjectPlanOptions,
+): GenerateObjectRequest<LLMTextDeckBrief> {
+  const baseMessage: LLMMessage = {
+    content: JSON.stringify({
+      analysis,
+      goal: 'Create a presentation brief for a Deck explainer. Decide coverage strategy, target slide count, narrative arc, density policy, and required source sections. Do not write slide text or narration.',
+      instructions: [
+        'Base requiredSectionIds on analysis.sections where mustCover is true. Preserve section ids exactly.',
+        'Choose targetSlideCount from source complexity and required sections. It must be large enough that must-cover sections are not compressed into unrelated slides.',
+        'Use targetDurationSeconds from target.durationSeconds when provided; otherwise choose a realistic duration from source complexity.',
+        'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
+        'Write densityPolicy as concrete generation guidance for slide and narration density.',
+      ],
+      inputPath,
+      stage: 'deck-brief',
+      target: createDeckPlanningTarget(options, {includeTemplateManifest: false}),
+    }),
+    role: 'user',
+  }
+
+  return {
+    cache: createDeckLLMCacheHint('deck-brief', baseMessage),
+    messages: [baseMessage],
+    schema: LLMTextDeckBriefSchema,
+    temperature: 0.2,
+  }
+}
+
+async function generateSlideOutline(
+  llm: LLMClient,
+  inputPath: string,
+  analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  options: TextDeckProjectPlanOptions,
+): Promise<LLMTextDeckSlideOutline> {
+  const result = await llm.generateObject(createSlideOutlineRequest(inputPath, analysis, brief, options))
+
+  return result.object
+}
+
+function createSlideOutlineRequest(
+  inputPath: string,
+  analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  options: TextDeckProjectPlanOptions,
+): GenerateObjectRequest<LLMTextDeckSlideOutline> {
+  const baseMessage: LLMMessage = {
+    content: JSON.stringify({
+      analysis,
+      brief,
+      goal: 'Create a slide outline for the Deck explainer. Decide what each slide covers before any visible slide text is written.',
+      instructions: [
+        'Every brief.requiredSectionIds entry must appear in at least one slides[].sourceSectionIds array.',
+        'Use one outline slide for one coherent idea. Split unrelated required sections instead of combining them.',
+        'Set narrationBudgetSeconds based on target duration and slide goal; use realistic TTS budgets rather than optimistic visual durations.',
+        'templateIntent must be one registered template type and should match the information role and source content.',
+        'visualIntent should describe the visual job of the slide without CSS, fonts, or coordinates.',
+      ],
+      inputPath,
+      stage: 'slide-outline',
+      target: createDeckPlanningTarget(options, {includeTemplateManifest: true}),
+    }),
+    role: 'user',
+  }
+
+  return {
+    cache: createDeckLLMCacheHint('slide-outline', baseMessage),
+    messages: [baseMessage],
+    schema: LLMTextDeckSlideOutlineSchema,
+    temperature: 0.2,
   }
 }
 
@@ -218,6 +338,8 @@ async function generateSlidePlan(
   llm: LLMClient,
   inputPath: string,
   analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
   options: TextDeckProjectPlanOptions,
   rewrite?: {
     attemptsRemaining: number
@@ -225,7 +347,7 @@ async function generateSlidePlan(
     issues: DeckPlanningValidationIssue[]
   },
 ): Promise<LLMTextDeckSlidePlan> {
-  const result = await llm.generateObject(createSlidePlanRequest(inputPath, analysis, options, rewrite))
+  const result = await llm.generateObject(createSlidePlanRequest(inputPath, analysis, brief, slideOutline, options, rewrite))
 
   return result.object
 }
@@ -233,6 +355,8 @@ async function generateSlidePlan(
 function createSlidePlanRequest(
   inputPath: string,
   analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
   options: TextDeckProjectPlanOptions,
   rewrite?: {
     attemptsRemaining: number
@@ -243,8 +367,11 @@ function createSlidePlanRequest(
   const baseMessage: LLMMessage = {
     content: JSON.stringify({
       analysis,
-      goal: 'Turn the content analysis into concise PPT-style slide data. Return slide structure, visible text, template data, visuals, motion, and transitions only.',
+      brief,
+      goal: 'Turn the approved slide outline into concise PPT-style slide data. Return slide structure, visible text, template data, visuals, motion, and transitions only.',
       instructions: [
+        'Return exactly one slide-plan slide for each slideOutline.slides item, preserving outlineId and sourceSectionIds as sectionIds.',
+        'Use slideOutline.templateIntent as the default slide type unless the template manifest makes a different controlled template clearly better.',
         'Use concise visible text and respect each template field and limit in target.templateManifest.',
         'Choose slide type only from target.templateManifest.templates. Do not invent, rename, or translate type values.',
         'For visual.kind, choose one of chart, code, process, table, text, or title-card. Return assetRefs as an empty array.',
@@ -261,6 +388,7 @@ function createSlidePlanRequest(
         'Choose motion only from controlled presets; do not describe CSS, colors, fonts, or absolute positions.',
       ],
       inputPath,
+      slideOutline,
       stage: 'slide-plan',
       target: createDeckPlanningTarget(options, {includeTemplateManifest: true}),
     }),
@@ -314,6 +442,8 @@ async function generateScriptSemantics(
   llm: LLMClient,
   inputPath: string,
   analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
   slidePlan: LLMTextDeckSlidePlan,
   options: TextDeckProjectPlanOptions,
   rewrite?: {
@@ -322,7 +452,7 @@ async function generateScriptSemantics(
     issues: DeckPlanningValidationIssue[]
   },
 ): Promise<LLMTextDeckScriptSemantics> {
-  const result = await llm.generateObject(createScriptSemanticsRequest(inputPath, analysis, slidePlan, options, rewrite))
+  const result = await llm.generateObject(createScriptSemanticsRequest(inputPath, analysis, brief, slideOutline, slidePlan, options, rewrite))
 
   return result.object
 }
@@ -330,6 +460,8 @@ async function generateScriptSemantics(
 function createScriptSemanticsRequest(
   inputPath: string,
   analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
   slidePlan: LLMTextDeckSlidePlan,
   options: TextDeckProjectPlanOptions,
   rewrite?: {
@@ -341,9 +473,11 @@ function createScriptSemanticsRequest(
   const baseMessage: LLMMessage = {
     content: JSON.stringify({
       analysis,
+      brief,
       goal: 'Write narration, slide semantic metadata, source ranges, durations, and outline for the approved slide plan.',
       instructions: [
         'Return one scriptSemantics slide entry per slidePlan slide, using matching zero-based slideIndex values.',
+        'Use slideOutline.slides[].narrationBudgetSeconds as a hard budget. Keep estimated speech duration within that budget unless the source section must be split; in that case the correct fix is to shorten narration and flag through validation, not to inflate duration.',
         'Write one natural speakerNote per slide for TTS. It should sound like a presenter guiding the viewer through the slide, not a file reader.',
         'The speakerNote must walk the viewer through the on-screen content in order and expand each visible point into a natural spoken sentence.',
         'Do not introduce new arguments, examples, claims, or steps that are not visible on the current slide, except brief transition phrases.',
@@ -357,6 +491,7 @@ function createScriptSemanticsRequest(
       ],
       inputPath,
       slidePlan,
+      slideOutline,
       source: {
         durationSeconds: options.durationTargetSeconds,
         sourceType: requireDeckPlanningSourceType(options.sourceType),
@@ -415,6 +550,7 @@ async function rewriteInvalidStagedDeckPlan(
     error: unknown
     inputPath: string
     options: TextDeckProjectPlanOptions
+    sourceMap: ReturnType<typeof createDeckSourceMap>
     stagedPlan: StagedDeckPlan
     text: string
   },
@@ -431,6 +567,7 @@ async function attemptStagedDeckPlanRewrite(
   input: {
     inputPath: string
     options: TextDeckProjectPlanOptions
+    sourceMap: ReturnType<typeof createDeckSourceMap>
     text: string
   },
   state: {
@@ -451,7 +588,7 @@ async function attemptStagedDeckPlanRewrite(
   let stagedPlan: StagedDeckPlan
 
   if (rewriteStage === 'slide-plan') {
-    const slidePlan = await generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, input.options, {
+    const slidePlan = await generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, input.options, {
       attemptsRemaining,
       invalidOutput: state.stagedPlan.slidePlan,
       issues,
@@ -472,16 +609,18 @@ async function attemptStagedDeckPlanRewrite(
       })
     }
 
-    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, slidePlan, input.options)
+    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, input.options)
 
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
+      brief: state.stagedPlan.brief,
       finalPlan: assembleFinalDeckPlan(state.stagedPlan.analysis, slidePlan, scriptSemantics),
       scriptSemantics,
+      slideOutline: state.stagedPlan.slideOutline,
       slidePlan,
     }
   } else {
-    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.slidePlan, input.options, {
+    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, state.stagedPlan.slidePlan, input.options, {
       attemptsRemaining,
       invalidOutput: state.stagedPlan.scriptSemantics,
       issues,
@@ -489,14 +628,22 @@ async function attemptStagedDeckPlanRewrite(
 
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
+      brief: state.stagedPlan.brief,
       finalPlan: assembleFinalDeckPlan(state.stagedPlan.analysis, state.stagedPlan.slidePlan, scriptSemantics),
       scriptSemantics,
+      slideOutline: state.stagedPlan.slideOutline,
       slidePlan: state.stagedPlan.slidePlan,
     }
   }
 
   try {
-    return createTextDeckProjectPlanFromLLM(input.inputPath, input.text, stagedPlan.finalPlan, input.options)
+    return createTextDeckProjectPlanFromLLM(input.inputPath, input.text, stagedPlan.finalPlan, {
+      ...input.options,
+      contentAnalysis: createDeckContentAnalysisArtifact(stagedPlan.analysis),
+      deckBrief: createDeckBriefArtifact(stagedPlan.brief),
+      slideOutline: createDeckSlideOutlineArtifact(stagedPlan.slideOutline),
+      sourceMap: input.sourceMap,
+    })
   } catch (error) {
     return attemptStagedDeckPlanRewrite(llm, input, {
       attempt: state.attempt + 1,
@@ -534,9 +681,11 @@ function assembleFinalDeckPlan(
         ...(slide.comparison === undefined ? {} : {comparison: slide.comparison}),
         duration: scriptSlide.duration,
         motion: slide.motion,
+        outlineId: slide.outlineId,
         points: slide.points,
         ...(slide.quote === undefined ? {} : {quote: slide.quote}),
         semantic: scriptSlide.semantic,
+        sectionIds: slide.sectionIds,
         sourceRange: scriptSlide.sourceRange,
         speakerNote: scriptSlide.speakerNote,
         ...(slide.stat === undefined ? {} : {stat: slide.stat}),
@@ -554,6 +703,33 @@ function assembleFinalDeckPlan(
   })
 
   return finalPlan
+}
+
+function createDeckContentAnalysisArtifact(analysis: LLMTextDeckContentAnalysis) {
+  return DeckContentAnalysisSchema.parse({
+    ...analysis,
+    generatedAt: new Date().toISOString(),
+    source: 'source-map.json',
+    version: 1,
+  })
+}
+
+function createDeckBriefArtifact(brief: LLMTextDeckBrief) {
+  return DeckBriefSchema.parse({
+    ...brief,
+    generatedAt: new Date().toISOString(),
+    source: 'content-analysis.json',
+    version: 1,
+  })
+}
+
+function createDeckSlideOutlineArtifact(slideOutline: LLMTextDeckSlideOutline) {
+  return DeckSlideOutlineSchema.parse({
+    ...slideOutline,
+    generatedAt: new Date().toISOString(),
+    source: 'deck-brief.json',
+    version: 1,
+  })
 }
 
 function createDeckPlanningSourceChunks(text: string, options: TextDeckProjectPlanOptions): DeckPlanningSourceChunk[] {
@@ -654,7 +830,13 @@ function createDeckPlanningTarget(options: TextDeckProjectPlanOptions, settings:
       maximum: LLM_TEXT_DECK_MAX_SLIDES,
       minimum: Math.max(1, options.requiredSlideTypes?.length ?? 1),
     },
-    speakerNotePlanning: 'Choose narration density per slide from the visible content and target duration; no fixed per-slide character estimate is provided by the runtime.',
+    speakerNotePlanning: {
+      budgetSource: 'slideOutline.slides[].narrationBudgetSeconds',
+      englishWordsPerSecond: 2.6,
+      maxSlideSeconds: 12,
+      policy: 'Write to the explicit narration budget. Split or shorten before exceeding the budget; do not rely on post-TTS timing expansion.',
+      zhCharactersPerSecond: 4.8,
+    },
     targetPlatforms: ['douyin', 'kuaishou', 'bilibili', 'youtube', 'xhs', 'generic'],
     ...(settings.includeTemplateManifest ? {templateManifest: deckTemplateManifestForLLM} : {}),
   }

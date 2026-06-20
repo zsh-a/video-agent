@@ -102,12 +102,42 @@ export const LLMTextDeckContentAnalysisSchema = z.object({
       text: z.string().min(1),
       type: z.enum(LLM_DECK_CLAIM_TYPES),
     })).min(1),
+    mustCover: z.boolean(),
+    role: z.string().min(1),
     sourceRange: LLMDeckSourceRangeSchema.optional(),
     summary: z.string().min(1),
     title: z.string().min(1),
+    visualRole: z.string().min(1).optional(),
   })).min(1),
   summary: z.string().min(1),
   title: z.string().min(1),
+})
+
+export const LLMTextDeckBriefSchema = z.object({
+  audience: z.string().min(1).optional(),
+  densityPolicy: z.string().min(1),
+  language: z.string().min(1),
+  narrativeArc: z.array(z.string().min(1)).min(1),
+  objective: z.string().min(1),
+  optionalSectionIds: z.array(z.string().min(1)),
+  requiredSectionIds: z.array(z.string().min(1)),
+  styleIntent: z.string().min(1),
+  targetDurationSeconds: z.number().finite().positive().optional(),
+  targetSlideCount: z.number().int().positive().max(LLM_TEXT_DECK_MAX_SLIDES),
+  title: z.string().min(1),
+})
+
+export const LLMTextDeckSlideOutlineSchema = z.object({
+  slides: z.array(z.object({
+    goal: z.string().min(1),
+    informationRole: z.string().min(1),
+    mustCover: z.boolean(),
+    narrationBudgetSeconds: z.number().finite().positive(),
+    outlineId: z.string().min(1),
+    sourceSectionIds: z.array(z.string().min(1)).min(1),
+    templateIntent: z.enum(deckTemplateTypes as [DeckSlideType, ...DeckSlideType[]], {error: 'Template intent must be one of the registered Deck template types.'}),
+    visualIntent: z.string().min(1),
+  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
 })
 
 export const LLMTextDeckSlidePlanSchema = z.object({
@@ -119,6 +149,7 @@ export const LLMTextDeckSlidePlanSchema = z.object({
     motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1)),
     quote: LLMDeckQuoteSchema.optional(),
+    outlineId: z.string().min(1),
     sectionIds: z.array(z.string().min(1)).min(1),
     stat: LLMDeckStatSchema.optional(),
     subtitle: z.string().min(1).optional(),
@@ -155,6 +186,8 @@ export const LLMTextDeckPlanSchema = z.object({
     motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1)),
     quote: LLMDeckQuoteSchema.optional(),
+    outlineId: z.string().min(1).optional(),
+    sectionIds: z.array(z.string().min(1)).optional(),
     semantic: LLMTextDeckSlideSemanticSchema,
     sourceRange: LLMDeckSourceRangeSchema,
     speakerNote: z.string().min(1),
@@ -172,8 +205,10 @@ export const LLMTextDeckPlanSchema = z.object({
 })
 
 export type LLMTextDeckContentAnalysis = z.infer<typeof LLMTextDeckContentAnalysisSchema>
+export type LLMTextDeckBrief = z.infer<typeof LLMTextDeckBriefSchema>
 export type LLMTextDeckPlan = z.infer<typeof LLMTextDeckPlanSchema>
 export type LLMTextDeckScriptSemantics = z.infer<typeof LLMTextDeckScriptSemanticsSchema>
+export type LLMTextDeckSlideOutline = z.infer<typeof LLMTextDeckSlideOutlineSchema>
 export type LLMTextDeckSlidePlan = z.infer<typeof LLMTextDeckSlidePlanSchema>
 type LLMTextDeckSlide = LLMTextDeckPlan['slides'][number]
 
@@ -216,11 +251,13 @@ export interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'char
     }
   }
   motion: LLMTextDeckSlide['motion']
+  outlineId?: string
   points: string[]
   quote?: NonNullable<LLMTextDeckSlide['quote']>
   semantic: LLMTextDeckSlideSemantic
   speakerNote: string
   sourceRange: [number, number]
+  sectionIds?: string[]
   stat?: NonNullable<LLMTextDeckSlide['stat']>
   subtitle?: string
   transitionOut?: DeckTransition
