@@ -37,6 +37,8 @@ export default class Deck extends Command {
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
     'playwright-command': Flags.string({description: 'Playwright capture command prefix, either a binary name or JSON string array'}),
     renderer: Flags.string({default: 'remotion', description: 'Deck video renderer', options: ['remotion', 'html']}),
+    'max-slides': Flags.integer({description: 'Maximum generated slide count; must be between required slide minimum and the runtime cap'}),
+    'slide-count': Flags.integer({description: 'Exact generated slide count target'}),
     'source-type': Flags.string({description: 'Required input source type for script-generated Deck planning; no extension-based inference is performed', options: ['html', 'markdown', 'pdf', 'text']}),
     style: Flags.string({
       description: 'Deck theme/style name (auto lets LLM choose based on content)',
@@ -50,34 +52,37 @@ export default class Deck extends Command {
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Deck)
 
-    const commonOptions = {
-      contentDensity: flags['content-density'] as DeckContentDensity,
-      deckFormat: mapDeckFormat(flags.format as DeckFormatFlag),
-      inputPath: resolve(args.input),
-      language: flags.language,
-      maxSlideCharacters: flags['max-slide-characters'],
-      projectId: flags['project-id'],
-      sourceType: flags['source-type'] as DeckSourceTypeFlag | undefined,
-      theme: flags.style,
-      title: flags.title,
-      trace: flags.trace,
-      workspaceDir: flags.workspace,
-    }
     let output: Awaited<ReturnType<typeof runDeckExplainerPipeline>>
 
     try {
       const mode = requireDeckCliMode(flags.mode as DeckModeFlag | undefined)
+      const slideCountTarget = normalizePositiveInteger(flags['slide-count'], '--slide-count')
+      const slideCountMax = normalizePositiveInteger(flags['max-slides'], '--max-slides')
+
+      validateSlideCountFlags(slideCountTarget, slideCountMax)
 
       output = await runDeckExplainerPipeline({
-        ...commonOptions,
         chromiumCommand: parseCommandPrefix(flags['chromium-command'], '--chromium-command'),
+        contentDensity: flags['content-density'] as DeckContentDensity,
+        deckFormat: mapDeckFormat(flags.format as DeckFormatFlag),
         durationTargetSeconds: flags.duration === undefined ? undefined : parseDurationSeconds(flags.duration),
         frameCaptureBackend: flags['frame-capture-backend'] as 'chromium' | 'playwright',
         frameConcurrency: normalizePositiveInteger(flags['frame-concurrency'], '--frame-concurrency'),
+        inputPath: resolve(args.input),
         keyframeCaptureBackend: flags['keyframe-capture-backend'] as 'chromium' | 'playwright',
+        language: flags.language,
+        maxSlideCharacters: flags['max-slide-characters'],
         mode,
         playwrightCommand: parseCommandPrefix(flags['playwright-command'], '--playwright-command'),
+        projectId: flags['project-id'],
         renderer: flags.renderer as 'html' | 'remotion',
+        slideCountMax,
+        slideCountTarget,
+        sourceType: flags['source-type'] as DeckSourceTypeFlag | undefined,
+        theme: flags.style,
+        title: flags.title,
+        trace: flags.trace,
+        workspaceDir: flags.workspace,
       })
     } catch (error) {
       this.errorToStderr(error)
@@ -126,6 +131,12 @@ function normalizePositiveInteger(value: number | undefined, flagName: string): 
   }
 
   return value
+}
+
+function validateSlideCountFlags(slideCountTarget: number | undefined, slideCountMax: number | undefined): void {
+  if (slideCountTarget !== undefined && slideCountMax !== undefined && slideCountTarget > slideCountMax) {
+    throw new Error('--slide-count must be less than or equal to --max-slides.')
+  }
 }
 
 function parseCommandPrefix(value: string | undefined, flagName: string): string[] | undefined {

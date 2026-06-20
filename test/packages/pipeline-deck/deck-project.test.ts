@@ -549,8 +549,7 @@ describe('deck explainer project', () => {
       const slidePrompt = JSON.parse(String(slidePlanRequest?.messages?.[0]?.content)) as {
         instructions: string[]
         target: {
-          slideCount?: unknown
-          slideCountLimits: {maximum: number; minimum: number}
+          slideCount: {maximum: number; minimum: number; target?: number}
           speakerNoteCharactersPerSlide?: unknown
           speakerNotePlanning: {policy: string}
           templateManifest: {
@@ -575,8 +574,8 @@ describe('deck explainer project', () => {
       expect(slidePrompt.instructions.join(' ')).to.contain('target.templateManifest')
       expect(slidePrompt.target.templateManifest.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
       expect(slidePrompt.target.templateManifest.templates.find((template) => template.type === 'three-points')?.limits.points).to.equal(3)
-      expect(slidePrompt.target.slideCount).to.equal(undefined)
-      expect(slidePrompt.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 1})
+      expect(slidePrompt.target.slideCount).to.deep.include({maximum: 24, minimum: 1})
+      expect(slidePrompt.target.slideCount.target).to.equal(undefined)
       expect(slidePrompt.target.speakerNoteCharactersPerSlide).to.equal(undefined)
       expect(slidePrompt.target.speakerNotePlanning.policy).to.include('explicit narration budget')
       expect(result.slides).to.equal(4)

@@ -62,6 +62,32 @@ interface StagedDeckPlan {
   slidePlan: LLMTextDeckSlidePlan
 }
 
+interface DeckContentDensityTarget {
+  level: NonNullable<TextDeckProjectPlanOptions['contentDensity']>
+  narrationPolicy: string
+  slideCountPolicy: string
+  visibleTextPolicy: string
+}
+
+interface DeckSlideCountIntent {
+  maximum: number
+  minimum: number
+  policy: string
+  target?: number
+}
+
+interface DeckPlanningIntent {
+  contentDensity: DeckContentDensityTarget
+  durationSeconds?: number
+  format: NonNullable<TextDeckProjectPlanOptions['deckFormat']>
+  language: string
+  maxVisibleCharactersPerSlide: number
+  requestedTheme?: string
+  requestedTitle?: string
+  requiredSlideTypes?: TextDeckProjectPlanOptions['requiredSlideTypes']
+  slideCount: DeckSlideCountIntent
+}
+
 type DeckPlanningValidationIssue = Omit<LLMTextDeckValidationIssue, 'stage'> & {
   stage: DeckLLMPlanningStage | 'final-build'
 }
@@ -103,6 +129,7 @@ export async function createLLMTextDeckProjectPlan(
   const stagedPlan = await createStagedDeckPlan(llm, inputPath, text, sourceMap, planOptions, agent)
 
   try {
+    validateLLMTextDeckSlideCount(stagedPlan.slideOutline, planOptions)
     validateLLMTextDeckScriptSemantics(stagedPlan.scriptSemantics, stagedPlan.slideOutline, planOptions)
     assertCoherenceReview(stagedPlan.coherenceReview)
     const finalPlan = assembleFinalDeckPlan(stagedPlan.analysis, stagedPlan.slidePlan, stagedPlan.scriptSemantics)
@@ -291,7 +318,9 @@ function createDeckBriefRequest(
       goal: 'Create a presentation brief for a Deck explainer. Decide coverage strategy, target slide count, narrative arc, density policy, and required source sections. Do not write slide text or narration.',
       instructions: [
         'Base requiredSectionIds on analysis.sections where mustCover is true. Preserve section ids exactly.',
-        'Choose targetSlideCount from source complexity, required sections, target.contentDensity, and target duration. It must be large enough that must-cover sections are not compressed into unrelated slides.',
+        'If target.slideCount.target is provided, set targetSlideCount exactly to that value.',
+        'If target.slideCount.target is absent, choose targetSlideCount from source complexity, required sections, target.contentDensity, and target duration.',
+        'Never exceed target.slideCount.maximum, and keep targetSlideCount large enough that must-cover sections are not compressed into unrelated slides.',
         'Set targetDurationSeconds only when target.durationSeconds is provided. If target.durationSeconds is absent, omit targetDurationSeconds instead of inventing a duration.',
         'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
         'Write densityPolicy as concrete generation guidance that follows target.contentDensity while preserving source-grounded coverage.',
@@ -346,9 +375,11 @@ function createSlideOutlineRequest(
       goal: 'Create a slide outline for the Deck explainer. Decide what each slide covers before any visible slide text is written.',
       instructions: [
         'Every brief.requiredSectionIds entry must appear in at least one slides[].sourceSectionIds array.',
+        'If target.slideCount.target is provided, return exactly that many outline slides.',
+        'If target.slideCount.target is absent, keep outline slide count within target.slideCount.minimum and target.slideCount.maximum while following brief.targetSlideCount.',
         'Use one outline slide for one coherent idea. Split unrelated required sections instead of combining them.',
         'Set narrationBudgetSeconds based on target duration, target.contentDensity, and slide goal; use realistic TTS budgets rather than optimistic visual durations.',
-        'For detailed content density, prefer adding a coherent slide over compressing necessary examples, steps, caveats, or evidence into one slide.',
+        'For detailed content density, prefer adding a coherent slide within target.slideCount.maximum over compressing necessary examples, steps, caveats, or evidence into one slide.',
         'templateIntent must be one registered template type and should match the information role and source content.',
         'visualIntent should describe the visual job of the slide without CSS, fonts, or coordinates.',
       ],
@@ -386,6 +417,7 @@ function createSlideOutlineRequest(
           goal: 'Rewrite the slide-outline stage output so it satisfies the structured validation issues. Return a complete replacement slide-outline object, not a patch.',
           instructions: [
             'Use issues as binding coverage and outline feedback.',
+            'Respect target.slideCount exactly when target.slideCount.target is provided; otherwise keep the outline within target.slideCount.minimum and target.slideCount.maximum.',
             'Every brief.requiredSectionIds entry and every mustCover analysis section must appear in at least one slides[].sourceSectionIds array.',
             'If a slide covers too many unrelated source sections, split it into multiple coherent outline slides instead of compressing them.',
             'Preserve source section ids exactly; do not invent ids that are absent from analysis.sections or brief required/optional ids.',
@@ -475,8 +507,8 @@ function createSlidePlanRequest(
         'For visual.kind, choose one of chart, code, process, table, text, or title-card. Return assetRefs as an empty array.',
         'When target.requiredSlideTypes is provided, include every listed slide type at least once.',
         'Required code slides must include a non-empty code field, and required process slides must use the process type with concrete ordered points.',
-        'Choose the slide count from source complexity, required slide types, template limits, and target duration. Do not follow a runtime-estimated fixed slide count.',
-        'If content exceeds a template limit, split it into multiple slides instead of overfilling one slide.',
+        'Preserve the slideOutline slide count exactly. If content cannot fit a template, validation will route the fix back to slide-outline rather than asking this stage to invent extra slides.',
+        'If content exceeds a template limit, select a better registered template or keep only source-critical visible text; do not add slides in this stage.',
         'Do not put multiple unrelated themes on one slide; split by topic before choosing a template.',
         'When the source contains code fences, shell commands, configuration snippets, API examples, or code_sample references, include at least one code slide that preserves a short representative snippet in code.text.',
         'For code slides, remove Markdown fences and raw template markers from visible text, but preserve the executable command, configuration, request, response, or schema content needed by the viewer.',
@@ -678,6 +710,55 @@ function createScriptTimingBudgets(
       title: slide.title,
     }
   })
+}
+
+function validateLLMTextDeckSlideCount(
+  slideOutline: LLMTextDeckSlideOutline,
+  options: TextDeckProjectPlanOptions,
+): void {
+  const slideCount = createDeckPlanningIntent(options).slideCount
+  const actual = slideOutline.slides.length
+  const issues: LLMTextDeckValidationIssue[] = []
+
+  if (actual < slideCount.minimum) {
+    issues.push({
+      actual,
+      code: 'SLIDE_COUNT_MINIMUM',
+      field: 'slides',
+      limit: slideCount.minimum,
+      message: `Deck slide outline has ${actual} slides, below minimum slide count ${slideCount.minimum}.`,
+      path: 'slideOutline.slides',
+      stage: 'slide-outline',
+    })
+  }
+
+  if (actual > slideCount.maximum) {
+    issues.push({
+      actual,
+      code: 'SLIDE_COUNT_MAXIMUM',
+      field: 'slides',
+      limit: slideCount.maximum,
+      message: `Deck slide outline has ${actual} slides, exceeding maximum slide count ${slideCount.maximum}.`,
+      path: 'slideOutline.slides',
+      stage: 'slide-outline',
+    })
+  }
+
+  if (slideCount.target !== undefined && actual !== slideCount.target) {
+    issues.push({
+      actual,
+      code: 'SLIDE_COUNT_TARGET',
+      field: 'slides',
+      limit: slideCount.target,
+      message: `Deck slide outline has ${actual} slides, but target slide count is ${slideCount.target}.`,
+      path: 'slideOutline.slides',
+      stage: 'slide-outline',
+    })
+  }
+
+  if (issues.length > 0) {
+    throw new LLMTextDeckValidationError(issues)
+  }
 }
 
 function validateLLMTextDeckScriptSemantics(
@@ -1037,6 +1118,7 @@ async function attemptStagedDeckPlanRewrite(
   }
 
   try {
+    validateLLMTextDeckSlideCount(stagedPlan.slideOutline, input.options)
     assertCoherenceReview(stagedPlan.coherenceReview)
     const finalPlan = assembleFinalDeckPlan(stagedPlan.analysis, stagedPlan.slidePlan, stagedPlan.scriptSemantics)
 
@@ -1291,7 +1373,21 @@ function isCjkLanguage(language: string): boolean {
   return /^(zh|ja|ko)\b/iu.test(language)
 }
 
-function createDeckContentDensityTarget(options: TextDeckProjectPlanOptions): object {
+function createDeckPlanningIntent(options: TextDeckProjectPlanOptions): DeckPlanningIntent {
+  return {
+    contentDensity: createDeckContentDensityTarget(options),
+    format: options.deckFormat ?? 'portrait_1080x1920',
+    language: options.language,
+    maxVisibleCharactersPerSlide: options.maxSlideCharacters,
+    ...(options.durationTargetSeconds === undefined ? {} : {durationSeconds: options.durationTargetSeconds}),
+    ...(options.theme === undefined || options.theme === 'auto' ? {} : {requestedTheme: options.theme}),
+    ...(options.title === undefined ? {} : {requestedTitle: options.title}),
+    ...(options.requiredSlideTypes === undefined ? {} : {requiredSlideTypes: options.requiredSlideTypes}),
+    slideCount: createDeckSlideCountIntent(options),
+  }
+}
+
+function createDeckContentDensityTarget(options: TextDeckProjectPlanOptions): DeckContentDensityTarget {
   const level = options.contentDensity ?? 'balanced'
 
   if (level === 'concise') {
@@ -1320,24 +1416,46 @@ function createDeckContentDensityTarget(options: TextDeckProjectPlanOptions): ob
   }
 }
 
+function createDeckSlideCountIntent(options: TextDeckProjectPlanOptions): DeckSlideCountIntent {
+  const minimum = Math.max(1, options.requiredSlideTypes?.length ?? 1)
+  const maximum = options.slideCountMax ?? LLM_TEXT_DECK_MAX_SLIDES
+  const target = options.slideCountTarget
+
+  if (!Number.isInteger(maximum) || maximum < minimum || maximum > LLM_TEXT_DECK_MAX_SLIDES) {
+    throw new Error(`Deck max slide count must be an integer between ${minimum} and ${LLM_TEXT_DECK_MAX_SLIDES}; received ${maximum}.`)
+  }
+
+  if (target !== undefined && (!Number.isInteger(target) || target < minimum || target > maximum)) {
+    throw new Error(`Deck target slide count must be an integer between ${minimum} and ${maximum}; received ${target}.`)
+  }
+
+  return {
+    maximum,
+    minimum,
+    policy: target === undefined
+      ? 'Choose slide count from source complexity, required coverage, content density, duration, and template capacity within this range.'
+      : 'Use the exact target slide count. Preserve source coverage by choosing tighter slide goals before violating the target.',
+    ...(target === undefined ? {} : {target}),
+  }
+}
+
 function createDeckPlanningTarget(options: TextDeckProjectPlanOptions, settings: {includeTemplateManifest: boolean}): object {
+  const intent = createDeckPlanningIntent(options)
+
   return {
     availableThemes: Object.entries(DECK_THEME_DESCRIPTIONS).map(([name, description]) => ({description, name})),
-    durationSeconds: options.durationTargetSeconds,
-    format: options.deckFormat ?? 'portrait_1080x1920',
-    language: options.language,
-    maxVisibleCharactersPerSlide: options.maxSlideCharacters,
-    contentDensity: createDeckContentDensityTarget(options),
-    requestedTheme: options.theme === undefined || options.theme === 'auto' ? undefined : options.theme,
-    requestedTitle: options.title,
+    contentDensity: intent.contentDensity,
+    durationSeconds: intent.durationSeconds,
+    format: intent.format,
+    language: intent.language,
+    maxVisibleCharactersPerSlide: intent.maxVisibleCharactersPerSlide,
+    requestedTheme: intent.requestedTheme,
+    requestedTitle: intent.requestedTitle,
     requiresOutline: true,
     requiresSlideTransitions: true,
     requiresSlideSourceRanges: true,
-    requiredSlideTypes: options.requiredSlideTypes,
-    slideCountLimits: {
-      maximum: LLM_TEXT_DECK_MAX_SLIDES,
-      minimum: Math.max(1, options.requiredSlideTypes?.length ?? 1),
-    },
+    requiredSlideTypes: intent.requiredSlideTypes,
+    slideCount: intent.slideCount,
     speakerNotePlanning: {
       budgetSource: 'slideOutline.slides[].narrationBudgetSeconds',
       englishWordsPerSecond: 2.6,
@@ -1418,6 +1536,7 @@ function classifyValidationStage(message: string): DeckPlanningValidationIssue['
 
   if (
     message.includes('slide outline')
+    || message.includes('slide count')
     || message.includes('required source section')
     || message.includes('requiredSectionIds')
     || message.includes('mustCover')
@@ -1462,6 +1581,13 @@ function classifyValidationStage(message: string): DeckPlanningValidationIssue['
 function classifyIssueCode(message: string): string {
   if (message.includes('Deck coherence review requires')) {
     return parseCoherenceIssueCode(message) ?? 'COHERENCE_REVIEW'
+  }
+
+  if (
+    message.includes('slide count')
+    || message.includes('Deck slide outline has')
+  ) {
+    return 'SLIDE_COUNT'
   }
 
   if (
@@ -1521,6 +1647,13 @@ function parseSlideIndex(message: string): number | undefined {
 function parseIssuePath(message: string): string | undefined {
   if (message.includes('Deck coherence review requires')) {
     return parseCoherenceIssuePath(message) ?? 'deck-coherence-report.json'
+  }
+
+  if (
+    message.includes('slide count')
+    || message.includes('Deck slide outline has')
+  ) {
+    return 'slideOutline.slides'
   }
 
   if (

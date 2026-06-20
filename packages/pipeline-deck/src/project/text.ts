@@ -66,6 +66,8 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
       language,
       maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
       requiredSlideTypes: options.requiredSlideTypes,
+      slideCountMax: options.slideCountMax,
+      slideCountTarget: options.slideCountTarget,
       sourceType: options.sourceType,
       theme: options.theme,
       title: options.title,

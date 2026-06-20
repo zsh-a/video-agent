@@ -91,6 +91,8 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
 	      language,
 	      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
 	      requiredSlideTypes: options.requiredSlideTypes,
+      slideCountMax: options.slideCountMax,
+      slideCountTarget: options.slideCountTarget,
       sourceType: 'audio',
       theme: options.theme,
       title: options.title,

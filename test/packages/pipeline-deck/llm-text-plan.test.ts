@@ -390,6 +390,8 @@ describe('Deck Explainer LLM text planning', () => {
       durationTargetSeconds: 12,
       language: 'en-US',
       maxSlideCharacters: 260,
+      slideCountMax: 3,
+      slideCountTarget: 1,
       sourceType: 'markdown',
     })
 
@@ -401,6 +403,11 @@ describe('Deck Explainer LLM text planning', () => {
           narrationPolicy: string
           slideCountPolicy: string
           visibleTextPolicy: string
+        }
+        slideCount: {
+          maximum: number
+          minimum: number
+          target?: number
         }
       }
     }
@@ -417,6 +424,11 @@ describe('Deck Explainer LLM text planning', () => {
     expect(slidePlanPayload.target.contentDensity.level).to.equal('detailed')
     expect(slidePlanPayload.target.contentDensity.visibleTextPolicy).to.include('concrete nouns')
     expect(slidePlanPayload.target.contentDensity.slideCountPolicy).to.include('splitting dense source material')
+    expect(slidePlanPayload.target.slideCount).to.deep.include({
+      maximum: 3,
+      minimum: 1,
+      target: 1,
+    })
     expect(slidePlanPayload.instructions.join('\n')).to.include('target.contentDensity.visibleTextPolicy')
     expect(scriptPayload.target.contentDensity.level).to.equal('detailed')
     expect(scriptPayload.target.contentDensity.narrationPolicy).to.include('concrete steps')
@@ -1202,7 +1214,7 @@ describe('Deck Explainer LLM text planning', () => {
 
         const rawPlan = withDeckTransitions({
             language: 'en-US',
-            outline: deckOutline(3),
+            outline: deckOutline(4),
             slides: [
               {
                 duration: 30,
@@ -1220,22 +1232,33 @@ describe('Deck Explainer LLM text planning', () => {
                   language: 'sh',
                   text: 'kubectl apply -f https://k8s.io/examples/pods/simple-pod.yaml',
                 },
-	                duration: 30,
+	                duration: 20,
                 motion: 'blur-rise',
 	                points: ['Apply a Pod manifest with kubectl.'],
 	                semantic: deckSemantic('Apply a Pod manifest with kubectl.', 'example'),
-		                sourceRange: [30, 60],
+		                sourceRange: [30, 50],
 	                speakerNote: 'This command applies the example Pod manifest with kubectl.',
                 title: 'Create a Pod',
                 type: 'code',
                 visual: deckVisual('code'),
               },
               {
-	                duration: 30,
+                duration: 20,
+                motion: 'stagger-up',
+                points: ['Define manifest', 'Apply with kubectl', 'Use controllers'],
+                semantic: deckSemantic('Create Pods from manifests, then manage them through workload controllers.', 'recommendation'),
+                sourceRange: [50, 70],
+                speakerNote: 'The workflow is to define the manifest, apply it with kubectl, and rely on controllers for ongoing management.',
+                title: 'Pod Workflow',
+                type: 'process',
+                visual: deckVisual('process'),
+              },
+              {
+	                duration: 20,
                 motion: 'soft-scale',
 	                points: ['Use workload controllers'],
 	                semantic: deckSemantic('Use workload resources for ongoing management.', 'summary'),
-		                sourceRange: [60, 90],
+		                sourceRange: [70, 90],
 	                speakerNote: 'The takeaway is to manage Pods through controllers for real workloads.',
                 title: 'Key Takeaway',
                 type: 'summary',
@@ -1294,8 +1317,7 @@ describe('Deck Explainer LLM text planning', () => {
       instructions: string[]
       target: {
         requiredSlideTypes?: string[]
-        slideCount?: unknown
-        slideCountLimits: {maximum: number; minimum: number}
+        slideCount: {maximum: number; minimum: number; policy: string; target?: number}
         speakerNoteCharactersPerSlide?: unknown
         speakerNotePlanning: {policy: string}
       }
@@ -1310,10 +1332,10 @@ describe('Deck Explainer LLM text planning', () => {
     expect(payload.instructions.join('\n')).to.include('include at least one code slide')
     expect(payload.instructions.join('\n')).to.include('preserve the executable command')
     expect(payload.instructions.join('\n')).to.include('end with a summary slide')
-    expect(payload.instructions.join('\n')).to.include('Do not follow a runtime-estimated fixed slide count')
+    expect(payload.instructions.join('\n')).to.include('Preserve the slideOutline slide count exactly')
     expect(payload.target.requiredSlideTypes).to.deep.equal(['hero', 'process', 'code', 'summary'])
-    expect(payload.target.slideCount).to.equal(undefined)
-    expect(payload.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 4})
+    expect(payload.target.slideCount).to.deep.include({maximum: 24, minimum: 4})
+    expect(payload.target.slideCount.target).to.equal(undefined)
     expect(payload.target.speakerNoteCharactersPerSlide).to.equal(undefined)
     expect(payload.target.speakerNotePlanning.policy).to.include('explicit narration budget')
     expect(scriptPayload.instructions.join('\n')).to.include('scriptTimingBudgets as binding per-slide limits')

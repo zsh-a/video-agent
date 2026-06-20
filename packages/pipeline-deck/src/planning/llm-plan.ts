@@ -249,7 +249,7 @@ export interface LLMTextDeckValidationIssue {
   path?: string
   slideIndex?: number
   slideTitle?: string
-  stage: 'final-build' | 'script-semantics' | 'slide-plan'
+  stage: 'final-build' | 'script-semantics' | 'slide-outline' | 'slide-plan'
   template?: DeckSlideType
 }
 

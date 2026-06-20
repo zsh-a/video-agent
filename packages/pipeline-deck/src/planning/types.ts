@@ -43,6 +43,8 @@ export interface TextDeckProjectPlanOptions {
   language: string
   maxSlideCharacters: number
   requiredSlideTypes?: DeckSlideType[]
+  slideCountMax?: number
+  slideCountTarget?: number
   slideOutline?: DeckSlideOutline
   speakerNoteTimingBudget?: boolean
   sourceType?: Document['source']['sourceType']

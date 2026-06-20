@@ -19,6 +19,8 @@ export interface CreateDeckExplainerProjectOptions {
   mode?: 'script-generated'
   projectId?: string
   requiredSlideTypes?: DeckSlideType[]
+  slideCountMax?: number
+  slideCountTarget?: number
   sourceType?: Exclude<Document['source']['sourceType'], 'audio'>
   theme?: string
   title?: string
@@ -59,6 +61,8 @@ export interface CreateDeckAudioAnchoredProjectOptions {
   maxSlideCharacters?: number
   projectId?: string
   requiredSlideTypes?: DeckSlideType[]
+  slideCountMax?: number
+  slideCountTarget?: number
   theme?: string
   title?: string
   trace?: boolean

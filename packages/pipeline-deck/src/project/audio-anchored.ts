@@ -91,6 +91,8 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
 	      language,
 	      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
 	      requiredSlideTypes: options.requiredSlideTypes,
+      slideCountMax: options.slideCountMax,
+      slideCountTarget: options.slideCountTarget,
       speakerNoteTimingBudget: false,
       sourceType: 'audio',
       theme: options.theme,
