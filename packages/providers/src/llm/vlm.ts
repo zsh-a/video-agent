@@ -6,8 +6,10 @@ import type {SceneFrameBatch, VLMProvider, VLMScene} from '../contracts.js'
 
 import {bunFile} from '../bun-runtime.js'
 import {createFileDataUri, resolveImageMimeType} from './media-utils.js'
+import {parseVlmScenes} from '../json-response.js'
 import {attachProviderMetadata} from '../metadata.js'
 import {VlmScenesSchema} from '../schemas.js'
+import {validateVlmScenesForBatches} from '../vlm-validation.js'
 
 const MAX_VLM_IMAGE_PARTS = 16
 
@@ -21,7 +23,7 @@ export class LLMVLMProvider implements VLMProvider {
       temperature: 0.2,
     })
 
-    return attachProviderMetadata(VlmScenesSchema.parse(result.object), {
+    return attachProviderMetadata(validateVlmScenesForBatches(parseVlmScenes(result.object), input), {
       usage: result.usage,
     })
   }
@@ -29,6 +31,10 @@ export class LLMVLMProvider implements VLMProvider {
 
 async function createVlmMessages(input: SceneFrameBatch[], context?: string): Promise<LLMMessage[]> {
   const sampledFramePaths = sampleVlmFramePaths(input)
+  if (sampledFramePaths.length === 0) {
+    throw new Error('LLM VLM analysis requires at least one sampled frame image; no path-only visual inference is allowed.')
+  }
+
   const imageParts = await Promise.all(sampledFramePaths.map(async (path) => createVlmImagePart(path)))
   const content = [
     {
@@ -40,7 +46,7 @@ async function createVlmMessages(input: SceneFrameBatch[], context?: string): Pr
           'Preserve sceneId values exactly.',
           'Fill actions, characters, emotions, plotClues, and relationships directly from the visible evidence and context.',
           'Use concise canonical phrases for structured fields; leave a field empty only when the evidence does not support it.',
-          'Use attached images and frame paths as evidence when they support the description.',
+          'Use attached images as the visual evidence. Frame paths are identifiers only; do not infer visual content from filenames or paths.',
           'Use seconds for time ranges and do not invent scene ids.',
         ],
         sampledFrames: sampledFramePaths,
@@ -48,7 +54,7 @@ async function createVlmMessages(input: SceneFrameBatch[], context?: string): Pr
       }),
       type: 'text' as const,
     },
-    ...imageParts.filter((part): part is NonNullable<typeof part> => part !== undefined),
+    ...imageParts,
   ]
 
   return [
@@ -104,7 +110,7 @@ function sampleEvenly<T>(values: T[], limit: number): T[] {
     .filter((value): value is T => value !== undefined)
 }
 
-async function createVlmImagePart(path: string): Promise<{data: string; filename: string; mediaType: string; type: 'file'} | undefined> {
+async function createVlmImagePart(path: string): Promise<{data: string; filename: string; mediaType: string; type: 'file'}> {
   try {
     const image = await bunFile(path).bytes()
     const mediaType = resolveImageMimeType(path)
@@ -115,7 +121,9 @@ async function createVlmImagePart(path: string): Promise<{data: string; filename
       mediaType,
       type: 'file',
     }
-  } catch {
-    return undefined
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+
+    throw new Error(`LLM VLM analysis requires readable frame image "${path}"; no path-only visual inference is allowed: ${message}`)
   }
 }

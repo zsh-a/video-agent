@@ -726,7 +726,7 @@ async function createCollapsedExplainerProject(root: string, projectId: string):
     join(artifactsDir, 'storyboard.json'),
     `${JSON.stringify({
       language: 'zh-CN',
-      scenes: [{duration: 237.666, id: 'chunk-000-moment-001', sourceRange: [0, 237.666], start: 0, visualStyle: 'app_demo'}],
+      scenes: [{duration: 237.666, evidence: [], id: 'chunk-000-moment-001', sourceRange: [0, 237.666], start: 0, visualStyle: 'app_demo'}],
       targetPlatform: 'generic',
       version: 1,
     })}\n`,

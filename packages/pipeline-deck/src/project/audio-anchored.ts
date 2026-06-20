@@ -8,15 +8,15 @@ import {createAudioAnchoredDeckProjectPlan, createLLMTextDeckProjectPlan} from '
 import {writeDeckAudioAnchoredPlanArtifacts} from './artifacts.js'
 import {completeDeckJobStages, initializeDeckJob} from './job.js'
 import {
-  createDeckJobStore,
-  createProjectLLMTrace,
-  DEFAULT_MAX_SLIDE_CHARACTERS,
-  DEFAULT_SLIDE_SECONDS,
-  withLLMTracePath,
-} from './runtime.js'
+	  createDeckJobStore,
+	  createProjectLLMTrace,
+	  DEFAULT_MAX_SLIDE_CHARACTERS,
+	  withLLMTracePath,
+	} from './runtime.js'
 import type {CreateDeckAudioAnchoredProjectOptions, CreateDeckAudioAnchoredProjectResult} from './types.js'
 import {DECK_AUDIO_ANCHORED_STAGES} from '../shared/stages.js'
-import {normalizeText, roundSeconds} from '../shared/utils.js'
+import {roundSeconds} from '../shared/utils.js'
+import {requireExactTranscriptSegments, requireExactTranscriptText, requireTranscriptLanguage} from './transcript.js'
 
 export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnchoredProjectOptions): Promise<CreateDeckAudioAnchoredProjectResult> {
   const inputPath = resolve(options.inputPath)
@@ -44,7 +44,11 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     await convertDeckSourceAudio(inputPath, outputPath)
 
     const mediaInfo = await probeMedia(outputPath)
-    const duration = mediaInfo.duration ?? DEFAULT_SLIDE_SECONDS
+    if (mediaInfo.duration === undefined) {
+      throw new Error('Deck audio-anchored planning requires media duration from ffprobe; no default duration fallback is allowed.')
+    }
+
+    const duration = mediaInfo.duration
     const config = await readConfig(workspaceDir)
     const llmClient = await createRuntimeLLMClient(config, workspaceDir, {
       llmClient: options.llmClient,
@@ -67,12 +71,9 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
       duration,
       path: inputPath,
     }))
-    const language = options.language ?? transcript.language ?? 'zh-CN'
-    const text = normalizeText(transcript.text || transcript.segments.map((segment) => segment.text).join('\n\n'))
-
-    if (text === '') {
-      throw new Error('Deck audio-anchored transcript must not be empty.')
-    }
+    const transcriptSegments = requireExactTranscriptSegments(transcript, 'Deck audio-anchored planning')
+    const language = options.language ?? requireTranscriptLanguage(transcript, 'Deck audio-anchored planning')
+    const text = requireExactTranscriptText(transcript, 'Deck audio-anchored planning')
 
     await jobStore.updateStage('transcribe', 'completed', undefined, 1)
     await jobStore.updateStage('plan', 'running', undefined, 1)
@@ -80,15 +81,15 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     const generatedPlan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
       deckFormat: options.deckFormat,
       durationTargetSeconds: duration,
-      language,
-      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-      requiredSlideTypes: options.requiredSlideTypes,
-      slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-      sourceType: 'audio',
+	      language,
+	      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+	      requiredSlideTypes: options.requiredSlideTypes,
+	      sourceType: 'audio',
       theme: options.theme,
       title: options.title,
+      transcriptSegments,
     })
-    const plan = createAudioAnchoredDeckProjectPlan(generatedPlan, inputPath, mediaInfo, duration, language, options.slideSeconds ?? DEFAULT_SLIDE_SECONDS)
+    const plan = createAudioAnchoredDeckProjectPlan(generatedPlan, inputPath, mediaInfo, duration)
     const deckVoiceover = {
       duration,
       generatedAt: new Date().toISOString(),

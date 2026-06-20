@@ -7,6 +7,52 @@ import {join} from 'node:path'
 import {writeMotionCanvasDeckProject} from '../../../packages/renderer-motion-canvas/src/index.js'
 
 describe('motion canvas deck compiler', () => {
+  it('rejects missing MotionIR instead of creating a static renderer fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-motion-canvas-missing-motion-'))
+
+    try {
+      let error: unknown
+
+      try {
+        await writeMotionCanvasDeckProject({
+          outputDir: root,
+          timedDeck: {
+            deck: {
+              format: 'portrait_1080x1920',
+              inputMode: 'script-generated',
+              language: 'en',
+              slides: [
+                {
+                  blockIds: [],
+                  evidence: [],
+                  motion: 'line-draw',
+                  points: ['Compiled motion is required'],
+                  slideId: 'slide-001',
+                  speakerNote: 'Renderer export should not invent static motion.',
+                  title: 'No Static Motion',
+                  type: 'process',
+                  visual: {assetRefs: [], kind: 'diagram'},
+                },
+              ],
+              theme: 'elegant-dark',
+              title: 'Deck',
+              version: 1,
+            },
+            timings: [{end: 3, slideId: 'slide-001', start: 0}],
+            version: 1,
+          },
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('requires a compiled motionTimeline')
+      expect(String(error)).to.include('no static renderer motion fallback is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('writes a Motion Canvas project from timed DeckIR and MotionIR', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-motion-canvas-'))
 

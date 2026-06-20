@@ -4,7 +4,6 @@ import type {ReactNode} from 'react'
 import {PointCard, StatNumber, TitleBlock} from '../../components/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
-import {ReadableFallback} from '../helpers.js'
 import {statManifest} from './manifest.js'
 import {statStyles} from './styles.js'
 
@@ -33,10 +32,14 @@ export const statTemplateModule = defineSlideTemplateModule({
 
 function StatBody({slide}: {slide: Slide}): ReactNode {
   if (slide.stat === undefined) {
-    return <ReadableFallback slide={slide} />
+    throw new Error(`Deck stat slide "${slide.slideId}" is missing stat data.`)
   }
 
-  const points = slide.points.slice(0, 4)
+  if (slide.points.length > 4) {
+    throw new Error(`Deck stat slide "${slide.slideId}" received ${slide.points.length} points, exceeding renderer limit 4.`)
+  }
+
+  const points = slide.points
 
   if (points.length === 0) {
     return <StatNumber stat={slide.stat} />

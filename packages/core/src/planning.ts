@@ -20,57 +20,51 @@ export interface SceneBoundaryInsight {
 }
 
 export function createSceneBoundariesFromTranscript(transcript: TranscriptInsight | undefined, mediaDuration: number): SceneBoundaryInsight[] {
-  const sourceDuration = mediaDuration > 0 ? mediaDuration : inferTranscriptDuration(transcript)
-  const validSegments = (transcript?.segments ?? [])
-    .map((segment) => {
-      const start = clamp(segment.start, 0, sourceDuration)
-      const end = clamp(segment.end, start, sourceDuration)
+  const sourceDuration = requireSceneBoundaryDuration(transcript, mediaDuration)
+  const segments = transcript?.segments ?? []
 
-      return {
-        end,
-        start,
-        text: segment.text,
-      }
-    })
-    .filter((segment) => segment.end > segment.start)
-  const boundaries = validSegments.map((segment, index): SceneBoundaryInsight => ({
-    ...segment,
-    id: `scene-${index + 1}`,
-  }))
-
-  if (boundaries.length > 0) {
-    return boundaries
+  if (segments.length === 0) {
+    throw new Error('Scene boundary planning requires timed transcript segments; no transcript-wide fallback scene is allowed.')
   }
 
-  return [
-    {
-      end: sourceDuration,
-      id: 'scene-1',
-      start: 0,
-      text: transcript?.text,
-    },
-  ]
+  const boundaries = segments.map((segment, index): SceneBoundaryInsight => {
+    if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) || segment.start < 0 || segment.end > sourceDuration || segment.end <= segment.start) {
+      throw new Error(`Scene boundary transcript segment ${index + 1} must provide a positive timestamp range within source duration; no segment clipping or filtering is allowed.`)
+    }
+
+    return {
+      end: segment.end,
+      id: `scene-${index + 1}`,
+      start: segment.start,
+      text: segment.text,
+    }
+  })
+
+  return boundaries
 }
 
 export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
   const sourceDuration = inferMediaDuration(mediaInfo)
   let duration = 0
-  let sourceCursor = 0
   const clips: ClipPlan['clips'] = storyboard.scenes.map((scene, index) => {
     const {sourceRange} = scene
-    const sourceStart = sourceRange === undefined ? sourceCursor : clamp(sourceRange[0], 0, sourceDuration)
-    const sourceEnd = sourceRange === undefined ? clamp(sourceStart + scene.duration, sourceStart, sourceDuration) : clamp(sourceRange[1], sourceStart, sourceDuration)
+    if (sourceRange === undefined) {
+      throw new Error(`Clip planning requires storyboard scene "${scene.id}" to include an explicit sourceRange.`)
+    }
+
+    const [sourceStart, sourceEnd] = sourceRange
+
+    if (!Number.isFinite(sourceStart) || !Number.isFinite(sourceEnd) || sourceStart < 0 || sourceEnd > sourceDuration || sourceEnd <= sourceStart) {
+      throw new Error(`Clip planning requires storyboard scene "${scene.id}" sourceRange to stay within source duration; no runtime sourceRange clipping is allowed.`)
+    }
+
     const clipDuration = sourceEnd - sourceStart
 
-    sourceCursor = Math.max(sourceCursor, sourceEnd)
     duration = Math.max(duration, scene.start + clipDuration)
 
     return {
       duration: clipDuration,
       id: `clip-${index + 1}`,
-      reason: sourceRange === undefined
-        ? `Sequential source range for ${scene.id}; requested ${formatSeconds(scene.duration)}s, allocated ${formatSeconds(clipDuration)}s.`
-        : `Storyboard source range for ${scene.id}; requested ${formatSeconds(sourceRange[1] - sourceRange[0])}s, allocated ${formatSeconds(clipDuration)}s.`,
       sceneId: scene.id,
       source: mediaInfo.inputPath,
       sourceRange: [sourceStart, sourceEnd],
@@ -105,18 +99,18 @@ export function createTimelineFromClipPlan(mediaInfo: MediaInfo, clipPlan: ClipP
   }
 }
 
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max)
-}
+function requireSceneBoundaryDuration(transcript: TranscriptInsight | undefined, mediaDuration: number): number {
+  if (mediaDuration > 0) {
+    return mediaDuration
+  }
 
-function formatSeconds(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, '').replace(/\.$/, '')
-}
-
-function inferTranscriptDuration(transcript: TranscriptInsight | undefined): number {
   const segmentEnd = Math.max(0, ...(transcript?.segments ?? []).map((segment) => segment.end))
 
-  return segmentEnd > 0 ? segmentEnd : 1
+  if (segmentEnd <= 0) {
+    throw new Error('Scene boundary planning requires media duration or timed transcript segments.')
+  }
+
+  return segmentEnd
 }
 
 function inferMediaDuration(mediaInfo: MediaInfo): number {

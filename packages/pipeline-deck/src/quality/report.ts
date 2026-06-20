@@ -1,7 +1,7 @@
 import type {DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, LongVideoSelectedMoments, MediaInfo, Narration, Slide, SlideTiming, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
 
-import {checkExplainerStructure, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds} from '@video-agent/quality'
+import {checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds} from '@video-agent/quality'
 import {compileDeckMotionPlan, resolveMotionStepsForTemplate, validateSlideAgainstTemplateManifest} from '@video-agent/renderer-deck'
 
 import {deckSlideText} from '../planning/slide-content.js'
@@ -18,7 +18,6 @@ export function createTextQualityIssues(input: {
     ...checkStoryboardConsistency(input.storyboard, input.mediaInfo),
     ...checkTimelineBounds(input.timeline),
     ...checkNarrationTiming(input.narration, input.timeline),
-    ...checkExplainerStructure(input),
   ]
 }
 
@@ -96,6 +95,18 @@ export function summarizeQualityIssues(issues: QualityIssue[]): {errors: number;
   }
 }
 
+export function assertDeckQualityReportHasNoErrors(report: DeckQualityReport, reportPath?: string): void {
+  if (report.summary.errors === 0) {
+    return
+  }
+
+  const firstError = report.issues.find((issue) => issue.severity === 'error')
+  const reportHint = reportPath === undefined ? '' : ` Report: ${reportPath}.`
+  const firstErrorHint = firstError === undefined ? '' : ` First error: ${firstError.code}: ${firstError.message}`
+
+  throw new Error(`Deck quality report contains ${report.summary.errors} error(s); refusing to render/export invalid Deck output.${reportHint}${firstErrorHint}`)
+}
+
 function createDeckSlideQualityMetrics(slide: Slide, duration: number): DeckSlideQualityMetrics {
   const textCharacters = deckSlideText(slide).length
 
@@ -161,36 +172,16 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     })
   }
 
-  if (slide.type === 'chart' && slide.visual?.chartDataRef === undefined && slide.evidence.length === 0) {
+  if (slide.type === 'chart' && slide.chart !== undefined && slide.evidence.length === 0) {
     issues.push({
       code: 'deck.chart_missing_source',
-      message: `Slide ${slide.slideId} is a chart slide without chartDataRef or evidence.`,
+      message: `Slide ${slide.slideId} is a chart slide without evidence for its chart data.`,
       severity: 'warning',
       slideId: slide.slideId,
     })
   }
 
-  if (slide.type === 'comparison' && (
-    slide.comparison === undefined ||
-    slide.comparison.left.points.length === 0 ||
-    slide.comparison.right.points.length === 0
-  )) {
-    issues.push({
-      code: 'deck.comparison_incomplete',
-      message: `Slide ${slide.slideId} is a comparison slide without complete left and right comparison points.`,
-      severity: 'error',
-      slideId: slide.slideId,
-    })
-  }
-
-  if (slide.type === 'stat' && slide.stat === undefined) {
-    issues.push({
-      code: 'deck.stat_missing_data',
-      message: `Slide ${slide.slideId} is a stat slide without stat data.`,
-      severity: 'error',
-      slideId: slide.slideId,
-    })
-  }
+  issues.push(...createRequiredTemplateContentIssues(slide))
 
   if (slide.type === 'stat' && slide.stat !== undefined && slide.points.length === 0 && slide.stat.caption === undefined) {
     issues.push({
@@ -202,6 +193,53 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
   }
 
   return issues
+}
+
+function createRequiredTemplateContentIssues(slide: Slide): DeckQualityIssue[] {
+  const issues: DeckQualityIssue[] = []
+
+  if (slide.type === 'chart' && slide.chart === undefined) {
+    issues.push(createSlideContentIssue(slide, 'deck.chart_missing_data', 'is a chart slide without chart data.'))
+  }
+
+  if (slide.type === 'one-big-idea' && slide.points.length === 0) {
+    issues.push(createSlideContentIssue(slide, 'deck.idea_missing_statement', 'is a one-big-idea slide without an LLM-authored visible idea point.'))
+  }
+
+  if (slide.type === 'comparison' && (
+    slide.comparison === undefined ||
+    slide.comparison.left.points.length === 0 ||
+    slide.comparison.right.points.length === 0
+  )) {
+    issues.push(createSlideContentIssue(slide, 'deck.comparison_incomplete', 'is a comparison slide without complete left and right comparison points.'))
+  }
+
+  if (slide.type === 'quote' && slide.quote === undefined) {
+    issues.push(createSlideContentIssue(slide, 'deck.quote_missing_text', 'is a quote slide without quote text.'))
+  }
+
+  if (slide.type === 'code' && slide.code === undefined) {
+    issues.push(createSlideContentIssue(slide, 'deck.code_missing_block', 'is a code slide without a code block.'))
+  }
+
+  if (slide.type === 'cta' && slide.points.length === 0) {
+    issues.push(createSlideContentIssue(slide, 'deck.cta_missing_action', 'is a CTA slide without an LLM-authored action point.'))
+  }
+
+  if (slide.type === 'stat' && slide.stat === undefined) {
+    issues.push(createSlideContentIssue(slide, 'deck.stat_missing_data', 'is a stat slide without stat data.'))
+  }
+
+  return issues
+}
+
+function createSlideContentIssue(slide: Slide, code: string, message: string): DeckQualityIssue {
+  return {
+    code,
+    message: `Slide ${slide.slideId} ${message}`,
+    severity: 'error',
+    slideId: slide.slideId,
+  }
 }
 
 function createDeckTemplateQualityIssues(slide: Slide): DeckQualityIssue[] {

@@ -2,7 +2,7 @@ import {ComparisonBlock, TitleBlock} from '../../components/index.js'
 import {titlePresetFor} from '../../motion/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
-import {ReadableFallback, comparisonForSlide} from '../helpers.js'
+import {requireComparisonForSlide} from '../helpers.js'
 import {comparisonManifest} from './manifest.js'
 import {comparisonStyles} from './styles.js'
 
@@ -14,12 +14,12 @@ const comparisonMotionSteps: TemplateMotionStep[] = [
 
 export const comparisonTemplate = defineSlideTemplate({
   render: (slide) => {
-    const comparison = comparisonForSlide(slide)
+    const comparison = requireComparisonForSlide(slide)
 
     return (
       <>
         <TitleBlock slide={slide} />
-        {comparison === undefined ? <ReadableFallback slide={slide} /> : <ComparisonBlock comparison={comparison} />}
+        <ComparisonBlock comparison={comparison} />
       </>
     )
   },

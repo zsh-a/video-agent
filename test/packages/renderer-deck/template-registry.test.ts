@@ -1,7 +1,8 @@
 import {expect} from '#test/expect'
 
+import {BulletList, ProcessList, Timeline} from '../../../packages/renderer-deck/src/deck/components/index.js'
 import {defineSlideTemplateModule, type SlideTemplateModule} from '../../../packages/renderer-deck/src/deck/templates/define-template.js'
-import {maxPointsForDeckTemplate, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-deck/src/deck/templates/manifest.js'
+import {findDeckTemplateManifestEntry, maxPointsForDeckTemplate, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-deck/src/deck/templates/manifest.js'
 import {resolveMotionStepsForTemplate, resolveSlideTemplate, slideTemplateModules, slideTemplateMotionSteps, slideTemplateRegistry, slideTemplateStyles} from '../../../packages/renderer-deck/src/deck/templates/registry.js'
 
 describe('slideTemplateModules', () => {
@@ -47,10 +48,126 @@ describe('resolveSlideTemplate', () => {
     }
   })
 
-  it('falls back to three-points for unknown type', () => {
-    const resolved = resolveSlideTemplate('unknown-type' as Parameters<typeof resolveSlideTemplate>[0])
+  it('throws for unknown types instead of falling back to another template', () => {
+    expect(() => resolveSlideTemplate('unknown-type' as Parameters<typeof resolveSlideTemplate>[0])).to.throw('No Deck template renderer registered')
+  })
 
-    expect(resolved.type).to.equal('three-points')
+  it('throws when semantic templates are missing required renderer content', () => {
+    expect(() => resolveSlideTemplate('chart').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'line-draw',
+      points: ['Synthetic bar should not be enough'],
+      slideId: 'slide-chart',
+      title: 'Chart',
+      type: 'chart',
+    })).to.throw('missing chart data')
+
+    expect(() => resolveSlideTemplate('code').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'blur-rise',
+      points: [],
+      slideId: 'slide-code',
+      title: 'Code',
+      type: 'code',
+    })).to.throw('missing code block')
+
+    expect(() => resolveSlideTemplate('quote').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'soft-scale',
+      points: [],
+      slideId: 'slide-quote',
+      title: 'Quote',
+      type: 'quote',
+    })).to.throw('missing quote text')
+
+    expect(() => resolveSlideTemplate('one-big-idea').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'soft-scale',
+      points: [],
+      slideId: 'slide-idea',
+      subtitle: 'Do not use subtitle as the primary idea',
+      title: 'Idea',
+      type: 'one-big-idea',
+    })).to.throw('missing an LLM-authored idea point')
+
+    expect(() => resolveSlideTemplate('one-big-idea').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'soft-scale',
+      points: ['Primary idea', 'Support one', 'Support two', 'Hidden support'],
+      slideId: 'slide-idea-overflow',
+      title: 'Idea',
+      type: 'one-big-idea',
+    })).to.throw('exceeding renderer limit 3')
+
+    expect(() => resolveSlideTemplate('cta').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'zoom-focus',
+      points: [],
+      slideId: 'slide-cta',
+      subtitle: 'Do not use subtitle as the action',
+      title: 'Act',
+      type: 'cta',
+    })).to.throw('missing an LLM-authored action point')
+
+    expect(() => resolveSlideTemplate('three-points').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'stagger-up',
+      points: [],
+      slideId: 'slide-three-points',
+      title: 'Three Points',
+      type: 'three-points',
+    })).to.throw('missing visible points')
+
+    expect(() => resolveSlideTemplate('summary').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'stagger-up',
+      points: [],
+      slideId: 'slide-summary',
+      title: 'Summary',
+      type: 'summary',
+    })).to.throw('missing visible points')
+
+    expect(() => resolveSlideTemplate('process').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'stagger-up',
+      points: [],
+      slideId: 'slide-process',
+      title: 'Process',
+      type: 'process',
+    })).to.throw('missing visible points')
+
+    expect(() => resolveSlideTemplate('timeline').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'line-draw',
+      points: [],
+      slideId: 'slide-timeline',
+      title: 'Timeline',
+      type: 'timeline',
+    })).to.throw('missing visible points')
+  })
+})
+
+describe('Deck visible point components', () => {
+  it('throw on empty required visible content instead of rendering nothing', () => {
+    expect(() => BulletList({className: 'points', max: 3, points: []})).to.throw('no empty list render fallback is allowed')
+    expect(() => ProcessList({points: []})).to.throw('no empty process render fallback is allowed')
+    expect(() => Timeline({points: []})).to.throw('no empty timeline render fallback is allowed')
+  })
+})
+
+describe('findDeckTemplateManifestEntry', () => {
+  it('throws for unknown types instead of falling back to the first manifest', () => {
+    expect(() => findDeckTemplateManifestEntry('unknown-type' as Parameters<typeof findDeckTemplateManifestEntry>[0])).to.throw('No Deck template manifest registered')
   })
 })
 
@@ -191,6 +308,32 @@ describe('validateSlideAgainstTemplateManifest', () => {
     })
 
     expect(issues.some((issue) => issue.includes('subtitle limit 42'))).to.equal(true)
+  })
+
+  it('detects required point underflow for templates with primary LLM-authored points', () => {
+    const ideaIssues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'soft-scale',
+      points: [],
+      slideId: 'slide-idea',
+      subtitle: 'Subtitle must not replace the idea point.',
+      title: 'Idea',
+      type: 'one-big-idea',
+    })
+    const ctaIssues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'zoom-focus',
+      points: [],
+      slideId: 'slide-cta',
+      subtitle: 'Subtitle must not replace the action point.',
+      title: 'Act',
+      type: 'cta',
+    })
+
+    expect(ideaIssues.some((issue) => issue.includes('requires at least 1 one-big-idea point'))).to.equal(true)
+    expect(ctaIssues.some((issue) => issue.includes('requires at least 1 cta point'))).to.equal(true)
   })
 
   it('detects comparison side point limits', () => {

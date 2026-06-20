@@ -28,7 +28,7 @@ export interface RunDeckExplainerPipelineOptions extends Omit<CreateDeckExplaine
   htmlRenderCommand?: CreateDeckFinalRenderProjectOptions['htmlRenderCommand']
   htmlValidate?: CreateDeckFinalRenderProjectOptions['htmlValidate']
   keyframeCaptureBackend?: CreateDeckFinalRenderProjectOptions['keyframeCaptureBackend']
-  mode?: DeckExplainerPipelineMode
+  mode: DeckExplainerPipelineMode
   playwrightCommand?: CreateDeckFinalRenderProjectOptions['playwrightCommand']
   renderer?: CreateDeckFinalRenderProjectOptions['renderer']
 }
@@ -43,7 +43,7 @@ export interface RunDeckExplainerPipelineResult {
 }
 
 export async function runDeckExplainerPipeline(options: RunDeckExplainerPipelineOptions): Promise<RunDeckExplainerPipelineResult> {
-  const mode = options.mode ?? 'script-generated'
+  const mode = requireDeckExplainerPipelineMode(options.mode)
   const deck = mode === 'audio-anchored'
     ? await createDeckAudioAnchoredProject(options)
     : mode === 'summarize'
@@ -85,4 +85,12 @@ export async function runDeckExplainerPipeline(options: RunDeckExplainerPipeline
     status: 'completed',
     voiceover,
   }
+}
+
+function requireDeckExplainerPipelineMode(mode: DeckExplainerPipelineMode | undefined): DeckExplainerPipelineMode {
+  if (mode === undefined) {
+    throw new Error('Deck pipeline requires an explicit mode; no runner-level script-generated fallback is allowed.')
+  }
+
+  return mode
 }

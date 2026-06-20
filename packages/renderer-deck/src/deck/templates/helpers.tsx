@@ -1,13 +1,4 @@
-import type {DeckCodeBlock, DeckComparison, DeckQuote, Slide} from '@video-agent/ir'
-import type {ReactNode} from 'react'
-
-import {BulletList, IdeaCard} from '../components/index.js'
-
-export function ReadableFallback({slide}: {slide: Slide}): ReactNode {
-  return slide.points.length > 0
-    ? <BulletList className="points" max={4} points={slide.points} />
-    : <IdeaCard slide={slide} />
-}
+import type {DeckComparison, Slide} from '@video-agent/ir'
 
 export function comparisonForSlide(slide: Slide): DeckComparison | undefined {
   if (
@@ -21,15 +12,20 @@ export function comparisonForSlide(slide: Slide): DeckComparison | undefined {
   return undefined
 }
 
-export function quoteForSlide(slide: Slide): DeckQuote {
-  return slide.quote ?? {
-    text: slide.points[0] ?? slide.speakerNote ?? slide.title,
+export function requireComparisonForSlide(slide: Slide): DeckComparison {
+  const comparison = comparisonForSlide(slide)
+
+  if (comparison === undefined) {
+    throw new Error(`Deck comparison slide "${slide.slideId}" is missing complete comparison content.`)
   }
+
+  return comparison
 }
 
-export function codeForSlide(slide: Slide): DeckCodeBlock {
-  return slide.code ?? {
-    language: 'text',
-    text: slide.points.join('\n') || slide.title,
+export function requireSlidePoints(slide: Slide, template: string): string[] {
+  if (slide.points.length === 0) {
+    throw new Error(`Deck ${template} slide "${slide.slideId}" is missing visible points.`)
   }
+
+  return slide.points
 }

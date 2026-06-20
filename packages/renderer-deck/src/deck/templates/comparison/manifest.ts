@@ -17,7 +17,6 @@ export const comparisonManifest = {
     requiredVisibleElements: ['.slide__title', '.comparison__side'],
     safeArea: true,
   },
-  repair: 'fallback-readable',
   type: 'comparison',
   useWhen: 'Comparing two options, concepts, architectures, states, or tradeoffs.',
 } satisfies DeckTemplateManifestEntry

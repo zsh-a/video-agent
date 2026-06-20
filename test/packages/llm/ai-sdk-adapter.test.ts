@@ -101,7 +101,7 @@ describe('AI SDK LLM adapter', () => {
           : {
               content: [
                 {
-                  text: '```json\n{"ok":true}\n```',
+                  text: '{"ok":true}',
                   type: 'text',
                 },
               ],
@@ -138,7 +138,7 @@ describe('AI SDK LLM adapter', () => {
         return {
           content: [
             {
-              text: '```json\n{"ok":true}\n```',
+              text: '{"ok":true}',
               type: 'text',
             },
           ],
@@ -382,8 +382,9 @@ describe('AI SDK LLM adapter', () => {
     expect(trace.request.messages[0]?.content[0]?.data.includes('SGVsbG8=')).to.equal(false)
   })
 
-  it('repairs a common malformed comparison object in fallback JSON', async () => {
+  it('rejects malformed comparison JSON instead of repairing it locally', async () => {
     let calls = 0
+    const traces: unknown[] = []
     const model = createMockLanguageModel({
       async generateResult() {
         calls += 1
@@ -425,36 +426,104 @@ describe('AI SDK LLM adapter', () => {
             }
       },
     })
-    const client = new AISDKLLMClient({model})
-
-    const result = await client.generateObject({
-      prompt: 'Return JSON',
-      schema: z.object({
-        comparison: z.object({
-          left: z.object({
-            label: z.string(),
-            points: z.array(z.string()),
-          }),
-          right: z.object({
-            label: z.string(),
-            points: z.array(z.string()),
-          }),
-        }),
-      }),
-    })
-
-    expect(result.object).to.deep.equal({
-      comparison: {
-        left: {
-          label: 'A',
-          points: ['a'],
-        },
-        right: {
-          label: 'B',
-          points: ['b'],
+    const client = new AISDKLLMClient({
+      model,
+      trace: {
+        record(trace) {
+          traces.push(trace)
         },
       },
     })
+
+    try {
+      await client.generateObject({
+        prompt: 'Return JSON',
+        schema: z.object({
+          comparison: z.object({
+            left: z.object({
+              label: z.string(),
+              points: z.array(z.string()),
+            }),
+            right: z.object({
+              label: z.string(),
+              points: z.array(z.string()),
+            }),
+          }),
+        }),
+      })
+      expect.fail('Expected malformed fallback JSON to fail.')
+    } catch (error) {
+      expect(error).to.be.instanceOf(Error)
+      expect(String(error)).to.include('LLM JSON fallback failed')
+    }
+
+    expect(traces).to.have.length(2)
+    expect((traces[1] as {operation: string; status: string}).operation).to.equal('generateObjectFallbackText')
+    expect((traces[1] as {status: string}).status).to.equal('failed')
+  })
+
+  it('rejects fenced fallback JSON instead of extracting it locally', async () => {
+    let calls = 0
+    const traces: unknown[] = []
+    const model = createMockLanguageModel({
+      async generateResult() {
+        calls += 1
+
+        if (calls === 1) {
+          throw new APICallError({
+            isRetryable: false,
+            message: 'Bad Request',
+            requestBodyValues: {},
+            statusCode: 400,
+            url: 'https://example.test/messages',
+          })
+        }
+
+        return {
+          content: [
+            {
+              text: '```json\n{"ok":true}\n```',
+              type: 'text',
+            },
+          ],
+          finishReason: 'stop',
+          usage: {
+            inputTokens: 4,
+            outputTokens: 3,
+            totalTokens: 7,
+          },
+          warnings: [],
+        }
+      },
+    })
+    const client = new AISDKLLMClient({
+      model,
+      trace: {
+        record(trace) {
+          traces.push(trace)
+        },
+      },
+    })
+
+    try {
+      await client.generateObject({
+        prompt: 'Return JSON',
+        schema: z.object({
+          ok: z.boolean(),
+        }),
+      })
+      expect.fail('Expected fenced fallback JSON to fail.')
+    } catch (error) {
+      expect(error).to.be.instanceOf(Error)
+      expect(String(error)).to.include('LLM JSON fallback failed')
+    }
+
+    expect(traces).to.have.length(2)
+    const fallbackTrace = traces[1] as {operation: string; response: {text: string}; status: string}
+
+    expect(fallbackTrace.operation).to.equal('generateObjectFallbackText')
+    expect(fallbackTrace.status).to.equal('failed')
+    expect(fallbackTrace.response.text).to.equal('```json\n{"ok":true}\n```')
   })
 
   it('streams text events while preserving final usage', async () => {

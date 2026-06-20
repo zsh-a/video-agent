@@ -7,7 +7,6 @@ import {resolve} from 'node:path'
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
 export const DEFAULT_MAX_SLIDE_CHARACTERS = 260
-export const DEFAULT_SLIDE_SECONDS = 18
 
 const LLM_TRACE_ARTIFACT_NAME = 'llm-traces.jsonl'
 

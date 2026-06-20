@@ -8,13 +8,13 @@ body[data-format="landscape_1920x1080"] .code-block__body {
 
 .code-block__highlight,
 .code-block__highlight .shiki,
-.code-block__fallback {
+.code-block__plain {
   min-width: 0;
   overflow: hidden;
 }
 
 .code-block__highlight .shiki,
-.code-block__fallback {
+.code-block__plain {
   background: transparent !important;
   border: 0;
   color: #e6edf3;
@@ -29,14 +29,14 @@ body[data-format="landscape_1920x1080"] .code-block__body {
 }
 
 .code-block__highlight .shiki code,
-.code-block__fallback code {
+.code-block__plain code {
   counter-reset: code-line;
   display: block;
   min-width: 0;
 }
 
 .code-block__highlight .shiki .line,
-.code-block__fallback code {
+.code-block__plain code {
   display: block;
   min-height: 1.62em;
 }
@@ -80,9 +80,9 @@ body[data-theme="warm-paper"] .code-block {
   color-scheme: dark;
 }
 
-body[data-theme="clean-white"] .code-block__fallback code,
-body[data-theme="minimal-editorial"] .code-block__fallback code,
-body[data-theme="warm-paper"] .code-block__fallback code {
+body[data-theme="clean-white"] .code-block__plain code,
+body[data-theme="minimal-editorial"] .code-block__plain code,
+body[data-theme="warm-paper"] .code-block__plain code {
   color: #f9fafb;
 }
 
@@ -91,7 +91,7 @@ body[data-format="portrait_1080x1920"] .code-block {
 }
 
 body[data-format="portrait_1080x1920"] .code-block__highlight .shiki,
-body[data-format="portrait_1080x1920"] .code-block__fallback {
+body[data-format="portrait_1080x1920"] .code-block__plain {
   font-size: calc(var(--font-caption) * 0.68);
   line-height: 1.72;
 }

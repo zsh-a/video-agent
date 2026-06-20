@@ -82,8 +82,12 @@ describe('provider smoke test', () => {
 
   it('runs llm providers through smoke tests with an injected LLM client', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
+    const audioPath = join(root, 'llm-asr.wav')
+    const framePath = join(root, 'llm-vlm.jpg')
 
     try {
+      await writeBytes(audioPath, Buffer.from('fake-audio'))
+      await writeBytes(framePath, Buffer.from('fake-jpeg'))
       await writeConfig(root, {
         asr: 'llm',
         tts: 'llm',
@@ -91,7 +95,9 @@ describe('provider smoke test', () => {
       })
 
       const report = await runProviderSmokeTest({
+        framePath,
         llmClient: createSmokeTestLLMClient(),
+        mediaPath: audioPath,
         workspaceDir: root,
       })
 
@@ -111,34 +117,49 @@ describe('provider smoke test', () => {
     const audioPath = join(root, 'source.wav')
     const originalFetch = Reflect.get(globalThis, 'fetch')
     const ResponseConstructor = Reflect.get(globalThis, 'Response') as new (body?: string, init?: {headers?: Record<string, string>}) => unknown
-    let requestBody: unknown
-    let requestUrl: string | undefined
+    const requestBodies: unknown[] = []
+    const requestUrls: string[] = []
 
     try {
       await writeConfig(root, {providerProfile: 'mimo'})
       await writeBytes(audioPath, Buffer.from([1, 2, 3]))
 
       Reflect.set(globalThis, 'fetch', async (input: unknown, init: undefined | {body?: unknown}) => {
-        requestUrl = String(input)
-        requestBody = JSON.parse(String(init?.body)) as unknown
+        requestUrls.push(String(input))
+        const body = JSON.parse(String(init?.body)) as {[asrOptionsKey]?: {language?: string}}
+
+        requestBodies.push(body)
+
+        const content = JSON.stringify({
+          language: 'zh-CN',
+          segments: [
+            {
+              end: 1,
+              start: 0,
+              text: '这是中文转写。',
+            },
+          ],
+          text: '这是中文转写。',
+        })
+        const usage = {
+          [completionTokensKey]: 4,
+          [promptTokensKey]: 8,
+          [totalTokensKey]: 12,
+        }
 
         return new ResponseConstructor(JSON.stringify({
           choices: [
             {
               [finishReasonKey]: 'stop',
               message: {
-                content: '这是中文转写。',
+                content,
                 role: 'assistant',
               },
             },
           ],
           id: 'chatcmpl-test',
           model: MIMO_PROVIDER_MODEL_IDS.asr,
-          usage: {
-            [completionTokensKey]: 4,
-            [promptTokensKey]: 8,
-            [totalTokensKey]: 12,
-          },
+          usage,
         }), {
           headers: {
             'content-type': 'application/json',
@@ -154,7 +175,7 @@ describe('provider smoke test', () => {
         roles: ['asr'],
         workspaceDir: root,
       })
-      const body = requestBody as {
+      const body = requestBodies[0] as {
         [asrOptionsKey]?: {language?: string}
         messages?: Array<{content?: Array<Record<string, string | {data?: string}>>}>
         model?: string
@@ -189,7 +210,9 @@ describe('provider smoke test', () => {
         traces: 'passed',
         usageMetadata: 'passed',
       })
-      expect(requestUrl).to.equal('https://token-plan-cn.xiaomimimo.com/v1/chat/completions')
+      expect(requestUrls).to.deep.equal([
+        'https://token-plan-cn.xiaomimimo.com/v1/chat/completions',
+      ])
       expect(body.model).to.equal(MIMO_PROVIDER_MODEL_IDS.asr)
       expect(body[asrOptionsKey]).to.deep.equal({language: 'auto'})
       expect(audioPart).to.deep.equal({
@@ -264,18 +287,27 @@ describe('provider smoke test', () => {
 
 function createSmokeTestLLMClient(): LLMClient {
   return {
-    async generateObject<T>(request: GenerateObjectRequest<T>) {
-      const prompt = JSON.stringify(request.messages ?? request.prompt ?? '')
-      let object: unknown
+	    async generateObject<T>(request: GenerateObjectRequest<T>) {
+	      const prompt = JSON.stringify(request.messages ?? request.prompt ?? '')
+	      const vlmPayload = parseSmokeVlmPayload(request)
+	      let object: unknown
 
-      if (prompt.includes('sceneBatches')) {
-        object = [
-          {
-            description: 'LLM smoke test scene.',
-            evidence: ['provider-smoke-test-frame.jpg'],
-            sceneId: 'provider-smoke-test-scene',
-          },
-        ]
+	      if (vlmPayload !== undefined) {
+	        const batch = vlmPayload.sceneBatches[0]
+	        const frame = batch?.frames[0]
+
+	        object = [
+	          {
+	            actions: [],
+	            characters: [],
+	            description: 'LLM smoke test scene.',
+	            emotions: [],
+	            evidence: frame === undefined ? [] : [frame],
+	            plotClues: [],
+	            relationships: [],
+	            sceneId: batch?.sceneId ?? 'provider-smoke-test-scene',
+	          },
+	        ]
       } else if (prompt.includes('llm-tts')) {
         object = [
           {
@@ -295,8 +327,37 @@ function createSmokeTestLLMClient(): LLMClient {
             },
           ],
           text: 'LLM smoke test transcript.',
-        }
-      }
+          timestampConfidence: 'exact',
+	  }
+	}
+
+function parseSmokeVlmPayload(request: GenerateObjectRequest<unknown>): {sceneBatches: Array<{frames: string[]; sceneId: string}>} | undefined {
+  const message = request.messages?.[0]
+  const content = message?.content
+
+  if (!Array.isArray(content)) {
+    return undefined
+  }
+
+  const textPart = content.find((part) => part.type === 'text')
+
+  if (textPart?.type !== 'text') {
+    return undefined
+  }
+
+  const payload = JSON.parse(textPart.text) as {sceneBatches?: Array<{frames?: string[]; sceneId?: string}>}
+
+  if (!Array.isArray(payload.sceneBatches)) {
+    return undefined
+  }
+
+  return {
+    sceneBatches: payload.sceneBatches.map((batch) => ({
+      frames: Array.isArray(batch.frames) ? batch.frames : [],
+      sceneId: typeof batch.sceneId === 'string' ? batch.sceneId : '',
+    })),
+  }
+}
 
       return {object: object as T}
     },

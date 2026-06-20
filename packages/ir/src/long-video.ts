@@ -102,8 +102,9 @@ export const LongVideoAnalysisFramesSchema = z.object({
 
 export const LongVideoMomentSchema = z.object({
   chunkId: z.string().min(1).optional(),
-  evidence: z.array(EvidenceSchema).default([]),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
+  outputRange: LongVideoTimeRangeSchema.optional(),
   score: z.number().finite().min(0).max(1).optional(),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().min(1),
@@ -113,8 +114,8 @@ export const LongVideoMomentSchema = z.object({
 export const LongVideoChunkSummarySchema = z.object({
   chunkId: z.string().min(1),
   contentRange: LongVideoTimeRangeSchema,
-  keyMoments: z.array(LongVideoMomentSchema).default([]),
-  silenceRanges: z.array(LongVideoTimeRangeSchema).default([]),
+  keyMoments: z.array(LongVideoMomentSchema),
+  silenceRanges: z.array(LongVideoTimeRangeSchema),
   summary: z.string().min(1),
   transcriptSummary: z.string().optional(),
   visualSummary: z.string().optional(),
@@ -135,10 +136,10 @@ export const LongVideoChunkSummariesSchema = z.object({
 
 export const LongVideoChapterSummarySchema = z.object({
   chunkIds: z.array(z.string().min(1)),
-  evidence: z.array(EvidenceSchema).default([]),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   index: z.number().int().nonnegative(),
-  keyMoments: z.array(LongVideoMomentSchema).default([]),
+  keyMoments: z.array(LongVideoMomentSchema),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().min(1),
   title: z.string().min(1),
@@ -151,8 +152,8 @@ export const LongVideoChapterSummariesSchema = z.object({
 })
 
 export const LongVideoStoryBeatSchema = z.object({
-  chapterIds: z.array(z.string().min(1)).default([]),
-  evidence: z.array(EvidenceSchema).default([]),
+  chapterIds: z.array(z.string().min(1)),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   sourceRange: LongVideoTimeRangeSchema.optional(),
   summary: z.string().min(1),
@@ -161,10 +162,10 @@ export const LongVideoStoryBeatSchema = z.object({
 
 export const LongVideoGlobalOutlineSchema = z.object({
   chapters: z.array(LongVideoChapterSummarySchema),
-  language: z.string().default('zh-CN'),
+  language: z.string().min(1),
   source: z.string().min(1),
   sourceDuration: z.number().finite().nonnegative(),
-  storyBeats: z.array(LongVideoStoryBeatSchema).default([]),
+  storyBeats: z.array(LongVideoStoryBeatSchema),
   targetDuration: z.number().finite().positive().optional(),
   version: z.literal(1),
 })

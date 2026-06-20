@@ -4,6 +4,7 @@ import type {ReactNode} from 'react'
 export interface DeckTemplateQualityRules {
   maxPointLines?: number
   maxPoints?: number
+  minPoints?: number
   maxTitleLines?: number
   requiredVisibleElements: string[]
   safeArea: boolean
@@ -15,7 +16,6 @@ export interface DeckTemplateManifestEntry {
   limits: Record<string, number>
   motionPresets: DeckMotionPreset[]
   qualityRules: DeckTemplateQualityRules
-  repair: 'split-points' | 'fallback-readable' | 'none'
   type: DeckSlideType
   useWhen: string
 }

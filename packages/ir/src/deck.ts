@@ -39,6 +39,13 @@ export const DeckMotionPresetSchema = z.enum([
   'parallax',
 ])
 
+export const DeckTransitionTypeSchema = z.enum(['crossfade', 'fade', 'slide-left', 'slide-up'])
+
+export const DeckTransitionSchema = z.object({
+  duration: z.number().finite().positive(),
+  type: DeckTransitionTypeSchema,
+})
+
 export const DeckSlideTypeSchema = z.enum([
   'hero',
   'section',
@@ -55,9 +62,16 @@ export const DeckSlideTypeSchema = z.enum([
   'cta',
 ])
 
+export const DeckSourceRangeSchema = z.tuple([
+  z.number().finite().nonnegative(),
+  z.number().finite().nonnegative(),
+]).refine(([start, end]) => end > start, {
+  message: 'Deck sourceRange end must be greater than start.',
+})
+
 export const DocumentSourceSchema = z.object({
   author: z.string().optional(),
-  language: z.string().default('zh-CN'),
+  language: z.string().min(1),
   path: z.string().min(1).optional(),
   sourceType: z.enum(['audio', 'html', 'markdown', 'pdf', 'text']),
   title: z.string().optional(),
@@ -65,14 +79,11 @@ export const DocumentSourceSchema = z.object({
 })
 
 export const ContentBlockSchema = z.object({
-  evidence: z.array(EvidenceSchema).default([]),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
-  sourceRange: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
+  sourceRange: DeckSourceRangeSchema,
   text: z.string().min(1),
   type: z.enum(['claim', 'context', 'data', 'example', 'quote', 'recommendation', 'summary']),
-}).refine((block) => block.sourceRange === undefined || block.sourceRange[1] >= block.sourceRange[0], {
-  message: 'Content block sourceRange end must be greater than or equal to start.',
-  path: ['sourceRange'],
 })
 
 export const DocumentSchema = z.object({
@@ -89,8 +100,8 @@ export const ContentBlocksSchema = z.object({
 
 export const ClaimSchema = z.object({
   blockId: z.string().min(1),
-  confidence: z.number().finite().min(0).max(1).default(0.7),
-  evidence: z.array(EvidenceSchema).default([]),
+  confidence: z.number().finite().min(0).max(1),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   text: z.string().min(1),
   type: z.enum(['claim', 'data', 'recommendation', 'summary']),
@@ -103,9 +114,9 @@ export const ClaimsSchema = z.object({
 
 export const SourceQuoteSchema = z.object({
   blockId: z.string().min(1),
-  evidence: z.array(EvidenceSchema).default([]),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
-  sourceRange: z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()]).optional(),
+  sourceRange: DeckSourceRangeSchema,
   text: z.string().min(1),
 })
 
@@ -115,7 +126,7 @@ export const SourceQuotesSchema = z.object({
 })
 
 export const OutlineSectionSchema = z.object({
-  blockIds: z.array(z.string().min(1)).default([]),
+  blockIds: z.array(z.string().min(1)),
   duration: z.number().finite().positive().optional(),
   goal: z.string().min(1),
   id: z.string().min(1),
@@ -125,22 +136,21 @@ export const OutlineSectionSchema = z.object({
 export const OutlineSchema = z.object({
   audience: z.string().optional(),
   durationTarget: z.number().finite().positive().optional(),
-  language: z.string().default('zh-CN'),
+  language: z.string().min(1),
   sections: z.array(OutlineSectionSchema),
   title: z.string().min(1),
   version: z.literal(1),
 })
 
 export const DeckVisualSchema = z.object({
-  assetRefs: z.array(z.string().min(1)).default([]),
-  chartDataRef: z.string().min(1).optional(),
+  assetRefs: z.array(z.string().min(1)),
   kind: z.enum(['chart', 'code', 'diagram', 'image', 'process', 'table', 'text', 'title-card']),
   prompt: z.string().min(1).optional(),
 })
 
 export const DeckComparisonSideSchema = z.object({
   label: z.string().min(1),
-  points: z.array(z.string().min(1)).default([]),
+  points: z.array(z.string().min(1)),
 })
 
 export const DeckComparisonSchema = z.object({
@@ -159,37 +169,50 @@ export const DeckStatSchema = z.object({
   value: z.string().min(1),
 })
 
+export const DeckChartBarSchema = z.object({
+  caption: z.string().min(1).optional(),
+  label: z.string().min(1),
+  value: z.number().finite().min(0).max(1),
+})
+
+export const DeckChartSchema = z.object({
+  bars: z.array(DeckChartBarSchema).min(1),
+  valueLabel: z.string().min(1).optional(),
+})
+
 export const DeckCodeBlockSchema = z.object({
-  language: z.string().min(1).default('text'),
+  language: z.string().min(1),
   text: z.string().min(1),
 })
 
 export const DeckThemeTokensSchema = z.record(z.string().min(1), z.string().min(1))
 
 export const SlideSchema = z.object({
-  blockIds: z.array(z.string().min(1)).default([]),
+  blockIds: z.array(z.string().min(1)),
+  chart: DeckChartSchema.optional(),
   code: DeckCodeBlockSchema.optional(),
   comparison: DeckComparisonSchema.optional(),
   duration: z.number().finite().positive().optional(),
-  evidence: z.array(EvidenceSchema).default([]),
-  motion: DeckMotionPresetSchema.default('progressive-reveal'),
-  points: z.array(z.string().min(1)).default([]),
+  evidence: z.array(EvidenceSchema),
+  motion: DeckMotionPresetSchema,
+  points: z.array(z.string().min(1)),
   quote: DeckQuoteSchema.optional(),
   slideId: z.string().min(1),
   speakerNote: z.string().optional(),
   stat: DeckStatSchema.optional(),
   subtitle: z.string().optional(),
   title: z.string().min(1),
+  transitionOut: DeckTransitionSchema.optional(),
   type: DeckSlideTypeSchema,
   visual: DeckVisualSchema.optional(),
 })
 
 export const DeckSchema = z.object({
-  format: DeckFormatSchema.default('portrait_1080x1920'),
-  inputMode: DeckInputModeSchema.default('script-generated'),
-  language: z.string().default('zh-CN'),
+  format: DeckFormatSchema,
+  inputMode: DeckInputModeSchema,
+  language: z.string().min(1),
   slides: z.array(SlideSchema),
-  theme: DeckThemeSchema.default('elegant-dark'),
+  theme: DeckThemeSchema,
   themeTokens: DeckThemeTokensSchema.optional(),
   title: z.string().min(1),
   version: z.literal(1),
@@ -202,8 +225,8 @@ export const SpeakerScriptSegmentSchema = z.object({
 })
 
 export const SpeakerScriptSchema = z.object({
-  language: z.string().default('zh-CN'),
-  mode: DeckInputModeSchema.default('script-generated'),
+  language: z.string().min(1),
+  mode: DeckInputModeSchema,
   segments: z.array(SpeakerScriptSegmentSchema),
   version: z.literal(1),
 })
@@ -224,13 +247,34 @@ export const TimedDeckSchema = z.object({
   version: z.literal(1),
 }).superRefine((timedDeck, ctx) => {
   const slideIds = new Set(timedDeck.deck.slides.map((slide) => slide.slideId))
+  const timingIds = new Set<string>()
 
   timedDeck.timings.forEach((timing, index) => {
+    if (timingIds.has(timing.slideId)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Slide timing must not contain duplicate slideId entries.',
+        path: ['timings', index, 'slideId'],
+      })
+    }
+
+    timingIds.add(timing.slideId)
+
     if (!slideIds.has(timing.slideId)) {
       ctx.addIssue({
         code: 'custom',
         message: 'Slide timing must reference a slide in the deck.',
         path: ['timings', index, 'slideId'],
+      })
+    }
+  })
+
+  timedDeck.deck.slides.forEach((slide, index) => {
+    if (!timingIds.has(slide.slideId)) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Every slide must have a timing entry.',
+        path: ['deck', 'slides', index, 'slideId'],
       })
     }
   })
@@ -297,6 +341,8 @@ export type ContentBlocks = z.infer<typeof ContentBlocksSchema>
 export type Claim = z.infer<typeof ClaimSchema>
 export type Claims = z.infer<typeof ClaimsSchema>
 export type Deck = z.infer<typeof DeckSchema>
+export type DeckChart = z.infer<typeof DeckChartSchema>
+export type DeckChartBar = z.infer<typeof DeckChartBarSchema>
 export type DeckCodeBlock = z.infer<typeof DeckCodeBlockSchema>
 export type DeckComparison = z.infer<typeof DeckComparisonSchema>
 export type DeckComparisonSide = z.infer<typeof DeckComparisonSideSchema>
@@ -311,6 +357,8 @@ export type DeckSlideQualityMetrics = z.infer<typeof DeckSlideQualityMetricsSche
 export type DeckStat = z.infer<typeof DeckStatSchema>
 export type DeckTheme = z.infer<typeof DeckThemeSchema>
 export type DeckThemeTokens = z.infer<typeof DeckThemeTokensSchema>
+export type DeckTransition = z.infer<typeof DeckTransitionSchema>
+export type DeckTransitionType = z.infer<typeof DeckTransitionTypeSchema>
 export type DeckVisual = z.infer<typeof DeckVisualSchema>
 export type Document = z.infer<typeof DocumentSchema>
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>

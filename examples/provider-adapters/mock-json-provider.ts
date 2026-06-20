@@ -47,8 +47,13 @@ switch (kind) {
     const scenes = readSceneBatches(payload)
 
     emit(scenes.map((scene) => ({
+      actions: [],
+      characters: [],
       description: `Example visual analysis for ${scene.sceneId}`,
+      emotions: [],
       evidence: scene.frames,
+      plotClues: [],
+      relationships: [],
       sceneId: scene.sceneId,
     })), {
       inputImages: scenes.reduce((count, scene) => count + scene.frames.length, 0),

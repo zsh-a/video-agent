@@ -35,24 +35,24 @@ export const ASRSegmentSchema = z.object({
   speaker: z.string().optional(),
   start: z.number().finite().nonnegative(),
   text: z.string().min(1),
-  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']).default('exact'),
+  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']),
 }).refine((segment) => segment.end >= segment.start, {
   message: 'ASR segment end must be greater than or equal to start.',
   path: ['end'],
 })
 
 export const ASRResultSchema = z.object({
-  language: z.string().default('unknown'),
+  language: z.string().min(1),
   segments: z.array(ASRSegmentSchema),
   text: z.string(),
-  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']).default('untimed'),
+  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']),
   version: z.literal(1),
 })
 
 export const SilencePeriodSchema = z.object({
   end: z.number().finite().nonnegative(),
   id: z.string().min(1),
-  reason: z.enum(['detected', 'no-audio', 'synthetic']).default('synthetic'),
+  reason: z.enum(['detected', 'no-audio', 'synthetic']),
   start: z.number().finite().nonnegative(),
 }).refine((period) => period.end >= period.start, {
   message: 'Silence period end must be greater than or equal to start.',
@@ -66,13 +66,13 @@ export const SilencePeriodsSchema = z.object({
 })
 
 export const VLMSceneAnalysisSchema = z.object({
-  actions: z.array(z.string().min(1)).default([]),
-  characters: z.array(z.string().min(1)).default([]),
-  emotions: z.array(z.string().min(1)).default([]),
-  evidence: z.array(EvidenceSchema).default([]),
+  actions: z.array(z.string().min(1)),
+  characters: z.array(z.string().min(1)),
+  emotions: z.array(z.string().min(1)),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
-  plotClues: z.array(z.string().min(1)).default([]),
-  relationships: z.array(z.string().min(1)).default([]),
+  plotClues: z.array(z.string().min(1)),
+  relationships: z.array(z.string().min(1)),
   sceneId: z.string().min(1),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().min(1),
@@ -85,14 +85,14 @@ export const VLMAnalysisSchema = z.object({
 })
 
 export const TimelineFusionItemSchema = z.object({
-  asrSegmentIds: z.array(z.string().min(1)).default([]),
-  evidence: z.array(EvidenceSchema).default([]),
+  asrSegmentIds: z.array(z.string().min(1)),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   sceneId: z.string().min(1),
-  silencePeriodIds: z.array(z.string().min(1)).default([]),
+  silencePeriodIds: z.array(z.string().min(1)),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().min(1),
-  vlmAnalysisIds: z.array(z.string().min(1)).default([]),
+  vlmAnalysisIds: z.array(z.string().min(1)),
 })
 
 export const TimelineFusionSchema = z.object({
@@ -102,9 +102,9 @@ export const TimelineFusionSchema = z.object({
 })
 
 export const CharacterIndexEntrySchema = z.object({
-  aliases: z.array(z.string().min(1)).default([]),
+  aliases: z.array(z.string().min(1)),
   description: z.string().optional(),
-  evidence: z.array(EvidenceSchema).default([]),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   name: z.string().min(1),
 })
@@ -121,8 +121,8 @@ export const NarrativeBeatTypeSchema = z.enum([
 ])
 
 export const NarrativeBeatSchema = z.object({
-  characters: z.array(z.string().min(1)).default([]),
-  evidence: z.array(EvidenceSchema).default([]),
+  characters: z.array(z.string().min(1)),
+  evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   sourceRange: LongVideoTimeRangeSchema,
   summary: z.string().min(1),
@@ -131,26 +131,29 @@ export const NarrativeBeatSchema = z.object({
 
 export const StoryIndexSchema = z.object({
   beats: z.array(NarrativeBeatSchema),
-  characters: z.array(CharacterIndexEntrySchema).default([]),
-  language: z.string().default('zh-CN'),
+  characters: z.array(CharacterIndexEntrySchema),
+  language: z.string().min(1),
   source: z.string().min(1),
   sourceDuration: z.number().finite().nonnegative(),
   version: z.literal(1),
 })
 
 export const RecapScriptSegmentSchema = z.object({
+  clipSelectionReason: z.string().min(1),
   emotionalTone: z.enum(['setup', 'tension', 'climax', 'resolution']),
   id: z.string().min(1),
   narrationText: z.string().min(1),
+  overlapsSpeech: z.boolean(),
+  pauseAfterMs: z.number().int().nonnegative(),
   sourceRange: LongVideoTimeRangeSchema,
   suggestedDuration: z.number().finite().nonnegative(),
-  targetBeatIds: z.array(z.string().min(1)).default([]),
+  targetBeatIds: z.array(z.string().min(1)),
   visualGuidance: z.string().min(1),
 })
 
 export const RecapScriptSchema = z.object({
   hook: z.string().min(1),
-  language: z.string().default('zh-CN'),
+  language: z.string().min(1),
   outro: z.string().min(1),
   segments: z.array(RecapScriptSegmentSchema),
   totalEstimatedDuration: z.number().finite().nonnegative(),
@@ -212,10 +215,10 @@ export const OutputTimelineMapSchema = z.object({
 
 export const OutputNarrationSegmentSchema = z.object({
   end: z.number().finite().nonnegative(),
-  evidence: z.array(z.string().min(1)).default([]),
+  evidence: z.array(z.string().min(1)),
   id: z.string().min(1),
-  overlapsSpeech: z.boolean().default(false),
-  pauseAfterMs: z.number().int().nonnegative().default(0),
+  overlapsSpeech: z.boolean(),
+  pauseAfterMs: z.number().int().nonnegative(),
   scriptSegmentId: z.string().min(1).optional(),
   source: z.literal('script'),
   start: z.number().finite().nonnegative(),
@@ -226,7 +229,7 @@ export const OutputNarrationSegmentSchema = z.object({
 })
 
 export const OutputNarrationSchema = z.object({
-  language: z.string().default('zh-CN'),
+  language: z.string().min(1),
   segments: z.array(OutputNarrationSegmentSchema),
   timeline: z.literal('output'),
   version: z.literal(1),

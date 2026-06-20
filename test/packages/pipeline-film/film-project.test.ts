@@ -8,6 +8,7 @@ import {probeMedia} from '../../../packages/media/src/ffmpeg.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
 import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmRecapScriptProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/pipeline-film/src/index.js'
+import {createTimelineFusion} from '../../../packages/pipeline-film/src/understanding/evidence.js'
 
 describe('film recap project', () => {
   it('creates an ingest checkpoint with source manifest evidence', async () => {
@@ -142,6 +143,76 @@ describe('film recap project', () => {
     }
   })
 
+  it('uses real ASR/VLM evidence for timeline fusion summaries instead of placeholder text', () => {
+    const sourceManifest = {
+      audioTracks: 1,
+      duration: 1,
+      orientation: 'landscape' as const,
+      sourceHash: 'hash',
+      sourcePath: '/tmp/source.mp4',
+      version: 1 as const,
+    }
+    const scenes = {
+      scenes: [
+        {id: 'scene-001', sourceRange: [0, 0.5] as [number, number]},
+        {id: 'scene-002', sourceRange: [0.5, 1] as [number, number]},
+      ],
+      source: sourceManifest.sourcePath,
+      version: 1 as const,
+    }
+    const asrResult = {
+      language: 'zh-CN',
+      segments: [
+        {end: 0.5, id: 'asr-001', start: 0, text: '真实 ASR 证据。', timestampConfidence: 'exact' as const},
+      ],
+      text: '真实 ASR 证据。',
+      timestampConfidence: 'exact' as const,
+      version: 1 as const,
+    }
+    const vlmAnalysis = {
+      scenes: [
+        {
+          actions: [],
+          characters: [],
+          emotions: [],
+          evidence: [],
+          id: 'vlm-001',
+          plotClues: [],
+          relationships: [],
+          sceneId: 'scene-001',
+          sourceRange: [0, 0.5] as [number, number],
+          summary: '第一段 VLM 摘要。',
+        },
+        {
+          actions: [],
+          characters: [],
+          emotions: [],
+          evidence: [],
+          id: 'vlm-002',
+          plotClues: [],
+          relationships: [],
+          sceneId: 'scene-002',
+          sourceRange: [0.5, 1] as [number, number],
+          summary: '真实 VLM 摘要。',
+        },
+      ],
+      source: sourceManifest.sourcePath,
+      version: 1 as const,
+    }
+
+    const fusion = createTimelineFusion(sourceManifest, scenes, asrResult, {periods: [], source: sourceManifest.sourcePath, version: 1}, vlmAnalysis)
+
+    expect(fusion.items[0]?.summary).to.equal('第一段 VLM 摘要。')
+    expect(fusion.items[1]?.summary).to.equal('真实 VLM 摘要。')
+    expect(fusion.items.map((item) => item.summary).join(' ')).not.include('Fused evidence')
+    expect(fusion.items.map((item) => item.summary).join(' ')).not.include('真实 ASR 证据')
+    expect(() => createTimelineFusion(sourceManifest, {
+      scenes: [{id: 'scene-empty', sourceRange: [0, 1] as [number, number]}],
+      source: sourceManifest.sourcePath,
+      version: 1,
+    }, asrResult, {periods: [], source: sourceManifest.sourcePath, version: 1}, {...vlmAnalysis, scenes: []})).to.throw('no VLM evidence summary')
+  })
+
   it('does not split film scenes by ASR segment count alone', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-film-balanced-scenes-'))
     const inputPath = join(root, 'episode.mp4')
@@ -180,16 +251,18 @@ describe('film recap project', () => {
         workspaceDir: root,
       })
       const scenes = JSON.parse(await readFile(result.artifacts.scenes, 'utf8')) as {
-        scenes: Array<{id: string; sourceRange: [number, number]; summary: string}>
+        scenes: Array<{id: string; sourceRange: [number, number]; summary?: string}>
+      }
+      const fusion = JSON.parse(await readFile(result.artifacts.timelineFusion, 'utf8')) as {
+        items: Array<{summary: string}>
       }
 
       expect(result.status).to.equal('understood')
       expect(result.scenes).to.equal(1)
       expect(scenes.scenes).to.have.length(1)
-      expect(scenes.scenes.every((scene) => scene.summary.trim() !== '')).to.equal(true)
+      expect(scenes.scenes.every((scene) => scene.summary === undefined)).to.equal(true)
       expect(scenes.scenes.every((scene) => scene.sourceRange[1] > scene.sourceRange[0])).to.equal(true)
-      expect(scenes.scenes[0]?.summary).to.contain('Segment 1')
-      expect(scenes.scenes[0]?.summary).to.contain('Segment 14')
+      expect(fusion.items[0]?.summary).to.equal('Mock visual analysis for scene-001.')
 
       const verification = await verifyProjectArtifacts('film-balanced-scenes-demo', root)
 
@@ -498,7 +571,7 @@ describe('film recap project', () => {
 
       expect(planResult.status).to.equal('planned')
       expect(clipPlan.clips.map((clip) => clip.beatId)).to.deep.equal(['beat-layoff', 'beat-return', 'beat-evidence'])
-      expect(clipPlan.clips.map((clip) => clip.selectionReason)).to.deep.equal(['script-driven', 'script-driven', 'script-driven'])
+      expect(clipPlan.clips[0]?.selectionReason).to.include('直接支撑')
       expect(clipPlan.clips.map((clip) => clip.scriptSegmentId)).to.deep.equal(['recap-script-001', 'recap-script-002', 'recap-script-003'])
 
       await createFilmCutProject({
@@ -753,24 +826,37 @@ describe('film recap project', () => {
         sourceDuration: 1,
         version: 1,
       })
+      const longClimaxNarration = [
+        '高潮段落里，主角用证据解决问题。',
+        '这段解说刻意保持较长，用来证明输出阶段不会再按固定字符数裁剪 LLM 已经写好的内容。',
+        '它继续保留问题的来龙去脉、证据如何出现、主角为什么能做出判断，以及这个判断如何改变后续局面。',
+        '如果运行时仍然使用静默句界裁剪，这里后面的关键尾句就会丢失。',
+        '关键尾句必须保留。',
+      ].join('')
       await writeJson(join(artifactsDir, 'recap-script.json'), {
         hook: '主角一出场，故事就把真正的矛盾摆到台前。',
         language: 'zh-CN',
         outro: '这场对抗把问题推向了答案。',
         segments: [
           {
+            clipSelectionReason: '开场背景画面直接支撑主角揭开矛盾的旁白。',
             emotionalTone: 'setup',
             id: 'recap-script-001',
             narrationText: '一开场，主角揭开关键背景。',
+            overlapsSpeech: true,
+            pauseAfterMs: 240,
             sourceRange: [0, 0.5],
             suggestedDuration: 0.5,
             targetBeatIds: ['beat-opening'],
             visualGuidance: '选择开场背景画面。',
           },
           {
+            clipSelectionReason: '关键解决画面直接支撑结尾转折。',
             emotionalTone: 'climax',
             id: 'recap-script-002',
-            narrationText: '高潮段落里，主角用证据解决问题。',
+            narrationText: longClimaxNarration,
+            overlapsSpeech: false,
+            pauseAfterMs: 0,
             sourceRange: [0.5, 0.8],
             suggestedDuration: 0.3,
             targetBeatIds: ['beat-climax'],
@@ -796,7 +882,7 @@ describe('film recap project', () => {
       expect(clipPlan.duration).to.equal(0.8)
       expect(clipPlan.clips[0]?.sourceRange).to.deep.equal([0, 0.5])
       expect(clipPlan.clips[1]?.sourceRange).to.deep.equal([0.5, 0.8])
-      expect(clipPlan.clips[1]?.reason).to.contain('recap-script-002')
+      expect(clipPlan.clips[1]?.reason).to.equal('关键解决画面直接支撑结尾转折。')
 
       await writeJson(join(artifactsDir, 'clip-plan-validated.json'), clipPlan)
       await writeJson(join(artifactsDir, 'output-timeline-map.json'), {
@@ -820,7 +906,8 @@ describe('film recap project', () => {
         segments: Array<{evidence: string[]; text: string}>
       }
 
-      expect(outputNarration.segments[1]?.text).to.equal('高潮段落里，主角用证据解决问题。')
+      expect(outputNarration.segments[1]?.text).to.equal(longClimaxNarration)
+      expect(outputNarration.segments[1]?.text).to.include('关键尾句必须保留。')
       expect(outputNarration.segments[1]?.text).not.include('后半段不能出现在解说里')
       expect(outputNarration.segments[1]?.evidence).to.include('recap-script.json#recap-script-002')
       expect(outputNarration.segments[1]?.evidence).to.include('asr-result.json#asr-0002')
@@ -1473,9 +1560,12 @@ function createTestRecapScriptObject(input: TestLlmRecapPayload): {
   language: string
   outro: string
   segments: Array<{
+    clipSelectionReason: string
     emotionalTone: 'setup' | 'tension' | 'climax' | 'resolution'
     id: string
     narrationText: string
+    overlapsSpeech: boolean
+    pauseAfterMs: number
     sourceRange: [number, number]
     suggestedDuration: number
     targetBeatIds: string[]
@@ -1499,10 +1589,17 @@ function createTestRecapScriptObject(input: TestLlmRecapPayload): {
 
     durationCursor = roundTestSeconds(durationCursor + suggestedDuration)
 
+    const clipSelectionReason = language.startsWith('zh')
+      ? `选择 ${beat.sourceRange[0]}-${sourceEnd}s，因为它直接支撑「${beat.summary}」。`
+      : `Selected because source range ${beat.sourceRange[0]}-${sourceEnd}s directly supports ${beat.summary}.`
+
     return {
+      clipSelectionReason,
       emotionalTone: createTestEmotionalTone(beat.type),
       id: `recap-script-${String(index + 1).padStart(3, '0')}`,
       narrationText: createTestNarrationText(beat, index, language),
+      overlapsSpeech: beat.evidence.some((evidence) => evidence.type === 'asr'),
+      pauseAfterMs: index === beats.length - 1 ? 0 : 240,
       sourceRange: [roundTestSeconds(beat.sourceRange[0]), sourceEnd] as [number, number],
       suggestedDuration,
       targetBeatIds: [beat.id],
@@ -1551,6 +1648,10 @@ function createTestNarrationText(beat: TestLlmStoryBeat, index: number, language
 function createTestNarrationSummary(summary: string): string {
   if (summary.includes('人才结构优化') || summary.includes('长期健康发展')) {
     return '公司宣布裁员。'
+  }
+
+  if (summary.includes('Mock visual analysis')) {
+    return '画面给出关键视觉线索。'
   }
 
   return summary

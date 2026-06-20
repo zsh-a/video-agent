@@ -4,7 +4,11 @@ import type {ReactNode} from 'react'
 import {Card} from '../layout/primitives.js'
 
 export function CtaBlock({slide}: {slide: Slide}): ReactNode {
-  const label = slide.points[0] ?? slide.subtitle ?? 'Next step'
+  const label = slide.points[0]
+
+  if (label === undefined) {
+    throw new Error(`Deck cta slide "${slide.slideId}" is missing an LLM-authored action point.`)
+  }
 
   return (
     <Card className="cta-block relative grid gap-[28px] overflow-hidden rounded-deck-card border-2 border-deck-accent bg-deck-surface p-[48px_52px] shadow-deck-card text-center justify-items-center">

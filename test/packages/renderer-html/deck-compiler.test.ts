@@ -55,6 +55,7 @@ describe('html deck compiler', () => {
                 slideId: 'slide-001',
                 speakerNote: '这一页说明核心架构。',
                 title: '视频 Agent 的正确架构',
+                transitionOut: {duration: 0.55, type: 'crossfade'},
                 type: 'hero',
                 visual: {assetRefs: [], kind: 'title-card'},
               },
@@ -128,8 +129,15 @@ describe('html deck compiler', () => {
       expect(runtime).to.contain('window.vagent')
       expect(runtime).to.contain('function seek(timeSeconds)')
       expect(runtime).to.contain('function applyMotionTimeline(time)')
+      expect(runtime).to.contain('function requireRenderPlan(planElement)')
+      expect(runtime).to.contain('function requireMotionPlan(plan)')
+      expect(runtime).to.contain('no DOM timing fallback is allowed')
       expect(runtime.includes('function applyPreset')).to.equal(false)
       expect(runtime.includes('plan?.motion?.steps')).to.equal(false)
+      expect(runtime.includes('plan?.motion')).to.equal(false)
+      expect(runtime.includes('plan?.duration')).to.equal(false)
+      expect(runtime.includes('readSlideState')).to.equal(false)
+      expect(runtime.includes('timeline?.tracks || []')).to.equal(false)
       expect(runtime).to.contain('requestedTimeParam')
       expect(runtime).to.contain('firstSlidePreviewTime()')
       expect(runtime).to.contain('latestMotionEndForSlide')
@@ -226,67 +234,94 @@ describe('html deck compiler', () => {
     expect(url).to.contain('time=1.25')
   })
 
-  it('renders incomplete comparison slides without placeholder option labels', async () => {
+  it('rejects frame planning without slide timings instead of defaulting to the first slide', () => {
+    expect(() => createDeckHtmlFrameSequence({
+      fps: 30,
+      outputDir: '/tmp/deck-frames',
+      timedDeck: {
+        deck: {
+          format: 'portrait_1080x1920',
+          inputMode: 'script-generated',
+          language: 'zh-CN',
+          slides: [{
+            blockIds: [],
+            evidence: [],
+            motion: 'fade-in',
+            points: ['A'],
+            slideId: 'slide-001',
+            title: 'Missing timing',
+            type: 'three-points',
+          }],
+          theme: 'clean-white',
+          title: 'Missing timing',
+          version: 1,
+        },
+        timings: [],
+        version: 1,
+      },
+    })).to.throw('could not resolve a slide timing')
+  })
+
+  it('rejects incomplete comparison slides instead of rendering placeholder or empty comparison content', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-renderer-html-fallback-'))
 
     try {
-      const result = await writeDeckHtmlProject({
-        outputDir: root,
-        timedDeck: {
-          deck: {
-            format: 'landscape_1920x1080',
-            inputMode: 'script-generated',
-            language: 'zh-CN',
-            slides: [
-              {
-                blockIds: [],
-                evidence: [],
-                motion: 'card-stack',
-                points: [],
-                slideId: 'slide-001',
-                speakerNote: '市场误分类需要比较旧认知和新事实。',
-                subtitle: '市场以为它是什么 vs 它正在变成什么',
-                title: '测试市场误分类',
-                type: 'comparison',
-                visual: {assetRefs: [], kind: 'text'},
-              },
-              {
-                blockIds: [],
-                evidence: [],
-                motion: 'number-count',
-                points: ['需求确定性', '传导清晰度', '业务纯度'],
-                slideId: 'slide-002',
-                stat: {
-                  caption: '七个维度共同决定候选标的优先级',
-                  label: '评分维度',
-                  value: '7',
+      let error: unknown
+
+      try {
+        await writeDeckHtmlProject({
+          outputDir: root,
+          timedDeck: {
+            deck: {
+              format: 'landscape_1920x1080',
+              inputMode: 'script-generated',
+              language: 'zh-CN',
+              slides: [
+                {
+                  blockIds: [],
+                  evidence: [],
+                  motion: 'card-stack',
+                  points: [],
+                  slideId: 'slide-001',
+                  speakerNote: '市场误分类需要比较旧认知和新事实。',
+                  subtitle: '市场以为它是什么 vs 它正在变成什么',
+                  title: '测试市场误分类',
+                  transitionOut: {duration: 0.55, type: 'crossfade'},
+                  type: 'comparison',
+                  visual: {assetRefs: [], kind: 'text'},
                 },
-                title: 'Alpha 评分',
-                type: 'stat',
-                visual: {assetRefs: [], kind: 'chart'},
-              },
+                {
+                  blockIds: [],
+                  evidence: [],
+                  motion: 'number-count',
+                  points: ['需求确定性', '传导清晰度', '业务纯度'],
+                  slideId: 'slide-002',
+                  stat: {
+                    caption: '七个维度共同决定候选标的优先级',
+                    label: '评分维度',
+                    value: '7',
+                  },
+                  title: 'Alpha 评分',
+                  type: 'stat',
+                  visual: {assetRefs: [], kind: 'chart'},
+                },
+              ],
+              theme: 'finance-terminal',
+              title: 'Serenity Alpha',
+              version: 1,
+            },
+            timings: [
+              {end: 8, slideId: 'slide-001', start: 0},
+              {end: 16, slideId: 'slide-002', start: 8},
             ],
-            theme: 'finance-terminal',
-            title: 'Serenity Alpha',
             version: 1,
           },
-          timings: [
-            {end: 8, slideId: 'slide-001', start: 0},
-            {end: 16, slideId: 'slide-002', start: 8},
-          ],
-          version: 1,
-        },
-      })
-      const html = await readText(result.entryHtml)
-      const styles = await readText(result.stylesPath)
+        })
+      } catch (caught) {
+        error = caught
+      }
 
-      expect(html).not.include('Option A')
-      expect(html).not.include('Option B')
-      expect(html).to.contain('市场误分类需要比较旧认知和新事实')
-      expect(html).to.contain('class="stat-layout"')
-      expect(html).to.contain('需求确定性')
-      expect(styles).to.contain('.process-list--dense')
-      expect(styles).to.contain('.stat-layout')
+      expect(String(error)).to.contain('missing complete comparison content')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

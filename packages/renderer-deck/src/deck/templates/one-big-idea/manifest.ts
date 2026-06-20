@@ -12,11 +12,11 @@ export const oneBigIdeaManifest = {
   qualityRules: {
     maxPointLines: 2,
     maxPoints: 3,
+    minPoints: 1,
     maxTitleLines: 2,
     requiredVisibleElements: ['.slide__title', '.idea-card'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'one-big-idea',
   useWhen: 'Explaining one key idea, claim, or takeaway without parallel structure.',
 } satisfies DeckTemplateManifestEntry

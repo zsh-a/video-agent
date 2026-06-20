@@ -1,6 +1,5 @@
-import type {Deck, DeckSlideType, DeckVisual, MediaInfo, Slide, SlideTiming, TimedDeck} from '@video-agent/ir'
+import type {Deck, MediaInfo, SlideTiming, TimedDeck} from '@video-agent/ir'
 
-export const DEFAULT_DECK_THEME: Deck['theme'] = 'elegant-dark'
 export const DECK_THEMES = ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper', 'custom'] as const
 export const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
   'elegant-dark': '深色科技风，适合技术、AI、数据、编程主题',
@@ -11,128 +10,56 @@ export const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
   'warm-paper': '暖橙纸张风，适合生活、文化、温暖、故事性主题',
 }
 
-export interface DeckPlanningSourceSection {
-  level: number
-  preview: string
-  title: string
+export function cleanGeneratedText(value: string | undefined, field: string): string {
+  const raw = value ?? ''
+
+  assertNoGeneratedTextWhitespaceRepair(raw, field)
+
+  return raw
 }
 
-export interface DeckPlanningSourceStructure {
-  majorHeadings: string[]
-  sections: DeckPlanningSourceSection[]
-}
-
-export function estimateTextDeckSlideCount(text: string, durationTargetSeconds: number | undefined): number {
-  if (durationTargetSeconds !== undefined) {
-    return clampInteger(Math.round(durationTargetSeconds / 22), 4, 14)
+function assertNoGeneratedTextWhitespaceRepair(value: string, field: string): void {
+  if (value !== value.trim()) {
+    throw new Error(`LLM Deck plan ${field} contains leading or trailing whitespace. Rewrite the field in LLM output; no runtime whitespace trim is allowed.`)
   }
 
-  return clampInteger(Math.ceil(text.length / 900), 4, 12)
-}
-
-export function estimateNarrationCharactersPerSlide(durationTargetSeconds: number | undefined, slideCount: number): number {
-  if (durationTargetSeconds === undefined) {
-    return 110
+  if (/[\r\n\t]/u.test(value)) {
+    throw new Error(`LLM Deck plan ${field} contains layout whitespace. Rewrite the field in LLM output; no runtime whitespace repair is allowed.`)
   }
 
-  return clampInteger(Math.round(durationTargetSeconds / Math.max(1, slideCount) * 4.5), 60, 150)
+  if (/[^\S\r\n]{2,}/u.test(value)) {
+    throw new Error(`LLM Deck plan ${field} contains repeated whitespace. Rewrite the field in LLM output; no runtime whitespace repair is allowed.`)
+  }
 }
 
-export function createDeckPlanningSourceStructure(text: string): DeckPlanningSourceStructure {
-  const sections: Array<DeckPlanningSourceSection & {body: string[]}> = []
-  let current: (DeckPlanningSourceSection & {body: string[]}) | undefined
+export function assertNoGeneratedTextControlSyntax(value: string, field: string): void {
+  const normalized = value.replaceAll(/\r\n?/g, '\n')
 
-  for (const rawLine of text.replace(/\r\n?/g, '\n').split('\n')) {
-    const heading = /^(#{1,6})\s+(.+?)\s*#*\s*$/u.exec(rawLine)
+  if (/^---\n[\s\S]*?\n---(?:\n|$)/u.test(normalized)) {
+    throw new Error(`LLM Deck plan ${field} contains YAML frontmatter. Rewrite the field in LLM output; no runtime Markdown cleanup is allowed.`)
+  }
 
-    if (heading !== null) {
-      current = {
-        body: [],
-        level: heading[1]?.length ?? 1,
-        preview: '',
-        title: cleanGeneratedText(heading[2], ''),
-      }
+  if (/```/u.test(normalized)) {
+    throw new Error(`LLM Deck plan ${field} contains Markdown code fences. Rewrite the field in LLM output; no runtime Markdown cleanup is allowed.`)
+  }
 
-      if (current.title !== '') {
-        sections.push(current)
-      }
+  if (/^第\s*\d+\s*页[：:]/u.test(normalized.trim())) {
+    throw new Error(`LLM Deck plan ${field} contains a page-number prefix. Rewrite the field in LLM output; no runtime page-prefix cleanup is allowed.`)
+  }
 
-      continue
+  const lines = normalized.split('\n')
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+
+    if (/^#{1,6}\s+/u.test(trimmed) || /^[-*+]\s+/u.test(trimmed) || /^>\s*/u.test(trimmed) || trimmed === '---') {
+      throw new Error(`LLM Deck plan ${field} contains Markdown control syntax. Rewrite the field in LLM output; no runtime Markdown cleanup is allowed.`)
     }
 
-    current?.body.push(rawLine)
+    if (trimmed.includes('|')) {
+      throw new Error(`LLM Deck plan ${field} contains Markdown table syntax. Rewrite the field in LLM output; no runtime Markdown cleanup is allowed.`)
+    }
   }
-
-  const visibleSections = sections
-    .filter((section) => section.title !== '')
-    .slice(0, 20)
-    .map(({body, level, title}) => ({
-      level,
-      preview: truncateForLLM(stripMarkdownControlText(body.join('\n')), 360),
-      title,
-    }))
-
-  return {
-    majorHeadings: visibleSections
-      .filter((section) => section.level <= 2)
-      .map((section) => section.title)
-      .slice(0, 12),
-    sections: visibleSections,
-  }
-}
-
-export function estimateNarrationDuration(text: string): number {
-  return Math.max(4, Math.ceil(text.length / 12))
-}
-
-export function clampInteger(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value))
-}
-
-export function chunk<T>(items: T[], size: number): T[][] {
-  const safeSize = Math.max(1, size)
-  const chunks: T[][] = []
-
-  for (let index = 0; index < items.length; index += safeSize) {
-    chunks.push(items.slice(index, index + safeSize))
-  }
-
-  return chunks
-}
-
-export function truncateForLLM(text: string, maxCharacters: number): string {
-  if (text.length <= maxCharacters) {
-    return text
-  }
-
-  return `${text.slice(0, maxCharacters)}\n\n[truncated ${text.length - maxCharacters} characters]`
-}
-
-export function cleanGeneratedText(value: string | undefined, fallback: string): string {
-  const cleaned = stripMarkdownControlText(value ?? '')
-    .replaceAll(/^第\s*\d+\s*页[：:]\s*/g, '')
-    .replaceAll(/\s+/g, ' ')
-    .trim()
-
-  return cleaned === '' ? fallback : cleaned
-}
-
-export function stripMarkdownControlText(value: string): string {
-  return value
-    .replaceAll(/\r\n?/g, '\n')
-    .replace(/^---\n[\s\S]*?\n---\n?/u, '')
-    .replaceAll(/```[a-zA-Z0-9_-]*\n?/g, '')
-    .replaceAll(/```/g, '')
-    .split('\n')
-    .map((line) => line
-      .replace(/^#{1,6}\s+/u, '')
-      .replace(/^[-*+]\s+/u, '')
-      .replace(/^>\s*/u, '')
-      .replace(/\|/g, ' ')
-      .trim())
-    .filter((line) => line !== '---')
-    .join('\n')
-    .trim()
 }
 
 export function createTextMediaInfo(inputPath: string, duration: number): MediaInfo {
@@ -146,11 +73,7 @@ export function createTextMediaInfo(inputPath: string, duration: number): MediaI
   }
 }
 
-export function normalizeDeckTheme(theme: string | undefined): Deck['theme'] {
-  if (theme === undefined || theme === 'auto') {
-    return DEFAULT_DECK_THEME
-  }
-
+export function normalizeDeckTheme(theme: string): Deck['theme'] {
   if (DECK_THEMES.includes(theme as Deck['theme'])) {
     return theme as Deck['theme']
   }
@@ -158,56 +81,12 @@ export function normalizeDeckTheme(theme: string | undefined): Deck['theme'] {
   throw new Error(`Unsupported deck theme "${theme}". Expected one of: ${DECK_THEMES.join(', ')}.`)
 }
 
-export function resolveTheme(llmTheme: string | undefined, optionTheme: string | undefined): Deck['theme'] {
+export function resolveTheme(llmTheme: Deck['theme'], optionTheme: string | undefined): Deck['theme'] {
   if (optionTheme !== undefined && optionTheme !== 'auto') {
     return normalizeDeckTheme(optionTheme)
   }
 
-  if (llmTheme !== undefined && DECK_THEMES.includes(llmTheme as Deck['theme'])) {
-    return llmTheme as Deck['theme']
-  }
-
-  return DEFAULT_DECK_THEME
-}
-
-export function defaultSlideMotion(index: number, type: DeckSlideType | undefined): Slide['motion'] {
-  if (index === 0 || type === 'hero') {
-    return 'cinematic-rise'
-  }
-
-  if (type === 'comparison') {
-    return 'card-stack'
-  }
-
-  if (type === 'timeline' || type === 'process') {
-    return 'progressive-reveal'
-  }
-
-  if (type === 'stat') {
-    return 'number-count'
-  }
-
-  return 'progressive-reveal'
-}
-
-export function visualKindForSlideType(type: DeckSlideType): DeckVisual['kind'] {
-  if (type === 'hero') {
-    return 'title-card'
-  }
-
-  if (type === 'chart' || type === 'stat') {
-    return 'chart'
-  }
-
-  if (type === 'code') {
-    return 'code'
-  }
-
-  if (type === 'process' || type === 'timeline') {
-    return 'process'
-  }
-
-  return 'text'
+  return llmTheme
 }
 
 export function createTimedDeck(deck: Deck, timings: SlideTiming[]): TimedDeck {

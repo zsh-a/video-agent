@@ -1,6 +1,6 @@
 import type {ASRResult, ASRSegment, ClipPlan, Narration, OutputNarration, OutputTimelineMap, RecapScript, RecapScriptSegment, StoryIndex} from '@video-agent/ir'
 
-import {containsCjk, isChineseLanguage, rangeOverlapSeconds, roundSeconds} from '../shared/utils.js'
+import {rangeOverlapSeconds, roundSeconds} from '../shared/utils.js'
 
 export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, asrResult: ASRResult | undefined, language: string, recapScript: RecapScript): OutputNarration {
   const beatsById = new Map(storyIndex.beats.map((beat) => [beat.id, beat]))
@@ -43,8 +43,8 @@ export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: Out
           ...asrSegments.map((segment) => `asr-result.json#${segment.id}`),
         ],
         id: `output-narration-${String(index + 1).padStart(3, '0')}`,
-        overlapsSpeech: false,
-        pauseAfterMs: index === outputTimelineMap.clips.length - 1 ? 0 : 250,
+        overlapsSpeech: scriptSegment.overlapsSpeech,
+        pauseAfterMs: scriptSegment.pauseAfterMs,
         scriptSegmentId: scriptSegment.id,
         source: 'script' as const,
         start,
@@ -80,17 +80,24 @@ function createScriptNarrationText(scriptSegment: RecapScriptSegment, index: num
   return text
 }
 
-function cleanNarrationText(text: string, language: string, maxLength = 260): string {
-  const withoutSegmentLabel = text
-    .replace(/^第\s*\d+\s*段\s*[，,.:：、-]?\s*/u, '')
-    .replace(/\s+/gu, ' ')
-    .trim()
-
-  if (isChineseLanguage(language) && !containsCjk(withoutSegmentLabel)) {
-    return ''
+function cleanNarrationText(text: string, language: string): string {
+  if (text.trim() === '') {
+    throw new Error(`Recap script narrationText is empty for ${language}; no runtime narration text fallback is allowed.`)
   }
 
-  return trimToSentenceBoundary(withoutSegmentLabel, maxLength)
+  if (text !== text.trim()) {
+    throw new Error('Recap script narrationText contains leading or trailing whitespace. Rewrite recap-script.json in LLM output; no runtime narration whitespace cleanup is allowed.')
+  }
+
+  if (/\s{2,}|\r|\n|\t/u.test(text)) {
+    throw new Error('Recap script narrationText contains layout or repeated whitespace. Rewrite recap-script.json in LLM output; no runtime narration whitespace cleanup is allowed.')
+  }
+
+  if (/^第\s*\d+\s*段\s*[，,.:：、-]?/u.test(text)) {
+    throw new Error('Recap script narrationText contains a segment-label prefix. Rewrite recap-script.json in LLM output; no runtime narration label cleanup is allowed.')
+  }
+
+  return text
 }
 
 function collectAsrSegmentsForRange(asrResult: ASRResult | undefined, sourceRange: [number, number]): ASRSegment[] {
@@ -105,22 +112,4 @@ function collectAsrSegmentsForRange(asrResult: ASRResult | undefined, sourceRang
       return overlap > 0.05 && overlap >= Math.min(segment.end - segment.start, sourceRange[1] - sourceRange[0]) * 0.5
     })
     .sort((left, right) => left.start - right.start || left.end - right.end)
-}
-
-function trimToSentenceBoundary(text: string, maxLength: number): string {
-  if (text.length <= maxLength) {
-    return text
-  }
-
-  const sliced = text.slice(0, maxLength)
-  const boundary = Math.max(
-    sliced.lastIndexOf('。'),
-    sliced.lastIndexOf('！'),
-    sliced.lastIndexOf('？'),
-    sliced.lastIndexOf('.'),
-    sliced.lastIndexOf('!'),
-    sliced.lastIndexOf('?'),
-  )
-
-  return (boundary >= Math.floor(maxLength * 0.45) ? sliced.slice(0, boundary + 1) : sliced).trim()
 }

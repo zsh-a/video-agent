@@ -2,6 +2,7 @@ import {Timeline, TitleBlock} from '../../components/index.js'
 import {titlePresetFor} from '../../motion/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
+import {requireSlidePoints} from '../helpers.js'
 import {timelineManifest} from './manifest.js'
 import {timelineStyles} from './styles.js'
 
@@ -15,7 +16,7 @@ export const timelineTemplate = defineSlideTemplate({
   render: (slide) => (
     <>
       <TitleBlock slide={slide} />
-      <Timeline points={slide.points} />
+      <Timeline points={requireSlidePoints(slide, 'timeline')} />
     </>
   ),
   type: 'timeline',

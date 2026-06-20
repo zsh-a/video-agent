@@ -13,7 +13,6 @@ export const codeManifest = {
     requiredVisibleElements: ['.slide__title', '.code-block'],
     safeArea: true,
   },
-  repair: 'fallback-readable',
   type: 'code',
   useWhen: 'Explaining short code, configuration, schema, or structured text.',
 } satisfies DeckTemplateManifestEntry

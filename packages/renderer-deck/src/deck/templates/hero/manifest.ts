@@ -17,7 +17,6 @@ export const heroManifest = {
     requiredVisibleElements: ['.slide__title'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'hero',
   useWhen: 'Opening title, chapter title, or strong point introduction.',
 } satisfies DeckTemplateManifestEntry

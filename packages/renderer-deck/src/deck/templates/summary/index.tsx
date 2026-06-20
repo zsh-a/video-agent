@@ -2,6 +2,7 @@ import {BulletList, TitleBlock} from '../../components/index.js'
 import {titlePresetFor} from '../../motion/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
+import {requireSlidePoints} from '../helpers.js'
 import {summaryManifest} from './manifest.js'
 import {summaryStyles} from './styles.js'
 
@@ -15,7 +16,7 @@ export const summaryTemplate = defineSlideTemplate({
   render: (slide) => (
     <>
       <TitleBlock slide={slide} />
-      <BulletList className="summary__points" max={4} points={slide.points} />
+      <BulletList className="summary__points" max={4} points={requireSlidePoints(slide, 'summary')} />
     </>
   ),
   type: 'summary',

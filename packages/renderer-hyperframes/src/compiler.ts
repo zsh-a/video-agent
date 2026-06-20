@@ -11,14 +11,14 @@ export interface HyperframesRenderPlan {
   assetsDir: string
   duration: number
   entryHtml: string
-  narration?: Narration
+  narration: Narration
   outputDir: string
   storyboard: Storyboard
   timeline: Timeline
 }
 
 export interface WriteHyperframesProjectInput {
-  narration?: Narration
+  narration: Narration
   outputDir: string
   storyboard: Storyboard
   timeline: Timeline
@@ -65,10 +65,11 @@ export async function writeHyperframesProject(input: WriteHyperframesProjectInpu
 }
 
 function createHtml(plan: HyperframesRenderPlan): string {
-  const narrationBySceneId = new Map(plan.narration?.segments.flatMap((segment) => (segment.sceneId === undefined ? [] : [[segment.sceneId, segment]])) ?? [])
+  const narrationBySceneId = indexNarrationBySceneId(plan.narration)
   const scenes = plan.storyboard.scenes
     .map((scene, index) => {
-      const narration = resolveNarrationForScene(plan, narrationBySceneId, scene.id, index)
+      const narration = resolveNarrationForScene(narrationBySceneId, scene.id)
+      const evidenceRefs = createEvidenceRefItems(scene)
 
       return `<section class="scene" data-start="${scene.start}" data-duration="${scene.duration}" style="--start:${scene.start}s;--duration:${scene.duration}s">
   <div class="scene__shell">
@@ -78,17 +79,17 @@ function createHtml(plan: HyperframesRenderPlan): string {
     </header>
     <div class="scene__layout">
       <article class="scene__body">
-        <h1>${escapeHtml(createSceneTitle(scene, index))}</h1>
-        <ul class="scene__bullets">
-${createBulletItems(scene, narration).map((item) => `          <li>${escapeHtml(item)}</li>`).join('\n')}
-        </ul>
+        <h1>Scene ${index + 1}</h1>
+        <p class="scene__narration">${escapeHtml(resolveSceneNarrationText(scene, narration))}</p>
       </article>
       <aside class="scene__context">
         <span class="scene__style">${escapeHtml(formatVisualStyle(scene.visualStyle))}</span>
-        <p>${escapeHtml(createEvidenceSummary(scene))}</p>
+${evidenceRefs.length === 0 ? '' : `        <ul class="scene__evidence">
+${evidenceRefs.map((item) => `          <li>${escapeHtml(item)}</li>`).join('\n')}
+        </ul>`}
       </aside>
     </div>
-${narration === undefined ? '' : `    <p class="caption" data-start="${narration.start ?? scene.start}" data-duration="${narration.duration ?? scene.duration}">${escapeHtml(narration.text)}</p>`}
+    <p class="caption" data-start="${requireNarrationStart(narration, scene.id)}" data-duration="${requireNarrationDuration(narration, scene.id)}">${escapeHtml(narration.text)}</p>
   </div>
 </section>`
     })
@@ -112,49 +113,65 @@ ${scenes}
 `
 }
 
-function resolveNarrationForScene(
-  plan: HyperframesRenderPlan,
-  narrationBySceneId: Map<string, Narration['segments'][number]>,
-  sceneId: string,
-  sceneIndex: number,
-): Narration['segments'][number] | undefined {
-  return narrationBySceneId.get(sceneId) ?? plan.narration?.segments[sceneIndex]
-}
+function indexNarrationBySceneId(narration: Narration): Map<string, Narration['segments'][number]> {
+  const indexed = new Map<string, Narration['segments'][number]>()
 
+  for (const [index, segment] of narration.segments.entries()) {
+    if (segment.sceneId === undefined || segment.sceneId.trim() === '') {
+      throw new Error(`HyperFrames narration segment ${index + 1} is missing sceneId; no scene-index narration fallback is allowed.`)
+    }
 
-function createSceneTitle(scene: Storyboard['scenes'][number], index: number): string {
-  const title = splitIntoSentences(scene.narration ?? '')[0]?.replace(/^第\s*\d+\s*页[：:]\s*/u, '').trim()
+    if (indexed.has(segment.sceneId)) {
+      throw new Error(`HyperFrames narration contains duplicate sceneId "${segment.sceneId}".`)
+    }
 
-  return title === undefined || title === '' ? `Slide ${index + 1}` : title
-}
-
-function createBulletItems(scene: Storyboard['scenes'][number], narration: Narration['segments'][number] | undefined): string[] {
-  const source = narration?.text ?? scene.narration ?? createEvidenceSummary(scene)
-  const cleaned = source.replace(/^第\s*\d+\s*页[：:]\s*/u, '').trim()
-  const parts = splitIntoSentences(cleaned)
-
-  if (parts.length === 0) {
-    return ['Explain the key point for this section.']
+    indexed.set(segment.sceneId, segment)
   }
 
-  return parts.slice(0, 4)
+  return indexed
 }
 
-function splitIntoSentences(value: string): string[] {
-  return value
-    .split(/[。!！？?；;]|\.(?!\d)/u)
-    .map((part) => part.trim())
-    .filter(Boolean)
+function resolveNarrationForScene(
+  narrationBySceneId: Map<string, Narration['segments'][number]>,
+  sceneId: string,
+): Narration['segments'][number] {
+  const narration = narrationBySceneId.get(sceneId)
+
+  if (narration === undefined) {
+    throw new Error(`HyperFrames scene "${sceneId}" is missing a matching LLM-authored narration segment; no scene-index narration fallback is allowed.`)
+  }
+
+  return narration
 }
 
-function createEvidenceSummary(scene: Storyboard['scenes'][number]): string {
-  const evidenceText = scene.evidence
-    .map((item) => item.text?.trim())
-    .filter((value): value is string => value !== undefined && value !== '')
-    .slice(0, 2)
-    .join(' ')
+function resolveSceneNarrationText(scene: Storyboard['scenes'][number], narration: Narration['segments'][number]): string {
+  const text = narration.text.trim()
 
-  return evidenceText === '' ? 'Text-driven explainer slide generated from the video plan.' : evidenceText
+  if (text === '') {
+    throw new Error(`HyperFrames scene "${scene.id}" is missing LLM-authored narration text.`)
+  }
+
+  return text
+}
+
+function requireNarrationStart(narration: Narration['segments'][number], sceneId: string): number {
+  if (narration.start === undefined) {
+    throw new Error(`HyperFrames narration for scene "${sceneId}" is missing start; no scene timing fallback is allowed.`)
+  }
+
+  return narration.start
+}
+
+function requireNarrationDuration(narration: Narration['segments'][number], sceneId: string): number {
+  if (narration.duration === undefined) {
+    throw new Error(`HyperFrames narration for scene "${sceneId}" is missing duration; no scene timing fallback is allowed.`)
+  }
+
+  return narration.duration
+}
+
+function createEvidenceRefItems(scene: Storyboard['scenes'][number]): string[] {
+  return scene.evidence.map((item) => `${item.type}:${item.ref}`)
 }
 
 function formatVisualStyle(value: string): string {

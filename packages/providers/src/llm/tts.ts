@@ -7,7 +7,7 @@ import type {NarrationSegment} from '@video-agent/ir'
 import type {TTSProvider, TTSProviderSynthesizeOptions, TTSSegment} from '../contracts.js'
 
 import {probeMedia} from '@video-agent/media'
-import {isRecord, normalizeBaseURL, normalizeOptionalString, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './media-utils.js'
+import {isRecord, normalizeBaseURL, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './media-utils.js'
 import {attachProviderMetadata} from '../metadata.js'
 import {ProviderExecutionError} from '../errors.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
@@ -17,21 +17,12 @@ export const MIMO_TTS_BASE_URL = MIMO_PROVIDER_BASE_URL
 export const MIMO_TTS_DEFAULT_VOICE = 'mimo_default'
 export const MIMO_TTS_MODEL = MIMO_PROVIDER_MODEL_IDS.tts
 
-const GENERIC_TTS_VOICE_HINTS = new Set([
-  'female',
-  'girl',
-  'male',
-  'man',
-  'narrator',
-  'neutral',
-  'voice',
-  'woman',
-])
-
 export class LLMTTSProvider implements TTSProvider {
   constructor(private readonly llm: LLMClient) {}
 
-  async synthesize(segments: {duration?: number; id: string; text?: string}[]): Promise<TTSSegment[]> {
+  async synthesize(segments: NarrationSegment[]): Promise<TTSSegment[]> {
+    requireExplicitTtsInputDurations(segments)
+
     const result = await this.llm.generateObject({
       messages: [
         {
@@ -41,7 +32,7 @@ export class LLMTTSProvider implements TTSProvider {
               'Return one TTS output entry for each narration segment.',
               'Preserve narration ids exactly as narrationId.',
               'Use stable relative wav paths under llm-tts/.',
-              'Use the requested segment duration when provided; otherwise estimate a non-negative duration from text length.',
+              'Preserve each requested duration exactly. Do not estimate, rescale, round, or invent segment duration.',
             ],
             segments,
           }),
@@ -52,9 +43,38 @@ export class LLMTTSProvider implements TTSProvider {
       temperature: 0.1,
     })
 
-    return attachProviderMetadata(TtsSegmentsSchema.parse(result.object), {
+    const ttsSegments = TtsSegmentsSchema.parse(result.object)
+    validateLLMTtsOutputMatchesInput(segments, ttsSegments)
+
+    return attachProviderMetadata(ttsSegments, {
       usage: result.usage,
     })
+  }
+}
+
+function requireExplicitTtsInputDurations(segments: NarrationSegment[]): void {
+  for (const [index, segment] of segments.entries()) {
+    if (segment.duration === undefined || !Number.isFinite(segment.duration) || segment.duration <= 0) {
+      throw new Error(`LLM TTS input segment ${index + 1} for narration "${segment.id}" must include a positive duration; no text-length duration estimation fallback is allowed.`)
+    }
+  }
+}
+
+function validateLLMTtsOutputMatchesInput(segments: NarrationSegment[], ttsSegments: TTSSegment[]): void {
+  if (ttsSegments.length !== segments.length) {
+    throw new Error(`LLM TTS output returned ${ttsSegments.length} segments for ${segments.length} narration inputs; no segment count reconciliation fallback is allowed.`)
+  }
+
+  for (const [index, segment] of segments.entries()) {
+    const ttsSegment = ttsSegments[index]
+
+    if (ttsSegment === undefined || ttsSegment.narrationId !== segment.id) {
+      throw new Error(`LLM TTS output segment ${index + 1} must preserve narrationId "${segment.id}"; no narrationId remapping fallback is allowed.`)
+    }
+
+    if (ttsSegment.duration !== segment.duration) {
+      throw new Error(`LLM TTS output segment "${segment.id}" duration must exactly match requested duration ${segment.duration}; no duration estimation or reconciliation fallback is allowed.`)
+    }
   }
 }
 
@@ -135,7 +155,7 @@ export class MimoTTSProvider implements TTSProvider {
     const audioData = readMimoTtsAudioData(response.json)
 
     await writeFile(outputPath, Buffer.from(audioData, 'base64'))
-    const duration = await readGeneratedAudioDuration(outputPath, segment.duration ?? 0)
+    const duration = await readGeneratedAudioDuration(outputPath)
 
     return {
       metadata: {
@@ -197,13 +217,36 @@ export class MimoTTSProvider implements TTSProvider {
   }
 }
 
-async function readGeneratedAudioDuration(path: string, fallback: number): Promise<number> {
+async function readGeneratedAudioDuration(path: string): Promise<number> {
   try {
     const mediaInfo = await probeMedia(path)
 
-    return mediaInfo.duration ?? fallback
-  } catch {
-    return fallback
+    if (mediaInfo.duration === undefined || mediaInfo.duration <= 0) {
+      throw new ProviderExecutionError({
+        code: 'mimo_tts_invalid_audio',
+        details: {
+          path,
+        },
+        message: 'MiMo TTS generated audio did not contain a positive probed duration.',
+        role: 'tts',
+      })
+    }
+
+    return mediaInfo.duration
+  } catch (error) {
+    if (error instanceof ProviderExecutionError) {
+      throw error
+    }
+
+    throw new ProviderExecutionError({
+      cause: error,
+      code: 'mimo_tts_invalid_audio',
+      details: {
+        path,
+      },
+      message: `MiMo TTS generated audio could not be probed: ${error instanceof Error ? error.message : String(error)}`,
+      role: 'tts',
+    })
   }
 }
 
@@ -273,13 +316,19 @@ function readMimoTtsUsage(response: unknown): MimoTTSRequestMetadata['usage'] | 
 }
 
 function resolveMimoTtsVoice(segmentVoice: string | undefined, fallback: string): string {
-  const voice = normalizeOptionalString(segmentVoice)
-
-  if (voice === undefined || GENERIC_TTS_VOICE_HINTS.has(voice.toLowerCase())) {
+  if (segmentVoice === undefined) {
     return fallback
   }
 
-  return voice
+  if (segmentVoice.trim() === '') {
+    throw new Error('MiMo TTS narration voice must not be blank; no default voice fallback is allowed for explicit segment voice values.')
+  }
+
+  if (segmentVoice.trim() !== segmentVoice || /\s{2,}|\r|\n|\t/u.test(segmentVoice)) {
+    throw new Error('MiMo TTS narration voice must be a clean provider voice id; no runtime voice whitespace cleanup is allowed.')
+  }
+
+  return segmentVoice
 }
 
 async function retryProviderRequest<T>(input: {

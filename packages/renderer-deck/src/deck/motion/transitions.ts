@@ -1,11 +1,11 @@
-import type {TimedDeck} from '@video-agent/ir'
+import type {DeckTransitionType, TimedDeck} from '@video-agent/ir'
 
 import type {DeckMotionSlide} from './index.js'
 
 export interface DeckMotionTransition {
   from: string
   to: string
-  type: 'crossfade' | 'fade' | 'slide-left' | 'slide-up'
+  type: DeckTransitionType
   duration: number
 }
 
@@ -22,33 +22,17 @@ export function compileTransitions(slides: TimedDeck['deck']['slides'], motionSl
       continue
     }
 
+    if (from.transitionOut === undefined) {
+      throw new Error(`Deck slide "${from.slideId}" is missing LLM-authored transitionOut for slide "${to.slideId}"; no template-type transition fallback is allowed.`)
+    }
+
     transitions.push({
-      duration: 0.55,
+      duration: from.transitionOut.duration,
       from: from.slideId,
       to: to.slideId,
-      type: transitionType(from.type, to.type),
+      type: from.transitionOut.type,
     })
   }
 
   return transitions
-}
-
-function transitionType(fromType: string, toType: string): DeckMotionTransition['type'] {
-  if (fromType === 'section' || fromType === 'hero') {
-    return 'slide-up'
-  }
-
-  if (toType === 'comparison' || toType === 'process' || toType === 'timeline') {
-    return 'slide-left'
-  }
-
-  if (toType === 'section' || toType === 'cta') {
-    return 'fade'
-  }
-
-  if (fromType === 'cta') {
-    return 'fade'
-  }
-
-  return 'crossfade'
 }

@@ -1,6 +1,6 @@
 import type {MediaInfo, SourceManifest} from '@video-agent/ir'
 
-import {clamp, getOrientation, maxStreamDuration, roundSeconds} from '../shared/utils.js'
+import {getOrientation, maxStreamDuration} from '../shared/utils.js'
 
 export function createSourceManifest(mediaInfo: MediaInfo, sourceHash: string): SourceManifest {
   const video = mediaInfo.streams.find((stream) => stream.type === 'video')
@@ -17,16 +17,4 @@ export function createSourceManifest(mediaInfo: MediaInfo, sourceHash: string): 
     version: 1,
     width: video?.width,
   }
-}
-
-export function defaultRecapTargetDuration(sourceDuration: number): number {
-  if (sourceDuration <= 0) {
-    return 0
-  }
-
-  if (sourceDuration <= 90) {
-    return sourceDuration
-  }
-
-  return roundSeconds(clamp(sourceDuration * 0.6, 90, 300))
 }

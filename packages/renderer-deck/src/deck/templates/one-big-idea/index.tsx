@@ -12,12 +12,22 @@ const oneBigIdeaMotionSteps: TemplateMotionStep[] = [
 ]
 
 export const oneBigIdeaTemplate = defineSlideTemplate({
-  render: (slide) => (
-    <>
-      <TitleBlock slide={slide} />
-      <IdeaCard slide={slide} />
-    </>
-  ),
+	  render: (slide) => {
+	    if (slide.points[0] === undefined) {
+	      throw new Error(`Deck one-big-idea slide "${slide.slideId}" is missing an LLM-authored idea point.`)
+	    }
+
+	    if (slide.points.length > 3) {
+	      throw new Error(`Deck one-big-idea slide "${slide.slideId}" received ${slide.points.length} points, exceeding renderer limit 3.`)
+	    }
+
+	    return (
+      <>
+        <TitleBlock slide={slide} />
+        <IdeaCard slide={slide} />
+      </>
+    )
+  },
   type: 'one-big-idea',
 })
 

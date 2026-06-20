@@ -12,7 +12,7 @@ import {completeDeckFinalRender, failDeckFinalRender, openDeckFinalRenderContext
 import type {CreateDeckFinalRenderProjectOptions, CreateDeckFinalRenderProjectResult} from './types.js'
 import {normalizeDeckRendererFps, sha256File} from '../frames/index.js'
 import {createDeckFinalVideoKeyframeQuality} from '../../quality/keyframes.js'
-import {createDeckQualityReport} from '../../quality/report.js'
+import {assertDeckQualityReportHasNoErrors, createDeckQualityReport} from '../../quality/report.js'
 import {writeDeckRemotionRenderOutputArtifact} from '../output-artifacts.js'
 import {writeDeckReviewArtifacts} from '../../quality/review.js'
 
@@ -22,7 +22,7 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
 
   try {
     const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
-    const audioRef = timedDeck.audioRef ?? 'audio/deck_voiceover.wav'
+    const audioRef = requireTimedDeckAudioRef(timedDeck, 'Deck Remotion final render')
     const audioPath = resolve(workspace.projectDir, audioRef)
     const remotionOutputDir = resolve(workspace.rendersDir, 'remotion')
     const silentVideoPath = resolve(workspace.rendersDir, 'deck_silent.mp4')
@@ -30,6 +30,10 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
     const sourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
     const motionTimeline = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate).timeline
     const fps = normalizeDeckRendererFps(motionTimeline.fps)
+    const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
+    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
+
+    assertDeckQualityReportHasNoErrors(deckQualityReport, deckQualityReportPath)
 
     await assertFileExists(audioPath)
     await rm(remotionOutputDir, {force: true, recursive: true})
@@ -56,9 +60,7 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
       outputPath: silentVideoPath,
       project: remotionProject,
     })
-    const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
-    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
-    const subtitleOutput = await writeDeckSubtitles(workspace, timedDeck)
+	    const subtitleOutput = await writeDeckSubtitles(workspace, timedDeck)
 
     await muxDeckFinalVideo({
       audioPath,
@@ -127,4 +129,12 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
     await failDeckFinalRender(context, error)
     throw error
   }
+}
+
+function requireTimedDeckAudioRef(timedDeck: ReturnType<typeof TimedDeckSchema.parse>, context: string): string {
+  if (timedDeck.audioRef === undefined || timedDeck.audioRef.trim() === '') {
+    throw new Error(`${context} requires timed-deck.json audioRef from Deck voiceover or audio anchoring; no default audio path fallback is allowed.`)
+  }
+
+  return timedDeck.audioRef
 }

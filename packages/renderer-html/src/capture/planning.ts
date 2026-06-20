@@ -127,7 +127,11 @@ function slideIdAtTime(timedDeck: TimedDeck, time: number): string {
     return time >= item.start && (time < item.end || isLast)
   })
 
-  return timing?.slideId ?? timedDeck.deck.slides[0]?.slideId ?? 'slide-001'
+  if (timing === undefined) {
+    throw new Error(`Deck HTML frame planning could not resolve a slide timing at ${time}s.`)
+  }
+
+  return timing.slideId
 }
 
 function clamp(value: number, min: number, max: number): number {

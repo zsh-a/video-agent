@@ -22,17 +22,28 @@ export async function alignFilmTtsSegmentsToNarration(projectDir: string, narrat
   const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
 
   return Promise.all(ttsSegments.map(async (ttsSegment, index) => {
-    const narrationSegment = narrationById.get(ttsSegment.narrationId) ?? narration.segments[index]
-    const targetDuration = narrationSegment?.duration
+    const narrationSegment = narrationById.get(ttsSegment.narrationId)
 
-    if (targetDuration === undefined || targetDuration <= 0 || ttsSegment.duration <= targetDuration + FILM_TTS_DURATION_TOLERANCE_SECONDS) {
+    if (narrationSegment === undefined) {
+      throw new Error(`TTS segment ${index + 1} references unknown narrationId "${ttsSegment.narrationId}".`)
+    }
+
+    const targetDuration = narrationSegment.duration
+
+    if (targetDuration === undefined) {
+      throw new Error(`Narration segment "${narrationSegment.id}" has no duration for TTS alignment.`)
+    }
+
+    const ttsDuration = requireTtsSegmentDuration(ttsSegment, 'TTS alignment')
+
+    if (targetDuration <= 0 || ttsDuration <= targetDuration + FILM_TTS_DURATION_TOLERANCE_SECONDS) {
       return ttsSegment
     }
 
     const path = resolveProjectPath(projectDir, ttsSegment.path)
 
     await assertFileExists(path)
-    await conformAudioDuration(path, ttsSegment.duration, targetDuration)
+    await conformAudioDuration(path, ttsDuration, targetDuration)
 
     return {
       ...ttsSegment,
@@ -44,9 +55,14 @@ export async function alignFilmTtsSegmentsToNarration(projectDir: string, narrat
 export async function createAudioMixVoiceovers(projectDir: string, narration: Narration, ttsSegments: TTSSegment[]): Promise<FilmAudioMixVoiceover[]> {
   const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
   const voiceovers = ttsSegments.map((ttsSegment, index) => {
-    const narrationSegment = narrationById.get(ttsSegment.narrationId) ?? narration.segments[index]
-    const start = roundSeconds(narrationSegment?.start ?? 0)
-    const duration = roundSeconds(ttsSegment.duration || narrationSegment?.duration || 0)
+    const narrationSegment = narrationById.get(ttsSegment.narrationId)
+
+    if (narrationSegment === undefined) {
+      throw new Error(`TTS segment ${index + 1} references unknown narrationId "${ttsSegment.narrationId}".`)
+    }
+
+    const start = roundSeconds(requireNarrationStart(narrationSegment))
+    const duration = roundSeconds(requireTtsSegmentDuration(ttsSegment, 'audio mixing'))
     const resolvedPath = resolveProjectPath(projectDir, ttsSegment.path)
 
     return {
@@ -62,6 +78,22 @@ export async function createAudioMixVoiceovers(projectDir: string, narration: Na
   await Promise.all(voiceovers.map((voiceover) => assertFileExists(voiceover.resolvedPath)))
 
   return voiceovers
+}
+
+function requireTtsSegmentDuration(ttsSegment: TTSSegment, stage: string): number {
+  if (ttsSegment.duration <= 0) {
+    throw new Error(`TTS segment "${ttsSegment.narrationId}" must include a positive duration for ${stage}; no narration-duration fallback is allowed.`)
+  }
+
+  return ttsSegment.duration
+}
+
+function requireNarrationStart(segment: Narration['segments'][number]): number {
+  if (segment.start === undefined) {
+    throw new Error(`Narration segment "${segment.id}" has no start time for audio mixing.`)
+  }
+
+  return segment.start
 }
 
 export function getAudioMixMode(hasSourceAudio: boolean, hasVoiceover: boolean): FilmAudioMix['mode'] {

@@ -13,7 +13,6 @@ export const sectionManifest = {
     requiredVisibleElements: ['.slide__title', '.section__rule'],
     safeArea: true,
   },
-  repair: 'fallback-readable',
   type: 'section',
   useWhen: 'Separating chapters, major topics, or narrative beats.',
 } satisfies DeckTemplateManifestEntry

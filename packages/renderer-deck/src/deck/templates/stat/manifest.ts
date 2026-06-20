@@ -16,7 +16,6 @@ export const statManifest = {
     requiredVisibleElements: ['.slide__title', '.stat-block'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'stat',
   useWhen: 'Emphasizing one meaningful metric with label and context.',
 } satisfies DeckTemplateManifestEntry

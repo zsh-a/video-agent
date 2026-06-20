@@ -7,6 +7,52 @@ import {join} from 'node:path'
 import {renderRemotionDeckProject, writeRemotionDeckProject} from '../../../packages/renderer-remotion/src/index.js'
 
 describe('remotion deck compiler', () => {
+  it('rejects missing MotionIR instead of creating a static renderer fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-remotion-missing-motion-'))
+
+    try {
+      let error: unknown
+
+      try {
+        await writeRemotionDeckProject({
+          outputDir: root,
+          timedDeck: {
+            deck: {
+              format: 'portrait_1080x1920',
+              inputMode: 'script-generated',
+              language: 'en',
+              slides: [
+                {
+                  blockIds: [],
+                  evidence: [],
+                  motion: 'slide-up',
+                  points: ['Compiled motion is required'],
+                  slideId: 'slide-001',
+                  speakerNote: 'Renderer export should not invent static motion.',
+                  title: 'No Static Motion',
+                  type: 'hero',
+                  visual: {assetRefs: [], kind: 'title-card'},
+                },
+              ],
+              theme: 'elegant-dark',
+              title: 'Deck',
+              version: 1,
+            },
+            timings: [{end: 2, slideId: 'slide-001', start: 0}],
+            version: 1,
+          },
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('requires a compiled motionTimeline')
+      expect(String(error)).to.include('no static renderer motion fallback is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('writes a Remotion project from timed DeckIR and MotionIR', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-remotion-'))
 

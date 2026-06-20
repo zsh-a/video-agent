@@ -4,8 +4,26 @@ import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
 import {isAbsolute, relative, resolve, sep} from 'node:path'
 
-export function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))]
+export function uniqueStrings(values: string[], context = 'semantic strings'): string[] {
+  const seen = new Set<string>()
+
+  for (const [index, value] of values.entries()) {
+    if (value.trim() === '') {
+      throw new Error(`${context} item ${index + 1} is empty; no runtime semantic string filtering is allowed.`)
+    }
+
+    if (value !== value.trim()) {
+      throw new Error(`${context} item ${index + 1} contains leading or trailing whitespace; no runtime semantic string trim is allowed.`)
+    }
+
+    if (seen.has(value)) {
+      throw new Error(`${context} item ${index + 1} duplicates an earlier value; no runtime semantic string deduplication is allowed.`)
+    }
+
+    seen.add(value)
+  }
+
+  return values
 }
 
 export function rangesOverlap(left: [number, number], right: [number, number]): boolean {

@@ -4,8 +4,16 @@ import type {ReactNode} from 'react'
 import {Card, Stack} from '../layout/primitives.js'
 
 export function IdeaCard({slide}: {slide: Slide}): ReactNode {
-  const idea = slide.points[0] ?? slide.subtitle ?? slide.speakerNote ?? slide.title
+  if (slide.points.length > 3) {
+    throw new Error(`Deck one-big-idea slide "${slide.slideId}" received ${slide.points.length} points, exceeding renderer limit 3.`)
+  }
+
+  const idea = slide.points[0]
   const support = slide.points.slice(1, 3)
+
+  if (idea === undefined) {
+    throw new Error(`Deck one-big-idea slide "${slide.slideId}" is missing an LLM-authored idea point.`)
+  }
 
   return (
     <Card className="idea-card relative grid gap-[28px] overflow-hidden rounded-deck-card border border-deck-line bg-deck-surface p-[44px_48px] shadow-deck-card">

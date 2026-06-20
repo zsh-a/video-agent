@@ -12,11 +12,11 @@ export const ctaManifest = {
   qualityRules: {
     maxPointLines: 2,
     maxPoints: 1,
+    minPoints: 1,
     maxTitleLines: 2,
     requiredVisibleElements: ['.slide__title', '.cta-block'],
     safeArea: true,
   },
-  repair: 'fallback-readable',
   type: 'cta',
   useWhen: 'Ending the deck with one next step or closing message.',
 } satisfies DeckTemplateManifestEntry

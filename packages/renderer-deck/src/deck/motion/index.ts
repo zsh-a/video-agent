@@ -57,10 +57,15 @@ export interface MotionOptions {
 
 export function compileDeckMotionPlan(timedDeck: TimedDeck, resolveMotionSteps: ResolveMotionSteps, options?: MotionOptions): DeckMotionPlan {
   const timingBySlide = new Map(timedDeck.timings.map((timing) => [timing.slideId, timing]))
-  const slides = timedDeck.deck.slides.map((slide, index) => {
+  const slides = timedDeck.deck.slides.map((slide) => {
     const timing = timingBySlide.get(slide.slideId)
-    const start = timing?.start ?? index
-    const end = timing?.end ?? start + (slide.duration ?? 1)
+
+    if (timing === undefined) {
+      throw new Error(`Deck motion plan is missing timing for slide "${slide.slideId}".`)
+    }
+
+    const start = timing.start
+    const end = timing.end
 
     return {
       end: round(end),

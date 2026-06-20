@@ -1,49 +1,95 @@
-import type {LLMClient, LLMUsage} from '@video-agent/llm'
+import type {LLMClient, LLMMessage, LLMUsage} from '@video-agent/llm'
 
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {z} from 'zod'
 
 import type {ASRProvider, MediaInput, Transcript} from '../contracts.js'
 
 import {runFfmpeg} from '@video-agent/media'
 import {bunFile} from '../bun-runtime.js'
 import {attachProviderMetadata} from '../metadata.js'
-import {createAudioDataUri, inferLanguage, mergeLLMUsage, normalizePositiveFiniteNumber, parseOptionalJson, resolveAudioMimeType, roundTimestamp} from './media-utils.js'
+import {createAudioDataUri, mergeLLMUsage, normalizePositiveFiniteNumber, parseOptionalJson, resolveAudioMimeType, roundTimestamp} from './media-utils.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
 import {TranscriptSchema} from '../schemas.js'
 
 export const MIMO_ASR_MODEL = MIMO_PROVIDER_MODEL_IDS.asr
 export const MIMO_ASR_BASE_URL = MIMO_PROVIDER_BASE_URL
 export const MIMO_ASR_DEFAULT_SEGMENT_SECONDS = 30
+const MimoTranscriptLanguageSchema = z.object({
+  language: z.string().min(1),
+})
 
 export class LLMASRProvider implements ASRProvider {
   constructor(private readonly llm: LLMClient) {}
 
   async transcribe(input: MediaInput): Promise<Transcript> {
+    const audio = await bunFile(input.path).bytes()
+    const mediaType = resolveAudioMimeType(input)
     const result = await this.llm.generateObject({
-      messages: [
-        {
-          content: JSON.stringify({
-            goal: 'Create transcript JSON for the provided media input. Return only data matching the schema.',
-            input,
-            instructions: [
-              'Infer a concise transcript from available media metadata or path context.',
-              'Use seconds for segment start and end values.',
-              'If speech cannot be identified from the available evidence, return an empty transcript with no segments instead of inventing speech.',
-            ],
-          }),
-          role: 'user',
-        },
-      ],
+      messages: createLLMAsrMessages(input, audio, mediaType),
       schema: TranscriptSchema,
       temperature: 0.1,
     })
+    const transcript = normalizeLLMAsrTranscript(TranscriptSchema.parse(result.object))
 
-    return attachProviderMetadata(TranscriptSchema.parse(result.object), {
+    return attachProviderMetadata(transcript, {
       usage: result.usage,
     })
   }
+}
+
+function createLLMAsrMessages(input: MediaInput, audio: Uint8Array, mediaType: string): LLMMessage[] {
+  return [
+    {
+      content: [
+        {
+          text: JSON.stringify({
+            duration: input.duration,
+            goal: 'Transcribe the attached audio into timestamped transcript JSON. Return only data matching the schema.',
+            instructions: [
+              'Use the attached audio file as the only speech evidence.',
+              'Do not infer, summarize, or invent transcript text from the file path, metadata, or surrounding context.',
+              'Return exact timestampConfidence only when every non-empty segment has a positive start/end range in seconds.',
+              'If speech cannot be identified from the attached audio, return empty text, empty segments, and timestampConfidence exact.',
+            ],
+            path: input.path,
+          }),
+          type: 'text' as const,
+        },
+        {
+          data: createAudioDataUri(audio, mediaType),
+          mediaType,
+          type: 'file' as const,
+        },
+      ],
+      role: 'user',
+    },
+  ]
+}
+
+function normalizeLLMAsrTranscript(transcript: Transcript): Transcript {
+  if (transcript.timestampConfidence !== 'exact') {
+    const confidence = transcript.timestampConfidence ?? 'missing'
+
+    throw new Error(`LLM ASR transcript must provide exact timestamps from attached audio; received ${confidence}.`)
+  }
+
+  assertTranscriptTextDoesNotNeedCleanup(transcript, 'LLM ASR transcript')
+  assertTranscriptSegmentsDoNotNeedCleanup(transcript, 'LLM ASR transcript')
+  requireExplicitTranscriptText(transcript, 'LLM ASR transcript')
+  requireConcreteTranscriptLanguage(transcript, 'LLM ASR transcript')
+
+  if (transcript.text.trim() !== '') {
+    const invalidSegment = transcript.segments.find((segment) => segment.text.trim() !== '' && segment.end <= segment.start)
+
+    if (invalidSegment !== undefined || transcript.segments.every((segment) => segment.text.trim() === '')) {
+      throw new Error('LLM ASR transcript text requires non-empty timed segments with positive timestamp ranges.')
+    }
+  }
+
+  return transcript
 }
 
 export class MimoASRProvider implements ASRProvider {
@@ -61,15 +107,14 @@ export class MimoASRProvider implements ASRProvider {
     }
 
     const result = await this.transcribeAudioPath(input)
-    const transcript = parseTranscriptFromMimoContent(result.text, {
-      fallbackEnd: duration ?? 0,
-      fallbackStart: 0,
-      timestampConfidence: duration === undefined ? 'untimed' : 'chunked',
+    const parsed = await parseTranscriptFromMimoContent(this.llm, result.text, {
+      windowEnd: duration,
+      windowStart: 0,
     })
 
-    return attachProviderMetadata(transcript, {
+    return attachProviderMetadata(parsed.transcript, {
       model: MIMO_ASR_MODEL,
-      usage: result.usage,
+      usage: mergeLLMUsage([result.usage, parsed.usage].filter((usage): usage is LLMUsage => usage !== undefined)),
     })
   }
 
@@ -86,9 +131,8 @@ export class MimoASRProvider implements ASRProvider {
 
         try {
           await (this.options.segmentAudio ?? sliceMimoAsrAudio)(input.path, chunkPath, window)
-        } catch {
-          chunks.push(createEmptyWindowTranscript(window))
-          continue
+        } catch (error) {
+          throw new Error(`MiMo ASR failed to prepare audio segment ${index + 1} (${window.start}-${window.end}s): ${formatErrorMessage(error)}`)
         }
 
         const result = await this.transcribeAudioPath({
@@ -101,11 +145,16 @@ export class MimoASRProvider implements ASRProvider {
           usages.push(result.usage)
         }
 
-        chunks.push(parseTranscriptFromMimoContent(result.text, {
-          fallbackEnd: window.end,
-          fallbackStart: window.start,
-          timestampConfidence: 'chunked',
-        }))
+        const parsed = await parseTranscriptFromMimoContent(this.llm, result.text, {
+          windowEnd: window.end,
+          windowStart: window.start,
+        })
+
+        if (parsed.usage !== undefined) {
+          usages.push(parsed.usage)
+        }
+
+        chunks.push(parsed.transcript)
       }
       /* eslint-enable no-await-in-loop */
     } finally {
@@ -195,128 +244,236 @@ async function sliceMimoAsrAudio(inputPath: string, outputPath: string, window: 
   ])
 }
 
-function createEmptyWindowTranscript(window: MimoAsrWindow): Transcript {
-  return {
-    segments: [
-      {
-        end: window.end,
-        start: window.start,
-        text: '',
-      },
-    ],
-    text: '',
-    timestampConfidence: 'chunked',
-  }
-}
-
 function mergeWindowTranscripts(transcripts: Transcript[]): Transcript {
   const segments = transcripts.flatMap((transcript) => transcript.segments)
-  const text = transcripts.map((transcript) => transcript.text.trim()).filter(Boolean).join('\n')
-  const language = transcripts.find((transcript) => transcript.language !== undefined)?.language
-  const timestampConfidence = transcripts.some((transcript) => transcript.timestampConfidence === 'untimed')
-    ? 'untimed'
-    : transcripts.some((transcript) => transcript.timestampConfidence === 'chunked')
-      ? 'chunked'
-      : 'exact'
+  const text = transcripts.map((transcript, index) => {
+    assertTranscriptTextDoesNotNeedCleanup(transcript, `MiMo ASR transcript chunk ${index + 1}`)
+    assertTranscriptSegmentsDoNotNeedCleanup(transcript, `MiMo ASR transcript chunk ${index + 1}`)
+
+    return transcript.text
+  }).filter((chunkText) => chunkText !== '').join('\n')
+  const languages = uniqueTranscriptLanguages(transcripts)
+  const language = languages[0]
+
+  if (languages.length > 1) {
+    throw new Error(`MiMo ASR segmented transcript returned conflicting languages (${languages.join(', ')}); no merged transcript language fallback is allowed.`)
+  }
+
+  if (text !== '' && language === undefined) {
+    throw new Error('MiMo ASR segmented transcript contains text but no explicit language; no merged transcript language fallback is allowed.')
+  }
 
   return TranscriptSchema.parse({
     ...(language === undefined ? {} : {language}),
     segments,
     text,
-    timestampConfidence,
+    timestampConfidence: 'exact',
   })
 }
 
-function parseTranscriptFromMimoContent(
+function uniqueTranscriptLanguages(transcripts: Transcript[]): string[] {
+  return [...new Set(transcripts.flatMap((transcript) => {
+    const language = transcript.language?.trim()
+
+    return language === undefined || language === '' ? [] : [language]
+  }))]
+}
+
+async function parseTranscriptFromMimoContent(
+  llm: LLMClient,
   content: string,
   options: {
-    fallbackEnd: number
-    fallbackStart: number
-    timestampConfidence: NonNullable<Transcript['timestampConfidence']>
+    windowEnd?: number
+    windowStart: number
   },
-): Transcript {
+): Promise<{transcript: Transcript; usage?: LLMUsage}> {
   const trimmed = content.trim()
   const parsed = parseOptionalJson(trimmed)
 
-  if (parsed !== undefined) {
-    return normalizeParsedMimoTranscript(TranscriptSchema.parse(parsed), options)
+  if (parsed === undefined) {
+    throw new Error('MiMo ASR must return transcript JSON with timed segments; plain text ASR output cannot be converted into source-backed timestamps.')
   }
 
-  return TranscriptSchema.parse({
-    language: inferLanguage(trimmed),
-    segments: trimmed === ''
-      ? []
-      : [
-          {
-            end: options.fallbackEnd,
-            start: options.fallbackStart,
-            text: trimmed,
-          },
-        ],
-    text: trimmed,
-    timestampConfidence: options.timestampConfidence,
-  })
+  return ensureTranscriptLanguage(llm, normalizeParsedMimoTranscript(TranscriptSchema.parse(parsed), options))
 }
 
 function normalizeParsedMimoTranscript(
   transcript: Transcript,
   options: {
-    fallbackEnd: number
-    fallbackStart: number
-    timestampConfidence: NonNullable<Transcript['timestampConfidence']>
+    windowEnd?: number
+    windowStart: number
   },
 ): Transcript {
+  assertTranscriptTextDoesNotNeedCleanup(transcript, 'MiMo ASR transcript JSON')
+
   if (transcript.segments.length === 0) {
-    return TranscriptSchema.parse({
-      ...transcript,
-      timestampConfidence: transcript.timestampConfidence ?? options.timestampConfidence,
-    })
-  }
-
-  if (hasTimedTranscriptSegments(transcript)) {
-    const offset = shouldOffsetParsedTranscript(transcript, options) ? options.fallbackStart : 0
+    if (transcript.text.trim() !== '') {
+      throw new Error('MiMo ASR transcript JSON contains text but no timed segments; no default timing fallback is allowed.')
+    }
 
     return TranscriptSchema.parse({
       ...transcript,
-      segments: transcript.segments.map((segment) => ({
-        ...segment,
-        end: roundTimestamp(segment.end + offset),
-        start: roundTimestamp(segment.start + offset),
-      })),
-      timestampConfidence: transcript.timestampConfidence ?? 'exact',
+      timestampConfidence: 'exact',
     })
   }
+
+  if (transcript.timestampConfidence !== undefined && transcript.timestampConfidence !== 'exact') {
+    throw new Error(`MiMo ASR transcript JSON must provide exact timestamps; received ${transcript.timestampConfidence}.`)
+  }
+
+  requireExplicitTranscriptText(transcript, 'MiMo ASR transcript JSON')
+  assertTranscriptSegmentsDoNotNeedCleanup(transcript, 'MiMo ASR transcript JSON')
+  assertTimedTranscriptSegments(transcript)
+  assertTranscriptSegmentsWithinWindow(transcript, options)
+  validateOptionalTranscriptLanguage(transcript, 'MiMo ASR transcript JSON')
+
+  const offset = options.windowStart
 
   return TranscriptSchema.parse({
     ...transcript,
-    segments: [
-      {
-        end: options.fallbackEnd,
-        start: options.fallbackStart,
-        text: transcript.text,
-      },
-    ],
-    timestampConfidence: transcript.timestampConfidence ?? options.timestampConfidence,
+    segments: transcript.segments.map((segment) => ({
+      ...segment,
+      end: roundTimestamp(segment.end + offset),
+      start: roundTimestamp(segment.start + offset),
+    })),
+    timestampConfidence: 'exact',
   })
 }
 
-function hasTimedTranscriptSegments(transcript: Transcript): boolean {
-  return transcript.segments.some((segment) => segment.end > segment.start)
+function assertTimedTranscriptSegments(transcript: Transcript): void {
+  const invalidSegment = transcript.segments.find((segment) => segment.text.trim() !== '' && segment.end <= segment.start)
+
+  if (invalidSegment !== undefined) {
+    throw new Error('MiMo ASR transcript JSON contains non-empty segments without positive timestamp ranges.')
+  }
 }
 
-function shouldOffsetParsedTranscript(
+function assertTranscriptSegmentsWithinWindow(
   transcript: Transcript,
   options: {
-    fallbackEnd: number
-    fallbackStart: number
+    windowEnd?: number
+    windowStart: number
   },
-): boolean {
-  if (options.fallbackStart <= 0) {
-    return false
+): void {
+  if (options.windowEnd === undefined) {
+    return
   }
 
-  const windowDuration = options.fallbackEnd - options.fallbackStart
-  const maxEnd = Math.max(...transcript.segments.map((segment) => segment.end))
+  const windowDuration = options.windowEnd - options.windowStart
+  const outOfWindowSegment = transcript.segments.find((segment) => segment.start < -0.001 || segment.end > windowDuration + 0.001)
 
-  return maxEnd <= windowDuration + 0.001
+  if (outOfWindowSegment !== undefined) {
+    throw new Error('MiMo ASR transcript JSON timestamps must be relative to the requested audio window; no absolute/global timestamp fallback is allowed.')
+  }
+}
+
+function requireExplicitTranscriptText(transcript: Transcript, context: string): void {
+  if (transcript.segments.length === 0) {
+    return
+  }
+
+  if (transcript.text.trim() === '') {
+    throw new Error(`${context} must include explicit transcript text when timed segments are present; no segment-text transcript reconstruction fallback is allowed.`)
+  }
+}
+
+function assertTranscriptTextDoesNotNeedCleanup(transcript: Transcript, context: string): void {
+  if (transcript.text !== transcript.text.trim()) {
+    throw new Error(`${context} text contains leading or trailing whitespace; no runtime transcript text trim is allowed.`)
+  }
+}
+
+function assertTranscriptSegmentsDoNotNeedCleanup(transcript: Transcript, context: string): void {
+  const dirtySegmentIndex = transcript.segments.findIndex((segment) => segment.text !== segment.text.trim())
+
+  if (dirtySegmentIndex >= 0) {
+    throw new Error(`${context} segment ${dirtySegmentIndex + 1} text contains leading or trailing whitespace; no runtime transcript segment text trim is allowed.`)
+  }
+}
+
+async function ensureTranscriptLanguage(llm: LLMClient, transcript: Transcript): Promise<{transcript: Transcript; usage?: LLMUsage}> {
+  if (transcript.language !== undefined || transcriptText(transcript) === '') {
+    validateOptionalTranscriptLanguage(transcript, 'MiMo ASR transcript JSON')
+
+    return {transcript}
+  }
+
+  const result = await llm.generateObject({
+    messages: [
+      {
+        content: JSON.stringify({
+          goal: 'Identify the BCP-47 language tag for the ASR transcript text. Return only data matching the schema.',
+          instructions: [
+            'Use the transcript text itself as evidence.',
+            'Return a concrete language tag such as zh-CN, en-US, ja-JP, or ko-KR.',
+            'Do not return auto, unknown, or an empty value.',
+          ],
+          transcript: transcriptText(transcript),
+        }),
+        role: 'user',
+      },
+    ],
+    schema: MimoTranscriptLanguageSchema,
+    temperature: 0,
+  })
+
+  return {
+    transcript: TranscriptSchema.parse({
+      ...transcript,
+      language: requireConcreteLanguageTag(result.object.language, 'MiMo ASR transcript language detector'),
+    }),
+    usage: result.usage,
+  }
+}
+
+function requireConcreteTranscriptLanguage(transcript: Transcript, context: string): void {
+  if (transcriptText(transcript) === '') {
+    return
+  }
+
+  if (transcript.language === undefined) {
+    throw new Error(`${context} with transcript text must include a concrete language tag; no language default fallback is allowed.`)
+  }
+
+  requireConcreteLanguageTag(transcript.language, context)
+}
+
+function validateOptionalTranscriptLanguage(transcript: Transcript, context: string): void {
+  if (transcript.language === undefined) {
+    return
+  }
+
+  requireConcreteLanguageTag(transcript.language, context)
+}
+
+function requireConcreteLanguageTag(language: string, context: string): string {
+  if (language !== language.trim()) {
+    throw new Error(`${context} language contains leading or trailing whitespace; no runtime language trim is allowed.`)
+  }
+
+  if (/[\r\n\t]/u.test(language) || /[^\S\r\n]{2,}/u.test(language)) {
+    throw new Error(`${context} language contains layout whitespace; no runtime language repair is allowed.`)
+  }
+
+  if (language === '') {
+    throw new Error(`${context} language is empty; no language default fallback is allowed.`)
+  }
+
+  if (['auto', 'unknown', 'und', 'undefined'].includes(language.toLowerCase())) {
+    throw new Error(`${context} language "${language}" is not a concrete language tag; no language default fallback is allowed.`)
+  }
+
+  if (!/^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u.test(language)) {
+    throw new Error(`${context} language "${language}" is not a valid concrete BCP-47 language tag.`)
+  }
+
+  return language
+}
+
+function transcriptText(transcript: Transcript): string {
+  return transcript.text
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }

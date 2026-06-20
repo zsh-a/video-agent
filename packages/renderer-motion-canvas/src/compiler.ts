@@ -25,8 +25,8 @@ export interface WriteMotionCanvasDeckProjectOptions {
 
 export async function writeMotionCanvasDeckProject(options: WriteMotionCanvasDeckProjectOptions): Promise<MotionCanvasDeckProject> {
   const timedDeck = TimedDeckSchema.parse(options.timedDeck)
-  const fps = normalizeFps(options.fps ?? options.motionTimeline?.fps ?? 30)
-  const motionTimeline = MotionTimelineSchema.parse(options.motionTimeline ?? createStaticMotionTimeline(timedDeck, fps))
+  const motionTimeline = MotionTimelineSchema.parse(requireMotionTimeline(options.motionTimeline))
+  const fps = normalizeFps(options.fps ?? motionTimeline.fps)
   const outputDir = resolve(options.outputDir)
   const srcDir = join(outputDir, 'src')
   const sceneDir = join(srcDir, 'scenes')
@@ -59,21 +59,12 @@ export async function writeMotionCanvasDeckProject(options: WriteMotionCanvasDec
   return project
 }
 
-function createStaticMotionTimeline(timedDeck: TimedDeck, fps: number): MotionTimeline {
-  const duration = Math.max(0.1, timedDeck.timings.at(-1)?.end ?? 0.1)
+function requireMotionTimeline(motionTimeline: MotionTimeline | undefined): MotionTimeline {
+  if (motionTimeline === undefined) {
+    throw new Error('Motion Canvas Deck project export requires a compiled motionTimeline; no static renderer motion fallback is allowed.')
+  }
 
-  return MotionTimelineSchema.parse({
-    duration,
-    fps,
-    scenes: timedDeck.timings.map((timing) => ({
-      end: timing.end,
-      id: timing.slideId,
-      sourceId: timing.slideId,
-      start: timing.start,
-    })),
-    tracks: [],
-    version: 1,
-  })
+  return motionTimeline
 }
 
 function createMotionCanvasPackageJson() {

@@ -2,6 +2,7 @@ import {ProcessList, TitleBlock} from '../../components/index.js'
 import {titlePresetFor} from '../../motion/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
+import {requireSlidePoints} from '../helpers.js'
 import {processManifest} from './manifest.js'
 import {processStyles} from './styles.js'
 
@@ -14,7 +15,7 @@ export const processTemplate = defineSlideTemplate({
   render: (slide) => (
     <>
       <TitleBlock slide={slide} />
-      <ProcessList points={slide.points} />
+      <ProcessList points={requireSlidePoints(slide, 'process')} />
     </>
   ),
   type: 'process',

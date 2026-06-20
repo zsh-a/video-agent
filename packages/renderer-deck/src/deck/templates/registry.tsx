@@ -50,7 +50,13 @@ export const slideTemplateMotionSteps = new Map<DeckSlideType, TemplateMotionSte
 )
 
 export function resolveSlideTemplate(type: DeckSlideType): SlideTemplate {
-  return slideTemplateRegistry.get(type) ?? threePointsTemplateModule.template
+  const template = slideTemplateRegistry.get(type)
+
+  if (template === undefined) {
+    throw new Error(`No Deck template renderer registered for slide type "${type}".`)
+  }
+
+  return template
 }
 
 export function resolveMotionStepsForTemplate(type: DeckSlideType): TemplateMotionStep[] | undefined {

@@ -1,6 +1,7 @@
 import type {LongVideoSelectedMoments, Narration, SlideTiming, SpeakerScript, Storyboard, TimedDeck, Timeline, Deck} from '@video-agent/ir'
 import type {TTSSegment} from '@video-agent/providers'
 
+import type {NormalizedLLMTextDeckSlide} from './llm-plan.js'
 import {roundSeconds} from '../shared/utils.js'
 
 export function createDeckNarrationFromSpeakerScript(speakerScript: SpeakerScript, timedDeck: TimedDeck): Narration {
@@ -11,11 +12,19 @@ export function createDeckNarrationFromSpeakerScript(speakerScript: SpeakerScrip
     segments: speakerScript.segments.map((segment, index) => {
       const timing = timingBySlide.get(segment.slideId)
 
+      if (timing === undefined) {
+        throw new Error(`Deck narration segment ${index + 1} references slide "${segment.slideId}" with no timing entry.`)
+      }
+
+      if (segment.estimatedDuration === undefined) {
+        throw new Error(`Deck speaker script segment ${index + 1} for slide "${segment.slideId}" is missing LLM-authored estimatedDuration.`)
+      }
+
       return {
-        duration: segment.estimatedDuration ?? (timing === undefined ? 1 : Math.max(0.1, timing.end - timing.start)),
+        duration: segment.estimatedDuration,
         id: `narration-${index + 1}`,
         sceneId: `scene-${index + 1}`,
-        start: timing?.start ?? index,
+        start: timing.start,
         text: segment.text,
       }
     }),
@@ -24,12 +33,35 @@ export function createDeckNarrationFromSpeakerScript(speakerScript: SpeakerScrip
 }
 
 export function createSlideTimingsFromTts(speakerScript: SpeakerScript, timedDeck: TimedDeck, ttsSegments: TTSSegment[]): SlideTiming[] {
+  const ttsByNarrationId = indexTtsSegmentsByNarrationId(ttsSegments)
+  const expectedNarrationIds = new Set(speakerScript.segments.map((_, index) => deckNarrationIdForIndex(index)))
+  const extraNarrationIds = [...ttsByNarrationId.keys()].filter((narrationId) => !expectedNarrationIds.has(narrationId))
+
+  if (extraNarrationIds.length > 0) {
+    throw new Error(`Deck TTS output contains unexpected narrationId "${extraNarrationIds[0]}".`)
+  }
+
   let cursor = 0
 
   return speakerScript.segments.map((segment, index) => {
-    const fallbackTiming = timedDeck.timings.find((timing) => timing.slideId === segment.slideId)
-    const fallbackDuration = segment.estimatedDuration ?? (fallbackTiming === undefined ? 1 : fallbackTiming.end - fallbackTiming.start)
-    const duration = roundSeconds(Math.max(0.1, ttsSegments[index]?.duration ?? fallbackDuration))
+    const narrationId = deckNarrationIdForIndex(index)
+    const ttsSegment = ttsByNarrationId.get(narrationId)
+
+    if (ttsSegment === undefined) {
+      throw new Error(`Deck TTS output is missing narrationId "${narrationId}" for slide "${segment.slideId}".`)
+    }
+
+    if (ttsSegment.duration <= 0) {
+      throw new Error(`Deck TTS output for narrationId "${narrationId}" must have a positive duration.`)
+    }
+
+    const expectedTiming = timedDeck.timings.find((timing) => timing.slideId === segment.slideId)
+
+    if (expectedTiming === undefined) {
+      throw new Error(`Deck TTS timing update expected existing timing for slide "${segment.slideId}".`)
+    }
+
+    const duration = roundSeconds(ttsSegment.duration)
     const start = roundSeconds(cursor)
     const end = roundSeconds(start + duration)
 
@@ -41,6 +73,24 @@ export function createSlideTimingsFromTts(speakerScript: SpeakerScript, timedDec
       start,
     }
   })
+}
+
+export function deckNarrationIdForIndex(index: number): string {
+  return `narration-${index + 1}`
+}
+
+function indexTtsSegmentsByNarrationId(ttsSegments: TTSSegment[]): Map<string, TTSSegment> {
+  const indexed = new Map<string, TTSSegment>()
+
+  for (const segment of ttsSegments) {
+    if (indexed.has(segment.narrationId)) {
+      throw new Error(`Deck TTS output contains duplicate narrationId "${segment.narrationId}".`)
+    }
+
+    indexed.set(segment.narrationId, segment)
+  }
+
+  return indexed
 }
 
 export function createTextTimeline(duration: number): Timeline {
@@ -60,11 +110,15 @@ export function createDeckNarrationFromTimings(speakerScript: SpeakerScript, tim
     segments: speakerScript.segments.map((segment, index) => {
       const timing = timingBySlide.get(segment.slideId)
 
+      if (timing === undefined) {
+        throw new Error(`Deck narration segment ${index + 1} references slide "${segment.slideId}" with no timing entry.`)
+      }
+
       return {
-        duration: timing === undefined ? segment.estimatedDuration ?? 1 : roundSeconds(timing.end - timing.start),
+        duration: roundSeconds(timing.end - timing.start),
         id: `narration-${index + 1}`,
         sceneId: `scene-${index + 1}`,
-        start: timing?.start ?? index,
+        start: timing.start,
         text: segment.text,
       }
     }),
@@ -79,15 +133,15 @@ export function updateStoryboardTiming(storyboard: Storyboard, narration: Narrat
       const timing = timings[index]
       const narrationSegment = narration.segments[index]
 
-      if (timing === undefined) {
-        return scene
+      if (timing === undefined || narrationSegment === undefined) {
+        throw new Error(`Deck storyboard scene ${index + 1} has no matching timing or narration segment.`)
       }
 
       return {
         ...scene,
         duration: roundSeconds(timing.end - timing.start),
-        narration: narrationSegment?.text ?? scene.narration,
-        sourceRange: [timing.start, timing.end],
+        narration: narrationSegment.text,
+        outputRange: [timing.start, timing.end],
         start: timing.start,
       }
     }),
@@ -100,45 +154,80 @@ export function updateSelectedMomentsTiming(selectedMoments: LongVideoSelectedMo
     moments: selectedMoments.moments.map((moment, index) => {
       const timing = timings[index]
 
-      return timing === undefined ? moment : {
+      if (timing === undefined) {
+        throw new Error(`Deck selected moment ${index + 1} has no matching timing entry.`)
+      }
+
+      return {
         ...moment,
-        sourceRange: [timing.start, timing.end],
+        outputRange: [timing.start, timing.end],
       }
     }),
   }
 }
 
-export function createDeckStoryboard(deck: Deck, speakerScript: SpeakerScript, timings: SlideTiming[], language: string): Storyboard {
+export function createDeckStoryboard(deck: Deck, timings: SlideTiming[], language: string, targetPlatform: Storyboard['targetPlatform'], slides: NormalizedLLMTextDeckSlide[]): Storyboard {
   return {
     language,
     scenes: deck.slides.map((slide, index) => {
-      const timing = timings[index] ?? {end: index + 1, slideId: slide.slideId, start: index}
-      const script = speakerScript.segments[index]
+      const timing = timings[index]
+      const semantic = slides[index]?.semantic
+
+      if (timing === undefined || timing.slideId !== slide.slideId) {
+        throw new Error(`Deck storyboard expected timing ${index + 1} for slide "${slide.slideId}".`)
+      }
+
+      if (semantic === undefined) {
+        throw new Error(`LLM Deck plan slide ${index + 1} is missing semantic metadata.`)
+      }
+
+      const duration = roundSeconds(timing.end - timing.start)
+
+      if (duration <= 0) {
+        throw new Error(`Deck storyboard scene ${index + 1} for slide "${slide.slideId}" must have a positive LLM-authored duration; no runtime duration fallback is allowed.`)
+      }
 
       return {
-        duration: Math.max(0.001, roundSeconds(timing.end - timing.start)),
+        duration,
         evidence: slide.evidence,
         id: `scene-${index + 1}`,
-        narration: script?.text ?? slide.speakerNote ?? slide.title,
-        sourceRange: [timing.start, timing.end] as [number, number],
+        narration: semantic.momentSummary,
+        sourceRange: requireLLMSlide(slides, index).sourceRange,
         start: timing.start,
-        visualStyle: 'slide_explainer',
+        visualStyle: semantic.visualStyle,
       }
     }),
-    targetPlatform: 'generic',
+    targetPlatform,
     version: 1,
   }
 }
 
-export function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript, durationTargetSeconds: number | undefined, fallbackSlideSeconds: number): SlideTiming[] {
-  const segmentCount = Math.max(1, speakerScript.segments.length)
-  const targetDuration = durationTargetSeconds === undefined ? undefined : Math.max(segmentCount * 2, durationTargetSeconds)
+function requireLLMSlide(slides: NormalizedLLMTextDeckSlide[], index: number): NormalizedLLMTextDeckSlide {
+  const slide = slides[index]
+
+  if (slide === undefined) {
+    throw new Error(`LLM Deck plan is missing slide ${index + 1}.`)
+  }
+
+  return slide
+}
+
+export function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript, durationTargetSeconds: number | undefined): SlideTiming[] {
+  if (speakerScript.segments.length === 0) {
+    throw new Error('Deck speaker script must contain at least one segment for timing.')
+  }
+
+  const durations = speakerScript.segments.map((segment, index) => requireEstimatedDuration(segment, index))
+  const totalDuration = roundSeconds(durations.reduce((sum, duration) => sum + duration, 0))
+
+  if (durationTargetSeconds !== undefined && Math.abs(totalDuration - durationTargetSeconds) > 0.05) {
+    throw new Error(`Deck LLM speaker script durations total ${totalDuration}s, but target duration is ${roundSeconds(durationTargetSeconds)}s. Rewrite LLM Deck plan durations instead of scaling locally.`)
+  }
+
   let cursor = 0
 
-  return speakerScript.segments.map((segment) => {
-    const duration = targetDuration === undefined
-      ? Math.max(2, segment.estimatedDuration ?? fallbackSlideSeconds)
-      : targetDuration / segmentCount
+  return speakerScript.segments.map((segment, index) => {
+    const duration = roundSeconds(durations[index] ?? 0)
     const start = roundSeconds(cursor)
     const end = roundSeconds(start + duration)
 
@@ -152,25 +241,10 @@ export function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript
   })
 }
 
-export function createSlideTimingsWithinDuration(speakerScript: SpeakerScript, duration: number, fallbackSlideSeconds: number): SlideTiming[] {
-  const segmentCount = Math.max(1, speakerScript.segments.length)
-  const totalDuration = roundSeconds(Math.max(0.1, duration))
-  const weights = speakerScript.segments.map((segment) => Math.max(0.1, segment.estimatedDuration ?? fallbackSlideSeconds))
-  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0)
-  let cursor = 0
+function requireEstimatedDuration(segment: SpeakerScript['segments'][number], index: number): number {
+  if (segment.estimatedDuration === undefined) {
+    throw new Error(`Deck speaker script segment ${index + 1} for slide "${segment.slideId}" is missing LLM-authored estimatedDuration.`)
+  }
 
-  return speakerScript.segments.map((segment, index) => {
-    const start = roundSeconds(cursor)
-    const end = index === segmentCount - 1
-      ? totalDuration
-      : roundSeconds(Math.min(totalDuration, cursor + totalDuration * weights[index] / totalWeight))
-
-    cursor = end
-
-    return {
-      end: Math.max(start + 0.001, end),
-      slideId: segment.slideId,
-      start,
-    }
-  })
+  return segment.estimatedDuration
 }

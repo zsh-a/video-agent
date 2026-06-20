@@ -53,13 +53,9 @@ export async function createFilmAsrResult(audioDir: string, sourceManifest: Sour
 }
 
 export function createFilmScenesFromEvidence(sourceManifest: SourceManifest, asrResult: ASRResult, silencePeriods: SilencePeriods, visualSceneChanges: number[], maxScenes: number): FilmScenes {
-  const timedSegments = asrResult.segments
-    .filter((segment) => segment.end > segment.start)
-    .sort((left, right) => left.start - right.start || left.end - right.end)
-
-  if (timedSegments.length === 0 || asrResult.timestampConfidence === 'untimed') {
-    throw new Error('Film Recap production scene planning requires timed ASR segments.')
-  }
+  requireTimedAsrSegments(asrResult, 'Film Recap production scene planning', {
+    allowEmpty: false,
+  })
 
   const ranges = limitSceneRanges(createSceneRangesFromBoundaries(sourceManifest.duration, [
     0,
@@ -67,16 +63,10 @@ export function createFilmScenesFromEvidence(sourceManifest: SourceManifest, asr
     ...silencePeriods.periods.flatMap((period) => silencePeriodBoundary(period, sourceManifest.duration)),
     sourceManifest.duration,
   ]), normalizeFilmSceneLimit(maxScenes))
-  const scenes = ranges.map((range, index) => {
-    const matchingAsr = timedSegments.filter((segment) => rangesOverlap([segment.start, segment.end], range))
-    const summary = matchingAsr.map((segment) => segment.text).join(' ').trim()
-
-    return {
-      id: `scene-${String(index + 1).padStart(3, '0')}`,
-      sourceRange: range,
-      ...(summary === '' ? {} : {summary}),
-    }
-  }).filter((scene) => scene.sourceRange[1] > scene.sourceRange[0])
+  const scenes = ranges.map((range, index) => ({
+    id: `scene-${String(index + 1).padStart(3, '0')}`,
+    sourceRange: range,
+  })).filter((scene) => scene.sourceRange[1] > scene.sourceRange[0])
 
   if (scenes.length === 0) {
     throw new Error('Film Recap production scene planning produced no evidence-backed scenes.')
@@ -94,9 +84,9 @@ export function createFilmSilencePeriods(sourceManifest: SourceManifest, asrResu
     throw new Error('Film Recap production silence detection requires the source video to contain an audio track.')
   }
 
-  const timedSegments = asrResult.segments
-    .filter((segment) => segment.end > segment.start)
-    .sort((left, right) => left.start - right.start || left.end - right.end)
+  const timedSegments = requireTimedAsrSegments(asrResult, 'Film Recap production silence detection', {
+    allowEmpty: true,
+  })
   const periods: SilencePeriods['periods'] = []
   let cursor = 0
 
@@ -156,11 +146,11 @@ export function createTimelineFusion(
       const matchingVlm = vlmAnalysis.scenes.filter((analysis) => analysis.sceneId === scene.id)
       const matchingAsr = asrResult.segments.filter((segment) => rangesOverlap([segment.start, segment.end], scene.sourceRange))
       const matchingSilence = silencePeriods.periods.filter((period) => rangesOverlap([period.start, period.end], scene.sourceRange))
+      const summary = resolveTimelineFusionSummary(scene, matchingVlm)
 
       return {
         asrSegmentIds: matchingAsr.map((segment) => segment.id),
         evidence: [
-          {ref: `scenes.json#${scene.id}`, text: scene.summary, type: 'vlm'},
           ...matchingAsr.map((segment) => ({ref: `asr-result.json#${segment.id}`, text: segment.text, type: 'asr' as const})),
           ...matchingVlm.map((analysis) => ({ref: `vlm-analysis.json#${analysis.id}`, text: analysis.summary, type: 'vlm' as const})),
         ],
@@ -168,7 +158,7 @@ export function createTimelineFusion(
         sceneId: scene.id,
         silencePeriodIds: matchingSilence.map((period) => period.id),
         sourceRange: scene.sourceRange,
-        summary: scene.summary ?? `Fused evidence for ${scene.id}.`,
+        summary,
         vlmAnalysisIds: matchingVlm.map((analysis) => analysis.id),
       }
     }),
@@ -177,16 +167,52 @@ export function createTimelineFusion(
   }
 }
 
-function createFilmAsrResultFromTranscript(transcript: Transcript, sourceManifest: SourceManifest): ASRResult {
-  const timestampConfidence = transcript.timestampConfidence ?? inferTranscriptTimestampConfidence(transcript)
-  const segments = transcript.segments
-    .map((segment, index) => {
-      const start = roundSeconds(clamp(segment.start, 0, sourceManifest.duration))
-      const end = roundSeconds(clamp(segment.end, start, sourceManifest.duration))
-      const text = segment.text.trim()
+function resolveTimelineFusionSummary(scene: FilmScenes['scenes'][number], matchingVlm: VLMAnalysis['scenes']): string {
+  for (const [index, analysis] of matchingVlm.entries()) {
+    if (analysis.summary.trim() === '') {
+      throw new Error(`Timeline fusion VLM summary ${index + 1} for ${scene.id} is empty; no runtime VLM summary filtering is allowed.`)
+    }
 
-      if (text === '') {
-        return undefined
+    if (analysis.summary !== analysis.summary.trim()) {
+      throw new Error(`Timeline fusion VLM summary ${index + 1} for ${scene.id} contains leading or trailing whitespace; no runtime VLM summary trim is allowed.`)
+    }
+
+    return analysis.summary
+  }
+
+  throw new Error(`Timeline fusion item for ${scene.id} has no VLM evidence summary.`)
+}
+
+export function createFilmAsrResultFromTranscript(transcript: Transcript, sourceManifest: SourceManifest): ASRResult {
+  if (transcript.language === undefined || transcript.language.trim() === '') {
+    throw new Error('Film Recap ASR output must include an explicit transcript language.')
+  }
+
+  if (transcript.text !== transcript.text.trim()) {
+    throw new Error('Film Recap ASR transcript text contains leading or trailing whitespace; no runtime transcript text trim is allowed.')
+  }
+
+  if (transcript.timestampConfidence === undefined) {
+    throw new Error('Film Recap ASR output must include explicit timestampConfidence; no timestamp confidence inference is allowed.')
+  }
+
+  const timestampConfidence = transcript.timestampConfidence
+  const segments = transcript.segments
+    .map((segment, index): ASRResult['segments'][number] => {
+      const start = roundSeconds(segment.start)
+      const end = roundSeconds(segment.end)
+      const text = segment.text
+
+      if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) || start < 0 || end > sourceManifest.duration || end <= start) {
+        throw new Error(`Film Recap ASR segment ${index + 1} timestamp range must stay within source duration; no timestamp clipping is allowed.`)
+      }
+
+      if (text.trim() === '') {
+        throw new Error(`Film Recap ASR segment ${index + 1} is empty; no silent ASR segment filtering is allowed.`)
+      }
+
+      if (text !== text.trim()) {
+        throw new Error(`Film Recap ASR segment ${index + 1} text contains leading or trailing whitespace; no runtime ASR segment text trim is allowed.`)
       }
 
       return {
@@ -198,19 +224,14 @@ function createFilmAsrResultFromTranscript(transcript: Transcript, sourceManifes
         timestampConfidence,
       }
     })
-    .filter((segment): segment is ASRResult['segments'][number] => segment !== undefined)
 
   return {
-    language: transcript.language ?? 'unknown',
+    language: transcript.language,
     segments,
     text: transcript.text,
     timestampConfidence,
     version: 1,
   }
-}
-
-function inferTranscriptTimestampConfidence(transcript: Transcript): ASRResult['timestampConfidence'] {
-  return transcript.segments.some((segment) => segment.end > segment.start) ? 'exact' : 'untimed'
 }
 
 function createSceneRangesFromBoundaries(sourceDuration: number, rawBoundaries: number[]): Array<[number, number]> {
@@ -287,6 +308,24 @@ function uniqueRoundedSeconds(values: number[]): number[] {
   return [...new Set(values.map(roundSeconds))]
 }
 
+function requireTimedAsrSegments(asrResult: ASRResult, context: string, options: {allowEmpty: boolean}): ASRResult['segments'] {
+  if (asrResult.timestampConfidence === 'untimed') {
+    throw new Error(`${context} requires timed ASR segments; no untimed ASR fallback is allowed.`)
+  }
+
+  if (!options.allowEmpty && asrResult.segments.length === 0) {
+    throw new Error(`${context} requires non-empty timed ASR segments; no transcript-wide fallback is allowed.`)
+  }
+
+  asrResult.segments.forEach((segment, index) => {
+    if (!Number.isFinite(segment.start) || !Number.isFinite(segment.end) || segment.end <= segment.start) {
+      throw new Error(`${context} ASR segment ${index + 1} must provide a positive timestamp range; no silent ASR segment filtering is allowed.`)
+    }
+  })
+
+  return [...asrResult.segments].sort((left, right) => left.start - right.start || left.end - right.end)
+}
+
 function normalizeFilmSceneLimit(maxScenes: number): number {
   const requested = Number.isFinite(maxScenes) ? Math.floor(maxScenes) : 12
 
@@ -308,18 +347,17 @@ function validateFilmVlmScenes(batches: SceneFrameBatch[], providerScenes: VLMSc
 }
 
 function createFilmSceneFrameBatches(scenes: FilmScenes, frames: LongVideoAnalysisFrames): SceneFrameBatch[] {
-  return scenes.scenes.map((scene, index) => {
+  return scenes.scenes.map((scene) => {
     const matchingFrames = frames.frames
       .filter((frame) => frame.timestamp >= scene.sourceRange[0] && frame.timestamp <= scene.sourceRange[1])
       .map((frame) => frame.path)
-    const indexedFrame = frames.frames[index]?.path
 
-    if (matchingFrames.length === 0 && indexedFrame === undefined) {
-      throw new Error(`No analysis frame is available for film scene ${scene.id}.`)
+    if (matchingFrames.length === 0) {
+      throw new Error(`No analysis frame timestamp falls within film scene ${scene.id}; no indexed frame fallback is allowed.`)
     }
 
     return {
-      frames: matchingFrames.length === 0 ? [indexedFrame] : matchingFrames,
+      frames: matchingFrames,
       sceneId: scene.id,
       timeRange: scene.sourceRange,
     }
@@ -334,22 +372,47 @@ function createFilmVlmAnalysisFromProvider(sourceManifest: SourceManifest, scene
     scenes: providerScenes.map((providerScene, index) => {
       const scene = scenesById.get(providerScene.sceneId)
       const batch = batchesById.get(providerScene.sceneId)
-      const sourceRange = scene?.sourceRange ?? batch?.timeRange ?? [0, sourceManifest.duration] as [number, number]
+
+      if (scene === undefined || batch === undefined) {
+        throw new Error(`VLM provider returned sceneId ${JSON.stringify(providerScene.sceneId)} without a matching film scene batch.`)
+      }
+
+      const description = requireCleanProviderSceneText(providerScene.description, providerScene.sceneId, 'description')
 
       return {
-        actions: uniqueStrings(providerScene.actions ?? []),
-        characters: uniqueStrings(providerScene.characters ?? []),
-        emotions: uniqueStrings(providerScene.emotions ?? []),
-        evidence: providerScene.evidence.map((ref) => ({ref, text: providerScene.description, type: 'vlm' as const})),
+        actions: uniqueStrings(requireProviderSceneStrings(providerScene.actions, providerScene.sceneId, 'actions'), `VLM provider scene "${providerScene.sceneId}" actions`),
+        characters: uniqueStrings(requireProviderSceneStrings(providerScene.characters, providerScene.sceneId, 'characters'), `VLM provider scene "${providerScene.sceneId}" characters`),
+        emotions: uniqueStrings(requireProviderSceneStrings(providerScene.emotions, providerScene.sceneId, 'emotions'), `VLM provider scene "${providerScene.sceneId}" emotions`),
+        evidence: providerScene.evidence.map((ref) => ({ref, text: description, type: 'vlm' as const})),
         id: `vlm-${String(index + 1).padStart(3, '0')}`,
-        plotClues: uniqueStrings(providerScene.plotClues ?? []),
-        relationships: uniqueStrings(providerScene.relationships ?? []),
+        plotClues: uniqueStrings(requireProviderSceneStrings(providerScene.plotClues, providerScene.sceneId, 'plotClues'), `VLM provider scene "${providerScene.sceneId}" plotClues`),
+        relationships: uniqueStrings(requireProviderSceneStrings(providerScene.relationships, providerScene.sceneId, 'relationships'), `VLM provider scene "${providerScene.sceneId}" relationships`),
         sceneId: providerScene.sceneId,
-        sourceRange,
-        summary: providerScene.description,
+        sourceRange: scene.sourceRange,
+        summary: description,
       }
     }),
     source: sourceManifest.sourcePath,
     version: 1,
   }
+}
+
+function requireCleanProviderSceneText(value: string, sceneId: string, field: string): string {
+  if (value.trim() === '') {
+    throw new Error(`VLM provider scene "${sceneId}" ${field} is empty; no runtime VLM text filtering is allowed.`)
+  }
+
+  if (value !== value.trim()) {
+    throw new Error(`VLM provider scene "${sceneId}" ${field} contains leading or trailing whitespace; no runtime VLM text trim is allowed.`)
+  }
+
+  return value
+}
+
+function requireProviderSceneStrings(value: string[] | undefined, sceneId: string, field: string): string[] {
+  if (value === undefined) {
+    throw new Error(`VLM provider scene "${sceneId}" is missing required semantic field "${field}".`)
+  }
+
+  return value
 }

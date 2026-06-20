@@ -1,5 +1,6 @@
 import type {Claims, ContentBlock, Deck, DeckFormat, DeckSlideType, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
+import type {TranscriptSegment} from '@video-agent/providers'
 
 export interface TextDeckProjectPlan {
   claims: Claims
@@ -31,8 +32,8 @@ export interface TextDeckProjectPlanOptions {
   language: string
   maxSlideCharacters: number
   requiredSlideTypes?: DeckSlideType[]
-  slideSeconds: number
   sourceType?: Document['source']['sourceType']
   theme?: string
   title?: string
+  transcriptSegments?: TranscriptSegment[]
 }

@@ -56,8 +56,13 @@ export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOption
   const timingsBySlide = new Map(options.timedDeck.timings.map((timing) => [timing.slideId, timing]))
   const frames = options.timedDeck.deck.slides.map((slide, index) => {
     const timing = timingsBySlide.get(slide.slideId)
-    const start = timing?.start ?? 0
-    const duration = Math.max(0.1, timing === undefined ? slide.duration ?? 1 : timing.end - timing.start)
+
+    if (timing === undefined) {
+      throw new Error(`Deck HTML frame capture is missing timing for slide "${slide.slideId}".`)
+    }
+
+    const start = timing.start
+    const duration = Math.max(0.1, timing.end - timing.start)
 
     return {
       duration,

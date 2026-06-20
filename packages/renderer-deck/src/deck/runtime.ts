@@ -20,20 +20,57 @@ const MOTION_PROPERTY_DEFAULTS_SCRIPT = JSON.stringify(MotionPropertySchema.opti
 export function createDeckRuntimeScript(): string {
   return `const motionPropertyDefaults = ${MOTION_PROPERTY_DEFAULTS_SCRIPT}
 const planElement = document.getElementById('deck-render-plan')
-const plan = planElement === null ? undefined : JSON.parse(planElement.textContent || '{}')
+const plan = requireRenderPlan(planElement)
+const motion = requireMotionPlan(plan)
 const url = new URL(window.location.href)
 const requestedTimeParam = url.searchParams.get('time')
 const requestedTime = requestedTimeParam === null ? undefined : Number(requestedTimeParam)
 const requestedSlide = url.searchParams.get('slide')
 const slides = Array.from(document.querySelectorAll('[data-slide]'))
-const slideState = new Map((plan?.motion?.slides || []).map((slide) => [slide.slideId, slide]))
-const transitionsIn = new Map((plan?.motion?.transitions || []).map((transition) => [transition.to, transition]))
-const transitionsOut = new Map((plan?.motion?.transitions || []).map((transition) => [transition.from, transition]))
+const slideState = new Map(motion.slides.map((slide) => [slide.slideId, slide]))
+const transitionsIn = new Map(motion.transitions.map((transition) => [transition.to, transition]))
+const transitionsOut = new Map(motion.transitions.map((transition) => [transition.from, transition]))
 let raf = 0
 let playing = false
 let playStartedAt = 0
 let playStartedTime = 0
 let lastTime = 0
+
+function requireRenderPlan(planElement) {
+  if (planElement === null || planElement.textContent === null || planElement.textContent.trim() === '') {
+    throw new Error('Deck runtime requires embedded deck-render-plan; no DOM timing fallback is allowed.')
+  }
+
+  const parsed = JSON.parse(planElement.textContent)
+
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new Error('Deck runtime requires deck-render-plan to be a JSON object.')
+  }
+
+  return parsed
+}
+
+function requireMotionPlan(plan) {
+  const motion = plan.motion
+
+  if (motion === null || typeof motion !== 'object') {
+    throw new Error('Deck runtime requires embedded motion plan; no static render fallback is allowed.')
+  }
+
+  if (!Array.isArray(motion.slides) || !Array.isArray(motion.transitions)) {
+    throw new Error('Deck runtime motion plan must include slides and transitions arrays.')
+  }
+
+  if (motion.timeline === null || typeof motion.timeline !== 'object' || !Array.isArray(motion.timeline.tracks)) {
+    throw new Error('Deck runtime motion plan must include a timeline with tracks.')
+  }
+
+  if (!Number.isFinite(Number(motion.duration)) || Number(motion.duration) <= 0) {
+    throw new Error('Deck runtime motion plan must include a positive duration.')
+  }
+
+  return motion
+}
 
 async function ready() {
   if (document.fonts !== undefined) {
@@ -42,18 +79,19 @@ async function ready() {
 }
 
 function seek(timeSeconds) {
-  const time = clamp(Number(timeSeconds) || 0, 0, duration())
+  const numericTime = Number(timeSeconds)
+  const time = clamp(Number.isFinite(numericTime) ? numericTime : 0, 0, duration())
   lastTime = time
 
   for (const slide of slides) {
     const slideId = slide.getAttribute('data-slide')
-    const state = slideState.get(slideId) || readSlideState(slide)
+    const state = requireSlideMotionState(slideId)
     const active = time >= state.start && time <= state.end
     const localDuration = Math.max(0.001, state.end - state.start)
     const enterTransition = transitionsIn.get(slideId)
     const exitTransition = transitionsOut.get(slideId)
-    const enterDuration = Math.min(enterTransition?.duration || 0.32, localDuration * 0.22)
-    const exitDuration = Math.min(exitTransition?.duration || 0.32, localDuration * 0.22)
+    const enterDuration = Math.min(enterTransition?.duration ?? 0.32, localDuration * 0.22)
+    const exitDuration = Math.min(exitTransition?.duration ?? 0.32, localDuration * 0.22)
     const enterOpacity = clamp((time - state.start) / enterDuration, 0, 1)
     const exitOpacity = clamp((state.end - time) / exitDuration, 0, 1)
 
@@ -107,7 +145,7 @@ function tick(now) {
 }
 
 function duration() {
-  return Number(plan?.motion?.duration || plan?.duration || 0)
+  return Number(motion.duration)
 }
 
 function currentTime() {
@@ -117,7 +155,7 @@ function currentTime() {
 function applyMotionTimeline(time) {
   const states = new Map()
 
-  for (const track of plan?.motion?.timeline?.tracks || []) {
+  for (const track of motion.timeline.tracks) {
     if (track.target?.kind !== 'css-selector') {
       continue
     }
@@ -125,7 +163,7 @@ function applyMotionTimeline(time) {
     const elements = Array.from(document.querySelectorAll(track.target.value))
 
     elements.forEach((element, index) => {
-      const at = track.start + index * (track.stagger || 0)
+      const at = track.start + index * (track.stagger ?? 0)
       const progress = ease(track.easing, clamp((time - at) / track.duration, 0, 1))
       const state = stateForElement(states, element)
 
@@ -206,12 +244,18 @@ function transformForTransition(type, amount, direction) {
   return ''
 }
 
-function readSlideState(slide) {
-  return {
-    end: Number(slide.getAttribute('data-end') || 0),
-    slideId: slide.getAttribute('data-slide') || '',
-    start: Number(slide.getAttribute('data-start') || 0),
+function requireSlideMotionState(slideId) {
+  if (slideId === null || slideId === '') {
+    throw new Error('Deck runtime found a slide without a data-slide id.')
   }
+
+  const state = slideState.get(slideId)
+
+  if (state === undefined) {
+    throw new Error('Deck runtime missing motion state for slide "' + slideId + '"; no DOM timing fallback is allowed.')
+  }
+
+  return state
 }
 
 function mix(from, to, progress) {
@@ -243,11 +287,7 @@ function easeOutExpo(value) {
 }
 
 function previewTimeForSlide(slideId) {
-  const state = slideState.get(slideId)
-
-  if (state === undefined) {
-    return 0
-  }
+  const state = requireSlideMotionState(slideId)
 
   const localDuration = Math.max(0.001, state.end - state.start)
   const exitMargin = Math.min(0.32, localDuration * 0.12)
@@ -269,13 +309,13 @@ function latestMotionEndForSlide(slideId) {
   let latest
   const marker = '[data-slide="' + slideId + '"]'
 
-  for (const track of plan?.motion?.timeline?.tracks || []) {
+  for (const track of motion.timeline.tracks) {
     if (track.target?.kind !== 'css-selector' || !track.target.value.includes(marker)) {
       continue
     }
 
     const count = Math.max(1, document.querySelectorAll(track.target.value).length)
-    const stagger = track.stagger || 0
+    const stagger = track.stagger ?? 0
     const trackEnd = track.start + track.duration + Math.max(0, count - 1) * stagger
 
     latest = latest === undefined ? trackEnd : Math.max(latest, trackEnd)
@@ -287,7 +327,11 @@ function latestMotionEndForSlide(slideId) {
 function firstSlidePreviewTime() {
   const firstSlideId = slides[0]?.getAttribute('data-slide')
 
-  return firstSlideId === undefined || firstSlideId === null ? 0 : previewTimeForSlide(firstSlideId)
+  if (firstSlideId === undefined || firstSlideId === null) {
+    throw new Error('Deck runtime requires at least one rendered slide.')
+  }
+
+  return previewTimeForSlide(firstSlideId)
 }
 
 window.vagent = {

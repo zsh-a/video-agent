@@ -161,11 +161,15 @@ export function motionPresetState(preset: DeckMotionPreset, options?: {blurFree?
     ])
   }
 
-  return presetState('easeOutExpo', [
-    property('opacity', 0, 1),
-    property('scale', 0.96, 1),
-    property('translateY', 60, 0),
-  ])
+  if (preset === 'cinematic-rise') {
+    return presetState('easeOutExpo', [
+      property('opacity', 0, 1),
+      property('scale', 0.96, 1),
+      property('translateY', 60, 0),
+    ])
+  }
+
+  throw new Error(`Unknown deck motion preset "${preset}".`)
 }
 
 export function titlePresetFor(preset: DeckMotionPreset): DeckMotionPreset {

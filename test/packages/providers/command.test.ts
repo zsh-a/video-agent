@@ -40,7 +40,7 @@ describe('command providers', () => {
 
   it('runs a VLM command provider over JSON stdin/stdout', async () => {
     const provider = new CommandVLMProvider({
-      command: jsonCommand('[{"sceneId":"scene-1","description":"scene scene-1","evidence":["frame.jpg"]}]'),
+      command: jsonCommand('[{"actions":[],"characters":[],"sceneId":"scene-1","description":"scene scene-1","emotions":[],"evidence":["frame.jpg"],"plotClues":[],"relationships":[]}]'),
     })
 
     const scenes = await provider.analyzeScenes([{frames: ['frame.jpg'], sceneId: 'scene-1', timeRange: [0, 1]}])
@@ -91,6 +91,26 @@ describe('command providers', () => {
     expect((error as ProviderResponseValidationError).role).to.equal('asr')
     expect((error as ProviderResponseValidationError).issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
     expect((error as Error).message).to.include('segments.0.end')
+  })
+
+  it('returns structured validation errors when VLM output does not match requested frame batches', async () => {
+    const provider = new CommandVLMProvider({
+      command: jsonCommand('[{"actions":[],"characters":[],"sceneId":"scene-other","description":"wrong scene","emotions":[],"evidence":["other.jpg"],"plotClues":[],"relationships":[]}]'),
+    })
+    let error: unknown
+
+    try {
+      await provider.analyzeScenes([{frames: ['frame.jpg'], sceneId: 'scene-1', timeRange: [0, 1]}])
+    } catch (error_) {
+      error = error_
+    }
+
+    expect(error).to.be.instanceOf(ProviderResponseValidationError)
+    expect((error as ProviderResponseValidationError).role).to.equal('vlm')
+    expect((error as ProviderResponseValidationError).issues.map((issue) => issue.code)).to.include.members([
+      'vlm_scene_id_mismatch',
+      'vlm_evidence_frame_mismatch',
+    ])
   })
 
   it('returns structured execution errors for failed commands', async () => {

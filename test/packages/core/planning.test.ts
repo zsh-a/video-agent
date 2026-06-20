@@ -68,8 +68,8 @@ describe('core planning helpers', () => {
     })
   })
 
-  it('keeps generated scene boundary ids contiguous after filtering invalid transcript segments', () => {
-    const boundaries = createSceneBoundariesFromTranscript({
+  it('rejects invalid transcript scene boundary segments instead of filtering or clipping them', () => {
+    expect(() => createSceneBoundariesFromTranscript({
       segments: [
         {
           end: 0,
@@ -88,25 +88,10 @@ describe('core planning helpers', () => {
         },
       ],
       text: 'Invalid intro. Valid middle. Clamped ending.',
-    }, 12.5)
-
-    expect(boundaries).to.deep.equal([
-      {
-        end: 5,
-        id: 'scene-1',
-        start: 1,
-        text: 'Valid middle.',
-      },
-      {
-        end: 12.5,
-        id: 'scene-2',
-        start: 5,
-        text: 'Clamped ending.',
-      },
-    ])
+    }, 12.5)).to.throw('no segment clipping or filtering is allowed')
   })
 
-  it('creates a sequential clip plan and derives timeline source ranges from it', () => {
+  it('rejects storyboard scenes without explicit source ranges instead of deriving ranges by position', () => {
     const storyboard = {
       language: 'zh-CN',
       scenes: [
@@ -128,20 +113,8 @@ describe('core planning helpers', () => {
       targetPlatform: 'generic' as const,
       version: 1 as const,
     }
-    const clipPlan = createClipPlan(storyboard, mediaInfo)
-    const timeline = createTimelineFromClipPlan(mediaInfo, clipPlan)
 
-    expect(clipPlan.clips.map((clip: ClipPlanItem) => clip.sourceRange)).to.deep.equal([
-      [0, 5],
-      [5, 12.5],
-    ])
-    expect(timeline.items.map((item: TimelineItem) => item.sourceRange)).to.deep.equal([
-      [0, 5],
-      [5, 12.5],
-    ])
-    expect(timeline.duration).to.equal(15.5)
-    expect(timeline.items.map((item: TimelineItem) => item.duration)).to.deep.equal([5, 7.5])
-    expect(clipPlan.clips[1].reason).to.equal('Sequential source range for scene-2; requested 10s, allocated 7.5s.')
+    expect(() => createClipPlan(storyboard, mediaInfo)).to.throw('explicit sourceRange')
   })
 
   it('uses storyboard source ranges for transcript-derived scenes', () => {
@@ -184,10 +157,30 @@ describe('core planning helpers', () => {
       [8, 12.5],
     ])
     expect(clipPlan.clips.map((clip: ClipPlanItem) => clip.duration)).to.deep.equal([4, 4.5])
-    expect(clipPlan.clips[1].reason).to.equal('Storyboard source range for scene-2; requested 4.5s, allocated 4.5s.')
+    expect(clipPlan.clips[1].reason).to.equal(undefined)
   })
 
-  it('keeps source ranges monotonic when storyboard scene starts overlap', () => {
+  it('rejects storyboard source ranges outside media duration instead of clipping them', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 14,
+          evidence: [],
+          id: 'scene-1',
+          sourceRange: [0, 14] as [number, number],
+          start: 0,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+
+    expect(() => createClipPlan(storyboard, mediaInfo)).to.throw('no runtime sourceRange clipping is allowed')
+  })
+
+  it('uses explicit source ranges even when storyboard scene starts overlap', () => {
     const storyboard = {
       language: 'zh-CN',
       scenes: [
@@ -195,6 +188,7 @@ describe('core planning helpers', () => {
           duration: 4,
           evidence: [],
           id: 'scene-1',
+          sourceRange: [0, 4] as [number, number],
           start: 0,
           visualStyle: 'documentary',
         },
@@ -202,6 +196,7 @@ describe('core planning helpers', () => {
           duration: 4,
           evidence: [],
           id: 'scene-2',
+          sourceRange: [4, 8] as [number, number],
           start: 2,
           visualStyle: 'documentary',
         },
@@ -216,6 +211,12 @@ describe('core planning helpers', () => {
       [4, 8],
     ])
     expect(clipPlan.duration).to.equal(6)
+  })
+
+  it('rejects transcript boundary planning without timed segments instead of creating a full transcript scene', () => {
+    expect(() => createSceneBoundariesFromTranscript({
+      text: 'Only raw transcript text is available.',
+    }, 12.5)).to.throw('timed transcript segments')
   })
 
 })

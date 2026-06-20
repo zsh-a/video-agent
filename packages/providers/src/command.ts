@@ -16,6 +16,7 @@ import type {ProviderExecutionRole} from './errors.js'
 
 import {ProviderExecutionError} from './errors.js'
 import {parseTranscript, parseTtsSegments, parseVlmScenes} from './json-response.js'
+import {validateVlmScenesForBatches} from './vlm-validation.js'
 
 export interface CommandProviderOptions {
   command: string[]
@@ -40,14 +41,14 @@ export class CommandVLMProvider implements VLMProvider {
   constructor(private readonly options: CommandProviderOptions) {}
 
   async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
-    return parseVlmScenes(
+    return validateVlmScenesForBatches(parseVlmScenes(
       await runProviderCommand('vlm', this.options, {
         context,
         input,
         kind: 'vlm',
         version: 1,
       }),
-    )
+    ), input)
   }
 }
 

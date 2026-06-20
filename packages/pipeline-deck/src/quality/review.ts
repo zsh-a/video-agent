@@ -50,6 +50,11 @@ export interface DeckReviewReportArtifact {
 }
 
 export interface DeckReviewSlideReport {
+  chartBars?: Array<{
+    caption?: string
+    label: string
+    value: number
+  }>
   duration: number
   end: number
   index: number
@@ -203,13 +208,18 @@ function createDeckReviewReport(input: {
 }
 
 function createDeckReviewSlideReport(slide: Slide, index: number, timing: SlideTiming | undefined, keyframe: DeckKeyframeSample | undefined): DeckReviewSlideReport {
-  const start = roundSeconds(timing?.start ?? 0)
-  const end = roundSeconds(timing?.end ?? start)
+  if (timing === undefined) {
+    throw new Error(`Deck review report is missing timing for slide "${slide.slideId}".`)
+  }
+
+  const start = roundSeconds(timing.start)
+  const end = roundSeconds(timing.end)
 
   return {
     duration: roundSeconds(Math.max(0, end - start)),
     end,
     index: index + 1,
+    ...(slide.chart === undefined ? {} : {chartBars: slide.chart.bars}),
     ...(keyframe === undefined
       ? {}
       : {
@@ -312,6 +322,9 @@ function renderDeckReviewSlideHtml(slide: DeckReviewSlideReport): string {
   const points = slide.points === undefined
     ? ''
     : `<ul class="points">${slide.points.map((point) => `<li>${escapeHtml(point)}</li>`).join('')}</ul>`
+  const chartBars = slide.chartBars === undefined
+    ? ''
+    : `<ul class="points">${slide.chartBars.map((bar) => `<li>${escapeHtml(bar.label)}: ${Math.round(bar.value * 100)}%${bar.caption === undefined ? '' : ` - ${escapeHtml(bar.caption)}`}</li>`).join('')}</ul>`
   const note = slide.speakerNote === undefined ? '' : `<div class="note">${escapeHtml(slide.speakerNote)}</div>`
   const frameState = slide.keyframe === undefined ? 'missing' : (slide.keyframe.ok ? 'ok' : 'error')
 
@@ -320,6 +333,7 @@ function renderDeckReviewSlideHtml(slide: DeckReviewSlideReport): string {
           <div class="slide-body">
             <div class="slide-title">${slide.index}. ${escapeHtml(slide.title)}</div>
             <div class="meta">${escapeHtml(slide.type)} &middot; ${slide.start}s-${slide.end}s &middot; keyframe ${frameState}</div>
+            ${chartBars}
             ${points}
             ${note}
           </div>

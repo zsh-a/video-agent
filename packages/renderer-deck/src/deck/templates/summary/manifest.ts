@@ -16,7 +16,6 @@ export const summaryManifest = {
     requiredVisibleElements: ['.slide__title', '.point'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'summary',
   useWhen: 'Summarizing takeaways, conclusions, or final recommendations.',
 } satisfies DeckTemplateManifestEntry

@@ -16,7 +16,6 @@ export const timelineManifest = {
     requiredVisibleElements: ['.slide__title', '.timeline__item'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'timeline',
   useWhen: 'Showing events, milestones, or state changes in chronological order.',
 } satisfies DeckTemplateManifestEntry

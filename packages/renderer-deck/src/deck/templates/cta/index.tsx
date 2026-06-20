@@ -10,12 +10,18 @@ const ctaMotionSteps: TemplateMotionStep[] = [
 ]
 
 export const ctaTemplate = defineSlideTemplate({
-  render: (slide) => (
-    <>
-      <TitleBlock slide={slide} />
-      <CtaBlock slide={slide} />
-    </>
-  ),
+  render: (slide) => {
+    if (slide.points[0] === undefined) {
+      throw new Error(`Deck cta slide "${slide.slideId}" is missing an LLM-authored action point.`)
+    }
+
+    return (
+      <>
+        <TitleBlock slide={slide} />
+        <CtaBlock slide={slide} />
+      </>
+    )
+  },
   type: 'cta',
 })
 

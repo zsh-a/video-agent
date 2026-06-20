@@ -14,7 +14,7 @@ import {completeDeckFinalRender, failDeckFinalRender, openDeckFinalRenderContext
 import type {CreateDeckFinalRenderProjectOptions, CreateDeckFinalRenderProjectResult} from './types.js'
 import {DEFAULT_DECK_RENDER_FPS, assertCompleteDeckFrameSequence, createDeckFrameCaptureFromManifest, createDeckFrameManifest, createDeckFrameShardArtifact, createPlannedDeckFrameManifest, deckFrameVideoRenderer, normalizeDeckFrameConcurrency, normalizeDeckFrameRange, readReusableDeckFrameManifest, resolveDeckFinalizeOnlyManifest, sha256File} from '../frames/index.js'
 import {createDeckKeyframeQuality} from '../../quality/keyframes.js'
-import {createDeckQualityReport} from '../../quality/report.js'
+import {assertDeckQualityReportHasNoErrors, createDeckQualityReport} from '../../quality/report.js'
 import {writeDeckHtmlRenderOutputArtifact} from '../output-artifacts.js'
 import {writeDeckReviewArtifacts} from '../../quality/review.js'
 
@@ -24,7 +24,12 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
 
   try {
     const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
-    const audioRef = timedDeck.audioRef ?? 'audio/deck_voiceover.wav'
+    const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
+    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
+
+    assertDeckQualityReportHasNoErrors(deckQualityReport, deckQualityReportPath)
+
+    const audioRef = requireTimedDeckAudioRef(timedDeck, 'Deck HTML final render')
     const audioPath = resolve(workspace.projectDir, audioRef)
     const framesDir = resolve(workspace.rendersDir, 'deck-frames')
     const htmlOutputDir = resolve(workspace.rendersDir, 'html')
@@ -124,9 +129,6 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
         sourceSha256: timedDeckSourceSha256,
       }))
     }
-    const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
-    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
-
     if (!shouldFinalize) {
       await removeDeckFinalRenderArtifacts(workspace)
 
@@ -246,4 +248,12 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
     await failDeckFinalRender(context, error)
     throw error
   }
+}
+
+function requireTimedDeckAudioRef(timedDeck: ReturnType<typeof TimedDeckSchema.parse>, context: string): string {
+  if (timedDeck.audioRef === undefined || timedDeck.audioRef.trim() === '') {
+    throw new Error(`${context} requires timed-deck.json audioRef from Deck voiceover or audio anchoring; no default audio path fallback is allowed.`)
+  }
+
+  return timedDeck.audioRef
 }

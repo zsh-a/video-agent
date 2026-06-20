@@ -36,9 +36,15 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
       ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
       VLMAnalysisSchema.parseAsync(await workspace.store.readJson('vlm-analysis.json')),
     ])
+    const language = options.language ?? asrResult.language
+
+    if (language === 'unknown') {
+      throw new Error('Film Recap story indexing requires an explicit language from options or ASR; no language fallback is allowed.')
+    }
+
     const indexed = validateGeneratedStoryIndex(await providers.script.createStoryIndex({
       asrResult,
-      language: options.language ?? asrResult.language ?? 'zh-CN',
+      language,
       sourceManifest,
       timelineFusion,
       vlmAnalysis,

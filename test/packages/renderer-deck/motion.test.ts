@@ -7,19 +7,20 @@ import type {ResolveMotionSteps} from '../../../packages/renderer-deck/src/deck/
 import type {TemplateMotionStep} from '../../../packages/renderer-deck/src/deck/templates/define-template.js'
 import {resolveMotionStepsForTemplate} from '../../../packages/renderer-deck/src/deck/templates/registry.js'
 
-function makeTimedDeck(slides: Array<{slideId: string; type: string; motion?: DeckMotionPreset; points?: string[]; title?: string}>, timings: Array<{slideId: string; start: number; end: number}>): TimedDeck {
+function makeTimedDeck(slides: Array<{slideId: string; type: string; motion?: DeckMotionPreset; points?: string[]; title?: string; transitionOut?: TimedDeck['deck']['slides'][number]['transitionOut']}>, timings: Array<{slideId: string; start: number; end: number}>): TimedDeck {
   return {
     deck: {
       format: 'landscape_1920x1080',
       inputMode: 'script-generated',
       language: 'zh-CN',
-      slides: slides.map((s) => ({
+      slides: slides.map((s, index) => ({
         blockIds: [],
         evidence: [],
         motion: s.motion ?? 'progressive-reveal',
         points: s.points ?? [],
         slideId: s.slideId,
         title: s.title ?? s.slideId,
+        ...(index === slides.length - 1 ? {} : {transitionOut: s.transitionOut ?? {duration: 0.55, type: 'crossfade' as const}}),
         type: s.type as TimedDeck['deck']['slides'][number]['type'],
         visual: {assetRefs: [], kind: 'text' as const},
       })),
@@ -101,6 +102,18 @@ describe('compileDeckMotionPlan', () => {
     expect(() => compileDeckMotionPlan(timedDeck, resolver)).to.throw('No motionSteps registered')
   })
 
+  it('throws when a slide has no timing entry instead of deriving timing by index', () => {
+    const timedDeck = makeTimedDeck(
+      [
+        {slideId: 'slide-001', type: 'hero', points: ['A']},
+        {slideId: 'slide-002', type: 'three-points', points: ['B']},
+      ],
+      [{slideId: 'slide-001', start: 0, end: 10}],
+    )
+
+    expect(() => compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)).to.throw('missing timing for slide "slide-002"')
+  })
+
   it('resolves template motion steps for all 13 slide types', () => {
     const types = ['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta']
 
@@ -150,11 +163,15 @@ describe('motionPresetState', () => {
     expect(state.properties).to.have.length(2)
   })
 
-  it('returns correct properties for cinematic-rise (default fallback)', () => {
+  it('returns correct properties for cinematic-rise', () => {
     const state = motionPresetState('cinematic-rise')
 
     expect(state.easing).to.equal('easeOutExpo')
     expect(state.properties).to.have.length(3)
+  })
+
+  it('rejects unknown motion presets instead of falling back to cinematic-rise', () => {
+    expect(() => motionPresetState('unknown-preset' as DeckMotionPreset)).to.throw('Unknown deck motion preset')
   })
 
   const allPresets: DeckMotionPreset[] = [
@@ -273,8 +290,8 @@ describe('transitions', () => {
   it('generates transitions for adjacent slides', () => {
     const timedDeck = makeTimedDeck(
       [
-        {slideId: 's1', type: 'hero', points: ['A']},
-        {slideId: 's2', type: 'three-points', points: ['A', 'B']},
+        {slideId: 's1', type: 'hero', points: ['A'], transitionOut: {duration: 0.4, type: 'slide-up'}},
+        {slideId: 's2', type: 'three-points', points: ['A', 'B'], transitionOut: {duration: 0.7, type: 'fade'}},
         {slideId: 's3', type: 'cta', points: ['Go']},
       ],
       [
@@ -290,12 +307,14 @@ describe('transitions', () => {
     expect(plan.transitions[0].to).to.equal('s2')
     expect(plan.transitions[1].from).to.equal('s2')
     expect(plan.transitions[1].to).to.equal('s3')
+    expect(plan.transitions.map((transition) => transition.type)).to.deep.equal(['slide-up', 'fade'])
+    expect(plan.transitions.map((transition) => transition.duration)).to.deep.equal([0.4, 0.7])
   })
 
-  it('uses slide-up for hero/section exits', () => {
+  it('uses LLM-authored transition type instead of deriving it from slide templates', () => {
     const timedDeck = makeTimedDeck(
       [
-        {slideId: 's1', type: 'hero', points: ['A']},
+        {slideId: 's1', type: 'hero', points: ['A'], transitionOut: {duration: 0.33, type: 'fade'}},
         {slideId: 's2', type: 'three-points', points: ['A']},
       ],
       [
@@ -305,13 +324,14 @@ describe('transitions', () => {
     )
     const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
 
-    expect(plan.transitions[0].type).to.equal('slide-up')
+    expect(plan.transitions[0].type).to.equal('fade')
+    expect(plan.transitions[0].duration).to.equal(0.33)
   })
 
-  it('uses fade for cta entry', () => {
+  it('rejects missing LLM-authored transitionOut instead of using template-type fallback', () => {
     const timedDeck = makeTimedDeck(
       [
-        {slideId: 's1', type: 'three-points', points: ['A']},
+        {slideId: 's1', type: 'three-points', points: ['A'], transitionOut: undefined},
         {slideId: 's2', type: 'cta', points: ['Go']},
       ],
       [
@@ -319,41 +339,9 @@ describe('transitions', () => {
         {slideId: 's2', start: 10, end: 15},
       ],
     )
-    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
+    delete timedDeck.deck.slides[0]?.transitionOut
 
-    expect(plan.transitions[0].type).to.equal('fade')
-  })
-
-  it('uses slide-left for structured content transitions', () => {
-    const timedDeck = makeTimedDeck(
-      [
-        {slideId: 's1', type: 'three-points', points: ['A']},
-        {slideId: 's2', type: 'process', points: ['A', 'B']},
-      ],
-      [
-        {slideId: 's1', start: 0, end: 10},
-        {slideId: 's2', start: 10, end: 20},
-      ],
-    )
-    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
-
-    expect(plan.transitions[0].type).to.equal('slide-left')
-  })
-
-  it('uses fade for section entry', () => {
-    const timedDeck = makeTimedDeck(
-      [
-        {slideId: 's1', type: 'three-points', points: ['A']},
-        {slideId: 's2', type: 'section'},
-      ],
-      [
-        {slideId: 's1', start: 0, end: 10},
-        {slideId: 's2', start: 10, end: 13},
-      ],
-    )
-    const plan = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)
-
-    expect(plan.transitions[0].type).to.equal('fade')
+    expect(() => compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)).to.throw('no template-type transition fallback is allowed')
   })
 
   it('returns empty transitions for single-slide deck', () => {

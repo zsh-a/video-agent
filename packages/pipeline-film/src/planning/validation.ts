@@ -2,8 +2,7 @@ import type {CharacterIndex, NarrativeBeats, RecapScript, RecapScriptSegment, So
 
 import {CharacterIndexSchema, NarrativeBeatsSchema, StoryIndexSchema} from '@video-agent/ir'
 
-import {defaultRecapTargetDuration} from './source.js'
-import {clamp, roundSeconds} from '../shared/utils.js'
+import {roundSeconds} from '../shared/utils.js'
 
 export function validateGeneratedStoryIndex(indexed: {characterIndex: unknown; narrativeBeats: unknown; storyIndex: unknown}, sourceManifest: SourceManifest): {
   characterIndex: CharacterIndex
@@ -25,11 +24,7 @@ export function validateGeneratedStoryIndex(indexed: {characterIndex: unknown; n
   }
 
   for (const beat of storyIndex.beats) {
-    const sourceRange = normalizeSourceRange(beat.sourceRange, sourceManifest.duration)
-
-    if (sourceRange[1] <= sourceRange[0]) {
-      throw new Error(`Story-index beat ${beat.id} must have a positive sourceRange.`)
-    }
+    requireProviderSourceRange(beat.sourceRange, sourceManifest.duration, `Story-index beat ${beat.id}`)
   }
 
   if (storyIndex.source !== sourceManifest.sourcePath || storyIndex.sourceDuration !== sourceManifest.duration) {
@@ -41,7 +36,9 @@ export function validateGeneratedStoryIndex(indexed: {characterIndex: unknown; n
 
 export function validateGeneratedRecapScript(recapScript: RecapScript, storyIndex: StoryIndex, sourceManifest: SourceManifest, targetDurationSeconds: number | undefined): RecapScript {
   const beatIds = new Set(storyIndex.beats.map((beat) => beat.id))
-  const expectedDuration = clamp(targetDurationSeconds ?? defaultRecapTargetDuration(sourceManifest.duration), 0, sourceManifest.duration)
+  const expectedDuration = targetDurationSeconds === undefined
+    ? requireLLMRecapScriptTotalDuration(recapScript, sourceManifest.duration)
+    : requireTargetDuration(targetDurationSeconds, sourceManifest.duration)
   const normalizedSegments: RecapScriptSegment[] = []
 
   if (recapScript.segments.length === 0) {
@@ -49,8 +46,8 @@ export function validateGeneratedRecapScript(recapScript: RecapScript, storyInde
   }
 
   for (const segment of recapScript.segments) {
-    if (segment.targetBeatIds.length === 0) {
-      throw new Error(`Recap script segment ${segment.id} must reference at least one story-index beat.`)
+    if (segment.targetBeatIds.length !== 1) {
+      throw new Error(`Recap script segment ${segment.id} must reference exactly one story-index beat; no runtime beat selection fallback is allowed.`)
     }
 
     for (const beatId of segment.targetBeatIds) {
@@ -63,11 +60,11 @@ export function validateGeneratedRecapScript(recapScript: RecapScript, storyInde
       throw new Error(`Recap script segment ${segment.id} must have a positive suggestedDuration.`)
     }
 
-    const sourceRange = normalizeSourceRange(segment.sourceRange, sourceManifest.duration)
-
-    if (sourceRange[1] <= sourceRange[0]) {
-      throw new Error(`Recap script segment ${segment.id} must provide a positive sourceRange.`)
+    if (segment.pauseAfterMs > 2000) {
+      throw new Error(`Recap script segment ${segment.id} pauseAfterMs must be 2000ms or less; rewrite LLM recap script output instead of clamping locally.`)
     }
+
+    const sourceRange = requireProviderSourceRange(segment.sourceRange, sourceManifest.duration, `Recap script segment ${segment.id}`)
 
     normalizedSegments.push({
       ...segment,
@@ -75,44 +72,74 @@ export function validateGeneratedRecapScript(recapScript: RecapScript, storyInde
     })
   }
 
-  return normalizeRecapScriptDurations({
+  return validateRecapScriptDurations({
     ...recapScript,
     segments: normalizedSegments,
   }, expectedDuration)
 }
 
-function normalizeRecapScriptDurations(recapScript: RecapScript, targetDuration: number): RecapScript {
-  const currentDuration = recapScript.segments.reduce((total, segment) => total + Math.max(0, segment.suggestedDuration), 0)
+function validateRecapScriptDurations(recapScript: RecapScript, targetDuration: number): RecapScript {
+  const segments = recapScript.segments.map((segment) => {
+    const sourceRangeDuration = roundSeconds(segment.sourceRange[1] - segment.sourceRange[0])
+    const suggestedDuration = roundSeconds(segment.suggestedDuration)
 
-  if (targetDuration <= 0 || currentDuration <= 0) {
-    return {
-      ...recapScript,
-      totalEstimatedDuration: roundSeconds(currentDuration),
+    if (Math.abs(sourceRangeDuration - suggestedDuration) > 0.001) {
+      throw new Error(`Recap script segment ${segment.id} suggestedDuration must match its LLM-authored sourceRange duration; no runtime clip truncation is allowed.`)
     }
-  }
 
-  const scale = targetDuration / currentDuration
-  const segments = recapScript.segments.map((segment) => ({
-    ...segment,
-    suggestedDuration: roundSeconds(segment.suggestedDuration * scale),
-  }))
-  const durationDelta = roundSeconds(targetDuration - segments.reduce((total, segment) => total + segment.suggestedDuration, 0))
-  const lastSegment = segments.at(-1)
+    return {
+      ...segment,
+      suggestedDuration,
+    }
+  })
+  const currentDuration = roundSeconds(segments.reduce((total, segment) => total + Math.max(0, segment.suggestedDuration), 0))
+  const expectedDuration = roundSeconds(targetDuration)
 
-  if (lastSegment !== undefined && Math.abs(durationDelta) >= 0.001) {
-    lastSegment.suggestedDuration = roundSeconds(Math.max(0.001, lastSegment.suggestedDuration + durationDelta))
+  if (Math.abs(currentDuration - expectedDuration) > 0.001) {
+    throw new Error(`Film Recap script provider returned target duration ${expectedDuration}s, but segment suggestedDuration values sum to ${currentDuration}s. Rewrite LLM recap script output instead of scaling locally.`)
   }
 
   return {
     ...recapScript,
     segments,
-    totalEstimatedDuration: roundSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0)),
+    totalEstimatedDuration: expectedDuration,
   }
 }
 
-export function normalizeSourceRange(range: [number, number], sourceDuration: number): [number, number] {
-  const start = clamp(range[0], 0, sourceDuration)
-  const end = clamp(range[1], start, sourceDuration)
+function requireLLMRecapScriptTotalDuration(recapScript: RecapScript, sourceDuration: number): number {
+  const totalEstimatedDuration = roundSeconds(recapScript.totalEstimatedDuration)
 
-  return [start, end]
+  if (totalEstimatedDuration <= 0) {
+    throw new Error('Film Recap script provider must return a positive totalEstimatedDuration when no targetDurationSeconds is provided.')
+  }
+
+  if (sourceDuration > 0 && totalEstimatedDuration > sourceDuration) {
+    throw new Error('Film Recap script provider returned totalEstimatedDuration beyond source duration.')
+  }
+
+  return totalEstimatedDuration
+}
+
+function requireTargetDuration(targetDurationSeconds: number, sourceDuration: number): number {
+  const targetDuration = roundSeconds(targetDurationSeconds)
+
+  if (!Number.isFinite(targetDuration) || targetDuration <= 0) {
+    throw new Error('Film Recap targetDurationSeconds must be positive; no runtime target duration clipping is allowed.')
+  }
+
+  if (sourceDuration > 0 && targetDuration > sourceDuration) {
+    throw new Error('Film Recap targetDurationSeconds must not exceed source duration; no runtime target duration clipping is allowed.')
+  }
+
+  return targetDuration
+}
+
+export function requireProviderSourceRange(range: [number, number], sourceDuration: number, context: string): [number, number] {
+  const [start, end] = range
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end > sourceDuration || end <= start) {
+    throw new Error(`${context} sourceRange must stay within source duration; no runtime sourceRange clipping is allowed.`)
+  }
+
+  return [roundSeconds(start), roundSeconds(end)]
 }

@@ -2,6 +2,7 @@ import {expect} from '#test/expect'
 
 import {
   ClaimsSchema,
+  ContentBlocksSchema,
   DeckSchema,
   MotionTimelineSchema,
   OutputNarrationSchema,
@@ -14,19 +15,25 @@ import {
 describe('pipeline-specific IR schemas', () => {
   it('validates deck explainer IR for generated and audio-anchored modes', () => {
     const deck = DeckSchema.parse({
+      format: 'portrait_1080x1920',
       inputMode: 'audio-anchored',
+      language: 'en-US',
       slides: [
         {
+          blockIds: ['block-001'],
+          evidence: [{ref: 'document.json#block-001', text: 'Agent runtime', type: 'research'}],
           motion: 'cinematic-rise',
           points: ['Core only emits events', 'Adapters render events'],
           slideId: 's001',
           title: 'Agent runtime',
           type: 'hero',
           visual: {
+            assetRefs: [],
             kind: 'title-card',
           },
         },
       ],
+      theme: 'elegant-dark',
       title: 'Video agent architecture',
       version: 1,
     })
@@ -34,7 +41,7 @@ describe('pipeline-specific IR schemas', () => {
     expect(deck).to.include({
       format: 'portrait_1080x1920',
       inputMode: 'audio-anchored',
-      language: 'zh-CN',
+      language: 'en-US',
       theme: 'elegant-dark',
     })
 
@@ -61,6 +68,7 @@ describe('pipeline-specific IR schemas', () => {
       claims: [
         {
           blockId: 'block-001',
+          confidence: 0.82,
           evidence: [{ref: 'document.json#block-001', text: 'Agent runtime', type: 'research'}],
           id: 'claim-001',
           text: 'Agent runtime owns orchestration.',
@@ -73,6 +81,7 @@ describe('pipeline-specific IR schemas', () => {
       quotes: [
         {
           blockId: 'block-001',
+          evidence: [{ref: 'document.json#block-001', text: 'Agent runtime', type: 'research'}],
           id: 'quote-001',
           sourceRange: [0, 32],
           text: 'Agent runtime owns orchestration.',
@@ -83,7 +92,7 @@ describe('pipeline-specific IR schemas', () => {
 
     expect(claims.claims[0]).to.deep.include({
       blockId: 'block-001',
-      confidence: 0.7,
+      confidence: 0.82,
       id: 'claim-001',
       type: 'claim',
     })
@@ -96,13 +105,22 @@ describe('pipeline-specific IR schemas', () => {
     try {
       TimedDeckSchema.parse({
         deck: {
+          format: 'portrait_1080x1920',
+          inputMode: 'script-generated',
+          language: 'en-US',
           slides: [
             {
+              blockIds: [],
+              evidence: [],
+              motion: 'fade-in',
+              points: [],
               slideId: 's001',
               title: 'Only slide',
               type: 'hero',
+              visual: {assetRefs: [], kind: 'title-card'},
             },
           ],
+          theme: 'elegant-dark',
           title: 'Deck',
           version: 1,
         },
@@ -120,6 +138,142 @@ describe('pipeline-specific IR schemas', () => {
     }
 
     expect(error).to.be.instanceOf(Error)
+  })
+
+  it('requires generated deck content fields instead of applying semantic defaults', () => {
+    expect(() => DeckSchema.parse({
+      format: 'portrait_1080x1920',
+      inputMode: 'script-generated',
+      language: 'en-US',
+      slides: [
+        {
+          blockIds: [],
+          evidence: [],
+          points: [],
+          slideId: 's001',
+          title: 'Missing motion',
+          type: 'hero',
+        },
+      ],
+      theme: 'elegant-dark',
+      title: 'Deck',
+      version: 1,
+    })).to.throw('motion')
+
+    expect(() => DeckSchema.parse({
+      format: 'portrait_1080x1920',
+      inputMode: 'script-generated',
+      language: 'en-US',
+      slides: [
+        {
+          blockIds: [],
+          evidence: [],
+          motion: 'fade-in',
+          points: [],
+          slideId: 's001',
+          title: 'Missing theme',
+          type: 'hero',
+        },
+      ],
+      title: 'Deck',
+      version: 1,
+    })).to.throw('theme')
+
+    expect(() => DeckSchema.parse({
+      format: 'portrait_1080x1920',
+      inputMode: 'script-generated',
+      language: 'en-US',
+      slides: [
+        {
+          blockIds: [],
+          evidence: [],
+          motion: 'fade-in',
+          slideId: 's001',
+          title: 'Missing points',
+          type: 'hero',
+        },
+      ],
+      theme: 'elegant-dark',
+      title: 'Deck',
+      version: 1,
+    })).to.throw('points')
+
+    expect(() => DeckSchema.parse({
+      inputMode: 'script-generated',
+      language: 'en-US',
+      slides: [
+        {
+          blockIds: [],
+          evidence: [],
+          motion: 'fade-in',
+          points: [],
+          slideId: 's001',
+          title: 'Missing format',
+          type: 'hero',
+        },
+      ],
+      theme: 'elegant-dark',
+      title: 'Deck',
+      version: 1,
+    })).to.throw('format')
+
+    expect(() => DeckSchema.parse({
+      format: 'portrait_1080x1920',
+      inputMode: 'script-generated',
+      language: 'en-US',
+      slides: [
+        {
+          evidence: [],
+          motion: 'fade-in',
+          points: [],
+          slideId: 's001',
+          title: 'Missing blockIds',
+          type: 'hero',
+        },
+      ],
+      theme: 'elegant-dark',
+      title: 'Deck',
+      version: 1,
+    })).to.throw('blockIds')
+  })
+
+  it('requires Deck content artifacts to carry LLM-authored source ranges', () => {
+    expect(() => ContentBlocksSchema.parse({
+      blocks: [
+        {
+          evidence: [{ref: 'document.json#block-001', text: 'Agent runtime', type: 'research'}],
+          id: 'block-001',
+          text: 'Agent runtime owns orchestration.',
+          type: 'claim',
+        },
+      ],
+      version: 1,
+    })).to.throw('sourceRange')
+
+    expect(() => SourceQuotesSchema.parse({
+      quotes: [
+        {
+          blockId: 'block-001',
+          evidence: [{ref: 'document.json#block-001', text: 'Agent runtime', type: 'research'}],
+          id: 'quote-001',
+          text: 'Agent runtime owns orchestration.',
+        },
+      ],
+      version: 1,
+    })).to.throw('sourceRange')
+
+    expect(() => ContentBlocksSchema.parse({
+      blocks: [
+        {
+          evidence: [],
+          id: 'block-001',
+          sourceRange: [1.5, 1.5],
+          text: 'Zero-length ranges are not valid evidence anchors.',
+          type: 'claim',
+        },
+      ],
+      version: 1,
+    })).to.throw('greater than start')
   })
 
   it('validates renderer-agnostic MotionIR timelines', () => {
@@ -173,6 +327,7 @@ describe('pipeline-specific IR schemas', () => {
     const storyIndex = StoryIndexSchema.parse({
       beats: [
         {
+          characters: [],
           evidence: [
             {
               ref: 'asr_result.json#12',
@@ -185,6 +340,8 @@ describe('pipeline-specific IR schemas', () => {
           type: 'inciting_incident',
         },
       ],
+      characters: [],
+      language: 'en-US',
       source: 'input.mp4',
       sourceDuration: 5420.3,
       version: 1,
@@ -219,12 +376,14 @@ describe('pipeline-specific IR schemas', () => {
     })
 
     const narration = OutputNarrationSchema.parse({
+      language: 'en-US',
       segments: [
         {
           end: 5.8,
           evidence: ['beat_001', 'clip_000'],
           id: 'n001',
           overlapsSpeech: true,
+          pauseAfterMs: 250,
           source: 'script',
           start: 1.2,
           text: 'The story opens with what looks like a routine assignment.',
@@ -235,9 +394,30 @@ describe('pipeline-specific IR schemas', () => {
     })
 
     expect(narration).to.include({
-      language: 'zh-CN',
+      language: 'en-US',
       timeline: 'output',
     })
+
+    expect(() => StoryIndexSchema.parse({
+      beats: [],
+      characters: [
+        {
+          aliases: [],
+          id: 'character-001',
+          name: 'Protagonist',
+        },
+      ],
+      language: 'en-US',
+      source: 'input.mp4',
+      sourceDuration: 5420.3,
+      version: 1,
+    })).to.throw('evidence')
+
+    expect(() => OutputNarrationSchema.parse({
+      segments: [],
+      timeline: 'output',
+      version: 1,
+    })).to.throw('language')
   })
 
   it('rejects film output timeline maps outside the rendered duration', () => {

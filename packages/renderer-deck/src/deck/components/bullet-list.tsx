@@ -3,10 +3,14 @@ import type {ReactNode} from 'react'
 import {Card, Stack, classNames} from '../layout/primitives.js'
 
 export function BulletList({className, max, points}: {className: string; max: number; points: string[]}): ReactNode {
-  const items = points.slice(0, max)
+  if (points.length > max) {
+    throw new Error(`Deck bullet list received ${points.length} points, exceeding renderer limit ${max}.`)
+  }
+
+  const items = points
 
   if (items.length === 0) {
-    return null
+    throw new Error('Deck bullet list requires at least one LLM-authored visible point; no empty list render fallback is allowed.')
   }
 
   return (

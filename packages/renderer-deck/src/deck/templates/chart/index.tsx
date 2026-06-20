@@ -12,12 +12,18 @@ const chartMotionSteps: TemplateMotionStep[] = [
 ]
 
 export const chartTemplate = defineSlideTemplate({
-  render: (slide) => (
-    <>
-      <TitleBlock slide={slide} />
-      <ChartBlock points={slide.points} />
-    </>
-  ),
+  render: (slide) => {
+    if (slide.chart === undefined) {
+      throw new Error(`Deck chart slide "${slide.slideId}" is missing chart data.`)
+    }
+
+    return (
+      <>
+        <TitleBlock slide={slide} />
+        <ChartBlock chart={slide.chart} />
+      </>
+    )
+  },
   type: 'chart',
 })
 

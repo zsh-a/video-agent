@@ -4,7 +4,7 @@ import type {TTSSegment} from '@video-agent/providers'
 import {NarrationSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
 
 import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report.js'
-import {createDeckNarrationFromTimings, createSlideTimingsFromTts, createTextTimeline, updateSelectedMomentsTiming, updateStoryboardTiming} from '../planning/timing.js'
+import {createDeckNarrationFromTimings, createSlideTimingsFromTts, createTextTimeline, deckNarrationIdForIndex, updateSelectedMomentsTiming, updateStoryboardTiming} from '../planning/timing.js'
 import type {DeckVoiceover} from './voiceover-types.js'
 
 export interface DeckVoiceoverUpdate {
@@ -71,15 +71,25 @@ export function createDeckVoiceoverUpdate(input: {
     duration: totalDuration,
     generatedAt: new Date().toISOString(),
     outputPath: 'audio/deck_voiceover.wav',
-    segments: input.ttsSegments.map((segment, index) => {
+    segments: input.speakerScript.segments.map((segment, index) => {
+      const narrationId = deckNarrationIdForIndex(index)
+      const ttsSegment = input.ttsSegments.find((candidate) => candidate.narrationId === narrationId)
       const timing = timings[index]
 
+      if (ttsSegment === undefined) {
+        throw new Error(`Deck voiceover output is missing TTS segment for narrationId "${narrationId}".`)
+      }
+
+      if (timing === undefined || timing.slideId !== segment.slideId) {
+        throw new Error(`Deck voiceover output is missing timing for slide "${segment.slideId}".`)
+      }
+
       return {
-        duration: timing === undefined ? segment.duration : timing.end - timing.start,
-        narrationId: segment.narrationId,
-        path: segment.path,
-        slideId: input.speakerScript.segments[index]?.slideId ?? `slide-${String(index + 1).padStart(3, '0')}`,
-        start: timing?.start ?? 0,
+        duration: timing.end - timing.start,
+        narrationId: ttsSegment.narrationId,
+        path: ttsSegment.path,
+        slideId: segment.slideId,
+        start: timing.start,
       }
     }),
     version: 1 as const,

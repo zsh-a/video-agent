@@ -26,7 +26,11 @@ export const heroTemplate = defineSlideTemplate({
 })
 
 function HeroTaglines({points}: {points: string[]}): ReactNode {
-  const items = points.slice(0, 2)
+  if (points.length > 2) {
+    throw new Error(`Deck hero slide received ${points.length} taglines, exceeding renderer limit 2.`)
+  }
+
+  const items = points
 
   if (items.length === 0) {
     return null

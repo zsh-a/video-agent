@@ -1,10 +1,18 @@
 import type {ReactNode} from 'react'
 
 export function Timeline({points}: {points: string[]}): ReactNode {
+  if (points.length > 5) {
+    throw new Error(`Deck timeline received ${points.length} points, exceeding renderer limit 5.`)
+  }
+
+  if (points.length === 0) {
+    throw new Error('Deck timeline requires at least one LLM-authored visible item; no empty timeline render fallback is allowed.')
+  }
+
   return (
     <div className="timeline relative grid gap-[20px] pl-[44px]">
       <div className="timeline__line absolute bottom-[22px] left-[12px] top-[22px] w-[4px] origin-top bg-[linear-gradient(var(--accent),var(--accent-2))]" />
-      {points.slice(0, 5).map((point) => <TimelineItem key={point} point={point} />)}
+      {points.map((point) => <TimelineItem key={point} point={point} />)}
     </div>
   )
 }

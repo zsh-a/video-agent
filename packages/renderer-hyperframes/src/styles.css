@@ -84,16 +84,7 @@ body {
   max-width: 860px;
 }
 
-.scene__bullets {
-  display: grid;
-  gap: 14px;
-  list-style: none;
-  margin: 0;
-  max-width: 860px;
-  padding: 0;
-}
-
-.scene__bullets li {
+.scene__narration {
   background: #ffffff;
   border: 1px solid #dbe3ef;
   border-left: 6px solid #f97316;
@@ -102,6 +93,8 @@ body {
   color: #1f2937;
   font-size: 22px;
   line-height: 1.36;
+  margin: 0;
+  max-width: 860px;
   padding: 14px 18px;
 }
 
@@ -118,10 +111,19 @@ body {
   padding: 24px;
 }
 
-.scene__context p,
+.scene__evidence,
 .caption {
   font-size: 18px;
   line-height: 1.5;
+}
+
+.scene__evidence {
+  color: #475569;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  overflow-wrap: anywhere;
+  padding-left: 20px;
 }
 
 .caption {
@@ -162,7 +164,7 @@ body {
     font-size: 30px;
   }
 
-  .scene__bullets li {
+  .scene__narration {
     font-size: 18px;
   }
 

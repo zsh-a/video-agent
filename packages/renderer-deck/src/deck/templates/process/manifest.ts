@@ -16,7 +16,6 @@ export const processManifest = {
     requiredVisibleElements: ['.slide__title', '.process-list .point'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'process',
   useWhen: 'Describing a workflow, pipeline, lifecycle, or ordered phase sequence.',
 } satisfies DeckTemplateManifestEntry

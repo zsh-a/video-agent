@@ -1,4 +1,4 @@
-import type {DeckFormat} from '@video-agent/ir'
+import type {DeckFormat, Document} from '@video-agent/ir'
 
 import {Args, Command, Flags} from '@oclif/core'
 import {runDeckExplainerPipeline} from '@video-agent/pipeline-deck'
@@ -6,6 +6,7 @@ import {resolve} from 'node:path'
 
 type DeckFormatFlag = 'landscape' | 'portrait' | 'square'
 type DeckModeFlag = 'audio-anchored' | 'script-generated' | 'summarize'
+type DeckSourceTypeFlag = Exclude<Document['source']['sourceType'], 'audio'>
 
 export default class Deck extends Command {
   static args = {
@@ -26,17 +27,16 @@ export default class Deck extends Command {
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'keyframe-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
-    language: Flags.string({description: 'Narration/deck language tag', default: 'zh-CN'}),
+	    language: Flags.string({description: 'Narration/deck language tag; omit to let the LLM choose from the source'}),
     'max-slide-characters': Flags.integer({description: 'Maximum characters per generated slide', default: 260}),
     mode: Flags.string({
-      default: 'script-generated',
-      description: 'Deck generation mode',
+      description: 'Deck generation mode; required so the CLI does not infer script-generated, summarize, or audio-anchored behavior',
       options: ['script-generated', 'summarize', 'audio-anchored'],
     }),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
     'playwright-command': Flags.string({description: 'Playwright capture command prefix, either a binary name or JSON string array'}),
     renderer: Flags.string({default: 'remotion', description: 'Deck video renderer', options: ['remotion', 'html']}),
-    'slide-seconds': Flags.integer({description: 'Fallback duration in seconds for each generated slide', default: 18}),
+    'source-type': Flags.string({description: 'Required input source type for script-generated Deck planning; no extension-based inference is performed', options: ['html', 'markdown', 'pdf', 'text']}),
     style: Flags.string({
       description: 'Deck theme/style name (auto lets LLM choose based on content)',
       options: ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'],
@@ -48,7 +48,6 @@ export default class Deck extends Command {
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Deck)
-    const mode = flags.mode as DeckModeFlag
 
     const commonOptions = {
       deckFormat: mapDeckFormat(flags.format as DeckFormatFlag),
@@ -56,7 +55,7 @@ export default class Deck extends Command {
       language: flags.language,
       maxSlideCharacters: flags['max-slide-characters'],
       projectId: flags['project-id'],
-      slideSeconds: flags['slide-seconds'],
+      sourceType: flags['source-type'] as DeckSourceTypeFlag | undefined,
       theme: flags.style,
       title: flags.title,
       trace: flags.trace,
@@ -65,6 +64,8 @@ export default class Deck extends Command {
     let output: Awaited<ReturnType<typeof runDeckExplainerPipeline>>
 
     try {
+      const mode = requireDeckCliMode(flags.mode as DeckModeFlag | undefined)
+
       output = await runDeckExplainerPipeline({
         ...commonOptions,
         chromiumCommand: parseCommandPrefix(flags['chromium-command'], '--chromium-command'),
@@ -103,6 +104,14 @@ export default class Deck extends Command {
 
     this.error(message === '' ? 'Deck pipeline failed.' : message, {exit: false})
   }
+}
+
+function requireDeckCliMode(mode: DeckModeFlag | undefined): DeckModeFlag {
+  if (mode === undefined) {
+    throw new Error('Deck command requires --mode; no CLI script-generated fallback is allowed.')
+  }
+
+  return mode
 }
 
 function normalizePositiveInteger(value: number | undefined, flagName: string): number | undefined {

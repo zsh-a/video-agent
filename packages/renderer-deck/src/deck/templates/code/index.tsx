@@ -2,7 +2,6 @@ import {CodeBlock, TitleBlock} from '../../components/index.js'
 import {titlePresetFor} from '../../motion/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
-import {codeForSlide} from '../helpers.js'
 import {codeManifest} from './manifest.js'
 import {codeStyles} from './styles.js'
 
@@ -12,12 +11,18 @@ const codeMotionSteps: TemplateMotionStep[] = [
 ]
 
 export const codeTemplate = defineSlideTemplate({
-  render: (slide) => (
-    <>
-      <TitleBlock slide={slide} />
-      <CodeBlock code={codeForSlide(slide)} />
-    </>
-  ),
+  render: (slide) => {
+    if (slide.code === undefined) {
+      throw new Error(`Deck code slide "${slide.slideId}" is missing code block.`)
+    }
+
+    return (
+      <>
+        <TitleBlock slide={slide} />
+        <CodeBlock code={slide.code} />
+      </>
+    )
+  },
   type: 'code',
 })
 

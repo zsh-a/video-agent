@@ -8,7 +8,7 @@ export const ClipPlanItemSchema = z.object({
   reason: z.string().optional(),
   scriptSegmentId: z.string().min(1).optional(),
   sceneId: z.string().min(1),
-  selectionReason: z.literal('script-driven').optional(),
+  selectionReason: z.string().min(1).optional(),
   selectionRank: z.number().int().positive().optional(),
   source: z.string().min(1),
   sourceRange: z.tuple([z.number().nonnegative(), z.number().nonnegative()]),

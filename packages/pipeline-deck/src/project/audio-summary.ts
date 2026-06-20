@@ -8,25 +8,20 @@ import {createLLMTextDeckProjectPlan} from '../planning/index.js'
 import {writeDeckAudioSummaryPlanArtifacts} from './artifacts.js'
 import {completeDeckJobStages, initializeDeckJob} from './job.js'
 import {
-  createDeckJobStore,
-  createProjectLLMTrace,
-  DEFAULT_MAX_SLIDE_CHARACTERS,
-  DEFAULT_SLIDE_SECONDS,
-  withLLMTracePath,
-} from './runtime.js'
+	  createDeckJobStore,
+	  createProjectLLMTrace,
+	  DEFAULT_MAX_SLIDE_CHARACTERS,
+	  withLLMTracePath,
+	} from './runtime.js'
 import type {CreateDeckSummarizeProjectOptions, CreateDeckSummarizeProjectResult} from './types.js'
 import {DECK_SUMMARIZE_STAGES} from '../shared/stages.js'
-import {normalizeText} from '../shared/utils.js'
-import {createDeckExplainerProject} from './text.js'
+import {requireExactTranscriptSegments, requireExactTranscriptText, requireTranscriptLanguage} from './transcript.js'
 
 export async function createDeckSummarizeProject(options: CreateDeckSummarizeProjectOptions): Promise<CreateDeckSummarizeProjectResult> {
   const inputPath = resolve(options.inputPath)
 
   if (!isAudioInputPath(inputPath)) {
-    return createDeckExplainerProject({
-      ...options,
-      mode: 'script-generated',
-    })
+    throw new Error('Deck audio summary planning requires an audio input path; use Deck explainer planning for text inputs.')
   }
 
   await assertFileExists(inputPath)
@@ -49,7 +44,11 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
 
   try {
     const sourceMediaInfo = await probeMedia(inputPath)
-    const sourceDuration = sourceMediaInfo.duration ?? DEFAULT_SLIDE_SECONDS
+    if (sourceMediaInfo.duration === undefined) {
+      throw new Error('Deck audio summary planning requires media duration from ffprobe; no default duration fallback is allowed.')
+    }
+
+    const sourceDuration = sourceMediaInfo.duration
     const config = await readConfig(workspaceDir)
     const llmClient = await createRuntimeLLMClient(config, workspaceDir, {
       llmClient: options.llmClient,
@@ -72,26 +71,23 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
       duration: sourceDuration,
       path: inputPath,
     }))
-    const text = normalizeText(transcript.text || transcript.segments.map((segment) => segment.text).join('\n\n'))
-
-    if (text === '') {
-      throw new Error('Deck summarize audio transcript must not be empty.')
-    }
+    const transcriptSegments = requireExactTranscriptSegments(transcript, 'Deck audio summary planning')
+    const text = requireExactTranscriptText(transcript, 'Deck audio summary planning')
 
     await jobStore.updateStage('transcribe', 'completed', undefined, 1)
     await jobStore.updateStage('understand', 'running', undefined, 1)
 
-    const language = options.language ?? transcript.language ?? 'zh-CN'
+    const language = options.language ?? requireTranscriptLanguage(transcript, 'Deck audio summary planning')
     const plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
       deckFormat: options.deckFormat,
       durationTargetSeconds: options.durationTargetSeconds,
-      language,
-      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
-      requiredSlideTypes: options.requiredSlideTypes,
-      slideSeconds: options.slideSeconds ?? DEFAULT_SLIDE_SECONDS,
-      sourceType: 'audio',
+	      language,
+	      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
+	      requiredSlideTypes: options.requiredSlideTypes,
+	      sourceType: 'audio',
       theme: options.theme,
       title: options.title,
+      transcriptSegments,
     })
 
     await jobStore.updateStage('understand', 'completed', undefined, 1)

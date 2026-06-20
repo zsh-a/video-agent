@@ -10,7 +10,6 @@ export interface DeckTemplateManifestForLLMEntry {
   limits: Record<string, number>
   motion_presets: DeckTemplateManifestEntry['motionPresets']
   quality_rules: DeckTemplateQualityRules
-  repair: DeckTemplateManifestEntry['repair']
   type: DeckSlideType
   use_when: string
 }
@@ -27,7 +26,6 @@ export const deckTemplateManifestForLLM: DeckTemplateManifestForLLM = {
     limits: template.limits,
     motion_presets: [...template.motionPresets],
     quality_rules: template.qualityRules,
-    repair: template.repair,
     type: template.type,
     use_when: template.useWhen,
   })),
@@ -40,7 +38,13 @@ export function isDeckTemplateType(value: unknown): value is DeckSlideType {
 }
 
 export function findDeckTemplateManifestEntry(type: DeckSlideType): DeckTemplateManifestEntry {
-  return deckTemplateManifest.find((template) => template.type === type) ?? deckTemplateManifest[0]
+  const template = deckTemplateManifest.find((entry) => entry.type === type)
+
+  if (template === undefined) {
+    throw new Error(`No Deck template manifest registered for slide type "${type}".`)
+  }
+
+  return template
 }
 
 export function maxPointsForDeckTemplate(type: DeckSlideType): number | undefined {
@@ -48,6 +52,10 @@ export function maxPointsForDeckTemplate(type: DeckSlideType): number | undefine
   const limits = template.limits
 
   return limits.points ?? limits.steps ?? limits.items ?? limits.bars ?? template.qualityRules.maxPoints
+}
+
+export function minPointsForDeckTemplate(type: DeckSlideType): number | undefined {
+  return findDeckTemplateManifestEntry(type).qualityRules.minPoints
 }
 
 export function validateSlideAgainstTemplateManifest(slide: Slide): string[] {
@@ -58,6 +66,7 @@ export function validateSlideAgainstTemplateManifest(slide: Slide): string[] {
     ...validateTextLength(slide, 'title', slide.title, template.limits.title_chars, 'title limit'),
     ...validateTextLength(slide, 'subtitle', slide.subtitle, template.limits.subtitle_chars, 'subtitle limit'),
     ...validatePointCharacters(slide, template.limits.point_chars),
+    ...validateChartBars(slide, template.limits),
     ...validateComparisonSideCounts(slide, template.limits),
     ...validateCodeLines(slide, template.limits.code_lines),
     ...validateTextLength(slide, 'quote', slide.quote?.text, template.limits.quote_chars, 'quote limit'),
@@ -66,10 +75,16 @@ export function validateSlideAgainstTemplateManifest(slide: Slide): string[] {
 
 function validatePointCount(slide: Slide): string[] {
   const maxPoints = maxPointsForDeckTemplate(slide.type)
+  const minPoints = minPointsForDeckTemplate(slide.type)
 
-  return maxPoints !== undefined && slide.points.length > maxPoints
-    ? [`Slide ${slide.slideId} exceeds ${slide.type} point limit ${maxPoints}.`]
-    : []
+  return [
+    ...(maxPoints !== undefined && slide.points.length > maxPoints
+      ? [`Slide ${slide.slideId} exceeds ${slide.type} point limit ${maxPoints}.`]
+      : []),
+    ...(minPoints !== undefined && slide.points.length < minPoints
+      ? [`Slide ${slide.slideId} requires at least ${minPoints} ${slide.type} point.`]
+      : []),
+  ]
 }
 
 function validateTextLength(slide: Slide, field: string, value: string | undefined, limit: number | undefined, label: string): string[] {
@@ -87,6 +102,13 @@ function validatePointCharacters(slide: Slide, limit: number | undefined): strin
     ...textLimitIssues(slide, slide.points, limit, 'point'),
     ...textLimitIssues(slide, slide.comparison?.left.points ?? [], limit, 'left comparison point'),
     ...textLimitIssues(slide, slide.comparison?.right.points ?? [], limit, 'right comparison point'),
+  ]
+}
+
+function validateChartBars(slide: Slide, limits: DeckTemplateManifestEntry['limits']): string[] {
+  return [
+    ...validateCountLimit(slide, 'chart bars', slide.chart?.bars.length ?? 0, limits.bars, 'bars'),
+    ...(limits.point_chars === undefined ? [] : textLimitIssues(slide, slide.chart?.bars.map((bar) => bar.label) ?? [], limits.point_chars, 'chart bar label')),
   ]
 }
 

@@ -1,5 +1,9 @@
 import {z} from 'zod'
 
+const NonBlankStringSchema = z.string().min(1).refine((value) => value.trim() !== '', {
+  message: 'String must not be blank.',
+})
+
 export const TranscriptSegmentSchema = z.object({
   end: z.number().finite().nonnegative(),
   speaker: z.string().optional(),
@@ -18,21 +22,21 @@ export const TranscriptSchema = z.object({
 })
 
 export const VlmSceneSchema = z.object({
-  actions: z.array(z.string().min(1)).default([]),
-  characters: z.array(z.string().min(1)).default([]),
-  description: z.string(),
-  emotions: z.array(z.string().min(1)).default([]),
-  evidence: z.array(z.string()),
-  plotClues: z.array(z.string().min(1)).default([]),
-  relationships: z.array(z.string().min(1)).default([]),
-  sceneId: z.string().min(1),
+  actions: z.array(NonBlankStringSchema),
+  characters: z.array(NonBlankStringSchema),
+  description: NonBlankStringSchema,
+  emotions: z.array(NonBlankStringSchema),
+  evidence: z.array(NonBlankStringSchema).min(1),
+  plotClues: z.array(NonBlankStringSchema),
+  relationships: z.array(NonBlankStringSchema),
+  sceneId: NonBlankStringSchema,
 })
 
 export const VlmScenesSchema = z.array(VlmSceneSchema)
 
 export const SceneFrameBatchSchema = z.object({
-  frames: z.array(z.string()),
-  sceneId: z.string().min(1),
+  frames: z.array(NonBlankStringSchema).min(1),
+  sceneId: NonBlankStringSchema,
   timeRange: z.tuple([
     z.number().finite().nonnegative(),
     z.number().finite().nonnegative(),

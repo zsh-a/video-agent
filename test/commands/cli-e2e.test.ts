@@ -295,6 +295,8 @@ describe('cli end-to-end workflow', () => {
       const deckProject = await runCli([
         'deck',
         inputPath,
+        '--mode',
+        'script-generated',
         '--project-id',
         projectId,
         '--workspace',
@@ -312,6 +314,30 @@ describe('cli end-to-end workflow', () => {
 
       expect(deckProject.code).to.equal(1)
       expect(deckProject.stderr).to.include('Deck explainer planning requires an LLM provider')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails Deck CLI without an explicit mode instead of defaulting to script-generated', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-deck-mode-'))
+    const workspaceDir = join(root, 'workspace')
+    const inputPath = join(root, 'deck.md')
+
+    try {
+      await writeFile(inputPath, 'Deck mode must be explicit.')
+
+      const deckProject = await runCli([
+        'deck',
+        inputPath,
+        '--workspace',
+        workspaceDir,
+        '--json',
+      ])
+
+      expect(deckProject.code).to.equal(1)
+      expect(deckProject.stderr).to.include('Deck command requires --mode')
+      expect(deckProject.stderr).to.include('no CLI script-generated fallback is allowed')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

@@ -42,6 +42,8 @@ describe('artifacts', () => {
       await writeText(join(chunkDir, 'summary.json'), `${JSON.stringify({
         chunkId: 'chunk-000',
         contentRange: [0, 5],
+        keyMoments: [],
+        silenceRanges: [],
         summary: 'Opening section.',
       })}\n`)
       await refreshArtifactManifest(artifactsDir)
@@ -54,6 +56,8 @@ describe('artifacts', () => {
       expect(summary.content).to.deep.equal({
         chunkId: 'chunk-000',
         contentRange: [0, 5],
+        keyMoments: [],
+        silenceRanges: [],
         summary: 'Opening section.',
       })
       expect(integrity.ok).to.equal(true)

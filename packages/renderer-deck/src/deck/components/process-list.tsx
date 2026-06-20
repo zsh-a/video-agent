@@ -3,11 +3,15 @@ import type {ReactNode} from 'react'
 import {classNames} from '../layout/primitives.js'
 
 export function ProcessList({points}: {points: string[]}): ReactNode {
-  const items = points.slice(0, 5)
+  if (points.length > 5) {
+    throw new Error(`Deck process list received ${points.length} points, exceeding renderer limit 5.`)
+  }
+
+  const items = points
   const densityClass = items.length > 4 ? 'process-list--dense' : items.length >= 3 ? 'process-list--grid' : ''
 
   if (items.length === 0) {
-    return null
+    throw new Error('Deck process list requires at least one LLM-authored visible step; no empty process render fallback is allowed.')
   }
 
   return (

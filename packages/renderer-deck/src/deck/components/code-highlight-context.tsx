@@ -30,5 +30,11 @@ export function codeHighlightKey(code: DeckCodeBlock): string {
 }
 
 export function normalizeCodeLanguage(language: string): string {
-  return language.trim().toLowerCase() || 'text'
+  const normalized = language.trim().toLowerCase()
+
+  if (normalized === '') {
+    throw new Error('Deck code block language must be explicit; empty language cannot fall back to text.')
+  }
+
+  return normalized
 }

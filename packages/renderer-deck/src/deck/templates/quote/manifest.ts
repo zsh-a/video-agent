@@ -13,7 +13,6 @@ export const quoteManifest = {
     requiredVisibleElements: ['.slide__title', '.quote-block'],
     safeArea: true,
   },
-  repair: 'fallback-readable',
   type: 'quote',
   useWhen: 'Highlighting a source quote or memorable sentence.',
 } satisfies DeckTemplateManifestEntry

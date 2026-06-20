@@ -10,7 +10,7 @@ export const NarrationSegmentSchema = z.object({
 })
 
 export const NarrationSchema = z.object({
-  language: z.string().default('zh-CN'),
+  language: z.string().min(1),
   segments: z.array(NarrationSegmentSchema),
   version: z.literal(1),
 })

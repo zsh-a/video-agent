@@ -37,8 +37,8 @@ export interface RemotionDeckCompositionSpec {
 
 export async function writeRemotionDeckProject(options: WriteRemotionDeckProjectOptions): Promise<RemotionDeckProject> {
   const timedDeck = TimedDeckSchema.parse(options.timedDeck)
-  const fps = normalizeFps(options.fps ?? options.motionTimeline?.fps ?? 30)
-  const motionTimeline = MotionTimelineSchema.parse(options.motionTimeline ?? createStaticMotionTimeline(timedDeck, fps))
+  const motionTimeline = MotionTimelineSchema.parse(requireMotionTimeline(options.motionTimeline))
+  const fps = normalizeFps(options.fps ?? motionTimeline.fps)
   const outputDir = resolve(options.outputDir)
   const srcDir = join(outputDir, 'src')
   const compositionId = options.compositionId ?? 'DeckExplainer'
@@ -101,21 +101,12 @@ export function createRemotionDeckCompositionSpec(input: {
   }
 }
 
-function createStaticMotionTimeline(timedDeck: TimedDeck, fps: number): MotionTimeline {
-  const duration = Math.max(0.1, timedDeck.timings.at(-1)?.end ?? 0.1)
+function requireMotionTimeline(motionTimeline: MotionTimeline | undefined): MotionTimeline {
+  if (motionTimeline === undefined) {
+    throw new Error('Remotion Deck project export requires a compiled motionTimeline; no static renderer motion fallback is allowed.')
+  }
 
-  return MotionTimelineSchema.parse({
-    duration,
-    fps,
-    scenes: timedDeck.timings.map((timing) => ({
-      end: timing.end,
-      id: timing.slideId,
-      sourceId: timing.slideId,
-      start: timing.start,
-    })),
-    tracks: [],
-    version: 1,
-  })
+  return motionTimeline
 }
 
 function createRemotionPackageJson(compositionId: string) {

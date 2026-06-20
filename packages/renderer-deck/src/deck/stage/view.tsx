@@ -13,7 +13,7 @@ export interface DeckStageViewOptions {
 export interface SlideRenderItem {
   index: number
   slide: Slide
-  timing?: SlideTiming
+  timing: SlideTiming
 }
 
 export function DeckStageView({
@@ -35,14 +35,22 @@ export function deckStageItems(deck: Deck, options: Pick<DeckStageViewOptions, '
   const timingBySlide = new Map(options.timings.map((timing) => [timing.slideId, timing]))
 
   return deck.slides
-    .map((slide, index): SlideRenderItem => ({index, slide, timing: timingBySlide.get(slide.slideId)}))
+    .map((slide, index): SlideRenderItem => {
+      const timing = timingBySlide.get(slide.slideId)
+
+      if (timing === undefined) {
+        throw new Error(`Deck stage view is missing timing for slide "${slide.slideId}".`)
+      }
+
+      return {index, slide, timing}
+    })
     .filter((item) => options.captureSlideId === undefined || item.slide.slideId === options.captureSlideId)
 }
 
 function DeckSlide({item, language, style}: {item: SlideRenderItem; language: string; style?: CSSProperties}): ReactNode {
   const {index, slide, timing} = item
-  const start = timing?.start ?? 0
-  const end = timing?.end ?? start + (slide.duration ?? 1)
+  const start = timing.start
+  const end = timing.end
   const className = classNames(
     `slide--${slide.type}`,
     slideDensityClass(slide, language),
@@ -80,6 +88,7 @@ export function slideDensityClass(slide: Slide, language: string): string {
     slide.title,
     slide.subtitle ?? '',
     ...slide.points,
+    ...chartTextParts(slide),
     slide.code?.text ?? '',
     slide.comparison?.left.label ?? '',
     ...(slide.comparison?.left.points ?? []),
@@ -105,4 +114,18 @@ export function slideDensityClass(slide: Slide, language: string): string {
   }
 
   return ''
+}
+
+function chartTextParts(slide: Slide): string[] {
+  if (slide.chart === undefined) {
+    return []
+  }
+
+  return [
+    ...slide.chart.bars.flatMap((bar) => [
+      bar.label,
+      bar.caption ?? '',
+    ]),
+    slide.chart.valueLabel ?? '',
+  ]
 }

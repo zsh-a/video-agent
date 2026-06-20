@@ -16,7 +16,6 @@ export const threePointsManifest = {
     requiredVisibleElements: ['.slide__title', '.point'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'three-points',
   useWhen: 'Explaining three parallel principles, reasons, criteria, or steps.',
 } satisfies DeckTemplateManifestEntry

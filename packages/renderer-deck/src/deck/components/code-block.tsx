@@ -15,7 +15,7 @@ export function CodeBlock({code}: {code: DeckCodeBlock}): ReactNode {
       </div>
       <Stack className="code-block__body grid gap-0 p-[12px]">
         {highlightedHtml === undefined
-          ? <pre className="code-block__fallback"><code>{code.text}</code></pre>
+          ? <pre className="code-block__plain"><code>{code.text}</code></pre>
           : <div className="code-block__highlight" dangerouslySetInnerHTML={{__html: highlightedHtml}} />}
       </Stack>
     </Card>

@@ -19,7 +19,7 @@ export interface HyperframesTemplateIssue {
 
 export interface CheckHyperframesTemplateInput {
   entryHtml: string
-  narration?: Narration
+  narration: Narration
   planPath: string
   storyboard: Storyboard
   stylesPath: string
@@ -127,7 +127,7 @@ function validateHtml(html: string, input: CheckHyperframesTemplateInput, issues
     })
   }
 
-  const expectedCaptions = input.narration?.segments.length ?? 0
+  const expectedCaptions = input.narration.segments.length
   const captionCount = countMatches(html, 'class="caption"')
   if (captionCount !== expectedCaptions) {
     issues.push({
@@ -182,6 +182,15 @@ function validateRenderPlan(plan: unknown, input: CheckHyperframesTemplateInput,
     issues.push({
       code: 'hyperframes.template.plan_scene_count_mismatch',
       message: `Render plan scene count does not match the storyboard scene count of ${input.storyboard.scenes.length}.`,
+      severity: 'error',
+    })
+  }
+
+  const planNarration = isRecord(plan.narration) && Array.isArray(plan.narration.segments) ? plan.narration.segments : undefined
+  if (planNarration === undefined || planNarration.length !== input.narration.segments.length) {
+    issues.push({
+      code: 'hyperframes.template.plan_narration_count_mismatch',
+      message: `Render plan narration segment count does not match the narration segment count of ${input.narration.segments.length}.`,
       severity: 'error',
     })
   }

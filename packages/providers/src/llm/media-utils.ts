@@ -12,10 +12,6 @@ export function createFileDataUri(data: Uint8Array, mediaType: string): string {
   return `data:${mediaType};base64,${Buffer.from(data).toString('base64')}`
 }
 
-export function inferLanguage(text: string): string | undefined {
-  return /[\u3400-\u9FFF]/.test(text) ? 'zh-CN' : undefined
-}
-
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -47,10 +43,6 @@ export function normalizeBaseURL(value: string): string {
   return trimmed.replaceAll(/\/+$/g, '')
 }
 
-export function normalizeOptionalString(value: string | undefined): string | undefined {
-  return value === undefined || value.trim() === '' ? undefined : value.trim()
-}
-
 export function normalizeOutputDir(value: string | undefined): string {
   if (value === undefined || value.trim() === '') {
     throw new Error('MiMo TTS requires an outputDir so generated audio can be written to the project workspace.')
@@ -71,19 +63,6 @@ export function parseOptionalJson(text: string): undefined | unknown {
   try {
     return JSON.parse(text) as unknown
   } catch {
-    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)
-
-    if (fenced?.[1] !== undefined) {
-      return JSON.parse(fenced[1]) as unknown
-    }
-
-    const objectStart = text.indexOf('{')
-    const objectEnd = text.lastIndexOf('}')
-
-    if (objectStart !== -1 && objectEnd > objectStart) {
-      return JSON.parse(text.slice(objectStart, objectEnd + 1)) as unknown
-    }
-
     return undefined
   }
 }

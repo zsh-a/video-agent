@@ -1,8 +1,8 @@
 import type {DeckTemplateManifestEntry} from '../define-template.js'
 
 export const chartManifest = {
-  description: 'Simple qualitative chart slide.',
-  fields: ['title', 'points'],
+  description: 'Small normalized bar chart slide with LLM-authored labels and values.',
+  fields: ['title', 'chart.bars.label', 'chart.bars.value', 'chart.bars.caption'],
   limits: {
     bars: 4,
     point_chars: 28,
@@ -16,7 +16,6 @@ export const chartManifest = {
     requiredVisibleElements: ['.slide__title', '.chart-bar'],
     safeArea: true,
   },
-  repair: 'split-points',
   type: 'chart',
   useWhen: 'Showing a small set of comparable qualitative indicators.',
 } satisfies DeckTemplateManifestEntry

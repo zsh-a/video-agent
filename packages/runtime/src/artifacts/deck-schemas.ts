@@ -202,6 +202,11 @@ export const DeckReviewReportSchema = z.object({
   renderer: z.enum(['chromium', 'playwright', 'remotion']),
   reviewHtmlPath: z.string().min(1),
   slides: z.array(z.object({
+    chartBars: z.array(z.object({
+      caption: z.string().min(1).optional(),
+      label: z.string().min(1),
+      value: z.number().finite().min(0).max(1),
+    }).strict()).optional(),
     duration: z.number().nonnegative(),
     end: z.number().nonnegative(),
     index: z.number().int().positive(),

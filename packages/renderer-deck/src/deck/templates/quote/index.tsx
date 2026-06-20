@@ -1,7 +1,6 @@
 import {QuoteBlock, TitleBlock} from '../../components/index.js'
 import {slideTiming} from '../../motion/helpers.js'
 import {defineSlideTemplate, defineSlideTemplateModule, type TemplateMotionStep} from '../define-template.js'
-import {quoteForSlide} from '../helpers.js'
 import {quoteManifest} from './manifest.js'
 import {quoteStyles} from './styles.js'
 
@@ -11,12 +10,18 @@ const quoteMotionSteps: TemplateMotionStep[] = [
 ]
 
 export const quoteTemplate = defineSlideTemplate({
-  render: (slide) => (
-    <>
-      <TitleBlock slide={slide} />
-      <QuoteBlock quote={quoteForSlide(slide)} />
-    </>
-  ),
+  render: (slide) => {
+    if (slide.quote === undefined) {
+      throw new Error(`Deck quote slide "${slide.slideId}" is missing quote text.`)
+    }
+
+    return (
+      <>
+        <TitleBlock slide={slide} />
+        <QuoteBlock quote={slide.quote} />
+      </>
+    )
+  },
   type: 'quote',
 })
 
