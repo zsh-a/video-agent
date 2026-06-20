@@ -1,4 +1,4 @@
-import type {DeckFormat, DeckSlideType, Document} from '@video-agent/ir'
+import type {DeckContentDensity, DeckFormat, DeckSlideType, Document} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 
 import type {
@@ -9,6 +9,7 @@ import type {
 } from './artifacts.js'
 
 export interface CreateDeckExplainerProjectOptions {
+  contentDensity?: DeckContentDensity
   deckFormat?: DeckFormat
   durationTargetSeconds?: number
   inputPath: string
@@ -50,6 +51,7 @@ export interface CreateDeckVoiceoverProjectResult {
 }
 
 export interface CreateDeckAudioAnchoredProjectOptions {
+  contentDensity?: DeckContentDensity
   deckFormat?: DeckFormat
   inputPath: string
   language?: string

@@ -307,6 +307,8 @@ describe('cli end-to-end workflow', () => {
         'landscape',
         '--style',
         'tech-gradient',
+        '--content-density',
+        'detailed',
         '--max-slide-characters',
         '45',
         '--json',

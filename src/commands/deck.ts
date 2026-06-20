@@ -1,4 +1,4 @@
-import type {DeckFormat, Document} from '@video-agent/ir'
+import type {DeckContentDensity, DeckFormat, Document} from '@video-agent/ir'
 
 import {Args, Command, Flags} from '@oclif/core'
 import {runDeckExplainerPipeline} from '@video-agent/pipeline-deck'
@@ -17,6 +17,7 @@ export default class Deck extends Command {
 
   static flags = {
     'chromium-command': Flags.string({description: 'Chromium command prefix for HTML frame capture, either a binary name or JSON string array'}),
+    'content-density': Flags.string({default: 'balanced', description: 'Generated deck content density', options: ['concise', 'balanced', 'detailed']}),
     duration: Flags.string({description: 'Target deck duration, such as 180s, 3m, or 00:03:00'}),
     'frame-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
     'frame-concurrency': Flags.integer({description: 'Maximum browser screenshot captures to run concurrently', default: 1}),
@@ -50,6 +51,7 @@ export default class Deck extends Command {
     const {args, flags} = await this.parse(Deck)
 
     const commonOptions = {
+      contentDensity: flags['content-density'] as DeckContentDensity,
       deckFormat: mapDeckFormat(flags.format as DeckFormatFlag),
       inputPath: resolve(args.input),
       language: flags.language,

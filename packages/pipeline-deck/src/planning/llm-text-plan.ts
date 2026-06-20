@@ -291,10 +291,10 @@ function createDeckBriefRequest(
       goal: 'Create a presentation brief for a Deck explainer. Decide coverage strategy, target slide count, narrative arc, density policy, and required source sections. Do not write slide text or narration.',
       instructions: [
         'Base requiredSectionIds on analysis.sections where mustCover is true. Preserve section ids exactly.',
-        'Choose targetSlideCount from source complexity and required sections. It must be large enough that must-cover sections are not compressed into unrelated slides.',
+        'Choose targetSlideCount from source complexity, required sections, target.contentDensity, and target duration. It must be large enough that must-cover sections are not compressed into unrelated slides.',
         'Set targetDurationSeconds only when target.durationSeconds is provided. If target.durationSeconds is absent, omit targetDurationSeconds instead of inventing a duration.',
         'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
-        'Write densityPolicy as concrete generation guidance for slide and narration density.',
+        'Write densityPolicy as concrete generation guidance that follows target.contentDensity while preserving source-grounded coverage.',
       ],
       inputPath,
       stage: 'deck-brief',
@@ -347,7 +347,8 @@ function createSlideOutlineRequest(
       instructions: [
         'Every brief.requiredSectionIds entry must appear in at least one slides[].sourceSectionIds array.',
         'Use one outline slide for one coherent idea. Split unrelated required sections instead of combining them.',
-        'Set narrationBudgetSeconds based on target duration and slide goal; use realistic TTS budgets rather than optimistic visual durations.',
+        'Set narrationBudgetSeconds based on target duration, target.contentDensity, and slide goal; use realistic TTS budgets rather than optimistic visual durations.',
+        'For detailed content density, prefer adding a coherent slide over compressing necessary examples, steps, caveats, or evidence into one slide.',
         'templateIntent must be one registered template type and should match the information role and source content.',
         'visualIntent should describe the visual job of the slide without CSS, fonts, or coordinates.',
       ],
@@ -465,11 +466,11 @@ function createSlidePlanRequest(
     content: JSON.stringify({
       analysis,
       brief,
-      goal: 'Turn the approved slide outline into concise PPT-style slide data. Return slide structure, visible text, template data, visuals, motion, and transitions only.',
+      goal: 'Turn the approved slide outline into PPT-style slide data. Return slide structure, visible text, template data, visuals, motion, and transitions only.',
       instructions: [
         'Return exactly one slide-plan slide for each slideOutline.slides item, preserving outlineId and sourceSectionIds as sectionIds.',
         'Use slideOutline.templateIntent as the default slide type unless the template manifest makes a different controlled template clearly better.',
-        'Use concise visible text and respect each template field and limit in target.templateManifest.',
+        'Use target.contentDensity.visibleTextPolicy to choose how much visible detail to include, while respecting every template field limit and target.maxVisibleCharactersPerSlide.',
         'Choose slide type only from target.templateManifest.templates. Do not invent, rename, or translate type values.',
         'For visual.kind, choose one of chart, code, process, table, text, or title-card. Return assetRefs as an empty array.',
         'When target.requiredSlideTypes is provided, include every listed slide type at least once.',
@@ -577,6 +578,7 @@ function createScriptSemanticsRequest(
         'Use slideOutline.slides[].narrationBudgetSeconds as a hard budget. Keep estimated speech duration within that budget unless the source section must be split; in that case the correct fix is to shorten narration and flag through validation, not to inflate duration.',
         'Use scriptTimingBudgets as binding per-slide limits for speakerNote length when maxSpeakerNoteCharacters or maxSpeakerNoteWords is present. The returned speakerNote must fit within maxSpeakerNoteCharacters for CJK output or maxSpeakerNoteWords for non-CJK output.',
         'Write one natural speakerNote per slide for TTS. It should sound like a presenter guiding the viewer through the slide, not a file reader.',
+        'Use target.contentDensity.narrationPolicy to choose how much explanatory detail to include in speakerNote while staying inside scriptTimingBudgets.',
         'The speakerNote must walk the viewer through the on-screen content in order and expand each visible point into a natural spoken sentence.',
         'Do not introduce new arguments, examples, claims, or steps that are not visible on the current slide, except brief transition phrases.',
         'For comparison slides, describe both sides. For code slides, briefly explain each visible section. For stat, quote, and chart slides, mention the displayed value, quote, or chart takeaway.',
@@ -1289,6 +1291,35 @@ function isCjkLanguage(language: string): boolean {
   return /^(zh|ja|ko)\b/iu.test(language)
 }
 
+function createDeckContentDensityTarget(options: TextDeckProjectPlanOptions): object {
+  const level = options.contentDensity ?? 'balanced'
+
+  if (level === 'concise') {
+    return {
+      level,
+      narrationPolicy: 'Use short presenter notes that explain only the visible point and the minimum transition context required for comprehension.',
+      slideCountPolicy: 'Prefer fewer slides when source coverage remains faithful. Combine closely related details instead of expanding every example.',
+      visibleTextPolicy: 'Use compact titles and one to two short visible points when possible. Omit secondary examples unless they are required for source fidelity.',
+    }
+  }
+
+  if (level === 'detailed') {
+    return {
+      level,
+      narrationPolicy: 'Use the available narration budget to explain concrete steps, caveats, examples, evidence, and why each visible point matters. Do not add unsupported material.',
+      slideCountPolicy: 'Prefer splitting dense source material into more coherent slides instead of over-compressing required steps, examples, caveats, or evidence.',
+      visibleTextPolicy: 'Include enough visible detail for the slide to be useful without narration: concrete nouns, key steps, caveats, and evidence labels, while staying within template limits.',
+    }
+  }
+
+  return {
+    level,
+    narrationPolicy: 'Use natural presenter notes with enough context to connect the slide points, without expanding beyond the slide goal or narration budget.',
+    slideCountPolicy: 'Balance slide count against source coverage. Split unrelated or dense required material, but keep closely related ideas together.',
+    visibleTextPolicy: 'Use clear PPT-style visible text with two to three useful points when the template supports them, while preserving white space and source fidelity.',
+  }
+}
+
 function createDeckPlanningTarget(options: TextDeckProjectPlanOptions, settings: {includeTemplateManifest: boolean}): object {
   return {
     availableThemes: Object.entries(DECK_THEME_DESCRIPTIONS).map(([name, description]) => ({description, name})),
@@ -1296,6 +1327,7 @@ function createDeckPlanningTarget(options: TextDeckProjectPlanOptions, settings:
     format: options.deckFormat ?? 'portrait_1080x1920',
     language: options.language,
     maxVisibleCharactersPerSlide: options.maxSlideCharacters,
+    contentDensity: createDeckContentDensityTarget(options),
     requestedTheme: options.theme === undefined || options.theme === 'auto' ? undefined : options.theme,
     requestedTitle: options.title,
     requiresOutline: true,

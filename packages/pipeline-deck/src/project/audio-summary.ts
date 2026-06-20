@@ -85,6 +85,7 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
 
     const language = options.language ?? requireTranscriptLanguage(transcript, 'Deck audio summary planning')
     const plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+      contentDensity: options.contentDensity,
       deckFormat: options.deckFormat,
       durationTargetSeconds: options.durationTargetSeconds,
 	      language,

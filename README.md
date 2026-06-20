@@ -95,7 +95,7 @@ Inspect media, run a business pipeline, and inspect/export project output:
 ```sh
 bun run dev inspect ./input.mp4
 bun run dev film ./episode.mp4 --project-id episode-demo --target 10m
-bun run dev deck ./notes.md --source-type markdown --duration 3m --project-id notes-demo
+bun run dev deck ./notes.md --source-type markdown --duration 3m --content-density balanced --project-id notes-demo
 bun run dev status <projectId>
 bun run dev provider-report <projectId>
 bun run dev render <projectId>
@@ -121,7 +121,7 @@ Export commands write a backend project under `renders/remotion/` or `renders/mo
 Create a PPT-style explainer from text or Markdown:
 
 ```sh
-bun run dev deck ./notes.md --source-type markdown --duration 3m --format portrait --style elegant-dark --project-id notes-demo
+bun run dev deck ./notes.md --source-type markdown --duration 3m --content-density detailed --format portrait --style elegant-dark --project-id notes-demo
 bun run dev deck synthesize-voice notes-demo
 bun run dev deck render notes-demo
 ```

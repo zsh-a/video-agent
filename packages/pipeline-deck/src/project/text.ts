@@ -60,6 +60,7 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     }
 
     plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+      contentDensity: options.contentDensity,
       deckFormat: options.deckFormat,
       durationTargetSeconds: options.durationTargetSeconds,
       language,

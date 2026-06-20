@@ -380,6 +380,49 @@ describe('Deck Explainer LLM text planning', () => {
     expect(schema.properties).to.have.property('theme')
   })
 
+  it('passes requested content density into LLM planning targets', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const llm = createStaticStagedLLM(createOneSlideRawPlan([0, 12]), requests)
+
+    await createLLMTextDeckProjectPlan(llm, '/tmp/density.md', 'Detailed generation should preserve source examples and caveats.', {
+      contentDensity: 'detailed',
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 12,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    const slidePlanPayload = requestPayload(requests.find((request) => requestStage(request) === 'slide-plan') as GenerateObjectRequest<unknown>) as {
+      instructions: string[]
+      target: {
+        contentDensity: {
+          level: string
+          narrationPolicy: string
+          slideCountPolicy: string
+          visibleTextPolicy: string
+        }
+      }
+    }
+    const scriptPayload = requestPayload(requests.find((request) => requestStage(request) === 'script-semantics') as GenerateObjectRequest<unknown>) as {
+      instructions: string[]
+      target: {
+        contentDensity: {
+          level: string
+          narrationPolicy: string
+        }
+      }
+    }
+
+    expect(slidePlanPayload.target.contentDensity.level).to.equal('detailed')
+    expect(slidePlanPayload.target.contentDensity.visibleTextPolicy).to.include('concrete nouns')
+    expect(slidePlanPayload.target.contentDensity.slideCountPolicy).to.include('splitting dense source material')
+    expect(slidePlanPayload.instructions.join('\n')).to.include('target.contentDensity.visibleTextPolicy')
+    expect(scriptPayload.target.contentDensity.level).to.equal('detailed')
+    expect(scriptPayload.target.contentDensity.narrationPolicy).to.include('concrete steps')
+    expect(scriptPayload.instructions.join('\n')).to.include('target.contentDensity.narrationPolicy')
+  })
+
   it('rejects overfilled comparison slide-plan data at the schema boundary', () => {
     const result = LLMTextDeckSlidePlanSchema.safeParse({
       slides: [

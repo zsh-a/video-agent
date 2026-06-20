@@ -6,6 +6,8 @@ export const DeckFormatSchema = z.enum(['landscape_1920x1080', 'portrait_1080x19
 
 export const DeckInputModeSchema = z.enum(['script-generated', 'audio-anchored'])
 
+export const DeckContentDensitySchema = z.enum(['concise', 'balanced', 'detailed'])
+
 export const DeckThemeSchema = z.enum([
   'auto',
   'elegant-dark',
@@ -499,6 +501,7 @@ export type DeckCodeBlock = z.infer<typeof DeckCodeBlockSchema>
 export type DeckComparison = z.infer<typeof DeckComparisonSchema>
 export type DeckComparisonSide = z.infer<typeof DeckComparisonSideSchema>
 export type DeckContentAnalysis = z.infer<typeof DeckContentAnalysisSchema>
+export type DeckContentDensity = z.infer<typeof DeckContentDensitySchema>
 export type DeckCoherenceReport = z.infer<typeof DeckCoherenceReportSchema>
 export type DeckCoverageReport = z.infer<typeof DeckCoverageReportSchema>
 export type DeckFormat = z.infer<typeof DeckFormatSchema>

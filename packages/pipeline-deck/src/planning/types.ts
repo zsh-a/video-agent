@@ -1,4 +1,4 @@
-import type {Claims, ContentBlock, Deck, DeckBrief, DeckCoherenceReport, DeckContentAnalysis, DeckCoverageReport, DeckFormat, DeckScriptTimingReport, DeckSlideOutline, DeckSlideType, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {Claims, ContentBlock, Deck, DeckBrief, DeckCoherenceReport, DeckContentAnalysis, DeckContentDensity, DeckCoverageReport, DeckFormat, DeckScriptTimingReport, DeckSlideOutline, DeckSlideType, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
 import type {TranscriptSegment} from '@video-agent/providers'
 
@@ -34,6 +34,7 @@ export interface TextDeckProjectPlan {
 }
 
 export interface TextDeckProjectPlanOptions {
+  contentDensity?: DeckContentDensity
   contentAnalysis?: DeckContentAnalysis
   coherenceReport?: DeckCoherenceReport
   deckBrief?: DeckBrief

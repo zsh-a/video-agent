@@ -85,6 +85,7 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     await agent.completeStage('source-map', 'Transcript source map prepared')
 
     const generatedPlan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
+      contentDensity: options.contentDensity,
       deckFormat: options.deckFormat,
       durationTargetSeconds: duration,
 	      language,
