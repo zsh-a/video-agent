@@ -2,13 +2,14 @@ import type {GenerateObjectRequest, LLMClient, LLMMessage} from '@video-agent/ll
 
 import {createHash} from 'node:crypto'
 
-import {DeckBriefSchema, DeckContentAnalysisSchema, DeckSlideOutlineSchema} from '@video-agent/ir'
+import {DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckSlideOutlineSchema} from '@video-agent/ir'
 import {deckTemplateManifestForLLM} from '@video-agent/renderer-deck'
 
 import {
   LLM_TEXT_DECK_MAX_SLIDES,
   LLMTextDeckValidationError,
   LLMTextDeckBriefSchema,
+  LLMTextDeckCoherenceReviewSchema,
   LLMTextDeckContentAnalysisSchema,
   LLMTextDeckPlanSchema,
   LLMTextDeckScriptSemanticsSchema,
@@ -17,6 +18,7 @@ import {
   validateLLMTextDeckSlidePlanTemplateConstraints,
   type LLMTextDeckValidationIssue,
   type LLMTextDeckBrief,
+  type LLMTextDeckCoherenceReview,
   type LLMTextDeckContentAnalysis,
   type LLMTextDeckPlan,
   type LLMTextDeckScriptSemantics,
@@ -34,7 +36,7 @@ const DECK_LLM_TRANSCRIPT_SEGMENT_TEXT_MAX_CHARACTERS = 500
 const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
 const DECK_LLM_CACHE_KEY_HASH_CHARACTERS = 24
 
-type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'deck-brief' | 'script-semantics' | 'slide-outline' | 'slide-plan'
+type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'coherence-review' | 'deck-brief' | 'script-semantics' | 'slide-outline' | 'slide-plan'
 
 interface DeckPlanningSourceChunk {
   chunkId: string
@@ -51,7 +53,7 @@ interface DeckPlanningSourceChunk {
 interface StagedDeckPlan {
   analysis: LLMTextDeckContentAnalysis
   brief: LLMTextDeckBrief
-  finalPlan: LLMTextDeckPlan
+  coherenceReview: LLMTextDeckCoherenceReview
   scriptSemantics: LLMTextDeckScriptSemantics
   slideOutline: LLMTextDeckSlideOutline
   slidePlan: LLMTextDeckSlidePlan
@@ -97,10 +99,14 @@ export async function createLLMTextDeckProjectPlan(
   const stagedPlan = await createStagedDeckPlan(llm, inputPath, text, sourceMap, planOptions)
 
   try {
-    return createTextDeckProjectPlanFromLLM(inputPath, text, stagedPlan.finalPlan, {
+    assertCoherenceReview(stagedPlan.coherenceReview)
+    const finalPlan = assembleFinalDeckPlan(stagedPlan.analysis, stagedPlan.slidePlan, stagedPlan.scriptSemantics)
+
+    return createTextDeckProjectPlanFromLLM(inputPath, text, finalPlan, {
       ...planOptions,
       contentAnalysis: createDeckContentAnalysisArtifact(stagedPlan.analysis),
       deckBrief: createDeckBriefArtifact(stagedPlan.brief),
+      coherenceReport: createDeckCoherenceReport(stagedPlan.coherenceReview, stagedPlan.slidePlan),
       slideOutline: createDeckSlideOutlineArtifact(stagedPlan.slideOutline),
       sourceMap,
     })
@@ -128,12 +134,12 @@ async function createStagedDeckPlan(
   const slideOutline = await generateSlideOutline(llm, inputPath, analysis, brief, options)
   const slidePlan = await generateSlidePlan(llm, inputPath, analysis, brief, slideOutline, options)
   const scriptSemantics = await generateScriptSemantics(llm, inputPath, analysis, brief, slideOutline, slidePlan, options)
-  const finalPlan = assembleFinalDeckPlan(analysis, slidePlan, scriptSemantics)
+  const coherenceReview = await generateCoherenceReview(llm, inputPath, analysis, brief, slideOutline, slidePlan, scriptSemantics, options)
 
   return {
     analysis,
     brief,
-    finalPlan,
+    coherenceReview,
     scriptSemantics,
     slideOutline,
     slidePlan,
@@ -589,6 +595,62 @@ function createScriptSemanticsRequest(
   }
 }
 
+async function generateCoherenceReview(
+  llm: LLMClient,
+  inputPath: string,
+  analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
+  slidePlan: LLMTextDeckSlidePlan,
+  scriptSemantics: LLMTextDeckScriptSemantics,
+  options: TextDeckProjectPlanOptions,
+): Promise<LLMTextDeckCoherenceReview> {
+  const result = await llm.generateObject(createCoherenceReviewRequest(inputPath, analysis, brief, slideOutline, slidePlan, scriptSemantics, options))
+
+  return result.object
+}
+
+function createCoherenceReviewRequest(
+  inputPath: string,
+  analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
+  slidePlan: LLMTextDeckSlidePlan,
+  scriptSemantics: LLMTextDeckScriptSemantics,
+  options: TextDeckProjectPlanOptions,
+): GenerateObjectRequest<LLMTextDeckCoherenceReview> {
+  const baseMessage: LLMMessage = {
+    content: JSON.stringify({
+      analysis,
+      brief,
+      goal: 'Review the generated Deck plan before artifact build. Find semantic continuity, pacing, depth, and template-variety issues that would reduce viewer comprehension.',
+      instructions: [
+        'Return issues only when a specific stage should rewrite output. Do not report vague style preferences.',
+        'Check narrative continuity: each slide should follow from the previous slide and set up the next slide when the source is procedural.',
+        'Check practical depth: sections that contain commands, setup details, examples, tables, validation criteria, or output templates should preserve enough actionable detail for a viewer to use them.',
+        'Check timing realism: narrationBudgetSeconds and scriptSemantics.slides[].duration should match the actual speakerNote length. Overly long budgets for short notes should be warnings; severe budget mismatch that makes the final video much shorter than target should be an error for script-semantics or slide-outline.',
+        'Check template variety: do not use repeated one-big-idea/summary cards when process, table, code, comparison, stat, quote, or chart would make the source structure clearer.',
+        'For each issue choose the earliest responsible stage: slide-outline for coverage/order/budget/template intent, slide-plan for visible text/template choice, script-semantics for narration/duration/semantic metadata.',
+        'Use severity error only when rewrite is required before artifact build; use warning for reviewable quality concerns.',
+      ],
+      inputPath,
+      scriptSemantics,
+      slideOutline,
+      slidePlan,
+      stage: 'coherence-review',
+      target: createDeckPlanningTarget(options, {includeTemplateManifest: true}),
+    }),
+    role: 'user',
+  }
+
+  return {
+    cache: createDeckLLMCacheHint('coherence-review', baseMessage),
+    messages: [baseMessage],
+    schema: LLMTextDeckCoherenceReviewSchema,
+    temperature: 0.1,
+  }
+}
+
 async function rewriteInvalidStagedDeckPlan(
   llm: LLMClient,
   input: {
@@ -658,10 +720,12 @@ async function attemptStagedDeckPlanRewrite(
 
     const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, input.options)
 
+    const coherenceReview = await generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, scriptSemantics, input.options)
+
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
       brief: state.stagedPlan.brief,
-      finalPlan: assembleFinalDeckPlan(state.stagedPlan.analysis, slidePlan, scriptSemantics),
+      coherenceReview,
       scriptSemantics,
       slideOutline,
       slidePlan,
@@ -690,10 +754,12 @@ async function attemptStagedDeckPlanRewrite(
 
     const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, input.options)
 
+    const coherenceReview = await generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, scriptSemantics, input.options)
+
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
       brief: state.stagedPlan.brief,
-      finalPlan: assembleFinalDeckPlan(state.stagedPlan.analysis, slidePlan, scriptSemantics),
+      coherenceReview,
       scriptSemantics,
       slideOutline: state.stagedPlan.slideOutline,
       slidePlan,
@@ -705,10 +771,12 @@ async function attemptStagedDeckPlanRewrite(
       issues,
     })
 
+    const coherenceReview = await generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, state.stagedPlan.slidePlan, scriptSemantics, input.options)
+
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
       brief: state.stagedPlan.brief,
-      finalPlan: assembleFinalDeckPlan(state.stagedPlan.analysis, state.stagedPlan.slidePlan, scriptSemantics),
+      coherenceReview,
       scriptSemantics,
       slideOutline: state.stagedPlan.slideOutline,
       slidePlan: state.stagedPlan.slidePlan,
@@ -716,10 +784,14 @@ async function attemptStagedDeckPlanRewrite(
   }
 
   try {
-    return createTextDeckProjectPlanFromLLM(input.inputPath, input.text, stagedPlan.finalPlan, {
+    assertCoherenceReview(stagedPlan.coherenceReview)
+    const finalPlan = assembleFinalDeckPlan(stagedPlan.analysis, stagedPlan.slidePlan, stagedPlan.scriptSemantics)
+
+    return createTextDeckProjectPlanFromLLM(input.inputPath, input.text, finalPlan, {
       ...input.options,
       contentAnalysis: createDeckContentAnalysisArtifact(stagedPlan.analysis),
       deckBrief: createDeckBriefArtifact(stagedPlan.brief),
+      coherenceReport: createDeckCoherenceReport(stagedPlan.coherenceReview, stagedPlan.slidePlan),
       slideOutline: createDeckSlideOutlineArtifact(stagedPlan.slideOutline),
       sourceMap: input.sourceMap,
     })
@@ -800,6 +872,44 @@ function createDeckBriefArtifact(brief: LLMTextDeckBrief) {
     source: 'content-analysis.json',
     version: 1,
   })
+}
+
+function createDeckCoherenceReport(review: LLMTextDeckCoherenceReview, slidePlan: LLMTextDeckSlidePlan) {
+  const issues = review.issues.map((issue) => {
+    const slide = issue.slideIndex === undefined ? undefined : slidePlan.slides[issue.slideIndex]
+
+    return {
+      code: issue.code,
+      message: issue.message,
+      ...(issue.path === undefined ? {} : {path: issue.path}),
+      severity: issue.severity,
+      ...(slide === undefined ? {} : {slideId: slide.outlineId}),
+      stage: issue.stage,
+    }
+  })
+
+  return DeckCoherenceReportSchema.parse({
+    checkedAt: new Date().toISOString(),
+    issues,
+    reviewer: 'llm',
+    summary: {
+      errors: issues.filter((issue) => issue.severity === 'error').length,
+      warnings: issues.filter((issue) => issue.severity === 'warning').length,
+    },
+    version: 1,
+  })
+}
+
+function assertCoherenceReview(review: LLMTextDeckCoherenceReview): void {
+  const firstError = review.issues.find((issue) => issue.severity === 'error')
+
+  if (firstError === undefined) {
+    return
+  }
+
+  const issuePath = firstError.path === undefined ? '' : ` Path: ${firstError.path}`
+
+  throw new Error(`Deck coherence review requires ${firstError.stage} rewrite: ${firstError.code}: ${firstError.message}${issuePath}`)
 }
 
 function createDeckSlideOutlineArtifact(slideOutline: LLMTextDeckSlideOutline) {
@@ -981,6 +1091,12 @@ function chooseRewriteStage(issues: DeckPlanningValidationIssue[]): 'script-sema
 }
 
 function classifyValidationStage(message: string): DeckPlanningValidationIssue['stage'] {
+  const coherenceStage = parseCoherenceRewriteStage(message)
+
+  if (coherenceStage !== undefined) {
+    return coherenceStage
+  }
+
   if (
     message.includes('slide outline')
     || message.includes('required source section')
@@ -1013,6 +1129,7 @@ function classifyValidationStage(message: string): DeckPlanningValidationIssue['
     message.includes('speakerNote')
     || message.includes('sourceRange')
     || message.includes('semantic')
+    || message.includes('script-semantics')
     || message.includes('outline')
     || message.includes('claim')
     || message.includes('moment')
@@ -1024,6 +1141,10 @@ function classifyValidationStage(message: string): DeckPlanningValidationIssue['
 }
 
 function classifyIssueCode(message: string): string {
+  if (message.includes('Deck coherence review requires')) {
+    return parseCoherenceIssueCode(message) ?? 'COHERENCE_REVIEW'
+  }
+
   if (
     message.includes('required source section')
     || message.includes('requiredSectionIds')
@@ -1035,6 +1156,10 @@ function classifyIssueCode(message: string): string {
 
   if (message.includes('speakerNote timing preflight') || message.includes('underestimated speakerNote')) {
     return 'SCRIPT_TIMING'
+  }
+
+  if (message.includes('script-semantics')) {
+    return 'SCRIPT_SEMANTICS_CARDINALITY'
   }
 
   if (message.includes('maxSlideCharacters') || message.includes('visible characters')) {
@@ -1075,6 +1200,10 @@ function parseSlideIndex(message: string): number | undefined {
 }
 
 function parseIssuePath(message: string): string | undefined {
+  if (message.includes('Deck coherence review requires')) {
+    return parseCoherenceIssuePath(message) ?? 'deck-coherence-report.json'
+  }
+
   if (
     message.includes('required source section')
     || message.includes('requiredSectionIds')
@@ -1086,6 +1215,10 @@ function parseIssuePath(message: string): string | undefined {
 
   if (message.includes('speakerNote timing preflight') || message.includes('underestimated speakerNote')) {
     return 'scriptSemantics.slides[].speakerNote'
+  }
+
+  if (message.includes('script-semantics')) {
+    return 'scriptSemantics.slides'
   }
 
   if (message.includes('speakerNote')) {
@@ -1109,6 +1242,28 @@ function parseIssuePath(message: string): string | undefined {
   }
 
   return undefined
+}
+
+function parseCoherenceRewriteStage(message: string): 'script-semantics' | 'slide-outline' | 'slide-plan' | undefined {
+  const match = /Deck coherence review requires (slide-outline|slide-plan|script-semantics) rewrite/u.exec(message)
+
+  if (match?.[1] === 'slide-outline' || match?.[1] === 'slide-plan' || match?.[1] === 'script-semantics') {
+    return match[1]
+  }
+
+  return undefined
+}
+
+function parseCoherenceIssueCode(message: string): string | undefined {
+  const match = /rewrite:\s+([A-Z_]+):/u.exec(message)
+
+  return match?.[1]
+}
+
+function parseCoherenceIssuePath(message: string): string | undefined {
+  const match = /\sPath:\s+(.+)$/u.exec(message)
+
+  return match?.[1]
 }
 
 function formatErrorMessage(error: unknown): string {

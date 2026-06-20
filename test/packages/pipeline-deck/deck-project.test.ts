@@ -297,6 +297,13 @@ function stagedDeckObjectForRequest<T>(input: GenerateObjectRequest<T>, rawPlan:
     } as T
   }
 
+  if (payload?.stage === 'coherence-review') {
+    return {
+      issues: [],
+      summary: 'The deck is coherent enough for artifact build.',
+    } as T
+  }
+
   return rawPlan as T
 }
 

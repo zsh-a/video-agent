@@ -6,6 +6,7 @@ import type {TextDeckProjectPlan} from '../planning/index.js'
 import type {DeckVoiceover} from './voiceover-types.js'
 
 export interface DeckTextPlanArtifacts {
+  coherenceReport: string
   contentBlocks: string
   contentAnalysis: string
   coverageReport: string
@@ -61,6 +62,7 @@ export async function writeDeckTextPlanArtifacts(
     contentAnalysis: await workspace.store.writeJson('content-analysis.json', plan.contentAnalysis),
     deckBrief: await workspace.store.writeJson('deck-brief.json', plan.deckBrief),
     slideOutline: await workspace.store.writeJson('slide-outline.json', plan.slideOutline),
+    coherenceReport: await workspace.store.writeJson('deck-coherence-report.json', plan.coherenceReport),
     coverageReport: await workspace.store.writeJson('deck-coverage-report.json', plan.coverageReport),
     document: await workspace.store.writeJson('document.json', plan.document),
     contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),

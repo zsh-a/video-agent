@@ -1,6 +1,6 @@
 import type {Claim, Claims, ContentBlock, Deck, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, Timeline} from '@video-agent/ir'
 
-import {ClaimsSchema, ContentBlocksSchema, DeckBriefSchema, DeckContentAnalysisSchema, DeckSchema, DeckSlideOutlineSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
+import {ClaimsSchema, ContentBlocksSchema, DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckSchema, DeckSlideOutlineSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
 
 import {normalizeLLMTextDeckSlides, type LLMTextDeckPlan, type NormalizedLLMTextDeckSlide} from './llm-plan.js'
 import {deckSlideText} from './slide-content.js'
@@ -21,6 +21,7 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
   const contentAnalysis = DeckContentAnalysisSchema.parse(requireStagedArtifact(options.contentAnalysis, 'content-analysis.json'))
   const deckBrief = DeckBriefSchema.parse(requireStagedArtifact(options.deckBrief, 'deck-brief.json'))
   const slideOutline = DeckSlideOutlineSchema.parse(requireStagedArtifact(options.slideOutline, 'slide-outline.json'))
+  const coherenceReport = DeckCoherenceReportSchema.parse(requireStagedArtifact(options.coherenceReport, 'deck-coherence-report.json'))
   const preDeckCoverageReport = createDeckCoverageReport({
     analysis: contentAnalysis,
     brief: deckBrief,
@@ -110,6 +111,7 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
 
   return {
     claims,
+    coherenceReport,
     contentBlocks,
     contentAnalysis,
     coverageReport,

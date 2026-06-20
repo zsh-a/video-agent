@@ -174,6 +174,18 @@ export const LLMTextDeckScriptSemanticsSchema = z.object({
   })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
 })
 
+export const LLMTextDeckCoherenceReviewSchema = z.object({
+  issues: z.array(z.object({
+    code: z.enum(['COHERENCE_GAP', 'TIMING_BUDGET_MISMATCH', 'TEMPLATE_REPETITION', 'LOW_INFORMATION_DEPTH', 'MISSING_PRACTICAL_DETAIL']),
+    message: z.string().min(1),
+    path: z.string().min(1).optional(),
+    severity: z.enum(['error', 'warning']),
+    slideIndex: z.number().int().nonnegative().optional(),
+    stage: z.enum(['slide-outline', 'slide-plan', 'script-semantics']),
+  })),
+  summary: z.string().min(1),
+})
+
 export const LLMTextDeckPlanSchema = z.object({
   audience: z.string().optional(),
   language: z.string().min(1),
@@ -206,6 +218,7 @@ export const LLMTextDeckPlanSchema = z.object({
 
 export type LLMTextDeckContentAnalysis = z.infer<typeof LLMTextDeckContentAnalysisSchema>
 export type LLMTextDeckBrief = z.infer<typeof LLMTextDeckBriefSchema>
+export type LLMTextDeckCoherenceReview = z.infer<typeof LLMTextDeckCoherenceReviewSchema>
 export type LLMTextDeckPlan = z.infer<typeof LLMTextDeckPlanSchema>
 export type LLMTextDeckScriptSemantics = z.infer<typeof LLMTextDeckScriptSemanticsSchema>
 export type LLMTextDeckSlideOutline = z.infer<typeof LLMTextDeckSlideOutlineSchema>

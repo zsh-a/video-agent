@@ -213,6 +213,24 @@ export const DeckScriptTimingReportSchema = z.object({
   version: z.literal(1),
 })
 
+export const DeckCoherenceReportSchema = z.object({
+  checkedAt: z.string().min(1),
+  issues: z.array(z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+    path: z.string().min(1).optional(),
+    severity: z.enum(['error', 'warning']),
+    slideId: z.string().min(1).optional(),
+    stage: z.enum(['slide-outline', 'slide-plan', 'script-semantics']),
+  })),
+  reviewer: z.literal('llm'),
+  summary: z.object({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+  }),
+  version: z.literal(1),
+})
+
 export const DeckTimingDriftReportSchema = z.object({
   checkedAt: z.string().min(1),
   plannedDuration: z.number().finite().nonnegative(),
@@ -481,6 +499,7 @@ export type DeckCodeBlock = z.infer<typeof DeckCodeBlockSchema>
 export type DeckComparison = z.infer<typeof DeckComparisonSchema>
 export type DeckComparisonSide = z.infer<typeof DeckComparisonSideSchema>
 export type DeckContentAnalysis = z.infer<typeof DeckContentAnalysisSchema>
+export type DeckCoherenceReport = z.infer<typeof DeckCoherenceReportSchema>
 export type DeckCoverageReport = z.infer<typeof DeckCoverageReportSchema>
 export type DeckFormat = z.infer<typeof DeckFormatSchema>
 export type DeckInputMode = z.infer<typeof DeckInputModeSchema>

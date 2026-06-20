@@ -1,6 +1,6 @@
 import type {ZodType} from 'zod'
 
-import {ASRResultSchema, CharacterIndexSchema, ClaimsSchema, ClipPlanSchema, ContentBlocksSchema, DeckBriefSchema, DeckContentAnalysisSchema, DeckCoverageReportSchema, DeckQualityReportSchema, DeckSchema, DeckScriptTimingReportSchema, DeckSlideOutlineSchema, DeckSourceMapSchema, DeckTimingDriftReportSchema, DocumentSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, NarrativeBeatsSchema, OutlineSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, SilencePeriodsSchema, SourceManifestSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryIndexSchema, StoryboardSchema, TimedDeckSchema, TimelineFusionSchema, TimelineSchema, VLMAnalysisSchema} from '@video-agent/ir'
+import {ASRResultSchema, CharacterIndexSchema, ClaimsSchema, ClipPlanSchema, ContentBlocksSchema, DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckCoverageReportSchema, DeckQualityReportSchema, DeckSchema, DeckScriptTimingReportSchema, DeckSlideOutlineSchema, DeckSourceMapSchema, DeckTimingDriftReportSchema, DocumentSchema, FilmScenesSchema, LongVideoAnalysisFramesSchema, LongVideoChapterSummariesSchema, LongVideoChunkPlanSchema, LongVideoChunkSilenceSchema, LongVideoChunkSummariesSchema, LongVideoChunkSummarySchema, LongVideoGlobalOutlineSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, NarrativeBeatsSchema, OutlineSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, SilencePeriodsSchema, SourceManifestSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryIndexSchema, StoryboardSchema, TimedDeckSchema, TimelineFusionSchema, TimelineSchema, VLMAnalysisSchema} from '@video-agent/ir'
 import {SceneFrameBatchesSchema, TranscriptSchema, TtsSegmentsSchema, VlmScenesSchema} from '@video-agent/providers'
 import {AudioMixSchema, ExportOutputSchema, IngestReportSchema, QualityReportSchema, RenderOutputSchema, SubtitleOutputSchema, VoiceoverPlanSchema} from './core-schemas.js'
 import {DeckFrameManifestSchema, DeckFrameShardBatchSchema, DeckFrameShardPlanSchema, DeckFrameShardSchema, DeckKeyframesSchema, DeckRendererBackendProjectSchema, DeckRendererRemotionOutputSchema, DeckReviewReportSchema, DeckVoiceoverSchema} from './deck-schemas.js'
@@ -21,6 +21,7 @@ const ARTIFACT_SCHEMAS: Record<string, ZodType> = {
   'content-blocks.json': ContentBlocksSchema,
   'content-analysis.json': DeckContentAnalysisSchema,
   'deck-brief.json': DeckBriefSchema,
+  'deck-coherence-report.json': DeckCoherenceReportSchema,
   'deck-coverage-report.json': DeckCoverageReportSchema,
   'deck-frame-manifest.json': DeckFrameManifestSchema,
   'deck-frame-shard-batch.json': DeckFrameShardBatchSchema,

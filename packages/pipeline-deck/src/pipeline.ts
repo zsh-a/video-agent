@@ -12,7 +12,7 @@ export const DECK_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<DeckPipelineStage, reado
   brief: ['content-analysis.json', 'deck-brief.json'],
   outline: ['deck-brief.json', 'slide-outline.json', 'deck-coverage-report.json'],
   'plan-slides': ['deck.json', 'timed-deck.json'],
-  script: ['deck.json', 'speaker-script.json'],
+  script: ['deck.json', 'speaker-script.json', 'deck-coherence-report.json'],
   'timing-preflight': ['script-timing-report.json', 'timed-deck.json'],
   align: ['deck.json', 'timed-deck.json', 'speaker-script.json'],
   'synthesize-voice': ['narration.json', 'timed-deck.json'],

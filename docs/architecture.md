@@ -166,6 +166,7 @@ text / audio
   -> LLM slide outline
   -> LLM slide plan
   -> LLM script + semantic metadata
+  -> LLM coherence review
   -> coverage + script timing preflight
   -> deterministic DeckIR artifact build
   -> TTS synthesis / timing repair
@@ -182,7 +183,7 @@ Two modes:
 
 Deck-specific IR lives in `packages/ir/src/deck.ts`: `Document`, `ContentBlock`, `Outline`, `Deck`, `Slide`, `SpeakerScript`, `SlideTiming`, and `TimedDeck`. `Slide` is semantic: it chooses a controlled slide type (`hero`, `three-points`, `comparison`, `process`, `timeline`, `quote`, `stat`, `chart`, `code`, `summary`, `cta`) plus structured content and a motion preset. LLM providers generate DeckIR only; they do not generate HTML, CSS, absolute positions, fonts, colors, or animation curves.
 
-LLM text planning is staged rather than a single all-purpose deck prompt. `@video-agent/pipeline-deck` first builds a deterministic source map with structural section ids and line ranges, asks the LLM for source-grounded content analysis, asks for a deck brief with required section coverage, asks for a slide outline with narration budgets, then passes the approved outline plus the renderer template manifest to the slide-plan call. A separate script-semantics call writes speaker notes, semantic metadata, source ranges, durations, and transitions against the approved slide plan. The deterministic builder merges those stage outputs into the same final DeckIR-adjacent plan object and requires the staged artifacts; it does not derive content analysis, brief, or outline from the final raw plan. Coverage, template, and script timing checks emit structured issues back to the responsible LLM stage (`slide-outline`, `slide-plan`, or `script-semantics`) before the run fails. Long source text and oversized transcript batches are chunked for content analysis, merged by a separate content-analysis merge call, and only then sent to brief/outline planning.
+LLM text planning is staged rather than a single all-purpose deck prompt. `@video-agent/pipeline-deck` first builds a deterministic source map with structural section ids and line ranges, asks the LLM for source-grounded content analysis, asks for a deck brief with required section coverage, asks for a slide outline with narration budgets, then passes the approved outline plus the renderer template manifest to the slide-plan call. A separate script-semantics call writes speaker notes, semantic metadata, source ranges, durations, and transitions against the approved slide plan. A final LLM coherence review checks narrative continuity, pacing realism, practical detail, and template variety; review errors are routed back to `slide-outline`, `slide-plan`, or `script-semantics` before artifact build. The deterministic builder merges those stage outputs into the same final DeckIR-adjacent plan object and requires the staged artifacts; it does not derive content analysis, brief, or outline from the final raw plan. Coverage, template, and script timing checks also emit structured issues back to the responsible LLM stage before the run fails. Long source text and oversized transcript batches are chunked for content analysis, merged by a separate content-analysis merge call, and only then sent to brief/outline planning.
 
 Voiceover generation remains generation-aware instead of treating TTS as a black box. TTS segment durations are compared against LLM-authored script estimates in `deck-timing-report.json`; large drift fails timing repair instead of silently stretching slide timing. Concatenated voiceover audio is normalized with ffmpeg loudness filtering, and subtitle quality checks include cue duration and line-length readability diagnostics.
 
@@ -285,6 +286,7 @@ workspace/
       source-map.json
       content-analysis.json
       deck-brief.json
+      deck-coherence-report.json
       slide-outline.json
       slide-plan.json
       script-semantics.json
