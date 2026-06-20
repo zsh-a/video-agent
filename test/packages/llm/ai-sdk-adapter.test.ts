@@ -2,7 +2,7 @@ import {expect} from '#test/expect'
 import {APICallError, type LanguageModel, simulateReadableStream} from 'ai'
 import {z} from 'zod'
 
-import {AISDKLLMClient} from '../../../packages/llm/src/index.js'
+import {AISDKLLMClient, createObjectPromptRequest} from '../../../packages/llm/src/index.js'
 
 describe('AI SDK LLM adapter', () => {
   it('generates text through the internal LLM client interface', async () => {
@@ -78,7 +78,70 @@ describe('AI SDK LLM adapter', () => {
         },
       ],
     })
-    expect(result.usage?.totalTokens).to.equal(13)
+	  expect(result.usage?.totalTokens).to.equal(13)
+	})
+
+  it('traces prompt metadata for PromptSpec requests', async () => {
+    const traces: unknown[] = []
+    const schema = z.object({
+      ok: z.boolean(),
+    })
+    const model = createMockLanguageModel({
+      generateResult: {
+        content: [
+          {
+            text: '{"ok":true}',
+            type: 'text',
+          },
+        ],
+        finishReason: 'stop',
+        usage: {
+          inputTokens: 5,
+          outputTokens: 3,
+          totalTokens: 8,
+        },
+        warnings: [],
+      },
+    })
+    const client = new AISDKLLMClient({
+      model,
+      trace: {
+        record(trace) {
+          traces.push(trace)
+        },
+      },
+    })
+    const request = createObjectPromptRequest({
+      buildMessages: (input: {topic: string}) => [{
+        content: JSON.stringify({
+          goal: 'Return test JSON.',
+          topic: input.topic,
+        }),
+        role: 'user',
+      }],
+      id: 'test.prompt',
+      schema,
+      schemaName: 'TestPromptOutput',
+      stage: 'unit-test',
+      temperature: 0.1,
+      version: 'v1',
+    }, {
+      topic: 'metadata',
+    })
+
+    const result = await client.generateObject(request)
+
+    expect(result.object).to.deep.equal({ok: true})
+    expect(request.promptMetadata).to.deep.include({
+      id: 'test.prompt',
+      schemaName: 'TestPromptOutput',
+      stage: 'unit-test',
+      version: 'v1',
+    })
+    expect(request.promptMetadata?.inputHash).to.match(/^[a-f0-9]{64}$/u)
+    const trace = traces[0] as {prompt?: unknown; request?: {promptMetadata?: unknown}}
+    expect(trace.prompt).to.deep.equal(request.promptMetadata)
+    expect(trace.request?.promptMetadata).to.deep.equal(request.promptMetadata)
   })
 
   it('applies cache hints to message provider options', async () => {

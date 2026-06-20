@@ -154,13 +154,21 @@ describe('planning providers', () => {
     })
 
     const storyboard = await provider.createStoryboard(createStoryboardProviderInput())
-    const rewriteRequest = requests[1] as {messages?: Array<{content?: unknown}>}
+    const initialRequest = requests[0] as {promptMetadata?: Record<string, unknown>}
+    const rewriteRequest = requests[1] as {messages?: Array<{content?: unknown}>; promptMetadata?: Record<string, unknown>}
     const rewritePayload = JSON.parse(String(rewriteRequest.messages?.at(-1)?.content ?? '{}')) as {
       goal: string
       validationError: string
     }
 
     expect(requests.length).to.equal(2)
+    expect(initialRequest.promptMetadata).to.deep.include({
+      id: 'film.storyboard',
+      schemaName: 'Storyboard',
+      stage: 'storyboard',
+      version: '2026-06-20',
+    })
+    expect(rewriteRequest.promptMetadata).to.deep.equal(initialRequest.promptMetadata)
     expect(rewritePayload.goal).to.include('complete replacement object')
     expect(rewritePayload.validationError).to.include('sourceRange')
     expect(storyboard.scenes[0]?.sourceRange).to.deep.equal([0, 3])

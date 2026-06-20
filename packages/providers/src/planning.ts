@@ -4,6 +4,7 @@ import {CharacterIndexEntrySchema, CharacterIndexSchema, NarrationSchema, Narrat
 import {z} from 'zod'
 
 import type {RecapScriptProviderInput, ScriptProvider, ScriptProviderInput, StoryIndexProviderInput, StoryIndexProviderOutput, StoryboardProvider, StoryboardProviderInput} from './contracts.js'
+import {createProviderObjectPromptRequest} from './prompt.js'
 
 const PLANNING_LLM_VALIDATION_REWRITE_ATTEMPTS = 3
 
@@ -30,12 +31,12 @@ export class LLMRequiredScriptProvider implements ScriptProvider {
 export class LLMStoryboardProvider implements StoryboardProvider {
   constructor(private readonly llm: LLMClient) {}
 
-  async createStoryboard(input: StoryboardProviderInput) {
-    return generateValidatedPlanningObject(this.llm, {
-      messages: [
-        {
-          content: JSON.stringify({
-            goal: 'Create concise video storyboard JSON. Return only data that matches the provided schema.',
+	  async createStoryboard(input: StoryboardProviderInput) {
+	    return generateValidatedPlanningObject(this.llm, createProviderObjectPromptRequest({
+	      buildMessages: (promptInput) => [
+	        {
+	          content: JSON.stringify({
+	            goal: 'Create concise video storyboard JSON. Return only data that matches the provided schema.',
             instructions: [
               'Create a StoryboardIR for a text-driven explainer video, similar to a slide-by-slide PPT walkthrough over the source footage.',
               'Return language explicitly from the requested/source language; do not rely on schema defaults.',
@@ -53,17 +54,21 @@ export class LLMStoryboardProvider implements StoryboardProvider {
               'Write concise scene narration that explains the key point; do not paste the raw transcript wholesale.',
               'Return clean single-line narration and visualStyle text with no leading/trailing whitespace, repeated spaces, tabs, or newlines.',
             ],
-            longVideo: summarizeLongVideoPlanning(input),
-            mediaInfo: summarizeMediaInfo(input.mediaInfo),
-            sceneAnalysis: input.sceneAnalysis,
-            transcript: input.transcript,
-          }),
-          role: 'user',
-        },
-      ],
-      schema: StoryboardSchema,
-      temperature: 0.2,
-    }, {
+	            longVideo: summarizeLongVideoPlanning(promptInput),
+	            mediaInfo: summarizeMediaInfo(promptInput.mediaInfo),
+	            sceneAnalysis: promptInput.sceneAnalysis,
+	            transcript: promptInput.transcript,
+	          }),
+	          role: 'user',
+	        },
+	      ],
+	      id: 'film.storyboard',
+	      promptInput: input,
+	      schema: StoryboardSchema,
+	      schemaName: 'Storyboard',
+	      stage: 'storyboard',
+	      temperature: 0.2,
+	    }), {
       contextLabel: 'Storyboard',
       repairGoal: 'Rewrite the storyboard JSON so it passes schema validation. Return a complete replacement object, not a patch.',
       repairInstructions: [
@@ -82,13 +87,13 @@ export class LLMStoryboardProvider implements StoryboardProvider {
 export class LLMScriptProvider implements ScriptProvider {
   constructor(private readonly llm: LLMClient) {}
 
-  async createNarration(input: ScriptProviderInput) {
-    return generateValidatedPlanningObject(this.llm, {
-      messages: [
-        {
-          content: JSON.stringify({
-            clipPlan: input.clipPlan,
-            goal: 'Create narration JSON for a video timeline. Return only data that matches the provided schema.',
+	  async createNarration(input: ScriptProviderInput) {
+	    return generateValidatedPlanningObject(this.llm, createProviderObjectPromptRequest({
+	      buildMessages: (promptInput) => [
+	        {
+	          content: JSON.stringify({
+	            clipPlan: promptInput.clipPlan,
+	            goal: 'Create narration JSON for a video timeline. Return only data that matches the provided schema.',
             instructions: [
               'Create one narration segment per storyboard scene unless there is a strong reason to split.',
               'Preserve sceneId links.',
@@ -99,15 +104,19 @@ export class LLMScriptProvider implements ScriptProvider {
               'Keep each narration text focused on one key point and suitable for TTS.',
               'Return clean single-line narration text with no leading/trailing whitespace, repeated spaces, tabs, or newlines.',
             ],
-            longVideo: summarizeLongVideoPlanning(input),
-            storyboard: input.storyboard,
-          }),
-          role: 'user',
-        },
-      ],
-      schema: NarrationSchema,
-      temperature: 0.2,
-    }, {
+	            longVideo: summarizeLongVideoPlanning(promptInput),
+	            storyboard: promptInput.storyboard,
+	          }),
+	          role: 'user',
+	        },
+	      ],
+	      id: 'film.narration',
+	      promptInput: input,
+	      schema: NarrationSchema,
+	      schemaName: 'Narration',
+	      stage: 'narration',
+	      temperature: 0.2,
+	    }), {
       contextLabel: 'Narration',
       repairGoal: 'Rewrite the narration JSON so it passes schema validation. Return a complete replacement object, not a patch.',
       repairInstructions: [
@@ -122,13 +131,13 @@ export class LLMScriptProvider implements ScriptProvider {
     })
   }
 
-  async createStoryIndex(input: StoryIndexProviderInput): Promise<StoryIndexProviderOutput> {
-    return generateValidatedPlanningObject(this.llm, {
-      messages: [
-        {
-          content: JSON.stringify({
-            asrResult: input.asrResult,
-            goal: 'Create Film Recap story-index semantic JSON. Return only data matching the schema.',
+	  async createStoryIndex(input: StoryIndexProviderInput): Promise<StoryIndexProviderOutput> {
+	    return generateValidatedPlanningObject(this.llm, createProviderObjectPromptRequest({
+	      buildMessages: (promptInput) => [
+	        {
+	          content: JSON.stringify({
+	            asrResult: promptInput.asrResult,
+	            goal: 'Create Film Recap story-index semantic JSON. Return only data matching the schema.',
             instructions: [
               'Infer narrative beats from the full ASR transcript, visual scene analysis, silence-aware timeline fusion, and neighboring context.',
               'Use the structured VLM actions, characters, emotions, plotClues, and relationships fields as primary visual semantics.',
@@ -140,17 +149,21 @@ export class LLMScriptProvider implements ScriptProvider {
               'Build characters only from supported ASR/VLM evidence; include aliases and concise evidence-backed descriptions when available.',
               'Every character must include aliases and evidence explicitly. Use an empty aliases array only when no alias is supported.',
             ],
-            language: input.language,
-            sourceManifest: summarizeFilmSourceManifest(input.sourceManifest),
-            timelineFusion: input.timelineFusion,
-            vlmAnalysis: input.vlmAnalysis,
-          }),
-          role: 'user',
-        },
-      ],
-      schema: FilmStoryIndexLLMOutputSchema,
-      temperature: 0.25,
-    }, {
+	            language: promptInput.language,
+	            sourceManifest: summarizeFilmSourceManifest(promptInput.sourceManifest),
+	            timelineFusion: promptInput.timelineFusion,
+	            vlmAnalysis: promptInput.vlmAnalysis,
+	          }),
+	          role: 'user',
+	        },
+	      ],
+	      id: 'film.story-index',
+	      promptInput: input,
+	      schema: FilmStoryIndexLLMOutputSchema,
+	      schemaName: 'FilmStoryIndexLLMOutput',
+	      stage: 'story-index',
+	      temperature: 0.25,
+	    }), {
       contextLabel: 'Film Recap story-index',
       repairGoal: 'Rewrite the Film Recap story-index semantic JSON so it passes schema and IR validation. Return a complete replacement object, not a patch.',
       repairInstructions: [
@@ -164,12 +177,12 @@ export class LLMScriptProvider implements ScriptProvider {
     })
   }
 
-  async createRecapScript(input: RecapScriptProviderInput) {
-    return generateValidatedPlanningObject(this.llm, {
-      messages: [
-        {
-          content: JSON.stringify({
-            goal: 'Write a Film Recap third-person narration script. Return only JSON matching RecapScriptSchema.',
+	  async createRecapScript(input: RecapScriptProviderInput) {
+	    return generateValidatedPlanningObject(this.llm, createProviderObjectPromptRequest({
+	      buildMessages: (promptInput) => [
+	        {
+	          content: JSON.stringify({
+	            goal: 'Write a Film Recap third-person narration script. Return only JSON matching RecapScriptSchema.',
             instructions: [
               'Create exactly one recap script segment for each storyIndex beat unless a beat is unusable; preserve chronological order.',
               'Every segment.targetBeatIds must contain exactly one id: the matching storyIndex beat id for that segment.',
@@ -187,14 +200,18 @@ export class LLMScriptProvider implements ScriptProvider {
               'Use the storyIndex.language for hook, narrationText, visualGuidance, and outro.',
               'Return language explicitly; do not rely on schema defaults.',
             ],
-            input: summarizeFilmRecapScriptInput(input),
-          }),
-          role: 'user',
-        },
-      ],
-      schema: RecapScriptSchema,
-      temperature: 0.35,
-    }, {
+	            input: summarizeFilmRecapScriptInput(promptInput),
+	          }),
+	          role: 'user',
+	        },
+	      ],
+	      id: 'film.recap-script',
+	      promptInput: input,
+	      schema: RecapScriptSchema,
+	      schemaName: 'RecapScript',
+	      stage: 'recap-script',
+	      temperature: 0.35,
+	    }), {
       contextLabel: 'Film Recap script',
       repairGoal: 'Rewrite the Film Recap recap script JSON so it passes schema validation. Return a complete replacement object, not a patch.',
       repairInstructions: [

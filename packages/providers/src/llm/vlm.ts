@@ -5,6 +5,7 @@ import {posix} from 'node:path'
 import type {SceneFrameBatch, VLMProvider, VLMScene} from '../contracts.js'
 
 import {bunFile} from '../bun-runtime.js'
+import {createProviderObjectPromptRequest} from '../prompt.js'
 import {createFileDataUri, resolveImageMimeType} from './media-utils.js'
 import {parseVlmScenes} from '../json-response.js'
 import {attachProviderMetadata} from '../metadata.js'
@@ -16,12 +17,20 @@ const MAX_VLM_IMAGE_PARTS = 16
 export class LLMVLMProvider implements VLMProvider {
   constructor(private readonly llm: LLMClient) {}
 
-  async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
-    const result = await this.llm.generateObject({
-      messages: await createVlmMessages(input, context),
-      schema: VlmScenesSchema,
-      temperature: 0.2,
-    })
+	  async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
+	    const messages = await createVlmMessages(input, context)
+	    const result = await this.llm.generateObject(createProviderObjectPromptRequest({
+	      buildMessages: () => messages,
+	      id: 'llm.vlm.scene-analysis',
+	      promptInput: {
+	        context,
+	        sceneBatches: input,
+	      },
+	      schema: VlmScenesSchema,
+	      schemaName: 'VlmScenes',
+	      stage: 'vlm-scene-analysis',
+	      temperature: 0.2,
+	    }))
 
     return attachProviderMetadata(validateVlmScenesForBatches(parseVlmScenes(result.object), input), {
       usage: result.usage,

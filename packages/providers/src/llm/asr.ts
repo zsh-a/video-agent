@@ -10,6 +10,7 @@ import type {ASRProvider, MediaInput, Transcript} from '../contracts.js'
 import {runFfmpeg} from '@video-agent/media'
 import {bunFile} from '../bun-runtime.js'
 import {attachProviderMetadata} from '../metadata.js'
+import {createProviderObjectPromptRequest} from '../prompt.js'
 import {createAudioDataUri, mergeLLMUsage, normalizePositiveFiniteNumber, parseOptionalJson, resolveAudioMimeType, roundTimestamp} from './media-utils.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
 import {TranscriptSchema} from '../schemas.js'
@@ -27,11 +28,19 @@ export class LLMASRProvider implements ASRProvider {
   async transcribe(input: MediaInput): Promise<Transcript> {
     const audio = await bunFile(input.path).bytes()
     const mediaType = resolveAudioMimeType(input)
-    const result = await this.llm.generateObject({
-      messages: createLLMAsrMessages(input, audio, mediaType),
+    const result = await this.llm.generateObject(createProviderObjectPromptRequest({
+      buildMessages: () => createLLMAsrMessages(input, audio, mediaType),
+      id: 'llm.asr.transcript',
+      promptInput: {
+        duration: input.duration,
+        mimeType: mediaType,
+        path: input.path,
+      },
       schema: TranscriptSchema,
+      schemaName: 'Transcript',
+      stage: 'asr-transcript',
       temperature: 0.1,
-    })
+    }))
     const transcript = normalizeLLMAsrTranscript(TranscriptSchema.parse(result.object))
 
     return attachProviderMetadata(transcript, {
@@ -398,8 +407,8 @@ async function ensureTranscriptLanguage(llm: LLMClient, transcript: Transcript):
     return {transcript}
   }
 
-  const result = await llm.generateObject({
-    messages: [
+  const result = await llm.generateObject(createProviderObjectPromptRequest({
+    buildMessages: (promptInput) => [
       {
         content: JSON.stringify({
           goal: 'Identify the BCP-47 language tag for the ASR transcript text. Return only data matching the schema.',
@@ -408,14 +417,20 @@ async function ensureTranscriptLanguage(llm: LLMClient, transcript: Transcript):
             'Return a concrete language tag such as zh-CN, en-US, ja-JP, or ko-KR.',
             'Do not return auto, unknown, or an empty value.',
           ],
-          transcript: transcriptText(transcript),
+          transcript: promptInput.transcriptText,
         }),
         role: 'user',
       },
     ],
+    id: 'mimo.asr.language',
+    promptInput: {
+      transcriptText: transcriptText(transcript),
+    },
     schema: MimoTranscriptLanguageSchema,
+    schemaName: 'MimoTranscriptLanguage',
+    stage: 'asr-language',
     temperature: 0,
-  })
+  }))
 
   return {
     transcript: TranscriptSchema.parse({

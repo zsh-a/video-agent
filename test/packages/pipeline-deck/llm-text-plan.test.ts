@@ -395,7 +395,8 @@ describe('Deck Explainer LLM text planning', () => {
       sourceType: 'markdown',
     })
 
-    const slidePlanPayload = requestPayload(requests.find((request) => requestStage(request) === 'slide-plan') as GenerateObjectRequest<unknown>) as {
+    const slidePlanRequest = requests.find((request) => requestStage(request) === 'slide-plan') as GenerateObjectRequest<unknown>
+    const slidePlanPayload = requestPayload(slidePlanRequest) as {
       instructions: string[]
       target: {
         contentDensity: {
@@ -411,7 +412,8 @@ describe('Deck Explainer LLM text planning', () => {
         }
       }
     }
-    const scriptPayload = requestPayload(requests.find((request) => requestStage(request) === 'script-semantics') as GenerateObjectRequest<unknown>) as {
+    const scriptRequest = requests.find((request) => requestStage(request) === 'script-semantics') as GenerateObjectRequest<unknown>
+    const scriptPayload = requestPayload(scriptRequest) as {
       instructions: string[]
       target: {
         contentDensity: {
@@ -429,9 +431,22 @@ describe('Deck Explainer LLM text planning', () => {
       minimum: 1,
       target: 1,
     })
+    expect(slidePlanRequest.promptMetadata).to.deep.include({
+      id: 'deck.slide-plan',
+      schemaName: 'LLMTextDeckSlidePlan',
+      stage: 'slide-plan',
+      version: '2026-06-20',
+    })
+    expect(slidePlanRequest.promptMetadata?.inputHash).to.match(/^[a-f0-9]{64}$/u)
     expect(slidePlanPayload.instructions.join('\n')).to.include('target.contentDensity.visibleTextPolicy')
     expect(scriptPayload.target.contentDensity.level).to.equal('detailed')
     expect(scriptPayload.target.contentDensity.narrationPolicy).to.include('concrete steps')
+    expect(scriptRequest.promptMetadata).to.deep.include({
+      id: 'deck.script-semantics',
+      schemaName: 'LLMTextDeckScriptSemantics',
+      stage: 'script-semantics',
+      version: '2026-06-20',
+    })
     expect(scriptPayload.instructions.join('\n')).to.include('target.contentDensity.narrationPolicy')
   })
 

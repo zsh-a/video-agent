@@ -3,6 +3,7 @@ import type {ProjectAgentRuntime} from '@video-agent/runtime'
 
 import {createHash} from 'node:crypto'
 
+import {createObjectPromptRequest} from '@video-agent/llm'
 import {DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckSlideOutlineSchema} from '@video-agent/ir'
 import {deckTemplateManifestForLLM} from '@video-agent/renderer-deck'
 
@@ -38,6 +39,7 @@ const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
 const DECK_LLM_CACHE_KEY_HASH_CHARACTERS = 24
 const DECK_LLM_ENGLISH_WORDS_PER_SECOND = 2.6
 const DECK_LLM_CJK_CHARACTERS_PER_SECOND = 4.8
+const DECK_PROMPT_VERSION = '2026-06-20'
 
 type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'coherence-review' | 'deck-brief' | 'script-semantics' | 'slide-outline' | 'slide-plan'
 
@@ -108,6 +110,37 @@ function hashCacheMessage(message: LLMMessage): string {
     }))
     .digest('hex')
     .slice(0, DECK_LLM_CACHE_KEY_HASH_CHARACTERS)
+}
+
+function createDeckObjectPromptRequest<TInput, TOutput>(input: {
+  buildMessages: (promptInput: TInput) => LLMMessage[]
+  id: string
+  promptInput: TInput
+  schema: GenerateObjectRequest<TOutput>['schema']
+  schemaName: string
+  stage: DeckLLMPlanningStage
+  temperature: number
+}): GenerateObjectRequest<TOutput> {
+  return createObjectPromptRequest({
+    buildMessages: input.buildMessages,
+    cache: (_promptInput, messages) => createDeckLLMCacheHint(input.stage, requireFirstPromptMessage(messages, input.id)),
+    id: input.id,
+    schema: input.schema,
+    schemaName: input.schemaName,
+    stage: input.stage,
+    temperature: input.temperature,
+    version: DECK_PROMPT_VERSION,
+  }, input.promptInput)
+}
+
+function requireFirstPromptMessage(messages: LLMMessage[], promptId: string): LLMMessage {
+  const message = messages[0]
+
+  if (message === undefined) {
+    throw new Error(`Prompt "${promptId}" produced no messages.`)
+  }
+
+  return message
 }
 
 export async function createLLMTextDeckProjectPlan(
@@ -247,14 +280,15 @@ function createContentAnalysisRequest(
   sourceMap: ReturnType<typeof createDeckSourceMap>,
   options: TextDeckProjectPlanOptions,
 ): GenerateObjectRequest<LLMTextDeckContentAnalysis> {
-  const baseMessage = createContentAnalysisMessage(inputPath, chunk, sourceMap, options)
-
-  return {
-    cache: createDeckLLMCacheHint('content-analysis', baseMessage),
-    messages: [baseMessage],
+  return createDeckObjectPromptRequest({
+    buildMessages: (promptInput) => [createContentAnalysisMessage(promptInput.inputPath, promptInput.chunk, promptInput.sourceMap, promptInput.options)],
+    id: 'deck.content-analysis',
+    promptInput: {chunk, inputPath, options, sourceMap},
     schema: LLMTextDeckContentAnalysisSchema,
+    schemaName: 'LLMTextDeckContentAnalysis',
+    stage: 'content-analysis',
     temperature: 0.2,
-  }
+  })
 }
 
 function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSourceChunk, sourceMap: ReturnType<typeof createDeckSourceMap>, options: TextDeckProjectPlanOptions): LLMMessage {
@@ -312,32 +346,33 @@ function createDeckBriefRequest(
   analysis: LLMTextDeckContentAnalysis,
   options: TextDeckProjectPlanOptions,
 ): GenerateObjectRequest<LLMTextDeckBrief> {
-  const baseMessage: LLMMessage = {
-    content: JSON.stringify({
-      analysis,
-      goal: 'Create a presentation brief for a Deck explainer. Decide coverage strategy, target slide count, narrative arc, density policy, and required source sections. Do not write slide text or narration.',
-      instructions: [
-        'Base requiredSectionIds on analysis.sections where mustCover is true. Preserve section ids exactly.',
-        'If target.slideCount.target is provided, set targetSlideCount exactly to that value.',
-        'If target.slideCount.target is absent, choose targetSlideCount from source complexity, required sections, target.contentDensity, and target duration.',
-        'Never exceed target.slideCount.maximum, and keep targetSlideCount large enough that must-cover sections are not compressed into unrelated slides.',
-        'Set targetDurationSeconds only when target.durationSeconds is provided. If target.durationSeconds is absent, omit targetDurationSeconds instead of inventing a duration.',
-        'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
-        'Write densityPolicy as concrete generation guidance that follows target.contentDensity while preserving source-grounded coverage.',
-      ],
-      inputPath,
-      stage: 'deck-brief',
-      target: createDeckPlanningTarget(options, {includeTemplateManifest: false}),
-    }),
-    role: 'user',
-  }
-
-  return {
-    cache: createDeckLLMCacheHint('deck-brief', baseMessage),
-    messages: [baseMessage],
+  return createDeckObjectPromptRequest({
+    buildMessages: (promptInput) => [{
+      content: JSON.stringify({
+        analysis: promptInput.analysis,
+        goal: 'Create a presentation brief for a Deck explainer. Decide coverage strategy, target slide count, narrative arc, density policy, and required source sections. Do not write slide text or narration.',
+        instructions: [
+          'Base requiredSectionIds on analysis.sections where mustCover is true. Preserve section ids exactly.',
+          'If target.slideCount.target is provided, set targetSlideCount exactly to that value.',
+          'If target.slideCount.target is absent, choose targetSlideCount from source complexity, required sections, target.contentDensity, and target duration.',
+          'Never exceed target.slideCount.maximum, and keep targetSlideCount large enough that must-cover sections are not compressed into unrelated slides.',
+          'Set targetDurationSeconds only when target.durationSeconds is provided. If target.durationSeconds is absent, omit targetDurationSeconds instead of inventing a duration.',
+          'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
+          'Write densityPolicy as concrete generation guidance that follows target.contentDensity while preserving source-grounded coverage.',
+        ],
+        inputPath: promptInput.inputPath,
+        stage: 'deck-brief',
+        target: createDeckPlanningTarget(promptInput.options, {includeTemplateManifest: false}),
+      }),
+      role: 'user',
+    }],
+    id: 'deck.brief',
+    promptInput: {analysis, inputPath, options},
     schema: LLMTextDeckBriefSchema,
+    schemaName: 'LLMTextDeckBrief',
+    stage: 'deck-brief',
     temperature: 0.2,
-  }
+  })
 }
 
 async function generateSlideOutline(
@@ -390,48 +425,46 @@ function createSlideOutlineRequest(
     role: 'user',
   }
 
-  if (rewrite === undefined) {
-    return {
-      cache: createDeckLLMCacheHint('slide-outline', baseMessage),
-      messages: [baseMessage],
-      schema: LLMTextDeckSlideOutlineSchema,
-      temperature: 0.2,
-    }
-  }
+  const messages = rewrite === undefined
+    ? [baseMessage]
+    : [
+        baseMessage,
+        {
+          content: JSON.stringify({
+            invalidOutput: rewrite.invalidOutput,
+            issues: rewrite.issues,
+            stage: 'slide-outline',
+          }),
+          role: 'assistant' as const,
+        },
+        {
+          content: JSON.stringify({
+            attemptsRemaining: rewrite.attemptsRemaining,
+            goal: 'Rewrite the slide-outline stage output so it satisfies the structured validation issues. Return a complete replacement slide-outline object, not a patch.',
+            instructions: [
+              'Use issues as binding coverage and outline feedback.',
+              'Respect target.slideCount exactly when target.slideCount.target is provided; otherwise keep the outline within target.slideCount.minimum and target.slideCount.maximum.',
+              'Every brief.requiredSectionIds entry and every mustCover analysis section must appear in at least one slides[].sourceSectionIds array.',
+              'If a slide covers too many unrelated source sections, split it into multiple coherent outline slides instead of compressing them.',
+              'Preserve source section ids exactly; do not invent ids that are absent from analysis.sections or brief required/optional ids.',
+              'Keep narrationBudgetSeconds realistic for the slide goal and target duration; do not inflate budgets to hide overlong narration.',
+              'Do not write visible slide text, speaker notes, transitions, motion, or semantic metadata in this stage.',
+            ],
+            issues: rewrite.issues,
+          }),
+          role: 'user' as const,
+        },
+      ]
 
-  return {
-    cache: createDeckLLMCacheHint('slide-outline', baseMessage),
-    messages: [
-      baseMessage,
-      {
-        content: JSON.stringify({
-          invalidOutput: rewrite.invalidOutput,
-          issues: rewrite.issues,
-          stage: 'slide-outline',
-        }),
-        role: 'assistant',
-      },
-      {
-        content: JSON.stringify({
-          attemptsRemaining: rewrite.attemptsRemaining,
-          goal: 'Rewrite the slide-outline stage output so it satisfies the structured validation issues. Return a complete replacement slide-outline object, not a patch.',
-          instructions: [
-            'Use issues as binding coverage and outline feedback.',
-            'Respect target.slideCount exactly when target.slideCount.target is provided; otherwise keep the outline within target.slideCount.minimum and target.slideCount.maximum.',
-            'Every brief.requiredSectionIds entry and every mustCover analysis section must appear in at least one slides[].sourceSectionIds array.',
-            'If a slide covers too many unrelated source sections, split it into multiple coherent outline slides instead of compressing them.',
-            'Preserve source section ids exactly; do not invent ids that are absent from analysis.sections or brief required/optional ids.',
-            'Keep narrationBudgetSeconds realistic for the slide goal and target duration; do not inflate budgets to hide overlong narration.',
-            'Do not write visible slide text, speaker notes, transitions, motion, or semantic metadata in this stage.',
-          ],
-          issues: rewrite.issues,
-        }),
-        role: 'user',
-      },
-    ],
+  return createDeckObjectPromptRequest({
+    buildMessages: () => messages,
+    id: 'deck.slide-outline',
+    promptInput: {analysis, brief, inputPath, options, rewrite},
     schema: LLMTextDeckSlideOutlineSchema,
+    schemaName: 'LLMTextDeckSlideOutline',
+    stage: 'slide-outline',
     temperature: 0.2,
-  }
+  })
 }
 
 function createContentAnalysisMergeRequest(
@@ -456,12 +489,15 @@ function createContentAnalysisMergeRequest(
     role: 'user',
   }
 
-  return {
-    cache: createDeckLLMCacheHint('content-analysis-merge', baseMessage),
-    messages: [baseMessage],
+  return createDeckObjectPromptRequest({
+    buildMessages: () => [baseMessage],
+    id: 'deck.content-analysis-merge',
+    promptInput: {analyses, inputPath, options},
     schema: LLMTextDeckContentAnalysisSchema,
+    schemaName: 'LLMTextDeckContentAnalysis',
+    stage: 'content-analysis-merge',
     temperature: 0.2,
-  }
+  })
 }
 
 async function generateSlidePlan(
@@ -525,47 +561,45 @@ function createSlidePlanRequest(
     role: 'user',
   }
 
-  if (rewrite === undefined) {
-    return {
-      cache: createDeckLLMCacheHint('slide-plan', baseMessage),
-      messages: [baseMessage],
-      schema: LLMTextDeckSlidePlanSchema,
-      temperature: 0.2,
-    }
-  }
+  const messages = rewrite === undefined
+    ? [baseMessage]
+    : [
+        baseMessage,
+        {
+          content: JSON.stringify({
+            invalidOutput: rewrite.invalidOutput,
+            issues: rewrite.issues,
+            stage: 'slide-plan',
+          }),
+          role: 'assistant' as const,
+        },
+        {
+          content: JSON.stringify({
+            attemptsRemaining: rewrite.attemptsRemaining,
+            goal: 'Rewrite the slide-plan stage output so it satisfies the structured validation issues. Return a complete replacement slide-plan object, not a patch.',
+            instructions: [
+              'Use issues as binding field-level feedback.',
+              'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
+              'Before returning, count every generated title, subtitle, point, comparison point, and chart label with JavaScript string length semantics and ensure each value is within its listed issue.limit and the target.templateManifest limit.',
+              'Only change slide structure, visible text, template data, visual kind, motion, theme, platform, and transition choices needed to satisfy the issues.',
+              'Keep source-grounded meaning and required slide types.',
+              'Do not write speaker notes, source ranges, outline, or semantic metadata in this stage.',
+            ],
+            issues: rewrite.issues,
+          }),
+          role: 'user' as const,
+        },
+      ]
 
-  return {
-    cache: createDeckLLMCacheHint('slide-plan', baseMessage),
-    messages: [
-      baseMessage,
-      {
-        content: JSON.stringify({
-          invalidOutput: rewrite.invalidOutput,
-          issues: rewrite.issues,
-          stage: 'slide-plan',
-        }),
-        role: 'assistant',
-      },
-      {
-        content: JSON.stringify({
-          attemptsRemaining: rewrite.attemptsRemaining,
-          goal: 'Rewrite the slide-plan stage output so it satisfies the structured validation issues. Return a complete replacement slide-plan object, not a patch.',
-          instructions: [
-            'Use issues as binding field-level feedback.',
-            'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
-            'Before returning, count every generated title, subtitle, point, comparison point, and chart label with JavaScript string length semantics and ensure each value is within its listed issue.limit and the target.templateManifest limit.',
-            'Only change slide structure, visible text, template data, visual kind, motion, theme, platform, and transition choices needed to satisfy the issues.',
-            'Keep source-grounded meaning and required slide types.',
-            'Do not write speaker notes, source ranges, outline, or semantic metadata in this stage.',
-          ],
-          issues: rewrite.issues,
-        }),
-        role: 'user',
-      },
-    ],
+  return createDeckObjectPromptRequest({
+    buildMessages: () => messages,
+    id: 'deck.slide-plan',
+    promptInput: {analysis, brief, inputPath, options, rewrite, slideOutline},
     schema: LLMTextDeckSlidePlanSchema,
+    schemaName: 'LLMTextDeckSlidePlan',
+    stage: 'slide-plan',
     temperature: 0.2,
-  }
+  })
 }
 
 async function generateScriptSemantics(
@@ -635,47 +669,45 @@ function createScriptSemanticsRequest(
     role: 'user',
   }
 
-  if (rewrite === undefined) {
-    return {
-      cache: createDeckLLMCacheHint('script-semantics', baseMessage),
-      messages: [baseMessage],
-      schema: LLMTextDeckScriptSemanticsSchema,
-      temperature: 0.2,
-    }
-  }
+  const messages = rewrite === undefined
+    ? [baseMessage]
+    : [
+        baseMessage,
+        {
+          content: JSON.stringify({
+            invalidOutput: rewrite.invalidOutput,
+            issues: rewrite.issues,
+            stage: 'script-semantics',
+          }),
+          role: 'assistant' as const,
+        },
+        {
+          content: JSON.stringify({
+            attemptsRemaining: rewrite.attemptsRemaining,
+            goal: 'Rewrite the script-semantics stage output so it satisfies the structured validation issues. Return a complete replacement script-semantics object, not a patch.',
+            instructions: [
+              'Use issues as binding field-level feedback.',
+              'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
+              'Only change speaker notes, durations, source ranges, outline, and semantic metadata needed to satisfy the issues.',
+              'If an issue includes actual and limit for speakerNote length, rewrite that speakerNote under the limit instead of increasing duration.',
+              'Keep all slidePlan visible text, template data, motion, visual, and transition choices unchanged.',
+              'Do not ask the runtime to infer, clip, shorten, or repair semantic content.',
+            ],
+            issues: rewrite.issues,
+          }),
+          role: 'user' as const,
+        },
+      ]
 
-  return {
-    cache: createDeckLLMCacheHint('script-semantics', baseMessage),
-    messages: [
-      baseMessage,
-      {
-        content: JSON.stringify({
-          invalidOutput: rewrite.invalidOutput,
-          issues: rewrite.issues,
-          stage: 'script-semantics',
-        }),
-        role: 'assistant',
-      },
-      {
-        content: JSON.stringify({
-          attemptsRemaining: rewrite.attemptsRemaining,
-          goal: 'Rewrite the script-semantics stage output so it satisfies the structured validation issues. Return a complete replacement script-semantics object, not a patch.',
-          instructions: [
-            'Use issues as binding field-level feedback.',
-            'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
-            'Only change speaker notes, durations, source ranges, outline, and semantic metadata needed to satisfy the issues.',
-            'If an issue includes actual and limit for speakerNote length, rewrite that speakerNote under the limit instead of increasing duration.',
-            'Keep all slidePlan visible text, template data, motion, visual, and transition choices unchanged.',
-            'Do not ask the runtime to infer, clip, shorten, or repair semantic content.',
-          ],
-          issues: rewrite.issues,
-        }),
-        role: 'user',
-      },
-    ],
+  return createDeckObjectPromptRequest({
+    buildMessages: () => messages,
+    id: 'deck.script-semantics',
+    promptInput: {analysis, brief, inputPath, options, rewrite, slideOutline, slidePlan},
     schema: LLMTextDeckScriptSemanticsSchema,
+    schemaName: 'LLMTextDeckScriptSemantics',
+    stage: 'script-semantics',
     temperature: 0.2,
-  }
+  })
 }
 
 function createScriptTimingBudgets(
@@ -918,12 +950,15 @@ function createCoherenceReviewRequest(
     role: 'user',
   }
 
-  return {
-    cache: createDeckLLMCacheHint('coherence-review', baseMessage),
-    messages: [baseMessage],
+  return createDeckObjectPromptRequest({
+    buildMessages: () => [baseMessage],
+    id: 'deck.coherence-review',
+    promptInput: {analysis, brief, inputPath, options, scriptSemantics, slideOutline, slidePlan},
     schema: LLMTextDeckCoherenceReviewSchema,
+    schemaName: 'LLMTextDeckCoherenceReview',
+    stage: 'coherence-review',
     temperature: 0.1,
-  }
+  })
 }
 
 async function rewriteInvalidStagedDeckPlan(

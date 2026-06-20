@@ -10,6 +10,7 @@ import {probeMedia} from '@video-agent/media'
 import {isRecord, normalizeBaseURL, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './media-utils.js'
 import {attachProviderMetadata} from '../metadata.js'
 import {ProviderExecutionError} from '../errors.js'
+import {createProviderObjectPromptRequest} from '../prompt.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
 import {TtsSegmentsSchema} from '../schemas.js'
 
@@ -23,8 +24,8 @@ export class LLMTTSProvider implements TTSProvider {
   async synthesize(segments: NarrationSegment[]): Promise<TTSSegment[]> {
     requireExplicitTtsInputDurations(segments)
 
-    const result = await this.llm.generateObject({
-      messages: [
+    const result = await this.llm.generateObject(createProviderObjectPromptRequest({
+      buildMessages: (promptInput) => [
         {
           content: JSON.stringify({
             goal: 'Create TTS segment manifest JSON. Return only data matching the schema.',
@@ -34,14 +35,18 @@ export class LLMTTSProvider implements TTSProvider {
               'Use stable relative wav paths under llm-tts/.',
               'Preserve each requested duration exactly. Do not estimate, rescale, round, or invent segment duration.',
             ],
-            segments,
+            segments: promptInput.segments,
           }),
           role: 'user',
         },
       ],
+      id: 'llm.tts.manifest',
+      promptInput: {segments},
       schema: TtsSegmentsSchema,
+      schemaName: 'TtsSegments',
+      stage: 'tts-manifest',
       temperature: 0.1,
-    })
+    }))
 
     const ttsSegments = TtsSegmentsSchema.parse(result.object)
     validateLLMTtsOutputMatchesInput(segments, ttsSegments)

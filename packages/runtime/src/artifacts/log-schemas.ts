@@ -100,6 +100,14 @@ const LLMUsageSchema = z.object({
   totalTokens: z.number().nonnegative().optional(),
 }).passthrough()
 
+const LLMPromptMetadataSchema = z.object({
+  id: z.string().min(1),
+  inputHash: z.string().min(1),
+  schemaName: z.string().min(1).optional(),
+  stage: z.string().min(1),
+  version: z.string().min(1),
+}).strict()
+
 export const LLMTraceLogLineSchema = z.object({
   completedAt: z.string().min(1),
   durationMs: z.number().nonnegative(),
@@ -121,10 +129,12 @@ export const LLMTraceLogLineSchema = z.object({
     }).strict().optional(),
     messages: z.array(z.unknown()).optional(),
     prompt: z.string().optional(),
+    promptMetadata: LLMPromptMetadataSchema.optional(),
     providerOptions: z.record(z.string(), z.unknown()).optional(),
     schema: z.unknown().optional(),
     temperature: z.number().optional(),
   }).passthrough(),
+  prompt: LLMPromptMetadataSchema.optional(),
   requestId: z.string().min(1),
   response: z.object({
     object: z.unknown().optional(),

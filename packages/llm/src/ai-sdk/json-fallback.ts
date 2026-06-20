@@ -29,6 +29,7 @@ export function createJsonFallbackRequest<T>(request: GenerateObjectRequest<T>):
           role: 'user',
         },
       ],
+      ...(request.promptMetadata === undefined ? {} : {promptMetadata: request.promptMetadata}),
       ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
       ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
     }
@@ -38,6 +39,7 @@ export function createJsonFallbackRequest<T>(request: GenerateObjectRequest<T>):
     return {
       ...(request.cache === undefined ? {} : {cache: request.cache}),
       prompt: `${request.prompt}\n\n${instruction}`,
+      ...(request.promptMetadata === undefined ? {} : {promptMetadata: request.promptMetadata}),
       ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
       ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
     }
@@ -74,6 +76,7 @@ export function createJsonTextRepairRequest(request: GenerateTextRequest, input:
           role: 'user',
         },
       ],
+      ...(request.promptMetadata === undefined ? {} : {promptMetadata: request.promptMetadata}),
       ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
       ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
     }
@@ -90,6 +93,7 @@ export function createJsonTextRepairRequest(request: GenerateTextRequest, input:
         '',
         instruction,
       ].join('\n'),
+      ...(request.promptMetadata === undefined ? {} : {promptMetadata: request.promptMetadata}),
       ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
       ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
     }

@@ -14,10 +14,19 @@ export interface LLMCacheHint {
   mode: 'ephemeral'
 }
 
+export interface LLMPromptMetadata {
+  id: string
+  inputHash: string
+  schemaName?: string
+  stage: string
+  version: string
+}
+
 export interface GenerateTextRequest {
   cache?: LLMCacheHint
   messages?: LLMMessage[]
   prompt?: string
+  promptMetadata?: LLMPromptMetadata
   providerOptions?: LLMProviderOptions
   temperature?: number
 }
@@ -73,10 +82,12 @@ export interface LLMTraceRecord {
   model?: string
   operation: LLMTraceOperation
   provider?: string
+  prompt?: LLMPromptMetadata
   request: {
     cache?: LLMCacheHint
     messages?: LLMMessage[]
     prompt?: string
+    promptMetadata?: LLMPromptMetadata
     providerOptions?: LLMProviderOptions
     schema?: unknown
     temperature?: number

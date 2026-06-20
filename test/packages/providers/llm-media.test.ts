@@ -57,6 +57,12 @@ describe('LLM media providers', () => {
     }
 
     expect(payload.instructions.join('\n')).to.include('Do not estimate')
+    expect(request?.promptMetadata).to.deep.include({
+      id: 'llm.tts.manifest',
+      schemaName: 'TtsSegments',
+      stage: 'tts-manifest',
+      version: '2026-06-20',
+    })
     expect(payload.segments).to.deep.equal([
       {
         duration: 2.75,
@@ -211,6 +217,12 @@ describe('LLM media providers', () => {
       expect(textPart?.type === 'text' ? JSON.parse(textPart.text) : undefined).to.include({
         context: 'test visual context',
         goal: 'Create visual scene analysis JSON. Return only data matching the schema.',
+      })
+      expect(request?.promptMetadata).to.deep.include({
+        id: 'llm.vlm.scene-analysis',
+        schemaName: 'VlmScenes',
+        stage: 'vlm-scene-analysis',
+        version: '2026-06-20',
       })
       expect(imagePart).to.include({
         filename: 'frame_00001.jpg',
@@ -526,6 +538,12 @@ describe('LLM media providers', () => {
       })
       expect(prompt?.instructions.join('\n')).to.include('Use the attached audio file as the only speech evidence')
       expect(prompt?.instructions.join('\n')).to.include('Do not infer, summarize, or invent transcript text from the file path')
+      expect(request?.promptMetadata).to.deep.include({
+        id: 'llm.asr.transcript',
+        schemaName: 'Transcript',
+        stage: 'asr-transcript',
+        version: '2026-06-20',
+      })
       expect(audioPart).to.include({
         mediaType: 'audio/wav',
         type: 'file',
