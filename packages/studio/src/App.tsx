@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react'
 
-import {api, jsonPost, loadProjectData, loadWorkspaceActions} from './api'
+import {api, jsonPost, loadProjectData, loadWorkspaceActions, watchProject} from './api'
 import {OperationsPanel} from './components/operations-panel'
 import {OverviewGrid} from './components/overview'
 import {ProjectSidebar} from './components/project-sidebar'
@@ -9,7 +9,7 @@ import {QualityPanel} from './components/quality-panels'
 import {RecentEventsPanel, LlmTracePanel} from './components/report-panels'
 import {DeckReviewPanel, RenderResultPanel, VisualSamplesPanel} from './components/render-panels'
 import {StatusPill} from './components/ui'
-import {ArtifactsPanel, GuidedActionsPanel, PipelinePanel} from './components/workflow-panels'
+import {AgentPanel, ArtifactsPanel, GuidedActionsPanel, PipelinePanel} from './components/workflow-panels'
 import type {ActionState, DashboardData, ExportOptions, ProjectSummary, ProviderEnvironment, RenderOptions, RuntimeConfig} from './types'
 import {emptyData} from './types'
 import {defaultRerunStage, formatUnknownError} from './utils'
@@ -61,6 +61,22 @@ export function App() {
   useEffect(() => {
     void load()
   }, [])
+
+  useEffect(() => {
+    if (projectId === undefined) {
+      return undefined
+    }
+
+    return watchProject(projectId, (snapshot) => {
+      setData((current) => ({
+        ...current,
+        events: snapshot.events,
+        projectStatus: snapshot.projectStatus,
+      }))
+    }, (error) => {
+      setActionState({kind: 'error', message: `Watch failed: ${formatUnknownError(error)}`})
+    })
+  }, [projectId])
 
   useEffect(() => {
     const stages = data.projectStatus?.job.stages ?? []
@@ -180,8 +196,9 @@ export function App() {
           <GuidedActionsPanel actions={data.actions} onCopy={copyAction} />
           <div className="grid gap-3 xl:grid-cols-[0.85fr_1.15fr]">
             <PipelinePanel stages={data.projectStatus?.job.stages ?? []} />
-            <ArtifactsPanel artifacts={data.artifacts} preview={artifactPreview} onPreview={previewArtifact} />
+            <AgentPanel agent={data.projectStatus?.agent} />
           </div>
+          <ArtifactsPanel artifacts={data.artifacts} preview={artifactPreview} onPreview={previewArtifact} />
           <RenderResultPanel projectId={projectId} render={data.projectStatus?.summary.render} />
           <VisualSamplesPanel samples={data.visualSamples} />
           <QualityPanel quality={data.quality} renderOutput={data.renderOutput} integrity={data.integrity} />

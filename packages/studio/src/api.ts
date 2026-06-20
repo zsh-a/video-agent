@@ -6,6 +6,7 @@ import type {
   ProjectEvent,
   ProjectStatus,
   ProviderReport,
+  ProjectSnapshot,
   QualityDetails,
   RenderOutput,
   VisualSample,
@@ -15,6 +16,25 @@ import {emptyData} from './types'
 export async function loadWorkspaceActions(): Promise<DashboardData> {
   const actions = await api<{actions: GuidedAction[]}>('/actions')
   return {...emptyData, actions: actions.actions}
+}
+
+export function watchProject(projectId: string, onSnapshot: (snapshot: ProjectSnapshot) => void, onError: (error: Error) => void): () => void {
+  const source = new EventSource(`/projects/${encodeURIComponent(projectId)}/watch`)
+
+  source.addEventListener('snapshot', (event) => {
+    try {
+      onSnapshot(JSON.parse((event as MessageEvent).data) as ProjectSnapshot)
+    } catch (error) {
+      onError(error instanceof Error ? error : new Error(String(error)))
+    }
+  })
+  source.addEventListener('error', () => {
+    if (source.readyState === EventSource.CLOSED) {
+      onError(new Error('Project watch connection closed.'))
+    }
+  })
+
+  return () => source.close()
 }
 
 export async function loadProjectData(projectId: string): Promise<DashboardData> {

@@ -30,6 +30,7 @@ import {
 } from './toolkit.js'
 
 const RERUN_STAGE_VALUES: PipelineStage[] = [...FILM_PIPELINE_STAGES]
+const PIPELINE_EVENT_TYPES = ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start'] as const
 
 export const PROJECT_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   createToolDefinition('video_agent_list_projects', 'List projects in the video-agent workspace.', {}, async (_args, workspaceDir) => ({projects: await listProjects(workspaceDir)})),
@@ -68,12 +69,12 @@ export const PROJECT_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     role: enumSchema(['asr', 'script', 'tts', 'vlm'], 'Provider role filter for provider events.'),
     stage: stringSchema('Pipeline stage filter for pipeline events, for example ingest, understand, render, or quality.'),
     status: enumSchema(['failed', 'succeeded'], 'Provider call status filter for provider events.'),
-    type: enumSchema(['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start'], 'Pipeline event type filter.'),
+    type: enumSchema([...PIPELINE_EVENT_TYPES], 'Pipeline event type filter.'),
   }, (args, workspaceDir) => readProjectEvents(readRequiredString(args, 'projectId'), {
     kind: readOptionalEnum(args, 'kind', ['pipeline', 'provider']),
     limit: readOptionalInteger(args, 'limit'),
     pipelineStage: readOptionalString(args, 'stage'),
-    pipelineType: readOptionalEnum(args, 'type', ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']),
+    pipelineType: readOptionalEnum(args, 'type', [...PIPELINE_EVENT_TYPES]),
     providerRole: readOptionalEnum(args, 'role', ['asr', 'script', 'tts', 'vlm']),
     providerStatus: readOptionalEnum(args, 'status', ['failed', 'succeeded']),
     workspaceDir,

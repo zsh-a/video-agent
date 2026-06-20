@@ -26,6 +26,7 @@ export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnaps
     `Quality: ${snapshot.selected.summary.quality.issues} issues (${snapshot.selected.summary.quality.errors} errors, ${snapshot.selected.summary.quality.warnings} warnings)`,
     `Providers: ${snapshot.selected.summary.providers.total} calls (${snapshot.selected.summary.providers.failed} failed)`,
     `Render: ${formatRenderSummary(snapshot.selected.summary.render)}`,
+    `Agent: ${formatAgentSummary(snapshot.selected.agent)}`,
     ...(snapshot.artifactIntegrity === undefined ? [] : [`Artifact Integrity: ${formatArtifactIntegritySummary(snapshot.artifactIntegrity)}`]),
     '',
     `Artifacts (${snapshot.artifacts.length}/${snapshot.selected.artifacts.length}, limit ${options.artifactLimit})`,
@@ -39,6 +40,25 @@ export function formatTuiSnapshot(snapshot: TuiSnapshot, options: FormatTuiSnaps
   )
 
   return lines.join('\n')
+}
+
+function formatAgentSummary(agent: ProjectStatus['agent'] | undefined): string {
+  const run = agent?.currentRun
+
+  if (run === undefined) {
+    return 'none'
+  }
+
+  const runningStep = run.steps.find((step) => step.status === 'running')
+  const step = runningStep ?? run.steps.at(-1)
+
+  if (step === undefined) {
+    return run.status
+  }
+
+  const progress = step.current === undefined || step.total === undefined ? '' : ` ${step.current}/${step.total}${step.unit === undefined ? '' : ` ${step.unit}`}`
+
+  return `${run.status} ${step.name}${progress}`
 }
 
 function formatStage(stage: ProjectStatus['job']['stages'][number]): string {

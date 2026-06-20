@@ -26,6 +26,8 @@ export function DashboardView({snapshot}: {snapshot?: TuiSnapshot}): ReactElemen
   const events = snapshot?.events ?? []
   const providerEvents = events.filter((event) => event.kind === 'provider')
   const latestEvent = events.at(-1)
+  const currentAgentRun = selected.agent?.currentRun
+  const agentSteps = currentAgentRun?.steps ?? []
 
   return h(Box, {flexDirection: 'column'},
     h(Box, {gap: 2},
@@ -47,6 +49,19 @@ export function DashboardView({snapshot}: {snapshot?: TuiSnapshot}): ReactElemen
       header: false,
       maxRows: 10,
       rowKey: (stage) => stage.name,
+    }),
+    h(SectionHeading, null, 'Agent'),
+    currentAgentRun === undefined ? h(EmptyTable, {message: 'none'}) : Table<(typeof agentSteps)[number]>({
+      columns: [
+        {header: '', key: 'mark', render: (step) => statusSymbol(step.status), width: 2, color: (step) => statusColor(step.status)},
+        {header: 'Step', key: 'step', render: (step) => step.name, width: 24, color: (step) => statusColor(step.status)},
+        {header: 'Stage', key: 'stage', render: (step) => step.stage ?? '', width: 14},
+        {header: 'Progress', key: 'progress', render: (step) => formatProgress(step), width: 16},
+      ],
+      data: agentSteps,
+      header: false,
+      maxRows: 5,
+      rowKey: (step, index) => `${step.startedAt}:${index}`,
     }),
     h(SectionHeading, null, 'Providers'),
     providerEvents.length === 0 ? h(EmptyTable, {message: 'none'}) : Table<DashboardEvent>({
@@ -77,6 +92,18 @@ export function DashboardView({snapshot}: {snapshot?: TuiSnapshot}): ReactElemen
     h(SectionHeading, null, 'Latest Event'),
     latestEvent === undefined ? h(Text, {dimColor: true}, 'none') : h(Text, {wrap: 'truncate-end'}, formatEvent(latestEvent)),
   )
+}
+
+function formatProgress(progress: {current?: number; percent?: number; total?: number; unit?: string}): string {
+  if (progress.percent !== undefined) {
+    return `${Math.round(progress.percent)}%`
+  }
+
+  if (progress.current !== undefined && progress.total !== undefined) {
+    return `${progress.current}/${progress.total}${progress.unit === undefined ? '' : ` ${progress.unit}`}`
+  }
+
+  return ''
 }
 
 function formatStageDetail(stage: NonNullable<TuiSnapshot['selected']>['job']['stages'][number]): string {

@@ -9,7 +9,9 @@ import {runProcess} from '../../../packages/media/src/process.js'
 import {exportProject} from '../../../packages/runtime/src/render/export.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
 import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
+import {readProjectEvents} from '../../../packages/runtime/src/project/events-reader.js'
 import {readProjectQualityDetails} from '../../../packages/runtime/src/project/quality.js'
+import {readProjectStatus} from '../../../packages/runtime/src/project/status.js'
 import {readProjectVisualSamples} from '../../../packages/runtime/src/project/visual-samples.js'
 import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/pipeline-deck/src/index.js'
 import type {LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
@@ -387,6 +389,8 @@ describe('deck explainer project', () => {
       const storyboard = JSON.parse(await readFile(result.artifacts.storyboard, 'utf8')) as {scenes: Array<{visualStyle: string}>}
       const timedDeck = JSON.parse(await readFile(result.artifacts.timedDeck, 'utf8')) as {timings: Array<{slideId: string}>}
       const quality = await readProjectQualityDetails('deck-demo', root)
+      const status = await readProjectStatus('deck-demo', root)
+      const agentEvents = await readProjectEvents('deck-demo', {kind: 'pipeline', pipelineType: 'agent:step:start', workspaceDir: root})
 
       expect(result.slides).to.be.greaterThan(1)
       expect(deck.format).to.equal('portrait_1080x1920')
@@ -407,6 +411,12 @@ describe('deck explainer project', () => {
       expect(narration.segments.every((segment) => segment.text.length > 0)).to.equal(true)
       expect(quality.ok).to.equal(true)
       expect(quality.content).to.deep.equal({errors: 0, issues: 0, warnings: 0})
+      expect(status.agent.currentRun?.status).to.equal('completed')
+      expect(status.agent.currentRun?.steps.map((step) => step.name)).to.include('content-analysis')
+      expect(status.agent.currentRun?.steps.map((step) => step.name)).to.include('deck-brief')
+      expect(status.agent.currentRun?.steps.map((step) => step.name)).to.include('slide-plan')
+      expect(status.job.stages.find((stage) => stage.name === 'script')?.status).to.equal('completed')
+      expect(agentEvents.events.length).to.be.greaterThan(4)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

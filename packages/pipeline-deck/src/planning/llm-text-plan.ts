@@ -1,4 +1,5 @@
 import type {GenerateObjectRequest, LLMClient, LLMMessage} from '@video-agent/llm'
+import type {ProjectAgentRuntime} from '@video-agent/runtime'
 
 import {createHash} from 'node:crypto'
 
@@ -26,7 +27,7 @@ import {
   type LLMTextDeckSlidePlan,
 } from './llm-plan.js'
 import type {TextDeckProjectPlan, TextDeckProjectPlanOptions} from './types.js'
-import {DECK_THEME_DESCRIPTIONS} from './utils.js'
+import {assertNoGeneratedTextControlSyntax, cleanGeneratedText, DECK_THEME_DESCRIPTIONS} from './utils.js'
 import {createTextDeckProjectPlanFromLLM} from './text-plan-builder.js'
 import {createDeckSourceMap} from './source-map.js'
 
@@ -35,6 +36,8 @@ const DECK_LLM_TRANSCRIPT_SEGMENT_CHUNK_SIZE = 500
 const DECK_LLM_TRANSCRIPT_SEGMENT_TEXT_MAX_CHARACTERS = 500
 const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
 const DECK_LLM_CACHE_KEY_HASH_CHARACTERS = 24
+const DECK_LLM_ENGLISH_WORDS_PER_SECOND = 2.6
+const DECK_LLM_CJK_CHARACTERS_PER_SECOND = 4.8
 
 type DeckLLMPlanningStage = 'content-analysis' | 'content-analysis-merge' | 'coherence-review' | 'deck-brief' | 'script-semantics' | 'slide-outline' | 'slide-plan'
 
@@ -86,6 +89,7 @@ export async function createLLMTextDeckProjectPlan(
   inputPath: string,
   text: string,
   options: TextDeckProjectPlanOptions,
+  agent?: ProjectAgentRuntime,
 ): Promise<TextDeckProjectPlan> {
   const planOptions = {...options}
   requireDeckPlanningSourceType(planOptions.sourceType)
@@ -96,9 +100,10 @@ export async function createLLMTextDeckProjectPlan(
     text,
     title: planOptions.title,
   })
-  const stagedPlan = await createStagedDeckPlan(llm, inputPath, text, sourceMap, planOptions)
+  const stagedPlan = await createStagedDeckPlan(llm, inputPath, text, sourceMap, planOptions, agent)
 
   try {
+    validateLLMTextDeckScriptSemantics(stagedPlan.scriptSemantics, stagedPlan.slideOutline, planOptions)
     assertCoherenceReview(stagedPlan.coherenceReview)
     const finalPlan = assembleFinalDeckPlan(stagedPlan.analysis, stagedPlan.slidePlan, stagedPlan.scriptSemantics)
 
@@ -112,6 +117,7 @@ export async function createLLMTextDeckProjectPlan(
     })
   } catch (error) {
     return rewriteInvalidStagedDeckPlan(llm, {
+      agent,
       error,
       inputPath,
       options: planOptions,
@@ -128,13 +134,19 @@ async function createStagedDeckPlan(
   text: string,
   sourceMap: ReturnType<typeof createDeckSourceMap>,
   options: TextDeckProjectPlanOptions,
+  agent: ProjectAgentRuntime | undefined,
 ): Promise<StagedDeckPlan> {
-  const analysis = await createContentAnalysis(llm, inputPath, text, sourceMap, options)
-  const brief = await generateDeckBrief(llm, inputPath, analysis, options)
-  const slideOutline = await generateSlideOutline(llm, inputPath, analysis, brief, options)
-  const slidePlan = await generateSlidePlan(llm, inputPath, analysis, brief, slideOutline, options)
-  const scriptSemantics = await generateScriptSemantics(llm, inputPath, analysis, brief, slideOutline, slidePlan, options)
-  const coherenceReview = await generateCoherenceReview(llm, inputPath, analysis, brief, slideOutline, slidePlan, scriptSemantics, options)
+  const analysis = await runDeckAgentStep(agent, 'understand', 'content-analysis', 'Analyzing source content', () => createContentAnalysis(llm, inputPath, text, sourceMap, options, agent))
+  await agent?.completeStage('understand', 'Source understanding complete')
+  const brief = await runDeckAgentStep(agent, 'brief', 'deck-brief', 'Writing deck brief', () => generateDeckBrief(llm, inputPath, analysis, options))
+  await agent?.completeStage('brief', 'Deck brief complete')
+  const slideOutline = await runDeckAgentStep(agent, 'outline', 'slide-outline', 'Planning slide outline', () => generateSlideOutline(llm, inputPath, analysis, brief, options))
+  await agent?.completeStage('outline', 'Slide outline complete')
+  const slidePlan = await runDeckAgentStep(agent, 'plan-slides', 'slide-plan', 'Designing semantic slide plan', () => generateSlidePlan(llm, inputPath, analysis, brief, slideOutline, options))
+  await agent?.completeStage('plan-slides', 'Slide plan complete')
+  const scriptSemantics = await runDeckAgentStep(agent, 'script', 'script-semantics', 'Writing script semantics', () => generateScriptSemantics(llm, inputPath, analysis, brief, slideOutline, slidePlan, options))
+  const coherenceReview = await runDeckAgentStep(agent, 'script', 'coherence-review', 'Reviewing narrative coherence', () => generateCoherenceReview(llm, inputPath, analysis, brief, slideOutline, slidePlan, scriptSemantics, options))
+  await agent?.completeStage('script', 'Script semantics and coherence review complete')
 
   return {
     analysis,
@@ -152,9 +164,17 @@ async function createContentAnalysis(
   text: string,
   sourceMap: ReturnType<typeof createDeckSourceMap>,
   options: TextDeckProjectPlanOptions,
+  agent: ProjectAgentRuntime | undefined,
 ): Promise<LLMTextDeckContentAnalysis> {
   const chunks = createDeckPlanningSourceChunks(text, options)
-  const analyses = await Promise.all(chunks.map(async (chunk) => {
+  const analyses = await Promise.all(chunks.map(async (chunk, index) => {
+    await agent?.progressStage('understand', {
+      current: index + 1,
+      message: `Analyzing source chunk ${index + 1}/${chunks.length}`,
+      step: 'content-analysis',
+      total: chunks.length,
+      unit: 'chunks',
+    })
     const result = await llm.generateObject(createContentAnalysisRequest(inputPath, chunk, sourceMap, options))
 
     return result.object
@@ -170,9 +190,28 @@ async function createContentAnalysis(
     return analysis
   }
 
-  const result = await llm.generateObject(createContentAnalysisMergeRequest(inputPath, analyses, options))
+  const result = await runDeckAgentStep(agent, 'understand', 'content-analysis-merge', 'Merging content analysis chunks', () => llm.generateObject(createContentAnalysisMergeRequest(inputPath, analyses, options)))
 
   return result.object
+}
+
+async function runDeckAgentStep<T>(
+  agent: ProjectAgentRuntime | undefined,
+  stage: string,
+  step: string,
+  message: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (agent === undefined) {
+    return fn()
+  }
+
+  return agent.runStep({
+    fn,
+    message,
+    stage,
+    step,
+  })
 }
 
 function createContentAnalysisRequest(
@@ -231,6 +270,13 @@ async function generateDeckBrief(
 ): Promise<LLMTextDeckBrief> {
   const result = await llm.generateObject(createDeckBriefRequest(inputPath, analysis, options))
 
+  if (options.durationTargetSeconds === undefined) {
+    const briefWithoutInferredTargetDuration = {...result.object}
+    delete briefWithoutInferredTargetDuration.targetDurationSeconds
+
+    return briefWithoutInferredTargetDuration
+  }
+
   return result.object
 }
 
@@ -246,7 +292,7 @@ function createDeckBriefRequest(
       instructions: [
         'Base requiredSectionIds on analysis.sections where mustCover is true. Preserve section ids exactly.',
         'Choose targetSlideCount from source complexity and required sections. It must be large enough that must-cover sections are not compressed into unrelated slides.',
-        'Use targetDurationSeconds from target.durationSeconds when provided; otherwise choose a realistic duration from source complexity.',
+        'Set targetDurationSeconds only when target.durationSeconds is provided. If target.durationSeconds is absent, omit targetDurationSeconds instead of inventing a duration.',
         'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
         'Write densityPolicy as concrete generation guidance for slide and narration density.',
       ],
@@ -529,6 +575,7 @@ function createScriptSemanticsRequest(
       instructions: [
         'Return one scriptSemantics slide entry per slidePlan slide, using matching zero-based slideIndex values.',
         'Use slideOutline.slides[].narrationBudgetSeconds as a hard budget. Keep estimated speech duration within that budget unless the source section must be split; in that case the correct fix is to shorten narration and flag through validation, not to inflate duration.',
+        'Use scriptTimingBudgets as binding per-slide limits for speakerNote length when maxSpeakerNoteCharacters or maxSpeakerNoteWords is present. The returned speakerNote must fit within maxSpeakerNoteCharacters for CJK output or maxSpeakerNoteWords for non-CJK output.',
         'Write one natural speakerNote per slide for TTS. It should sound like a presenter guiding the viewer through the slide, not a file reader.',
         'The speakerNote must walk the viewer through the on-screen content in order and expand each visible point into a natural spoken sentence.',
         'Do not introduce new arguments, examples, claims, or steps that are not visible on the current slide, except brief transition phrases.',
@@ -541,6 +588,7 @@ function createScriptSemanticsRequest(
         'Return outline with exactly one section per slide in slide order.',
       ],
       inputPath,
+      scriptTimingBudgets: createScriptTimingBudgets(slideOutline, slidePlan, options),
       slidePlan,
       slideOutline,
       source: {
@@ -582,6 +630,7 @@ function createScriptSemanticsRequest(
             'Use issues as binding field-level feedback.',
             'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
             'Only change speaker notes, durations, source ranges, outline, and semantic metadata needed to satisfy the issues.',
+            'If an issue includes actual and limit for speakerNote length, rewrite that speakerNote under the limit instead of increasing duration.',
             'Keep all slidePlan visible text, template data, motion, visual, and transition choices unchanged.',
             'Do not ask the runtime to infer, clip, shorten, or repair semantic content.',
           ],
@@ -593,6 +642,148 @@ function createScriptSemanticsRequest(
     schema: LLMTextDeckScriptSemanticsSchema,
     temperature: 0.2,
   }
+}
+
+function createScriptTimingBudgets(
+  slideOutline: LLMTextDeckSlideOutline,
+  slidePlan: LLMTextDeckSlidePlan,
+  options: TextDeckProjectPlanOptions,
+): Array<{
+  budgetSeconds: number
+  maxSpeakerNoteCharacters?: number
+  maxSpeakerNoteWords?: number
+  outlineId: string
+  slideIndex: number
+  title: string
+}> {
+  const useCjkBudget = isCjkLanguage(options.language)
+  const includeSpeakerNoteLimit = shouldValidateSpeakerNoteTimingBudget(options)
+
+  return slidePlan.slides.map((slide, index) => {
+    const outlineSlide = slideOutline.slides[index]
+    const budgetSeconds = outlineSlide?.narrationBudgetSeconds ?? slide.durationIntent
+
+    return {
+      budgetSeconds,
+      ...(includeSpeakerNoteLimit && useCjkBudget
+        ? {maxSpeakerNoteCharacters: maxSpeakerNoteCharactersForSeconds(budgetSeconds)}
+        : {}),
+      ...(includeSpeakerNoteLimit && !useCjkBudget
+        ? {maxSpeakerNoteWords: maxSpeakerNoteWordsForSeconds(budgetSeconds)}
+        : {}),
+      outlineId: slide.outlineId,
+      slideIndex: index,
+      title: slide.title,
+    }
+  })
+}
+
+function validateLLMTextDeckScriptSemantics(
+  scriptSemantics: LLMTextDeckScriptSemantics,
+  slideOutline: LLMTextDeckSlideOutline,
+  options: TextDeckProjectPlanOptions,
+): void {
+  validateLLMTextDeckScriptSemanticsText(scriptSemantics)
+  validateLLMTextDeckScriptSemanticsTiming(scriptSemantics, slideOutline, options)
+}
+
+function validateLLMTextDeckScriptSemanticsText(scriptSemantics: LLMTextDeckScriptSemantics): void {
+  const issues: LLMTextDeckValidationIssue[] = []
+
+  scriptSemantics.slides.forEach((slide) => {
+    collectCleanScriptSemanticTextIssue(issues, slide.semantic.blockText, 'semantic.blockText', `scriptSemantics.slides[${slide.slideIndex}].semantic.blockText`, slide.slideIndex)
+    collectCleanScriptSemanticTextIssue(issues, slide.semantic.momentReason, 'semantic.momentReason', `scriptSemantics.slides[${slide.slideIndex}].semantic.momentReason`, slide.slideIndex)
+    collectCleanScriptSemanticTextIssue(issues, slide.semantic.momentSummary, 'semantic.momentSummary', `scriptSemantics.slides[${slide.slideIndex}].semantic.momentSummary`, slide.slideIndex)
+    collectCleanScriptSemanticTextIssue(issues, slide.semantic.sourceQuoteText, 'semantic.sourceQuoteText', `scriptSemantics.slides[${slide.slideIndex}].semantic.sourceQuoteText`, slide.slideIndex)
+    collectCleanScriptSemanticTextIssue(issues, slide.semantic.visualStyle, 'semantic.visualStyle', `scriptSemantics.slides[${slide.slideIndex}].semantic.visualStyle`, slide.slideIndex)
+
+    if (slide.semantic.claim !== null) {
+      collectCleanScriptSemanticTextIssue(issues, slide.semantic.claim.text, 'semantic.claim.text', `scriptSemantics.slides[${slide.slideIndex}].semantic.claim.text`, slide.slideIndex)
+    }
+  })
+
+  if (issues.length > 0) {
+    throw new LLMTextDeckValidationError(issues)
+  }
+}
+
+function collectCleanScriptSemanticTextIssue(
+  issues: LLMTextDeckValidationIssue[],
+  value: string,
+  field: string,
+  path: string,
+  slideIndex: number,
+): void {
+  try {
+    assertNoGeneratedTextControlSyntax(value, `slide ${slideIndex + 1} ${field}`)
+    cleanGeneratedText(value, `slide ${slideIndex + 1} ${field}`)
+  } catch (error) {
+    issues.push({
+      code: 'SCRIPT_TEXT_FIELD_CLEANLINESS',
+      field,
+      message: formatErrorMessage(error),
+      path,
+      slideIndex,
+      stage: 'script-semantics',
+    })
+  }
+}
+
+function validateLLMTextDeckScriptSemanticsTiming(
+  scriptSemantics: LLMTextDeckScriptSemantics,
+  slideOutline: LLMTextDeckSlideOutline,
+  options: TextDeckProjectPlanOptions,
+): void {
+  if (!shouldValidateSpeakerNoteTimingBudget(options)) {
+    return
+  }
+
+  const useCjkBudget = isCjkLanguage(options.language)
+  const issues: LLMTextDeckValidationIssue[] = []
+
+  for (const scriptSlide of scriptSemantics.slides) {
+    const outlineSlide = slideOutline.slides[scriptSlide.slideIndex]
+
+    if (outlineSlide === undefined) {
+      continue
+    }
+
+    const limit = useCjkBudget
+      ? maxSpeakerNoteCharactersForSeconds(outlineSlide.narrationBudgetSeconds)
+      : maxSpeakerNoteWordsForSeconds(outlineSlide.narrationBudgetSeconds)
+    const actual = useCjkBudget ? countCjkAwareCharacters(scriptSlide.speakerNote) : countWords(scriptSlide.speakerNote)
+
+    if (actual <= limit) {
+      continue
+    }
+
+    issues.push({
+      actual,
+      code: 'SCRIPT_TIMING_BUDGET',
+      field: 'speakerNote',
+      limit,
+      message: `Script semantics slide ${scriptSlide.slideIndex + 1} speakerNote has ${actual} ${useCjkBudget ? 'characters' : 'words'}, exceeding narration budget limit ${limit} for ${outlineSlide.narrationBudgetSeconds}s.`,
+      path: `scriptSemantics.slides[${scriptSlide.slideIndex}].speakerNote`,
+      slideIndex: scriptSlide.slideIndex,
+      stage: 'script-semantics',
+    })
+  }
+
+  if (issues.length > 0) {
+    throw new LLMTextDeckValidationError(issues)
+  }
+}
+
+function maxSpeakerNoteCharactersForSeconds(seconds: number): number {
+  return Math.max(1, Math.floor(seconds * DECK_LLM_CJK_CHARACTERS_PER_SECOND))
+}
+
+function maxSpeakerNoteWordsForSeconds(seconds: number): number {
+  return Math.max(1, Math.floor(seconds * DECK_LLM_ENGLISH_WORDS_PER_SECOND))
+}
+
+function shouldValidateSpeakerNoteTimingBudget(options: TextDeckProjectPlanOptions): boolean {
+  return options.speakerNoteTimingBudget !== false
 }
 
 async function generateCoherenceReview(
@@ -629,6 +820,7 @@ function createCoherenceReviewRequest(
         'Check narrative continuity: each slide should follow from the previous slide and set up the next slide when the source is procedural.',
         'Check practical depth: sections that contain commands, setup details, examples, tables, validation criteria, or output templates should preserve enough actionable detail for a viewer to use them.',
         'Check timing realism: narrationBudgetSeconds and scriptSemantics.slides[].duration should match the actual speakerNote length. Overly long budgets for short notes should be warnings; severe budget mismatch that makes the final video much shorter than target should be an error for script-semantics or slide-outline.',
+        'Do not use severity error for total narration budget being shorter than target.durationSeconds when each slide fits its own narration budget. Report that as a warning only; do not force longer speakerNotes that would violate per-slide timing budgets.',
         'Check template variety: do not use repeated one-big-idea/summary cards when process, table, code, comparison, stat, quote, or chart would make the source structure clearer.',
         'For each issue choose the earliest responsible stage: slide-outline for coverage/order/budget/template intent, slide-plan for visible text/template choice, script-semantics for narration/duration/semantic metadata.',
         'Use severity error only when rewrite is required before artifact build; use warning for reviewable quality concerns.',
@@ -654,6 +846,7 @@ function createCoherenceReviewRequest(
 async function rewriteInvalidStagedDeckPlan(
   llm: LLMClient,
   input: {
+    agent?: ProjectAgentRuntime
     error: unknown
     inputPath: string
     options: TextDeckProjectPlanOptions
@@ -672,6 +865,7 @@ async function rewriteInvalidStagedDeckPlan(
 async function attemptStagedDeckPlanRewrite(
   llm: LLMClient,
   input: {
+    agent?: ProjectAgentRuntime
     inputPath: string
     options: TextDeckProjectPlanOptions
     sourceMap: ReturnType<typeof createDeckSourceMap>
@@ -695,12 +889,12 @@ async function attemptStagedDeckPlanRewrite(
   let stagedPlan: StagedDeckPlan
 
   if (rewriteStage === 'slide-outline') {
-    const slideOutline = await generateSlideOutline(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, input.options, {
+    const slideOutline = await runDeckAgentStep(input.agent, 'outline', `rewrite-slide-outline-${state.attempt}`, 'Rewriting slide outline from validation feedback', () => generateSlideOutline(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, input.options, {
       attemptsRemaining,
       invalidOutput: state.stagedPlan.slideOutline,
       issues,
-    })
-    const slidePlan = await generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, input.options)
+    }))
+    const slidePlan = await runDeckAgentStep(input.agent, 'plan-slides', `rewrite-slide-plan-${state.attempt}`, 'Rebuilding slide plan after outline rewrite', () => generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, input.options))
 
     stagedPlan = {
       ...state.stagedPlan,
@@ -718,9 +912,28 @@ async function attemptStagedDeckPlanRewrite(
       })
     }
 
-    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, input.options)
+    const scriptSemantics = await runDeckAgentStep(input.agent, 'script', `rewrite-script-semantics-${state.attempt}`, 'Rebuilding script semantics after outline rewrite', () => generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, input.options))
 
-    const coherenceReview = await generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, scriptSemantics, input.options)
+    stagedPlan = {
+      analysis: state.stagedPlan.analysis,
+      brief: state.stagedPlan.brief,
+      coherenceReview: state.stagedPlan.coherenceReview,
+      scriptSemantics,
+      slideOutline,
+      slidePlan,
+    }
+
+    try {
+      validateLLMTextDeckScriptSemantics(scriptSemantics, slideOutline, input.options)
+    } catch (error) {
+      return attemptStagedDeckPlanRewrite(llm, input, {
+        attempt: state.attempt + 1,
+        lastError: error,
+        stagedPlan,
+      })
+    }
+
+    const coherenceReview = await runDeckAgentStep(input.agent, 'script', `rewrite-coherence-review-${state.attempt}`, 'Reviewing rewritten deck plan', () => generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, slideOutline, slidePlan, scriptSemantics, input.options))
 
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
@@ -731,11 +944,11 @@ async function attemptStagedDeckPlanRewrite(
       slidePlan,
     }
   } else if (rewriteStage === 'slide-plan') {
-    const slidePlan = await generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, input.options, {
+    const slidePlan = await runDeckAgentStep(input.agent, 'plan-slides', `rewrite-slide-plan-${state.attempt}`, 'Rewriting slide plan from validation feedback', () => generateSlidePlan(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, input.options, {
       attemptsRemaining,
       invalidOutput: state.stagedPlan.slidePlan,
       issues,
-    })
+    }))
 
     stagedPlan = {
       ...state.stagedPlan,
@@ -752,9 +965,28 @@ async function attemptStagedDeckPlanRewrite(
       })
     }
 
-    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, input.options)
+    const scriptSemantics = await runDeckAgentStep(input.agent, 'script', `rewrite-script-semantics-${state.attempt}`, 'Rebuilding script semantics after slide plan rewrite', () => generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, input.options))
 
-    const coherenceReview = await generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, scriptSemantics, input.options)
+    stagedPlan = {
+      analysis: state.stagedPlan.analysis,
+      brief: state.stagedPlan.brief,
+      coherenceReview: state.stagedPlan.coherenceReview,
+      scriptSemantics,
+      slideOutline: state.stagedPlan.slideOutline,
+      slidePlan,
+    }
+
+    try {
+      validateLLMTextDeckScriptSemantics(scriptSemantics, state.stagedPlan.slideOutline, input.options)
+    } catch (error) {
+      return attemptStagedDeckPlanRewrite(llm, input, {
+        attempt: state.attempt + 1,
+        lastError: error,
+        stagedPlan,
+      })
+    }
+
+    const coherenceReview = await runDeckAgentStep(input.agent, 'script', `rewrite-coherence-review-${state.attempt}`, 'Reviewing rewritten deck plan', () => generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, slidePlan, scriptSemantics, input.options))
 
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
@@ -765,13 +997,32 @@ async function attemptStagedDeckPlanRewrite(
       slidePlan,
     }
   } else {
-    const scriptSemantics = await generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, state.stagedPlan.slidePlan, input.options, {
+    const scriptSemantics = await runDeckAgentStep(input.agent, 'script', `rewrite-script-semantics-${state.attempt}`, 'Rewriting script semantics from validation feedback', () => generateScriptSemantics(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, state.stagedPlan.slidePlan, input.options, {
       attemptsRemaining,
       invalidOutput: state.stagedPlan.scriptSemantics,
       issues,
-    })
+    }))
 
-    const coherenceReview = await generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, state.stagedPlan.slidePlan, scriptSemantics, input.options)
+    stagedPlan = {
+      analysis: state.stagedPlan.analysis,
+      brief: state.stagedPlan.brief,
+      coherenceReview: state.stagedPlan.coherenceReview,
+      scriptSemantics,
+      slideOutline: state.stagedPlan.slideOutline,
+      slidePlan: state.stagedPlan.slidePlan,
+    }
+
+    try {
+      validateLLMTextDeckScriptSemantics(scriptSemantics, state.stagedPlan.slideOutline, input.options)
+    } catch (error) {
+      return attemptStagedDeckPlanRewrite(llm, input, {
+        attempt: state.attempt + 1,
+        lastError: error,
+        stagedPlan,
+      })
+    }
+
+    const coherenceReview = await runDeckAgentStep(input.agent, 'script', `rewrite-coherence-review-${state.attempt}`, 'Reviewing rewritten script semantics', () => generateCoherenceReview(llm, input.inputPath, state.stagedPlan.analysis, state.stagedPlan.brief, state.stagedPlan.slideOutline, state.stagedPlan.slidePlan, scriptSemantics, input.options))
 
     stagedPlan = {
       analysis: state.stagedPlan.analysis,
@@ -877,12 +1128,13 @@ function createDeckBriefArtifact(brief: LLMTextDeckBrief) {
 function createDeckCoherenceReport(review: LLMTextDeckCoherenceReview, slidePlan: LLMTextDeckSlidePlan) {
   const issues = review.issues.map((issue) => {
     const slide = issue.slideIndex === undefined ? undefined : slidePlan.slides[issue.slideIndex]
+    const severity = normalizedCoherenceIssueSeverity(issue)
 
     return {
       code: issue.code,
       message: issue.message,
       ...(issue.path === undefined ? {} : {path: issue.path}),
-      severity: issue.severity,
+      severity,
       ...(slide === undefined ? {} : {slideId: slide.outlineId}),
       stage: issue.stage,
     }
@@ -901,7 +1153,7 @@ function createDeckCoherenceReport(review: LLMTextDeckCoherenceReview, slidePlan
 }
 
 function assertCoherenceReview(review: LLMTextDeckCoherenceReview): void {
-  const firstError = review.issues.find((issue) => issue.severity === 'error')
+  const firstError = review.issues.find((issue) => normalizedCoherenceIssueSeverity(issue) === 'error')
 
   if (firstError === undefined) {
     return
@@ -910,6 +1162,27 @@ function assertCoherenceReview(review: LLMTextDeckCoherenceReview): void {
   const issuePath = firstError.path === undefined ? '' : ` Path: ${firstError.path}`
 
   throw new Error(`Deck coherence review requires ${firstError.stage} rewrite: ${firstError.code}: ${firstError.message}${issuePath}`)
+}
+
+function normalizedCoherenceIssueSeverity(issue: LLMTextDeckCoherenceReview['issues'][number]): 'error' | 'warning' {
+  if (isGlobalDurationBudgetIssue(issue)) {
+    return 'warning'
+  }
+
+  return issue.severity
+}
+
+function isGlobalDurationBudgetIssue(issue: LLMTextDeckCoherenceReview['issues'][number]): boolean {
+  if (issue.code !== 'TIMING_BUDGET_MISMATCH' || issue.slideIndex !== undefined) {
+    return false
+  }
+
+  const text = `${issue.path ?? ''} ${issue.message}`
+
+  return (
+    /target(duration|\.durationSeconds)|target\s+duration|目标(总)?时长|brief\.targetDurationSeconds/iu.test(text)
+    && /(total|overall|总|合计|预算).*(budget|duration|时长|叙事)|budget.*target|预算.*目标/iu.test(text)
+  )
 }
 
 function createDeckSlideOutlineArtifact(slideOutline: LLMTextDeckSlideOutline) {
@@ -1000,6 +1273,20 @@ function requireDeckPlanningSourceType(sourceType: TextDeckProjectPlanOptions['s
   }
 
   return sourceType
+}
+
+function countWords(text: string): number {
+  const words = text.trim().match(/[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*/gu)
+
+  return words?.length ?? 0
+}
+
+function countCjkAwareCharacters(text: string): number {
+  return [...text.replace(/\s+/gu, '')].length
+}
+
+function isCjkLanguage(language: string): boolean {
+  return /^(zh|ja|ko)\b/iu.test(language)
 }
 
 function createDeckPlanningTarget(options: TextDeckProjectPlanOptions, settings: {includeTemplateManifest: boolean}): object {

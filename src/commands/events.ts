@@ -1,6 +1,8 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {type ProjectEventRecord, type ProjectPipelineEventType, type ProviderCallRole, readProjectEvents} from '@video-agent/runtime'
 
+const PIPELINE_EVENT_TYPES = ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start'] as const
+
 export default class Events extends Command {
   static args = {
     project: Args.string({description: 'Project id to inspect', required: true}),
@@ -13,7 +15,7 @@ export default class Events extends Command {
     role: Flags.string({description: 'Provider role filter', options: ['asr', 'script', 'tts', 'vlm']}),
     stage: Flags.string({description: 'Pipeline stage filter'}),
     status: Flags.string({description: 'Provider status filter', options: ['failed', 'succeeded']}),
-    type: Flags.string({description: 'Pipeline event type filter', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
+    type: Flags.string({description: 'Pipeline event type filter', options: [...PIPELINE_EVENT_TYPES]}),
     workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
   }
 

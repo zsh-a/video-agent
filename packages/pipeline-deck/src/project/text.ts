@@ -1,9 +1,9 @@
 import {resolve} from 'node:path'
 
-import {assertFileExists, bunFile, createProjectWorkspace, createRuntimeLLMClient, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
+import {assertFileExists, bunFile, createProjectAgentRuntime, createProjectWorkspace, createRuntimeLLMClient, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
 import {createLLMTextDeckProjectPlan, type TextDeckProjectPlan} from '../planning/index.js'
 import {writeDeckTextPlanArtifacts} from './artifacts.js'
-import {completeDeckJobStages, initializeDeckJob} from './job.js'
+import {initializeDeckJob} from './job.js'
 import {
   createDeckJobStore,
   createProjectLLMTrace,
@@ -29,6 +29,11 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
     workspaceDir: options.workspaceDir,
   })
   const llmTrace = createProjectLLMTrace(workspace, options.trace)
+  const jobStore = createDeckJobStore(workspace.projectDir)
+  const agent = createProjectAgentRuntime({
+    jobStore,
+    workspace,
+  })
   const language = options.language ?? 'auto'
   const config = await readConfig(workspace.workspaceDir)
   const llmClient = await createRuntimeLLMClient(config, workspace.workspaceDir, {
@@ -37,7 +42,19 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
   })
   let plan: TextDeckProjectPlan
 
+  await initializeDeckJob(jobStore, {
+    inputPath,
+    projectId: workspace.projectId,
+    stages: DECK_STAGES,
+  })
+  await agent.startRun('Deck explainer generation started')
+
   try {
+    await agent.startStage('ingest', 'Reading source text')
+    await agent.completeStage('ingest', 'Source text loaded')
+    await agent.startStage('source-map', 'Building source map')
+    await agent.completeStage('source-map', 'Source map prepared')
+
     if (llmClient === undefined) {
       throw new Error('Deck explainer planning requires an LLM provider. Configure an llm block or pass an injected LLM client.')
     }
@@ -51,20 +68,27 @@ export async function createDeckExplainerProject(options: CreateDeckExplainerPro
       sourceType: options.sourceType,
       theme: options.theme,
       title: options.title,
-    })
+    }, agent)
+    await agent.startStage('timing-preflight', 'Checking script timing')
+    await agent.completeStage('timing-preflight', 'Script timing preflight complete')
   } catch (error) {
-    throw withLLMTracePath(error, llmTrace.path)
+    const tracedError = withLLMTracePath(error, llmTrace.path)
+    await agent.failRun(tracedError)
+    throw tracedError
   }
   const artifacts = await writeDeckTextPlanArtifacts(workspace, plan, llmTrace.path)
-  const jobStore = createDeckJobStore(workspace.projectDir)
 
-  await initializeDeckJob(jobStore, {
-    inputPath,
-    projectId: workspace.projectId,
-    stages: DECK_STAGES,
+  await agent.emit({
+    artifact: {
+      kind: 'json',
+      path: 'artifacts/deck.json',
+    },
+    level: 'info',
+    message: 'Deck planning artifacts written',
+    type: 'artifact',
   })
-  await completeDeckJobStages(jobStore, ['ingest', 'source-map', 'understand', 'brief', 'outline', 'plan-slides', 'script', 'timing-preflight'])
   await jobStore.complete('completed')
+  await agent.completeRun('Deck explainer generation complete')
   await refreshArtifactManifest(workspace.artifactsDir)
 
   return {

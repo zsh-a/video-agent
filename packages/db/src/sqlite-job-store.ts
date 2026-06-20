@@ -1,7 +1,7 @@
 import {mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
-import type {InitializeJobOptions, JobRunStatus, JobStageState, JobStageStatus, JobState, JobStore} from './job-store.js'
+import type {InitializeJobOptions, JobRunStatus, JobStageProgress, JobStageState, JobStageStatus, JobState, JobStore} from './job-store.js'
 
 interface BunDatabase {
   exec(sql: string): void
@@ -28,11 +28,16 @@ interface JobRow {
 interface StageRow {
   attempt: null | number
   completed_at: null | string
+  current: null | number
   message: null | string
   name: string
+  percent: null | number
   position: number
   started_at: null | string
   status: JobStageStatus
+  step: null | string
+  total: null | number
+  unit: null | string
 }
 
 export class BunSqliteJobStore implements JobStore {
@@ -84,8 +89,8 @@ export class BunSqliteJobStore implements JobStore {
 
     const insertStage = database.prepare(
       `
-        insert into job_stages (project_id, name, status, attempt, started_at, completed_at, message, position)
-        values (?, ?, ?, ?, ?, ?, ?, ?)
+        insert into job_stages (project_id, name, status, attempt, started_at, completed_at, message, step, current, total, percent, unit, position)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
 
@@ -100,6 +105,11 @@ export class BunSqliteJobStore implements JobStore {
         existingStage?.startedAt ?? null,
         existingStage?.completedAt ?? null,
         existingStage?.message ?? null,
+        existingStage?.step ?? null,
+        existingStage?.current ?? null,
+        existingStage?.total ?? null,
+        existingStage?.percent ?? null,
+        existingStage?.unit ?? null,
         index,
       )
     }
@@ -126,7 +136,7 @@ export class BunSqliteJobStore implements JobStore {
     const stages = database
       .prepare<StageRow>(
         `
-          select attempt, completed_at, message, name, position, started_at, status
+          select attempt, completed_at, current, message, name, percent, position, started_at, status, step, total, unit
           from job_stages
           where project_id = ?
           order by position asc
@@ -153,7 +163,7 @@ export class BunSqliteJobStore implements JobStore {
     const existing = database
       .prepare<StageRow>(
         `
-          select attempt, completed_at, message, name, position, started_at, status
+          select attempt, completed_at, current, message, name, percent, position, started_at, status, step, total, unit
           from job_stages
           where project_id = ? and name = ?
         `,
@@ -168,16 +178,21 @@ export class BunSqliteJobStore implements JobStore {
       .prepare(
         `
           update job_stages
-          set attempt = ?, completed_at = ?, message = ?, started_at = ?, status = ?
+          set attempt = ?, completed_at = ?, current = ?, message = ?, percent = ?, started_at = ?, status = ?, step = ?, total = ?, unit = ?
           where project_id = ? and name = ?
         `,
       )
       .run(
         attempt ?? existing.attempt,
         status === 'completed' || status === 'failed' ? now : null,
-        status === 'failed' ? message ?? null : null,
+        status === 'running' ? existing.current : null,
+        status === 'failed' || status === 'running' ? message ?? null : null,
+        status === 'running' ? existing.percent : null,
         status === 'running' ? now : existing.started_at,
         status,
+        status === 'running' ? existing.step : null,
+        status === 'running' ? existing.total : null,
+        status === 'running' ? existing.unit : null,
         this.projectId,
         name,
       )
@@ -207,6 +222,42 @@ export class BunSqliteJobStore implements JobStore {
         now,
         this.projectId,
       )
+
+    return this.read()
+  }
+
+  async updateStageProgress(name: string, progress: JobStageProgress): Promise<JobState> {
+    const database = await this.open()
+    const now = new Date().toISOString()
+
+    database
+      .prepare(
+        `
+          update job_stages
+          set current = ?, message = ?, percent = ?, step = ?, total = ?, unit = ?
+          where project_id = ? and name = ?
+        `,
+      )
+      .run(
+        progress.current ?? null,
+        progress.message ?? null,
+        progress.percent ?? null,
+        progress.step ?? null,
+        progress.total ?? null,
+        progress.unit ?? null,
+        this.projectId,
+        name,
+      )
+
+    database
+      .prepare(
+        `
+          update jobs
+          set updated_at = ?
+          where project_id = ?
+        `,
+      )
+      .run(now, this.projectId)
 
     return this.read()
   }
@@ -241,8 +292,13 @@ export class BunSqliteJobStore implements JobStore {
         attempt integer,
         started_at text,
         completed_at text,
+        current real,
         message text,
+        percent real,
         position integer not null,
+        step text,
+        total real,
+        unit text,
         primary key (project_id, name),
         foreign key (project_id) references jobs(project_id) on delete cascade
       );
@@ -252,6 +308,11 @@ export class BunSqliteJobStore implements JobStore {
     `)
     addColumnIfMissing(database, 'jobs', 'pipeline text')
     addColumnIfMissing(database, 'job_stages', 'attempt integer')
+    addColumnIfMissing(database, 'job_stages', 'current real')
+    addColumnIfMissing(database, 'job_stages', 'percent real')
+    addColumnIfMissing(database, 'job_stages', 'step text')
+    addColumnIfMissing(database, 'job_stages', 'total real')
+    addColumnIfMissing(database, 'job_stages', 'unit text')
 
     this.db = database
 
@@ -275,10 +336,15 @@ function deserializeStage(stage: StageRow): JobStageState {
   return {
     ...(stage.attempt === null ? {} : {attempt: stage.attempt}),
     ...(stage.completed_at === null ? {} : {completedAt: stage.completed_at}),
+    ...(stage.current === null ? {} : {current: stage.current}),
     ...(stage.message === null ? {} : {message: stage.message}),
     name: stage.name,
+    ...(stage.percent === null ? {} : {percent: stage.percent}),
     ...(stage.started_at === null ? {} : {startedAt: stage.started_at}),
     status: stage.status,
+    ...(stage.step === null ? {} : {step: stage.step}),
+    ...(stage.total === null ? {} : {total: stage.total}),
+    ...(stage.unit === null ? {} : {unit: stage.unit}),
   }
 }
 

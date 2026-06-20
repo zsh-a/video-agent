@@ -61,9 +61,11 @@ Deck Explainer Pipeline
   Used for text, article, podcast, course, and audio material rendered as PPT-style video.
 ```
 
-The shared runtime owns jobs, events, checkpoints, artifacts, workspace IO, and provider setup helpers. Pipeline packages own business workflow behavior, provider calls, renderer orchestration, and quality gates. Pipeline-specific IR lives in `packages/ir`.
+The shared runtime owns jobs, events, agent progress, checkpoints, artifacts, workspace IO, and provider setup helpers. Pipeline packages own business workflow behavior, provider calls, renderer orchestration, and quality gates. Pipeline-specific IR lives in `packages/ir`.
 
 Deck text planning uses a staged generation pipeline: deterministic source mapping, LLM content analysis, deck brief, slide outline, slide plan, script semantics, LLM coherence review, timing preflight, optional TTS timing repair, visual preflight, final render, and review. Long text and large transcript batches are chunked for content analysis and merged before brief/outline planning. Deterministic checks for source coverage, template limits, and speaker-note timing are fed back to the responsible LLM stage as structured rewrite issues; the LLM coherence review also checks narrative continuity, pacing realism, practical detail, and template variety before artifacts are built. Artifact build no longer derives semantic planning artifacts from the final raw plan.
+
+Agent-style LLM work is observable through the same runtime state as every other project operation. Deck planning emits `agent:*` and `stage:progress` events for content analysis, brief, outline, slide plan, script semantics, coherence review, and validation rewrites. CLI/TUI, Web Studio, API, and MCP read the same projected job and agent status instead of parsing LLM trace files directly.
 
 ## Setup
 

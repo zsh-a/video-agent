@@ -3,7 +3,7 @@ import {expect} from '#test/expect'
 import {toJSONSchema} from 'zod'
 
 import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMEvent, StreamTextRequest} from '../../../packages/llm/src/index.js'
-import {LLMTextDeckPlanSchema, type LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
+import {LLMTextDeckPlanSchema, LLMTextDeckScriptSemanticsSchema, LLMTextDeckSlidePlanSchema, type LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 import {createLLMTextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/llm-text-plan.js'
 import {createDeckSourceMap} from '../../../packages/pipeline-deck/src/planning/source-map.js'
 import {createTextDeckProjectPlanFromLLM as createStrictTextDeckProjectPlanFromLLM} from '../../../packages/pipeline-deck/src/planning/text-plan-builder.js'
@@ -380,6 +380,87 @@ describe('Deck Explainer LLM text planning', () => {
     expect(schema.properties).to.have.property('theme')
   })
 
+  it('rejects overfilled comparison slide-plan data at the schema boundary', () => {
+    const result = LLMTextDeckSlidePlanSchema.safeParse({
+      slides: [
+        {
+          comparison: {
+            left: {label: 'Alpha strength', points: ['Demand certainty', 'Transmission clarity', 'Business purity', 'Market-cap elasticity']},
+            right: {label: 'Position posture', points: ['Observe', 'Test small', 'Exit']},
+          },
+          durationIntent: 24,
+          motion: 'card-stack',
+          outlineId: 'slide-001',
+          points: ['Score and size by evidence'],
+          sectionIds: ['source-section-001'],
+          title: 'Score and Size',
+          transitionOut: null,
+          type: 'comparison',
+          visual: deckVisual('text'),
+        },
+      ],
+      targetPlatform: 'generic',
+      theme: 'elegant-dark',
+      title: 'Comparison Limit',
+    })
+
+    expect(result.success).to.equal(false)
+    expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.comparison.left.points')).to.equal(true)
+  })
+
+  it('rejects overlong slide-plan point text at the schema boundary', () => {
+    const result = LLMTextDeckSlidePlanSchema.safeParse({
+      slides: [
+        {
+          durationIntent: 12,
+          motion: 'stagger-up',
+          outlineId: 'slide-001',
+          points: ['Provider certification needs stable failures cost retry trace evidence'],
+          sectionIds: ['source-section-001'],
+          title: 'Point Limit',
+          transitionOut: null,
+          type: 'three-points',
+          visual: deckVisual('text'),
+        },
+      ],
+      targetPlatform: 'generic',
+      theme: 'elegant-dark',
+      title: 'Point Limit',
+    })
+
+    expect(result.success).to.equal(false)
+    expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.points.0')).to.equal(true)
+  })
+
+  it('rejects layout whitespace in script semantic text at the schema boundary', () => {
+    const result = LLMTextDeckScriptSemanticsSchema.safeParse({
+      outline: {
+        sections: [{goal: 'Explain clean semantic text.', title: 'Clean Semantics'}],
+      },
+      slides: [
+        {
+          duration: 12,
+          semantic: {
+            blockText: 'Provider certification\nneeds clean semantic text.',
+            blockType: 'summary',
+            claim: null,
+            momentReason: 'The slide explains why semantic text must already be clean.',
+            momentScore: 0.8,
+            momentSummary: 'Clean semantic fields avoid runtime whitespace repair.',
+            sourceQuoteText: 'Provider certification needs clean semantic text.',
+            visualStyle: 'Summary card',
+          },
+          slideIndex: 0,
+          sourceRange: [0, 12],
+          speakerNote: 'Explain clean semantic text.',
+        },
+      ],
+    })
+
+    expect(result.success).to.equal(false)
+    expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.semantic.blockText')).to.equal(true)
+  })
+
   it('rejects missing input source types instead of inferring them from file extensions', async () => {
     let calls = 0
     const llm: LLMClient = {
@@ -709,13 +790,14 @@ describe('Deck Explainer LLM text planning', () => {
     })
     const rewriteRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics' && (request.messages?.length ?? 0) > 1)
     const rewritePayload = JSON.parse(String(rewriteRequest?.messages?.at(-1)?.content ?? '{}')) as {
-      issues: Array<{code: string; path?: string; stage: string}>
+      issues: Array<{code: string; field?: string; path?: string; stage: string}>
     }
 
     expect(scriptSemanticsCalls).to.equal(2)
     expect(rewritePayload.issues[0]).to.deep.include({
-      code: 'SCRIPT_TIMING',
-      path: 'scriptSemantics.slides[].speakerNote',
+      code: 'SCRIPT_TIMING_BUDGET',
+      field: 'speakerNote',
+      path: 'scriptSemantics.slides[0].speakerNote',
       stage: 'script-semantics',
     })
     expect(plan.speakerScript.segments[0]?.text).to.equal('Provider certification keeps traces auditable.')
@@ -911,6 +993,95 @@ describe('Deck Explainer LLM text planning', () => {
     expect(plan.coherenceReport.summary.errors).to.equal(0)
   })
 
+  it('does not rewrite when coherence only reports global target duration shortfall', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const rawPlan = createOneSlideRawPlan()
+    let coherenceCalls = 0
+
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'coherence-review') {
+          coherenceCalls += 1
+
+          return {
+            object: {
+              issues: [
+                {
+                  code: 'TIMING_BUDGET_MISMATCH',
+                  message: 'Total narration budget is below target durationSeconds; this may produce a shorter video.',
+                  path: 'scriptSemantics.outline, brief.targetDurationSeconds',
+                  severity: 'error',
+                  stage: 'slide-outline',
+                },
+              ],
+              summary: 'Only global duration shortfall was found.',
+            } as T,
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/global-duration.md', 'Keep the deck concise.', {
+      deckFormat: 'portrait_1080x1920',
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+    const rewriteRequests = requests.filter((request) => (request.messages?.length ?? 0) > 1)
+
+    expect(coherenceCalls).to.equal(1)
+    expect(rewriteRequests).to.have.length(0)
+    expect(plan.coherenceReport.summary.errors).to.equal(0)
+    expect(plan.coherenceReport.summary.warnings).to.equal(1)
+  })
+
+  it('drops LLM-inferred brief target duration when the user did not request one', async () => {
+    const rawPlan = createOneSlideRawPlan()
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'deck-brief') {
+          return {
+            object: {
+              ...(stagedDeckObjectForRequest(request, rawPlan) as object),
+              targetDurationSeconds: 540,
+            } as T,
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/inferred-duration.md', 'Keep the deck concise.', {
+      deckFormat: 'portrait_1080x1920',
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    expect(plan.deckBrief.targetDurationSeconds).to.equal(undefined)
+  })
+
   it('rejects direct artifact planning without explicit sourceType instead of inferring it by extension', () => {
     expect(() => createStrictTextDeckProjectPlanFromLLM(
       '/tmp/provider.md',
@@ -1073,7 +1244,9 @@ describe('Deck Explainer LLM text planning', () => {
     )
 
     const slidePlanRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan')
+    const scriptSemanticsRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics')
     const message = slidePlanRequest?.messages?.[0]
+    const scriptMessage = scriptSemanticsRequest?.messages?.[0]
     const payload = JSON.parse(typeof message?.content === 'string' ? message.content : '') as {
       instructions: string[]
       target: {
@@ -1083,6 +1256,10 @@ describe('Deck Explainer LLM text planning', () => {
         speakerNoteCharactersPerSlide?: unknown
         speakerNotePlanning: {policy: string}
       }
+    }
+    const scriptPayload = JSON.parse(typeof scriptMessage?.content === 'string' ? scriptMessage.content : '') as {
+      instructions: string[]
+      scriptTimingBudgets: Array<{budgetSeconds: number; maxSpeakerNoteWords?: number; slideIndex: number}>
     }
 
     expect(plan.deck.slides.map((slide) => slide.type)).to.include('code')
@@ -1096,6 +1273,193 @@ describe('Deck Explainer LLM text planning', () => {
     expect(payload.target.slideCountLimits).to.deep.equal({maximum: 24, minimum: 4})
     expect(payload.target.speakerNoteCharactersPerSlide).to.equal(undefined)
     expect(payload.target.speakerNotePlanning.policy).to.include('explicit narration budget')
+    expect(scriptPayload.instructions.join('\n')).to.include('scriptTimingBudgets as binding per-slide limits')
+    expect(scriptPayload.scriptTimingBudgets[0]).to.deep.include({
+      budgetSeconds: 30,
+      maxSpeakerNoteWords: 78,
+      slideIndex: 0,
+    })
+  })
+
+  it('rewrites over-budget script semantics with per-slide timing feedback', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    let coherenceCalls = 0
+    let scriptCalls = 0
+    const overBudgetNote = '这段旁白故意写得非常长，超过十二秒中文旁白预算，需要通过脚本语义重写来压缩表达，否则后续一致性检查会反复失败并耗尽所有重试次数。'
+    const shortNote = '说明预算约束如何让旁白按时完成。'
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request) === 'script-semantics') {
+          scriptCalls += 1
+        }
+
+        if (requestStage(request) === 'coherence-review') {
+          coherenceCalls += 1
+
+          return {
+            object: {
+              issues: coherenceCalls === 1
+                ? [{
+                    code: 'TIMING_BUDGET_MISMATCH',
+                    message: 'speakerNote exceeds narrationBudgetSeconds.',
+                    path: 'scriptSemantics.slides[0].speakerNote',
+                    severity: 'error',
+                    slideIndex: 0,
+                    stage: 'script-semantics',
+                  }]
+                : [],
+              summary: coherenceCalls === 1 ? 'Timing rewrite required.' : 'The deck is coherent enough for artifact build.',
+            } as T,
+          }
+        }
+
+        const rawPlan = withDeckTransitions({
+          language: 'zh-CN',
+          outline: deckOutline(),
+          slides: [
+            {
+              duration: 12,
+              motion: 'soft-scale',
+              points: ['预算反馈'],
+              semantic: deckSemantic('旁白预算反馈需要明确。'),
+              sourceRange: [0, 12],
+              speakerNote: scriptCalls < 3 ? overBudgetNote : shortNote,
+              title: '预算反馈',
+              type: 'summary',
+              visual: deckVisual('text'),
+            },
+          ],
+          summary: '旁白预算反馈保持脚本可执行。',
+          targetPlatform: 'generic',
+          theme: 'clean-white',
+          title: '旁白预算',
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(
+      llm,
+      '/tmp/timing.md',
+      '旁白预算反馈需要明确。',
+      {
+        deckFormat: 'landscape_1920x1080',
+        durationTargetSeconds: 12,
+        language: 'zh-CN',
+        maxSlideCharacters: 260,
+        sourceType: 'markdown',
+      },
+    )
+    const scriptRewriteRequests = requests.filter((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics' && (request.messages?.length ?? 0) > 1)
+    const timingRewritePayload = JSON.parse(typeof scriptRewriteRequests[1]?.messages?.at(-1)?.content === 'string' ? scriptRewriteRequests[1]?.messages?.at(-1)?.content as string : '{}') as {
+      issues: Array<{actual?: number; field?: string; limit?: number; path?: string}>
+    }
+
+    expect(scriptCalls).to.equal(3)
+    expect(coherenceCalls).to.equal(2)
+    expect(timingRewritePayload.issues[0]).to.deep.include({
+      actual: 64,
+      field: 'speakerNote',
+      limit: 57,
+      path: 'scriptSemantics.slides[0].speakerNote',
+    })
+    expect(plan.deck.slides[0]?.speakerNote).to.equal(shortNote)
+  })
+
+  it('rewrites script semantic text with layout-whitespace feedback', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    let coherenceCalls = 0
+    let scriptCalls = 0
+    const invalidBlockText = 'Provider certification\nneeds clean semantic text.'
+    const cleanBlockText = 'Provider certification needs clean semantic text.'
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request) === 'script-semantics') {
+          scriptCalls += 1
+        }
+
+        if (requestStage(request) === 'coherence-review') {
+          coherenceCalls += 1
+
+          return {
+            object: {
+              issues: [],
+              summary: 'The deck is coherent enough for artifact build.',
+            } as T,
+          }
+        }
+
+        const rawPlan = withDeckTransitions({
+          language: 'en-US',
+          outline: deckOutline(),
+          slides: [
+            {
+              duration: 18,
+              motion: 'spotlight',
+              points: ['Stable trace'],
+              semantic: deckSemantic(scriptCalls === 1 ? invalidBlockText : cleanBlockText),
+              sourceRange: [0, 18],
+              speakerNote: 'Explain why provider output must already be clean.',
+              title: 'Certification',
+              type: 'one-big-idea',
+              visual: deckVisual('text'),
+            },
+          ],
+          summary: 'Provider certification stabilizes semantic text.',
+          targetPlatform: 'generic',
+          theme: 'elegant-dark',
+          title: 'Provider Hardening',
+        })
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(
+      llm,
+      '/tmp/script-semantic-text.md',
+      'Provider certification needs clean semantic text.',
+      {
+        deckFormat: 'portrait_1080x1920',
+        durationTargetSeconds: 18,
+        language: 'en-US',
+        maxSlideCharacters: 260,
+        sourceType: 'markdown',
+      },
+    )
+    const scriptRewriteRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics' && (request.messages?.length ?? 0) > 1)
+    const rewritePayload = JSON.parse(typeof scriptRewriteRequest?.messages?.at(-1)?.content === 'string' ? scriptRewriteRequest.messages.at(-1)?.content as string : '{}') as {
+      issues: Array<{field?: string; path?: string}>
+    }
+
+    expect(scriptCalls).to.equal(2)
+    expect(coherenceCalls).to.equal(2)
+    expect(rewritePayload.issues[0]).to.deep.include({
+      field: 'semantic.blockText',
+      path: 'scriptSemantics.slides[0].semantic.blockText',
+    })
+    expect(plan.speakerScript.segments[0]?.text).to.equal('Explain why provider output must already be clean.')
   })
 
   it('rejects visible point text over template character limits instead of clipping it locally', () => {

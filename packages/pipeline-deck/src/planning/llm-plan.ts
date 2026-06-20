@@ -12,6 +12,7 @@ const LLM_DECK_VISUAL_KINDS = ['chart', 'code', 'process', 'table', 'text', 'tit
 const LLM_DECK_TARGET_PLATFORMS = ['douyin', 'kuaishou', 'bilibili', 'youtube', 'xhs', 'generic'] as const
 const LLM_DECK_TRANSITION_TYPES = ['crossfade', 'fade', 'slide-left', 'slide-up'] as const
 const LLM_DECK_THEMES = ['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
+const LLM_DECK_POINT_CHARACTERS_MAX = 28
 export const LLM_TEXT_DECK_MAX_SLIDES = 24
 
 const LLMDeckSourceRangeSchema = z.tuple([
@@ -21,19 +22,31 @@ const LLMDeckSourceRangeSchema = z.tuple([
   message: 'Slide sourceRange end must be greater than start.',
 })
 
+const LLMGeneratedTextSchema = z.string().min(1).superRefine((value, context) => {
+  try {
+    assertNoGeneratedTextControlSyntax(value, 'generated text')
+    cleanGeneratedText(value, 'generated text')
+  } catch (error) {
+    context.addIssue({
+      code: 'custom',
+      message: error instanceof Error ? error.message : 'Generated text must be clean single-line text.',
+    })
+  }
+})
+
 const LLMTextDeckSlideSemanticSchema = z.object({
-  blockText: z.string().min(1),
+  blockText: LLMGeneratedTextSchema,
   blockType: z.enum(LLM_DECK_CONTENT_BLOCK_TYPES),
   claim: z.union([z.object({
     confidence: z.number().min(0).max(1),
-    text: z.string().min(1),
+    text: LLMGeneratedTextSchema,
     type: z.enum(LLM_DECK_CLAIM_TYPES),
   }), z.null()]),
-  momentReason: z.string().min(1),
+  momentReason: LLMGeneratedTextSchema,
   momentScore: z.number().min(0).max(1),
-  momentSummary: z.string().min(1),
-  sourceQuoteText: z.string().min(1),
-  visualStyle: z.string().min(1),
+  momentSummary: LLMGeneratedTextSchema,
+  sourceQuoteText: LLMGeneratedTextSchema,
+  visualStyle: LLMGeneratedTextSchema,
 })
 
 const LLMTextDeckOutlineSchema = z.object({
@@ -61,11 +74,11 @@ const LLMDeckCodeSchema = z.object({
 const LLMDeckComparisonSchema = z.object({
   left: z.object({
     label: z.string().min(1),
-    points: z.array(z.string().min(1)),
+    points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)).min(1).max(3),
   }),
   right: z.object({
     label: z.string().min(1),
-    points: z.array(z.string().min(1)),
+    points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)).min(1).max(3),
   }),
 })
 
@@ -147,7 +160,7 @@ export const LLMTextDeckSlidePlanSchema = z.object({
     comparison: LLMDeckComparisonSchema.optional(),
     durationIntent: z.number().finite().positive(),
     motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
-    points: z.array(z.string().min(1)),
+    points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)),
     quote: LLMDeckQuoteSchema.optional(),
     outlineId: z.string().min(1),
     sectionIds: z.array(z.string().min(1)).min(1),

@@ -1,8 +1,10 @@
 import type {JobState} from '@video-agent/db'
 
 import type {ProviderCallRole} from '../provider/calls.js'
+import type {ProjectAgentStatus} from './agent-status.js'
 
 export interface ProjectStatus {
+  agent: ProjectAgentStatus
   artifacts: string[]
   job: JobState
   projectDir: string

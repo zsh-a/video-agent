@@ -33,6 +33,7 @@ const PROJECT_ROUTES: Partial<Record<string, ProjectRouteHandler>> = {
   render: routeProjectRender,
   rerun: routeProjectRerun,
   status: routeProjectStatus,
+  watch: routeProjectWatch,
   visual: routeProjectVisual,
 }
 
@@ -259,6 +260,61 @@ async function routeProjectStatus({projectId, request, workspaceDir}: ProjectRou
   return jsonResponse(await readProjectStatus(projectId, workspaceDir))
 }
 
+async function routeProjectWatch({projectId, request, workspaceDir}: ProjectRouteContext): Promise<Response> {
+  if (request.method !== 'GET') {
+    return methodNotAllowed()
+  }
+
+  const encoder = new TextEncoder()
+  let lastPayload = ''
+  let interval: ReturnType<typeof setInterval> | undefined
+
+  const stream = new ReadableStream<Uint8Array>({
+    async cancel() {
+      if (interval !== undefined) {
+        clearInterval(interval)
+      }
+    },
+    start(controller) {
+      const send = async () => {
+        try {
+          const [status, events] = await Promise.all([
+            readProjectStatus(projectId, workspaceDir),
+            readProjectEvents(projectId, {limit: 16, workspaceDir}),
+          ])
+          const payload = JSON.stringify({events: events.events, projectStatus: status})
+
+          if (payload === lastPayload) {
+            return
+          }
+
+          lastPayload = payload
+          controller.enqueue(encoder.encode(`event: snapshot\ndata: ${payload}\n\n`))
+        } catch (error) {
+          controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({message: error instanceof Error ? error.message : String(error)})}\n\n`))
+        }
+      }
+
+      void send()
+      interval = setInterval(() => void send(), 1000)
+      request.signal.addEventListener('abort', () => {
+        if (interval !== undefined) {
+          clearInterval(interval)
+        }
+        controller.close()
+      }, {once: true})
+    },
+  })
+
+  return new Response(stream, {
+    headers: {
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+      'content-type': 'text/event-stream; charset=utf-8',
+    },
+  })
+}
+
 async function routeProjectEvents({projectId, request, url, workspaceDir}: ProjectRouteContext): Promise<Response> {
   if (request.method !== 'GET') {
     return methodNotAllowed()
@@ -269,7 +325,7 @@ async function routeProjectEvents({projectId, request, url, workspaceDir}: Proje
       kind: parseOptionalEnum(url.searchParams.get('kind'), ['pipeline', 'provider']),
       limit: parseOptionalInteger(url.searchParams.get('limit')),
       pipelineStage: url.searchParams.get('stage') ?? undefined,
-      pipelineType: parseOptionalEnum(url.searchParams.get('type'), ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']),
+      pipelineType: parseOptionalEnum(url.searchParams.get('type'), ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start']),
       providerRole: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'script', 'tts', 'vlm']),
       providerStatus: parseOptionalEnum(url.searchParams.get('status'), ['failed', 'succeeded']),
       workspaceDir,

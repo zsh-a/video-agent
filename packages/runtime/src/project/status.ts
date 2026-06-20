@@ -2,6 +2,7 @@ import {resolve} from 'node:path'
 
 import {readConfig} from '../shared/config.js'
 import {createConfiguredJobStore} from '../shared/job-store.js'
+import {readProjectAgentStatus} from './agent-status.js'
 import {listProjectArtifactNames} from './artifact-list.js'
 import {readProjectRuntimeSummary} from './runtime-summary.js'
 import type {ProjectStatus} from './status-types.js'
@@ -25,10 +26,14 @@ export async function readProjectStatus(projectId: string, workspaceDir = '.vide
     projectId,
     workspaceDir: resolvedWorkspaceDir,
   }).read()
-  const artifacts = await listProjectArtifactNames(artifactsDir)
-  const summary = await readProjectRuntimeSummary(artifactsDir)
+  const [agent, artifacts, summary] = await Promise.all([
+    readProjectAgentStatus(projectId, resolvedWorkspaceDir),
+    listProjectArtifactNames(artifactsDir),
+    readProjectRuntimeSummary(artifactsDir),
+  ])
 
   return {
+    agent,
     artifacts,
     job,
     projectDir,

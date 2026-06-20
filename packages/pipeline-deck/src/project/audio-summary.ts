@@ -2,11 +2,11 @@ import {probeMedia} from '@video-agent/media'
 import {TranscriptSchema} from '@video-agent/providers'
 import {resolve} from 'node:path'
 
-import {assertFileExists, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
+import {assertFileExists, createProjectAgentRuntime, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
 import {isAudioInputPath} from '../planning/input.js'
 import {createLLMTextDeckProjectPlan} from '../planning/index.js'
 import {writeDeckAudioSummaryPlanArtifacts} from './artifacts.js'
-import {completeDeckJobStages, initializeDeckJob} from './job.js'
+import {initializeDeckJob} from './job.js'
 import {
 	  createDeckJobStore,
 	  createProjectLLMTrace,
@@ -34,13 +34,18 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
   const workspaceDir = workspace.workspaceDir
   const llmTrace = createProjectLLMTrace(workspace, options.trace)
   const jobStore = createDeckJobStore(workspace.projectDir)
+  const agent = createProjectAgentRuntime({
+    jobStore,
+    workspace,
+  })
 
   await initializeDeckJob(jobStore, {
     inputPath,
     projectId: workspace.projectId,
     stages: DECK_SUMMARIZE_STAGES,
   })
-  await jobStore.updateStage('ingest', 'running', undefined, 1)
+  await agent.startRun('Deck audio summary generation started')
+  await agent.startStage('ingest', 'Inspecting source audio')
 
   try {
     const sourceMediaInfo = await probeMedia(inputPath)
@@ -64,8 +69,8 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
       llmTrace: llmTrace.recorder,
     })
 
-    await jobStore.updateStage('ingest', 'completed', undefined, 1)
-    await jobStore.updateStage('transcribe', 'running', undefined, 1)
+    await agent.completeStage('ingest', 'Source audio inspected')
+    await agent.startStage('transcribe', 'Transcribing source audio')
 
     const transcript = TranscriptSchema.parse(await providers.asr.transcribe({
       duration: sourceDuration,
@@ -74,8 +79,9 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     const transcriptSegments = requireExactTranscriptSegments(transcript, 'Deck audio summary planning')
     const text = requireExactTranscriptText(transcript, 'Deck audio summary planning')
 
-    await jobStore.updateStage('transcribe', 'completed', undefined, 1)
-    await jobStore.updateStage('understand', 'running', undefined, 1)
+    await agent.completeStage('transcribe', 'Transcription complete')
+    await agent.startStage('source-map', 'Building transcript source map')
+    await agent.completeStage('source-map', 'Transcript source map prepared')
 
     const language = options.language ?? requireTranscriptLanguage(transcript, 'Deck audio summary planning')
     const plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
@@ -84,16 +90,18 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
 	      language,
 	      maxSlideCharacters: options.maxSlideCharacters ?? DEFAULT_MAX_SLIDE_CHARACTERS,
 	      requiredSlideTypes: options.requiredSlideTypes,
-	      sourceType: 'audio',
+      sourceType: 'audio',
       theme: options.theme,
       title: options.title,
       transcriptSegments,
-    })
+    }, agent)
+    await agent.startStage('timing-preflight', 'Checking script timing')
+    await agent.completeStage('timing-preflight', 'Script timing preflight complete')
 
     const artifacts = await writeDeckAudioSummaryPlanArtifacts(workspace, transcript, plan, llmTrace.path)
 
-    await completeDeckJobStages(jobStore, ['source-map', 'understand', 'brief', 'outline', 'plan-slides', 'script', 'timing-preflight'])
     await jobStore.complete('completed')
+    await agent.completeRun('Deck audio summary generation complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -106,7 +114,7 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     }
   } catch (error) {
     const tracedError = withLLMTracePath(error, llmTrace.path)
-    await jobStore.updateStage('transcribe', 'failed', tracedError.message, 1)
+    await agent.failRun(tracedError)
     throw tracedError
   }
 }

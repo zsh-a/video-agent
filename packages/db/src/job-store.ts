@@ -9,10 +9,15 @@ export type JobStageStatus = 'completed' | 'failed' | 'pending' | 'running'
 export interface JobStageState {
   attempt?: number
   completedAt?: string
+  current?: number
   message?: string
   name: string
+  percent?: number
   startedAt?: string
   status: JobStageStatus
+  step?: string
+  total?: number
+  unit?: string
 }
 
 export interface JobState {
@@ -39,6 +44,16 @@ export interface JobStore {
   initialize(options: InitializeJobOptions): Promise<JobState>
   read(): Promise<JobState>
   updateStage(name: string, status: JobStageStatus, message?: string, attempt?: number): Promise<JobState>
+  updateStageProgress(name: string, progress: JobStageProgress): Promise<JobState>
+}
+
+export interface JobStageProgress {
+  current?: number
+  message?: string
+  percent?: number
+  step?: string
+  total?: number
+  unit?: string
 }
 
 export class JsonJobStore implements JobStore {
@@ -94,9 +109,14 @@ export class JsonJobStore implements JobStore {
         ...stage,
         attempt: attempt ?? stage.attempt,
         completedAt: status === 'completed' || status === 'failed' ? now : undefined,
-        message: status === 'failed' ? message : undefined,
+        current: status === 'running' ? stage.current : undefined,
+        message: status === 'failed' ? message : status === 'running' ? message : undefined,
+        percent: status === 'running' ? stage.percent : undefined,
         startedAt: status === 'running' ? now : stage.startedAt,
         status,
+        step: status === 'running' ? stage.step : undefined,
+        total: status === 'running' ? stage.total : undefined,
+        unit: status === 'running' ? stage.unit : undefined,
       }
     })
     const runStatus = stages.some((stage) => stage.status === 'failed') ? 'failed' : stages.every((stage) => stage.status === 'completed') ? 'completed' : 'running'
@@ -105,6 +125,35 @@ export class JsonJobStore implements JobStore {
       completedAt: runStatus === 'completed' || runStatus === 'failed' ? now : undefined,
       stages,
       status: runStatus,
+      updatedAt: now,
+    }
+
+    await this.write(updated)
+
+    return updated
+  }
+
+  async updateStageProgress(name: string, progress: JobStageProgress): Promise<JobState> {
+    const state = await this.read()
+    const now = new Date().toISOString()
+    const stages = state.stages.map((stage) => {
+      if (stage.name !== name) {
+        return stage
+      }
+
+      return {
+        ...stage,
+        current: progress.current,
+        message: progress.message,
+        percent: progress.percent,
+        step: progress.step,
+        total: progress.total,
+        unit: progress.unit,
+      }
+    })
+    const updated: JobState = {
+      ...state,
+      stages,
       updatedAt: now,
     }
 

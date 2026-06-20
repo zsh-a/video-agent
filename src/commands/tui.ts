@@ -11,6 +11,8 @@ import {readTuiSnapshot, runTuiAction} from '../ui/actions/index.js'
 import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../ui/format/console.js'
 import {type TuiManagerActionRequest, launchTuiManager} from '../ui/manager/index.js'
 
+const PIPELINE_EVENT_TYPES = ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start'] as const
+
 export default class Tui extends Command {
   static description = 'Manage video-agent workspace projects in the terminal'
   static flags = {
@@ -24,7 +26,7 @@ export default class Tui extends Command {
     'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: ['asr', 'script', 'tts', 'vlm']}),
     'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: ['failed', 'succeeded']}),
     'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
-    'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: ['artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start']}),
+    'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: [...PIPELINE_EVENT_TYPES]}),
     'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting bundle format when --action export is used'}),
     'export-format': Flags.string({description: 'Export format when --action export is used. Omit to infer from the latest render output.', options: ['video', 'bundle']}),
     'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),

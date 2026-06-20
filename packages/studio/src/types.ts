@@ -6,8 +6,14 @@ export type ProjectSummary = {
 
 export type StageSummary = {
   attempt?: number
+  current?: number
+  message?: string
   name: string
+  percent?: number
   status: string
+  step?: string
+  total?: number
+  unit?: string
 }
 
 export type ArtifactSummary = {
@@ -26,6 +32,7 @@ export type RenderSummary = {
 }
 
 export type ProjectStatus = {
+  agent?: AgentStatus
   job: {
     pipeline: string
     stages: StageSummary[]
@@ -36,6 +43,36 @@ export type ProjectStatus = {
     quality: {errors: number; issues: number; warnings: number}
     render: RenderSummary
   }
+}
+
+export type AgentStatus = {
+  currentRun?: AgentRun
+  runs: AgentRun[]
+}
+
+export type AgentRun = {
+  completedAt?: string
+  failedAt?: string
+  message?: string
+  runId: string
+  startedAt: string
+  status: string
+  steps: AgentStep[]
+}
+
+export type AgentStep = {
+  completedAt?: string
+  current?: number
+  durationMs?: number
+  failedAt?: string
+  message?: string
+  name: string
+  percent?: number
+  stage?: string
+  startedAt: string
+  status: string
+  total?: number
+  unit?: string
 }
 
 export type ProviderRequirement = {
@@ -170,6 +207,11 @@ export type DashboardData = {
   quality?: QualityDetails
   renderOutput?: RenderOutput
   visualSamples: VisualSample[]
+}
+
+export type ProjectSnapshot = {
+  events: ProjectEvent[]
+  projectStatus: ProjectStatus
 }
 
 export type ActionState = {
