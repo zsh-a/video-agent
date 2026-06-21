@@ -36,6 +36,10 @@ const LLMGeneratedTextSchema = z.string().min(1).superRefine((value, context) =>
   }
 })
 
+const LLMSourceQuoteTextSchema = z.string().min(1).refine((value) => value.trim().length > 0, {
+  message: 'Source quote text must not be blank.',
+})
+
 const LLMTextDeckSlideSemanticSchema = z.object({
   blockText: LLMGeneratedTextSchema,
   blockType: z.enum(LLM_DECK_CONTENT_BLOCK_TYPES),
@@ -47,7 +51,7 @@ const LLMTextDeckSlideSemanticSchema = z.object({
   momentReason: LLMGeneratedTextSchema,
   momentScore: z.number().min(0).max(1),
   momentSummary: LLMGeneratedTextSchema,
-  sourceQuoteText: LLMGeneratedTextSchema,
+  sourceQuoteText: LLMSourceQuoteTextSchema,
   visualStyle: LLMGeneratedTextSchema,
 })
 
@@ -446,7 +450,7 @@ function normalizeLLMSlideSemantic(semantic: LLMTextDeckSlideSemantic, index: nu
     momentReason: cleanRequiredLLMText(semantic.momentReason, `slide ${index + 1} semantic.momentReason`),
     momentScore: semantic.momentScore,
     momentSummary: cleanRequiredLLMText(semantic.momentSummary, `slide ${index + 1} semantic.momentSummary`),
-    sourceQuoteText: cleanRequiredLLMText(semantic.sourceQuoteText, `slide ${index + 1} semantic.sourceQuoteText`),
+    sourceQuoteText: requireLLMSourceQuoteText(semantic.sourceQuoteText, `slide ${index + 1} semantic.sourceQuoteText`),
     visualStyle: cleanRequiredLLMText(semantic.visualStyle, `slide ${index + 1} semantic.visualStyle`),
   }
 }
@@ -668,6 +672,14 @@ function cleanRequiredLLMText(value: string, field: string): string {
   }
 
   return cleaned
+}
+
+function requireLLMSourceQuoteText(value: string, field: string): string {
+  if (value.trim() === '') {
+    throw new Error(`LLM Deck plan ${field} is empty.`)
+  }
+
+  return value
 }
 
 function cleanOptionalLLMText(value: string | undefined, field: string): string | undefined {

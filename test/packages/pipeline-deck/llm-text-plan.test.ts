@@ -449,6 +449,7 @@ describe('Deck Explainer LLM text planning', () => {
     const slidePlanRequest = requests.find((request) => requestStage(request) === 'slide-plan') as GenerateObjectRequest<unknown>
     const slidePlanPayload = requestPayload(slidePlanRequest) as {
       instructions: string[]
+      requiredSlides: Array<{goal: string; outlineId: string; slideIndex: number}>
       target: {
         contentDensity: {
           level: string
@@ -466,6 +467,13 @@ describe('Deck Explainer LLM text planning', () => {
     const scriptRequest = requests.find((request) => requestStage(request) === 'script-semantics') as GenerateObjectRequest<unknown>
     const scriptPayload = requestPayload(scriptRequest) as {
       instructions: string[]
+      requiredSlides: Array<{
+        outlineId: string
+        sourceRangeHint: {basis: 'planned-presentation-timeline'; range: [number, number]; unit: 'seconds'}
+        sourceSectionIds: string[]
+        slideIndex: number
+        title: string
+      }>
       target: {
         contentDensity: {
           level: string
@@ -490,6 +498,14 @@ describe('Deck Explainer LLM text planning', () => {
     })
     expect(slidePlanRequest.promptMetadata?.inputHash).to.match(/^[a-f0-9]{64}$/u)
     expect(slidePlanPayload.instructions.join('\n')).to.include('target.contentDensity.visibleTextPolicy')
+    expect(slidePlanPayload.instructions.join('\n')).to.include('Use requiredSlides as the binding checklist')
+    expect(slidePlanPayload.requiredSlides).to.deep.equal([
+      {
+        goal: 'Explain outline section 1.',
+        outlineId: 'outline-001',
+        slideIndex: 0,
+      },
+    ])
     expect(scriptPayload.target.contentDensity.level).to.equal('detailed')
     expect(scriptPayload.target.contentDensity.narrationPolicy).to.include('concrete steps')
     expect(scriptRequest.promptMetadata).to.deep.include({
@@ -499,6 +515,92 @@ describe('Deck Explainer LLM text planning', () => {
       version: '2026-06-20',
     })
     expect(scriptPayload.instructions.join('\n')).to.include('target.contentDensity.narrationPolicy')
+    expect(scriptPayload.instructions.join('\n')).to.include('single-line text')
+    expect(scriptPayload.requiredSlides).to.deep.equal([
+      {
+        outlineId: 'outline-001',
+        sourceRangeHint: {
+          basis: 'planned-presentation-timeline',
+          range: [0, 12],
+          unit: 'seconds',
+        },
+        sourceSectionIds: ['section-001'],
+        slideIndex: 0,
+        title: 'Chunked Planning',
+      },
+    ])
+  })
+
+  it('passes planned timeline ranges into script-semantics sourceRange hints', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const llm = createStaticStagedLLM(withDeckTransitions({
+      language: 'en-US',
+      outline: deckOutline(2),
+      slides: [
+        {
+          duration: 5,
+          motion: 'soft-scale',
+          points: ['First step'],
+          semantic: deckSemantic('First step turns evidence into action.'),
+          sourceRange: [0, 5],
+          speakerNote: 'Explain the first operational step.',
+          title: 'First Step',
+          transitionOut: {duration: 0.55, type: 'crossfade'},
+          type: 'summary',
+          visual: deckVisual('text'),
+        },
+        {
+          duration: 7,
+          motion: 'soft-scale',
+          points: ['Second step'],
+          semantic: deckSemantic('Second step keeps validation explicit.'),
+          sourceRange: [5, 12],
+          speakerNote: 'Explain the second operational step.',
+          title: 'Second Step',
+          transitionOut: null,
+          type: 'summary',
+          visual: deckVisual('text'),
+        },
+      ],
+      summary: 'Timeline hints cover the planned deck duration.',
+      targetPlatform: 'generic',
+      theme: 'elegant-dark',
+      title: 'Timeline Hints',
+    }), requests)
+
+    await createLLMTextDeckProjectPlan(llm, '/tmp/timeline-hints.md', 'First step.\n\nSecond step.', {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 12,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      slideCountMax: 3,
+      slideCountTarget: 2,
+      sourceType: 'markdown',
+    })
+
+    const scriptPayload = requestPayload(requests.find((request) => requestStage(request) === 'script-semantics') as GenerateObjectRequest<unknown>) as {
+      instructions: string[]
+      requiredSlides: Array<{sourceRangeHint: {basis: string; range: [number, number]; unit: string}; sourceSectionIds: string[]}>
+    }
+
+    expect(scriptPayload.instructions.join('\n')).to.include('planned presentation timeline range in seconds')
+    expect(scriptPayload.instructions.join('\n')).to.include('copy its range exactly')
+    expect(scriptPayload.requiredSlides.map((slide) => slide.sourceRangeHint)).to.deep.equal([
+      {
+        basis: 'planned-presentation-timeline',
+        range: [0, 5],
+        unit: 'seconds',
+      },
+      {
+        basis: 'planned-presentation-timeline',
+        range: [5, 12],
+        unit: 'seconds',
+      },
+    ])
+    expect(scriptPayload.requiredSlides.map((slide) => slide.sourceSectionIds)).to.deep.equal([
+      ['section-001'],
+      ['section-002'],
+    ])
   })
 
   it('rejects overfilled comparison slide-plan data at the schema boundary', () => {
@@ -609,6 +711,34 @@ describe('Deck Explainer LLM text planning', () => {
 
     expect(result.success).to.equal(false)
     expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.semantic.blockText')).to.equal(true)
+  })
+
+  it('allows source quote text to preserve source Markdown evidence at the schema boundary', () => {
+    const result = LLMTextDeckScriptSemanticsSchema.safeParse({
+      outline: {
+        sections: [{goal: 'Explain source-backed evidence.', title: 'Source Evidence'}],
+      },
+      slides: [
+        {
+          duration: 12,
+          semantic: {
+            blockText: 'Source quote evidence can preserve original syntax.',
+            blockType: 'summary',
+            claim: null,
+            momentReason: 'The slide explains why source quote text is evidence metadata.',
+            momentScore: 0.8,
+            momentSummary: 'Source quote text remains faithful to the source.',
+            sourceQuoteText: '| Dimension | Question |\n| --- | --- |\n| Demand certainty | Is this already occurring? |',
+            visualStyle: 'Summary card',
+          },
+          slideIndex: 0,
+          sourceRange: [0, 12],
+          speakerNote: 'Explain why source quote evidence can retain source formatting.',
+        },
+      ],
+    })
+
+    expect(result.success).to.equal(true)
   })
 
   it('rejects missing input source types instead of inferring them from file extensions', async () => {
@@ -1054,6 +1184,98 @@ describe('Deck Explainer LLM text planning', () => {
     expect(plan.scriptTimingReport.summary.errors).to.equal(0)
   })
 
+  it('asks the LLM to rewrite slide plan when slide-plan entries are missing before final assembly', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const rawPlan = withDeckTransitions({
+      language: 'en-US',
+      outline: deckOutline(2),
+      slides: [
+        {
+          duration: 4,
+          motion: 'soft-scale' as const,
+          points: ['First step'],
+          semantic: deckSemantic('First step keeps planning grounded.'),
+          sourceRange: [0, 4] as [number, number],
+          speakerNote: 'Explain the first grounded planning step.',
+          title: 'First Step',
+          transitionOut: {duration: 0.55, type: 'crossfade' as const},
+          type: 'summary' as const,
+          visual: deckVisual('text'),
+        },
+        {
+          duration: 4,
+          motion: 'soft-scale' as const,
+          points: ['Second step'],
+          semantic: deckSemantic('Second step closes the validation loop.'),
+          sourceRange: [4, 8] as [number, number],
+          speakerNote: 'Explain how the second step closes the validation loop.',
+          title: 'Second Step',
+          transitionOut: null,
+          type: 'summary' as const,
+          visual: deckVisual('text'),
+        },
+      ],
+      summary: 'Two steps keep validation grounded.',
+      targetPlatform: 'generic' as const,
+      theme: 'elegant-dark' as const,
+      title: 'Two Step Plan',
+    })
+    let slidePlanCalls = 0
+
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request) === 'slide-plan') {
+          slidePlanCalls += 1
+          const slidePlan = stagedDeckObjectForRequest(request, rawPlan) as {
+            slides: unknown[]
+          }
+
+          if (slidePlanCalls === 1) {
+            return {
+              object: {
+                ...slidePlan,
+                slides: slidePlan.slides.slice(0, 1),
+              } as T,
+            }
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/slide-plan-cardinality.md', 'Explain two validation steps.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+    const rewriteRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && (request.messages?.length ?? 0) > 1)
+    const rewritePayload = JSON.parse(String(rewriteRequest?.messages?.at(-1)?.content ?? '{}')) as {
+      issues: Array<{code: string; path?: string; stage: string}>
+    }
+
+    expect(slidePlanCalls).to.equal(2)
+    expect(rewritePayload.issues[0]).to.deep.include({
+      code: 'SLIDE_PLAN_CARDINALITY',
+      path: 'slidePlan.slides',
+      stage: 'slide-plan',
+    })
+    expect(plan.deck.slides).to.have.length(2)
+    expect(plan.scriptTimingReport.summary.errors).to.equal(0)
+  })
+
   it('keeps low-depth coherence warnings in the report without forcing a rewrite', async () => {
     const requests: Array<GenerateObjectRequest<unknown>> = []
     const weakPlan = createOneSlideRawPlan()
@@ -1123,6 +1345,86 @@ describe('Deck Explainer LLM text planning', () => {
     expect(coherenceCalls).to.equal(1)
     expect(rewriteRequest).to.equal(undefined)
     expect(plan.deck.slides[0]?.title).to.equal('Generic Summary')
+    expect(plan.coherenceReport.summary.errors).to.equal(0)
+    expect(plan.coherenceReport.summary.warnings).to.equal(1)
+  })
+
+  it('does not let later coherence reviews upgrade the same warning into a blocking error', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const rawPlan = createOneSlideRawPlan()
+    let coherenceCalls = 0
+
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'coherence-review') {
+          coherenceCalls += 1
+
+          if (coherenceCalls === 1) {
+            return {
+              object: {
+                issues: [
+                  {
+                    code: 'LOW_INFORMATION_DEPTH',
+                    message: 'The slide could include one more practical detail, but it remains reviewable.',
+                    path: 'slides[0]',
+                    severity: 'warning',
+                    slideIndex: 0,
+                    stage: 'slide-plan',
+                  },
+                  {
+                    code: 'COHERENCE_GAP',
+                    message: 'The narration needs a clearer bridge from the visible point to the conclusion.',
+                    path: 'scriptSemantics.slides[0].speakerNote',
+                    severity: 'error',
+                    slideIndex: 0,
+                    stage: 'script-semantics',
+                  },
+                ],
+                summary: 'One warning and one script issue.',
+              } as T,
+            }
+          }
+
+          return {
+            object: {
+              issues: [
+                {
+                  code: 'LOW_INFORMATION_DEPTH',
+                  message: 'The same slide detail concern is now reported too strongly.',
+                  path: 'slides[0]',
+                  severity: 'error',
+                  slideIndex: 0,
+                  stage: 'slide-plan',
+                },
+              ],
+              summary: 'The prior warning should remain non-blocking.',
+            } as T,
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/coherence-warning-stability.md', 'Explain warning stability.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    expect(coherenceCalls).to.equal(2)
     expect(plan.coherenceReport.summary.errors).to.equal(0)
     expect(plan.coherenceReport.summary.warnings).to.equal(1)
   })
@@ -1296,6 +1598,12 @@ describe('Deck Explainer LLM text planning', () => {
     })
     const scriptRewriteRequests = requests.filter((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics' && (request.messages?.length ?? 0) > 1)
     const slidePlanRewriteRequest = requests.find((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && (request.messages?.length ?? 0) > 1)
+    const coherencePayloads = requests
+      .filter((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'coherence-review')
+      .map((request) => requestPayload(request as GenerateObjectRequest<unknown>) as {
+        instructions: string[]
+        previousIssues: Array<{code: string; message: string; stage: string}>
+      })
     const rewritePayload = JSON.parse(String(slidePlanRewriteRequest?.messages?.at(-1)?.content ?? '{}')) as {
       issues: Array<{
         code: string
@@ -1309,6 +1617,12 @@ describe('Deck Explainer LLM text planning', () => {
     }
 
     expect(coherenceCalls).to.equal(3)
+    expect(coherencePayloads[0]?.previousIssues).to.deep.equal([])
+    expect(coherencePayloads[1]?.instructions.join('\n')).to.include('Use previousIssues')
+    expect(coherencePayloads[1]?.previousIssues[0]).to.deep.include({
+      code: 'LOW_INFORMATION_DEPTH',
+      stage: 'script-semantics',
+    })
     expect(scriptRewriteRequests).to.have.length(1)
     expect(rewritePayload.issues[0]).to.deep.include({
       code: 'LOW_INFORMATION_DEPTH',

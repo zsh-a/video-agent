@@ -108,6 +108,38 @@ describe('Deck timing updates from TTS', () => {
     expect(report.segments[0]?.issueCodes).to.include('deck.timing_drift.short_warning')
   })
 
+  it('repairs deck timings from TTS output even when LLM-authored timing drift is large', () => {
+    const plan = makeTextDeckProjectPlan('zh-CN')
+
+    plan.speakerScript.segments[0] = {
+      estimatedDuration: 50,
+      slideId: 'slide-001',
+      text: '这段讲稿由 TTS 的实际音频时长决定最终画面时间轴。',
+    }
+    plan.timedDeck.timings[0] = {end: 50, slideId: 'slide-001', start: 0}
+    plan.mediaInfo.duration = 50
+
+    const update = createDeckVoiceoverUpdate({
+      currentMediaInfo: plan.mediaInfo,
+      currentSelectedMoments: plan.selectedMoments,
+      currentStoryboard: plan.storyboard,
+      currentTimedDeck: plan.timedDeck,
+      deck: plan.deck,
+      speakerScript: plan.speakerScript,
+      ttsSegments: [
+        {duration: 20, narrationId: 'narration-1', path: 'audio/tts/0001.wav'},
+      ],
+    })
+
+    expect(update.timingDriftReport.summary.errors).to.equal(1)
+    expect(update.timingDriftReport.segments[0]?.issueCodes).to.include('deck.timing_drift.short_error')
+    expect(update.timedDeck.timings).to.deep.equal([
+      {end: 20, slideId: 'slide-001', start: 0},
+    ])
+    expect(update.mediaInfo.duration).to.equal(20)
+    expect(update.narration.segments[0]?.duration).to.equal(20)
+  })
+
   it('rejects invalid exact ASR segments instead of silently filtering them', () => {
     expect(() => requireExactTranscriptSegments({
       language: 'en-US',

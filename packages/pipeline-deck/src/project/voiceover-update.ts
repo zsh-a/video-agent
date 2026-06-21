@@ -6,7 +6,7 @@ import {NarrationSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from
 import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report.js'
 import {createDeckNarrationFromTimings, createSlideTimingsFromTts, createTextTimeline, deckNarrationIdForIndex, updateSelectedMomentsTiming, updateStoryboardTiming} from '../planning/timing.js'
 import type {DeckVoiceover} from './voiceover-types.js'
-import {assertDeckTimingDrift, createDeckTimingDriftReport} from '../quality/timing-drift.js'
+import {createDeckTimingDriftReport} from '../quality/timing-drift.js'
 
 export interface DeckVoiceoverUpdate {
   deckVoiceover: DeckVoiceover
@@ -41,8 +41,6 @@ export function createDeckVoiceoverUpdate(input: {
     speakerScript: input.speakerScript,
     ttsSegments: input.ttsSegments,
   })
-
-  assertDeckTimingDrift(timingDriftReport)
 
   const timings = createSlideTimingsFromTts(input.speakerScript, input.currentTimedDeck, input.ttsSegments)
   const totalDuration = timings.at(-1)?.end ?? 0
