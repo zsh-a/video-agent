@@ -67,6 +67,10 @@ export interface DeckReviewSlideReport {
     time: number
   }
   points?: string[]
+  processSteps?: Array<{
+    detail?: string
+    label: string
+  }>
   slideId: string
   speakerNote?: string
   start: number
@@ -231,8 +235,9 @@ function createDeckReviewSlideReport(slide: Slide, index: number, timing: SlideT
             ...(keyframe.size === undefined ? {} : {size: keyframe.size}),
             time: keyframe.time,
           },
-        }),
+    }),
     ...(slide.points.length === 0 ? {} : {points: slide.points}),
+    ...(slide.process === undefined ? {} : {processSteps: slide.process.steps}),
     slideId: slide.slideId,
     ...(slide.speakerNote === undefined ? {} : {speakerNote: slide.speakerNote}),
     start,
@@ -322,6 +327,9 @@ function renderDeckReviewSlideHtml(slide: DeckReviewSlideReport): string {
   const points = slide.points === undefined
     ? ''
     : `<ul class="points">${slide.points.map((point) => `<li>${escapeHtml(point)}</li>`).join('')}</ul>`
+  const processSteps = slide.processSteps === undefined
+    ? ''
+    : `<ol class="points">${slide.processSteps.map((step) => `<li>${escapeHtml(step.label)}${step.detail === undefined ? '' : ` - ${escapeHtml(step.detail)}`}</li>`).join('')}</ol>`
   const chartBars = slide.chartBars === undefined
     ? ''
     : `<ul class="points">${slide.chartBars.map((bar) => `<li>${escapeHtml(bar.label)}: ${Math.round(bar.value * 100)}%${bar.caption === undefined ? '' : ` - ${escapeHtml(bar.caption)}`}</li>`).join('')}</ul>`
@@ -334,6 +342,7 @@ function renderDeckReviewSlideHtml(slide: DeckReviewSlideReport): string {
             <div class="slide-title">${slide.index}. ${escapeHtml(slide.title)}</div>
             <div class="meta">${escapeHtml(slide.type)} &middot; ${slide.start}s-${slide.end}s &middot; keyframe ${frameState}</div>
             ${chartBars}
+            ${processSteps}
             ${points}
             ${note}
           </div>

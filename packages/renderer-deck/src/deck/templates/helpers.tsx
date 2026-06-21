@@ -1,4 +1,4 @@
-import type {DeckComparison, Slide} from '@video-agent/ir'
+import type {DeckComparison, DeckProcess, Slide} from '@video-agent/ir'
 
 export function comparisonForSlide(slide: Slide): DeckComparison | undefined {
   if (
@@ -28,4 +28,12 @@ export function requireSlidePoints(slide: Slide, template: string): string[] {
   }
 
   return slide.points
+}
+
+export function requireSlideProcess(slide: Slide, template: string): DeckProcess {
+  if (slide.process === undefined || slide.process.steps.length === 0) {
+    throw new Error(`Deck ${template} slide "${slide.slideId}" is missing visible process steps.`)
+  }
+
+  return slide.process
 }

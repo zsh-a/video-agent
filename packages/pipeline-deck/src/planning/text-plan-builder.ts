@@ -10,12 +10,13 @@ import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report
 import {createDeckNarrationFromTimings, createDeckStoryboard, createSlideTimingsFromSpeakerScript, createTextTimeline} from './timing.js'
 import {createDeckCoverageReport, assertDeckCoverage} from '../quality/coverage.js'
 import {assertDeckScriptTiming, createDeckScriptTimingReport} from '../quality/script-timing.js'
+import {roundSeconds} from '../shared/utils.js'
 
 export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: string, rawPlan: LLMTextDeckPlan, options: TextDeckProjectPlanOptions): TextDeckProjectPlan {
   const planTitle = options.title ?? requireLLMPlanText(rawPlan.title, 'title')
   const planSummary = requireLLMPlanText(rawPlan.summary, 'summary')
   const planLanguage = requireLLMPlanText(rawPlan.language, 'language')
-  const slides = normalizeLLMTextDeckSlides(rawPlan)
+  const slides = normalizeSlideDurations(normalizeLLMTextDeckSlides(rawPlan), options.durationTargetSeconds)
   const sourceType = requireDeckSourceType(options.sourceType)
   const sourceMap = requireDeckSourceMap(options.sourceMap)
   const contentAnalysis = DeckContentAnalysisSchema.parse(requireStagedArtifact(options.contentAnalysis, 'content-analysis.json'))
@@ -43,6 +44,7 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
       evidence: createLLMSlideEvidence(sourceType, slideId, slide),
       motion: slide.motion,
       points: slide.points,
+      ...(slide.process === undefined ? {} : {process: slide.process}),
       ...(slide.quote === undefined ? {} : {quote: slide.quote}),
       slideId,
       speakerNote: slide.speakerNote,
@@ -132,6 +134,39 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
     timedDeck,
     timeline,
   }
+}
+
+function normalizeSlideDurations(slides: NormalizedLLMTextDeckSlide[], durationTargetSeconds: number | undefined): NormalizedLLMTextDeckSlide[] {
+  if (durationTargetSeconds === undefined) {
+    return slides
+  }
+
+  const totalDuration = slides.reduce((sum, slide) => sum + slide.duration, 0)
+
+  if (totalDuration <= 0) {
+    throw new Error('Deck LLM slide durations must contain a positive total before target normalization.')
+  }
+
+  const scale = durationTargetSeconds / totalDuration
+  let cursor = 0
+
+  return slides.map((slide, index) => {
+    const isLastSlide = index === slides.length - 1
+    const duration = isLastSlide
+      ? roundSeconds(durationTargetSeconds - cursor)
+      : roundSeconds(slide.duration * scale)
+
+    if (duration <= 0) {
+      throw new Error(`Deck LLM slide ${index + 1} normalized duration must stay positive.`)
+    }
+
+    cursor = roundSeconds(cursor + duration)
+
+    return {
+      ...slide,
+      duration,
+    }
+  })
 }
 
 function assertDeckVisibleTextWithinLimit(deck: Deck, limit: number): void {

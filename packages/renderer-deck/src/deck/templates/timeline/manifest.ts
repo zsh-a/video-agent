@@ -5,7 +5,7 @@ export const timelineManifest = {
   fields: ['title', 'points'],
   limits: {
     items: 5,
-    point_chars: 28,
+    point_chars: 40,
     title_chars: 28,
   },
   motionPresets: ['line-draw', 'progressive-reveal', 'stagger-up'],

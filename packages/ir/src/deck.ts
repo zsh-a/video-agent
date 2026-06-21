@@ -156,7 +156,7 @@ export const DeckBriefSchema = z.object({
   requiredSectionIds: z.array(z.string().min(1)),
   source: z.literal('content-analysis.json'),
   styleIntent: z.string().min(1),
-  targetDurationSeconds: z.number().finite().positive().optional(),
+  targetDurationSeconds: z.number().finite().positive(),
   targetSlideCount: z.number().int().positive(),
   title: z.string().min(1),
   version: z.literal(1),
@@ -311,6 +311,15 @@ export const DeckComparisonSchema = z.object({
   right: DeckComparisonSideSchema,
 })
 
+export const DeckProcessStepSchema = z.object({
+  detail: z.string().min(1).optional(),
+  label: z.string().min(1),
+})
+
+export const DeckProcessSchema = z.object({
+  steps: z.array(DeckProcessStepSchema).min(2).max(7),
+})
+
 export const DeckQuoteSchema = z.object({
   attribution: z.string().min(1).optional(),
   text: z.string().min(1),
@@ -349,6 +358,7 @@ export const SlideSchema = z.object({
   evidence: z.array(EvidenceSchema),
   motion: DeckMotionPresetSchema,
   points: z.array(z.string().min(1)),
+  process: DeckProcessSchema.optional(),
   quote: DeckQuoteSchema.optional(),
   slideId: z.string().min(1),
   speakerNote: z.string().optional(),
@@ -507,6 +517,8 @@ export type DeckCoverageReport = z.infer<typeof DeckCoverageReportSchema>
 export type DeckFormat = z.infer<typeof DeckFormatSchema>
 export type DeckInputMode = z.infer<typeof DeckInputModeSchema>
 export type DeckMotionPreset = z.infer<typeof DeckMotionPresetSchema>
+export type DeckProcess = z.infer<typeof DeckProcessSchema>
+export type DeckProcessStep = z.infer<typeof DeckProcessStepSchema>
 export type DeckQualityIssue = z.infer<typeof DeckQualityIssueSchema>
 export type DeckQualityReport = z.infer<typeof DeckQualityReportSchema>
 export type DeckQuote = z.infer<typeof DeckQuoteSchema>

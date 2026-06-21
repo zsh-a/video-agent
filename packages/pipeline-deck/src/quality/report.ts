@@ -114,7 +114,7 @@ function createDeckSlideQualityMetrics(slide: Slide, duration: number): DeckSlid
     density: deckTextDensity(textCharacters),
     duration,
     estimatedCharactersPerSecond: duration <= 0 ? 0 : roundSeconds(textCharacters / duration),
-    pointCount: slide.points.length,
+    pointCount: slide.type === 'process' ? (slide.process?.steps.length ?? 0) : slide.points.length,
     slideId: slide.slideId,
     template: slide.type,
     textCharacters,
@@ -145,7 +145,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     })
   }
 
-  if (metric.pointCount > 4) {
+  if (slide.type !== 'process' && metric.pointCount > 4) {
     issues.push({
       code: 'deck.too_many_points',
       message: `Slide ${slide.slideId} has ${metric.pointCount} points; target is 4 or fewer.`,
@@ -220,6 +220,10 @@ function createRequiredTemplateContentIssues(slide: Slide): DeckQualityIssue[] {
 
   if (slide.type === 'code' && slide.code === undefined) {
     issues.push(createSlideContentIssue(slide, 'deck.code_missing_block', 'is a code slide without a code block.'))
+  }
+
+  if (slide.type === 'process' && slide.process === undefined) {
+    issues.push(createSlideContentIssue(slide, 'deck.process_missing_steps', 'is a process slide without structured process steps.'))
   }
 
   if (slide.type === 'cta' && slide.points.length === 0) {

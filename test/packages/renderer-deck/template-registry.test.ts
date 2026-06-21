@@ -143,7 +143,7 @@ describe('resolveSlideTemplate', () => {
       slideId: 'slide-process',
       title: 'Process',
       type: 'process',
-    })).to.throw('missing visible points')
+    })).to.throw('missing visible process steps')
 
     expect(() => resolveSlideTemplate('timeline').render({
       blockIds: [],
@@ -160,7 +160,7 @@ describe('resolveSlideTemplate', () => {
 describe('Deck visible point components', () => {
   it('throw on empty required visible content instead of rendering nothing', () => {
     expect(() => BulletList({className: 'points', max: 3, points: []})).to.throw('no empty list render fallback is allowed')
-    expect(() => ProcessList({points: []})).to.throw('no empty process render fallback is allowed')
+    expect(() => ProcessList({process: {steps: []}})).to.throw('no empty process render fallback is allowed')
     expect(() => Timeline({points: []})).to.throw('no empty timeline render fallback is allowed')
   })
 })
@@ -239,6 +239,27 @@ describe('validateSlideAgainstTemplateManifest', () => {
     expect(issues).to.have.length(0)
   })
 
+  it('returns no issues for a valid structured process slide', () => {
+    const issues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'line-draw',
+      points: [],
+      process: {
+        steps: [
+          {detail: 'Check orders and capacity.', label: 'Separate demand'},
+          {detail: 'Map volume and price to revenue.', label: 'Translate financials'},
+          {detail: 'Confirm exposure and falsifiers.', label: 'Validate thesis'},
+        ],
+      },
+      slideId: 'slide-process',
+      title: 'Workflow',
+      type: 'process',
+    })
+
+    expect(issues).to.have.length(0)
+  })
+
   it('detects point overflow for three-points', () => {
     const issues = validateSlideAgainstTemplateManifest({
       blockIds: [],
@@ -251,6 +272,83 @@ describe('validateSlideAgainstTemplateManifest', () => {
     })
 
     expect(issues.some((issue) => issue.includes('point limit 3'))).to.equal(true)
+  })
+
+  it('allows concise mixed code and Chinese points in three-points slides', () => {
+    const issues = validateSlideAgainstTemplateManifest({
+      blockIds: [],
+      evidence: [],
+      motion: 'progressive-reveal',
+      points: [
+        '安装: pip install edgartools',
+        '导入: from edgar import Company',
+        '身份设置: EDGAR_IDENTITY=Name/Email',
+      ],
+      slideId: 'slide-sec',
+      title: 'SEC助手',
+      type: 'three-points',
+    })
+
+    expect(issues).to.have.length(0)
+  })
+
+  it('allows practical compact points up to the shared 40 character limit', () => {
+    const slides: Parameters<typeof validateSlideAgainstTemplateManifest>[0][] = [
+      {
+        blockIds: [],
+        evidence: [],
+        motion: 'cinematic-rise',
+        points: ['News to verifiable hypotheses'],
+        slideId: 'slide-hero',
+        title: 'Alpha',
+        type: 'hero',
+      },
+      {
+        blockIds: [],
+        evidence: [],
+        motion: 'soft-scale',
+        points: [
+          'Core question: Is demand observable?',
+          'Evidence: orders, inventory, utilization',
+          'If not observable, classify as watchlist',
+        ],
+        slideId: 'slide-idea',
+        title: 'Demand Check',
+        type: 'one-big-idea',
+      },
+      {
+        blockIds: [],
+        evidence: [],
+        motion: 'spotlight',
+        points: ['Higher value = greater price leverage'],
+        slideId: 'slide-stat',
+        stat: {label: 'Elasticity', value: '1-5'},
+        title: 'Metric',
+        type: 'stat',
+      },
+      {
+        blockIds: [],
+        evidence: [],
+        motion: 'line-draw',
+        points: ['Define confirm, weaken, falsify'],
+        slideId: 'slide-timeline',
+        title: 'Validation',
+        type: 'timeline',
+      },
+      {
+        blockIds: [],
+        evidence: [],
+        motion: 'stagger-up',
+        points: ['Output is hypothesis, not advice'],
+        slideId: 'slide-summary',
+        title: 'Summary',
+        type: 'summary',
+      },
+    ]
+
+    for (const slide of slides) {
+      expect(validateSlideAgainstTemplateManifest(slide)).to.have.length(0)
+    }
   })
 
   it('detects title overflow', () => {
@@ -292,7 +390,7 @@ describe('validateSlideAgainstTemplateManifest', () => {
       type: 'hero',
     })
 
-    expect(issues.some((issue) => issue.includes('point character limit 28'))).to.equal(true)
+    expect(issues.some((issue) => issue.includes('point character limit 40'))).to.equal(true)
   })
 
   it('detects subtitle overflow', () => {
@@ -386,7 +484,7 @@ describe('maxPointsForDeckTemplate', () => {
   it('returns correct limits for known types', () => {
     expect(maxPointsForDeckTemplate('hero')).to.equal(2)
     expect(maxPointsForDeckTemplate('three-points')).to.equal(3)
-    expect(maxPointsForDeckTemplate('process')).to.equal(5)
+    expect(maxPointsForDeckTemplate('process')).to.equal(7)
     expect(maxPointsForDeckTemplate('timeline')).to.equal(5)
     expect(maxPointsForDeckTemplate('chart')).to.equal(4)
     expect(maxPointsForDeckTemplate('summary')).to.equal(4)

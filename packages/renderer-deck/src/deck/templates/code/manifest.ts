@@ -5,7 +5,7 @@ export const codeManifest = {
   fields: ['title', 'code.language', 'code.text'],
   limits: {
     code_lines: 12,
-    title_chars: 28,
+    title_chars: 36,
   },
   motionPresets: ['blur-rise', 'progressive-reveal'],
   qualityRules: {

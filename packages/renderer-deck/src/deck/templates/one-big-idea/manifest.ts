@@ -5,7 +5,7 @@ export const oneBigIdeaManifest = {
   fields: ['title', 'subtitle', 'points'],
   limits: {
     points: 3,
-    point_chars: 36,
+    point_chars: 40,
     title_chars: 28,
   },
   motionPresets: ['progressive-reveal', 'blur-rise', 'soft-scale'],

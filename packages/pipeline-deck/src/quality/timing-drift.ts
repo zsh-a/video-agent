@@ -8,6 +8,10 @@ import {deckNarrationIdForIndex} from '../planning/timing.js'
 
 const WARNING_DRIFT_RATIO = 1.35
 const ERROR_DRIFT_RATIO = 1.8
+const SHORT_WARNING_DRIFT_RATIO = 0.8
+const SHORT_ERROR_DRIFT_RATIO = 0.55
+const ERROR_CODES = new Set(['deck.timing_drift.error', 'deck.timing_drift.short_error'])
+const WARNING_CODES = new Set(['deck.timing_drift.warning', 'deck.timing_drift.short_warning'])
 
 export function createDeckTimingDriftReport(input: {
   speakerScript: SpeakerScript
@@ -30,6 +34,10 @@ export function createDeckTimingDriftReport(input: {
       issueCodes.push('deck.timing_drift.error')
     } else if (driftRatio > WARNING_DRIFT_RATIO) {
       issueCodes.push('deck.timing_drift.warning')
+    } else if (driftRatio < SHORT_ERROR_DRIFT_RATIO) {
+      issueCodes.push('deck.timing_drift.short_error')
+    } else if (driftRatio < SHORT_WARNING_DRIFT_RATIO) {
+      issueCodes.push('deck.timing_drift.short_warning')
     }
 
     return {
@@ -49,8 +57,8 @@ export function createDeckTimingDriftReport(input: {
     plannedDuration,
     segments,
     summary: {
-      errors: issueCodes.filter((code) => code === 'deck.timing_drift.error').length,
-      warnings: issueCodes.filter((code) => code === 'deck.timing_drift.warning').length,
+      errors: issueCodes.filter((code) => ERROR_CODES.has(code)).length,
+      warnings: issueCodes.filter((code) => WARNING_CODES.has(code)).length,
     },
     totalDuration,
     version: 1,
@@ -62,7 +70,7 @@ export function assertDeckTimingDrift(report: DeckTimingDriftReport): void {
     return
   }
 
-  const first = report.segments.find((segment) => segment.issueCodes.includes('deck.timing_drift.error'))
+  const first = report.segments.find((segment) => segment.issueCodes.some((code) => ERROR_CODES.has(code)))
   const detail = first === undefined
     ? ''
     : ` First drift: ${first.slideId} planned ${first.plannedSeconds}s, TTS ${first.ttsSeconds}s.`

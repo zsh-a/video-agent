@@ -46,7 +46,6 @@ export interface TextDeckProjectPlanOptions {
   slideCountMax?: number
   slideCountTarget?: number
   slideOutline?: DeckSlideOutline
-  speakerNoteTimingBudget?: boolean
   sourceType?: Document['source']['sourceType']
   sourceMap?: DeckSourceMap
   theme?: string

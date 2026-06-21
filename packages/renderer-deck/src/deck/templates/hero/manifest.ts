@@ -5,7 +5,7 @@ export const heroManifest = {
   fields: ['title', 'subtitle', 'points'],
   limits: {
     points: 2,
-    point_chars: 28,
+    point_chars: 40,
     subtitle_chars: 42,
     title_chars: 24,
   },

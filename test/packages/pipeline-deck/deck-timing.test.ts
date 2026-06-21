@@ -6,6 +6,7 @@ import type {TextDeckProjectPlan} from '../../../packages/pipeline-deck/src/plan
 import {createAudioAnchoredDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/audio-anchored-plan.js'
 import {createSlideTimingsFromSpeakerScript, createSlideTimingsFromTts} from '../../../packages/pipeline-deck/src/planning/timing.js'
 import {createDeckVoiceoverUpdate} from '../../../packages/pipeline-deck/src/project/voiceover-update.js'
+import {createDeckTimingDriftReport} from '../../../packages/pipeline-deck/src/quality/timing-drift.js'
 import {requireExactTranscriptSegments, requireExactTranscriptText, requireTranscriptLanguage} from '../../../packages/pipeline-deck/src/project/transcript.js'
 
 function makeSpeakerScript(): SpeakerScript {
@@ -86,6 +87,25 @@ describe('Deck timing updates from TTS', () => {
       ],
       version: 1,
     }, 12)).to.throw('Rewrite LLM Deck plan durations instead of scaling locally')
+  })
+
+  it('reports TTS output that is substantially shorter than the LLM-authored timing', () => {
+    const report = createDeckTimingDriftReport({
+      speakerScript: {
+        language: 'zh-CN',
+        mode: 'script-generated',
+        segments: [
+          {estimatedDuration: 10, slideId: 'slide-001', text: '短讲稿'},
+        ],
+        version: 1,
+      },
+      ttsSegments: [
+        {duration: 7, narrationId: 'narration-1', path: 'audio/tts/001.wav'},
+      ],
+    })
+
+    expect(report.summary.warnings).to.equal(1)
+    expect(report.segments[0]?.issueCodes).to.include('deck.timing_drift.short_warning')
   })
 
   it('rejects invalid exact ASR segments instead of silently filtering them', () => {

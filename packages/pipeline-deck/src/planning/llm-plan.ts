@@ -12,7 +12,9 @@ const LLM_DECK_VISUAL_KINDS = ['chart', 'code', 'process', 'table', 'text', 'tit
 const LLM_DECK_TARGET_PLATFORMS = ['douyin', 'kuaishou', 'bilibili', 'youtube', 'xhs', 'generic'] as const
 const LLM_DECK_TRANSITION_TYPES = ['crossfade', 'fade', 'slide-left', 'slide-up'] as const
 const LLM_DECK_THEMES = ['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
-const LLM_DECK_POINT_CHARACTERS_MAX = 28
+const LLM_DECK_POINT_CHARACTERS_MAX = 120
+const LLM_DECK_PROCESS_STEP_DETAIL_CHARACTERS_MAX = 72
+const LLM_DECK_PROCESS_STEP_LABEL_CHARACTERS_MAX = 32
 export const LLM_TEXT_DECK_MAX_SLIDES = 24
 
 const LLMDeckSourceRangeSchema = z.tuple([
@@ -82,6 +84,13 @@ const LLMDeckComparisonSchema = z.object({
   }),
 })
 
+const LLMDeckProcessSchema = z.object({
+  steps: z.array(z.object({
+    detail: z.string().min(1).max(LLM_DECK_PROCESS_STEP_DETAIL_CHARACTERS_MAX).optional(),
+    label: z.string().min(1).max(LLM_DECK_PROCESS_STEP_LABEL_CHARACTERS_MAX),
+  })).min(2).max(7),
+})
+
 const LLMDeckQuoteSchema = z.object({
   attribution: z.string().min(1).optional(),
   text: z.string().min(1),
@@ -135,7 +144,7 @@ export const LLMTextDeckBriefSchema = z.object({
   optionalSectionIds: z.array(z.string().min(1)),
   requiredSectionIds: z.array(z.string().min(1)),
   styleIntent: z.string().min(1),
-  targetDurationSeconds: z.number().finite().positive().optional(),
+  targetDurationSeconds: z.number().finite().positive(),
   targetSlideCount: z.number().int().positive().max(LLM_TEXT_DECK_MAX_SLIDES),
   title: z.string().min(1),
 })
@@ -161,6 +170,7 @@ export const LLMTextDeckSlidePlanSchema = z.object({
     durationIntent: z.number().finite().positive(),
     motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)),
+    process: LLMDeckProcessSchema.optional(),
     quote: LLMDeckQuoteSchema.optional(),
     outlineId: z.string().min(1),
     sectionIds: z.array(z.string().min(1)).min(1),
@@ -210,6 +220,7 @@ export const LLMTextDeckPlanSchema = z.object({
     duration: z.number().finite().positive(),
     motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1)),
+    process: LLMDeckProcessSchema.optional(),
     quote: LLMDeckQuoteSchema.optional(),
     outlineId: z.string().min(1).optional(),
     sectionIds: z.array(z.string().min(1)).optional(),
@@ -263,7 +274,7 @@ export class LLMTextDeckValidationError extends Error {
   }
 }
 
-export interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'chart' | 'code' | 'comparison' | 'motion' | 'points' | 'quote' | 'sourceRange' | 'stat' | 'subtitle' | 'transitionOut' | 'type' | 'visual'> {
+export interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'chart' | 'code' | 'comparison' | 'motion' | 'points' | 'process' | 'quote' | 'sourceRange' | 'stat' | 'subtitle' | 'transitionOut' | 'type' | 'visual'> {
   chart?: NonNullable<LLMTextDeckSlide['chart']>
   code?: NonNullable<LLMTextDeckSlide['code']>
   comparison?: {
@@ -279,6 +290,7 @@ export interface NormalizedLLMTextDeckSlide extends Omit<LLMTextDeckSlide, 'char
   motion: LLMTextDeckSlide['motion']
   outlineId?: string
   points: string[]
+  process?: NonNullable<LLMTextDeckSlide['process']>
   quote?: NonNullable<LLMTextDeckSlide['quote']>
   semantic: LLMTextDeckSlideSemantic
   speakerNote: string
@@ -305,6 +317,7 @@ interface LLMTextDeckTemplateValidationSlide {
     }
   }
   points: string[]
+  process?: NonNullable<LLMTextDeckSlide['process']>
   quote?: NonNullable<LLMTextDeckSlide['quote']>
   stat?: NonNullable<LLMTextDeckSlide['stat']>
   subtitle?: string
@@ -314,12 +327,13 @@ interface LLMTextDeckTemplateValidationSlide {
 
 export function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLMTextDeckSlide[] {
   const slides = plan.slides.map((slide, index) => {
-    const {chart: rawChart, code: rawCode, comparison: rawComparison, quote: rawQuote, sourceRange: rawSourceRange, stat: rawStat, subtitle: rawSubtitle, transitionOut: rawTransitionOut, visual: rawVisual, ...rest} = slide
+    const {chart: rawChart, code: rawCode, comparison: rawComparison, process: rawProcess, quote: rawQuote, sourceRange: rawSourceRange, stat: rawStat, subtitle: rawSubtitle, transitionOut: rawTransitionOut, visual: rawVisual, ...rest} = slide
     const chart = normalizeLLMChart(rawChart)
     const code = normalizeLLMCode(rawCode)
     const title = cleanRequiredLLMText(slide.title, `slide ${index + 1} title`)
     const points = cleanGeneratedPoints(slide.points, `slide ${index + 1} points`)
     const comparison = normalizeLLMComparison(rawComparison)
+    const process = normalizeLLMProcess(rawProcess)
     const quote = normalizeLLMQuote(rawQuote)
     const speakerNote = cleanRequiredLLMText(slide.speakerNote, `slide ${index + 1} speakerNote`)
     const semantic = normalizeLLMSlideSemantic(slide.semantic, index)
@@ -335,6 +349,7 @@ export function normalizeLLMTextDeckSlides(plan: LLMTextDeckPlan): NormalizedLLM
       ...(code === undefined ? {} : {code}),
       ...(comparison === undefined ? {} : {comparison}),
       points,
+      ...(process === undefined ? {} : {process}),
       ...(quote === undefined ? {} : {quote}),
       semantic,
       speakerNote,
@@ -363,6 +378,7 @@ export function validateLLMTextDeckSlidePlanTemplateConstraints(plan: LLMTextDec
     const code = normalizeLLMCode(slide.code)
     const comparison = normalizeLLMComparison(slide.comparison)
     const points = cleanGeneratedPoints(slide.points, `slide ${index + 1} points`)
+    const process = normalizeLLMProcess(slide.process)
     const quote = normalizeLLMQuote(slide.quote)
     const stat = normalizeLLMStat(slide.stat)
     const subtitle = cleanOptionalLLMText(slide.subtitle, `slide ${index + 1} subtitle`)
@@ -373,6 +389,7 @@ export function validateLLMTextDeckSlidePlanTemplateConstraints(plan: LLMTextDec
       ...(code === undefined ? {} : {code}),
       ...(comparison === undefined ? {} : {comparison}),
       points,
+      ...(process === undefined ? {} : {process}),
       ...(quote === undefined ? {} : {quote}),
       ...(stat === undefined ? {} : {stat}),
       ...(subtitle === undefined ? {} : {subtitle}),
@@ -448,7 +465,7 @@ function collectLLMSlideTemplateIssues(slide: LLMTextDeckTemplateValidationSlide
   const issues: LLMTextDeckValidationIssue[] = []
   const maxPoints = maxPointsForDeckTemplate(slide.type)
 
-  if (maxPoints !== undefined && slide.points.length > maxPoints) {
+  if (slide.type !== 'process' && maxPoints !== undefined && slide.points.length > maxPoints) {
     issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
       actual: slide.points.length,
       code: 'TEMPLATE_POINT_COUNT_LIMIT',
@@ -461,7 +478,7 @@ function collectLLMSlideTemplateIssues(slide: LLMTextDeckTemplateValidationSlide
 
   const minPoints = minPointsForDeckTemplate(slide.type)
 
-  if (minPoints !== undefined && slide.points.length < minPoints) {
+  if (slide.type !== 'process' && minPoints !== undefined && slide.points.length < minPoints) {
     issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
       actual: slide.points.length,
       code: 'TEMPLATE_POINT_COUNT_MINIMUM',
@@ -479,9 +496,13 @@ function collectLLMSlideTemplateIssues(slide: LLMTextDeckTemplateValidationSlide
   pushTextLimitIssue(issues, slide, slideIndex, 'title', `slides[${slideIndex}].title`, slide.title, limits.title_chars)
   pushTextLimitIssue(issues, slide, slideIndex, 'subtitle', `slides[${slideIndex}].subtitle`, slide.subtitle, limits.subtitle_chars)
 
-  for (const [index, point] of slide.points.entries()) {
-    pushTextLimitIssue(issues, slide, slideIndex, `point ${index + 1}`, `slides[${slideIndex}].points[${index}]`, point, limits.point_chars)
+  if (slide.type !== 'process') {
+    for (const [index, point] of slide.points.entries()) {
+      pushTextLimitIssue(issues, slide, slideIndex, `point ${index + 1}`, `slides[${slideIndex}].points[${index}]`, point, limits.point_chars)
+    }
   }
+
+  issues.push(...collectLLMProcessTemplateIssues(slide, slideIndex, limits))
 
   if (slide.comparison !== undefined && limits.left_points !== undefined && slide.comparison.left.points.length > limits.left_points) {
     issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
@@ -531,11 +552,38 @@ function collectLLMSlideTemplateIssues(slide: LLMTextDeckTemplateValidationSlide
   return issues
 }
 
+function collectLLMProcessTemplateIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number, limits: ReturnType<typeof findDeckTemplateManifestEntry>['limits']): LLMTextDeckValidationIssue[] {
+  const issues: LLMTextDeckValidationIssue[] = []
+
+  if (slide.process === undefined) {
+    return issues
+  }
+
+  if (limits.steps !== undefined && slide.process.steps.length > limits.steps) {
+    issues.push(createLLMSlideTemplateIssue(slide, slideIndex, {
+      actual: slide.process.steps.length,
+      code: 'TEMPLATE_PROCESS_STEP_COUNT_LIMIT',
+      field: 'process.steps',
+      limit: limits.steps,
+      message: `LLM Deck plan slide "${slide.title}" has ${slide.process.steps.length} process steps, exceeding ${slide.type} limit ${limits.steps}.`,
+      path: `slides[${slideIndex}].process.steps`,
+    }))
+  }
+
+  for (const [index, step] of slide.process.steps.entries()) {
+    pushTextLimitIssue(issues, slide, slideIndex, `process step ${index + 1} label`, `slides[${slideIndex}].process.steps[${index}].label`, step.label, limits.step_label_chars)
+    pushTextLimitIssue(issues, slide, slideIndex, `process step ${index + 1} detail`, `slides[${slideIndex}].process.steps[${index}].detail`, step.detail, limits.step_detail_chars)
+  }
+
+  return issues
+}
+
 function collectLLMSlideTemplateDataIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number): LLMTextDeckValidationIssue[] {
   return [
     ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'chart', slide.chart, 'chart data'),
     ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'code', slide.code, 'code data'),
     ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'comparison', slide.comparison, 'comparison data'),
+    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'process', slide.process, 'process steps'),
     ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'quote', slide.quote, 'quote data'),
     ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'stat', slide.stat, 'stat data'),
   ]
@@ -661,6 +709,19 @@ function normalizeLLMComparison(comparison: LLMTextDeckSlide['comparison']): Nor
       label: rightLabel,
       points: rightPoints,
     },
+  }
+}
+
+function normalizeLLMProcess(process: LLMTextDeckSlide['process']): NormalizedLLMTextDeckSlide['process'] {
+  if (process === undefined) {
+    return undefined
+  }
+
+  return {
+    steps: process.steps.map((step, index) => ({
+      ...(step.detail === undefined ? {} : {detail: cleanRequiredLLMText(step.detail, `process.steps[${index}].detail`)}),
+      label: cleanRequiredLLMText(step.label, `process.steps[${index}].label`),
+    })),
   }
 }
 

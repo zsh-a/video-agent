@@ -54,7 +54,7 @@ function DeckSlide({item, language, style}: {item: SlideRenderItem; language: st
   const className = classNames(
     `slide--${slide.type}`,
     slideDensityClass(slide, language),
-    `slide--points-${Math.min(slide.points.length, 4)}`,
+    `slide--points-${Math.min(slide.type === 'process' ? (slide.process?.steps.length ?? 0) : slide.points.length, 4)}`,
     'absolute inset-0 grid grid-rows-[auto_minmax(0,1fr)] overflow-hidden opacity-0',
   )
 
@@ -88,6 +88,7 @@ export function slideDensityClass(slide: Slide, language: string): string {
     slide.title,
     slide.subtitle ?? '',
     ...slide.points,
+    ...(slide.process?.steps.flatMap((step) => [step.label, step.detail ?? '']) ?? []),
     ...chartTextParts(slide),
     slide.code?.text ?? '',
     slide.comparison?.left.label ?? '',

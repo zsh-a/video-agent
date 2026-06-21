@@ -5,7 +5,7 @@ export const comparisonManifest = {
   fields: ['title', 'comparison.left.label', 'comparison.left.points', 'comparison.right.label', 'comparison.right.points'],
   limits: {
     left_points: 3,
-    point_chars: 30,
+    point_chars: 40,
     right_points: 3,
     title_chars: 28,
   },

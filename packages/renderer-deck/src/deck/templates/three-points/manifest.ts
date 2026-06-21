@@ -4,7 +4,7 @@ export const threePointsManifest = {
   description: 'Three parallel points under one topic.',
   fields: ['title', 'points'],
   limits: {
-    point_chars: 28,
+    point_chars: 40,
     points: 3,
     title_chars: 28,
   },

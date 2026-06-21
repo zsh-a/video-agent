@@ -7,6 +7,10 @@ export function deckSlideText(slide: Slide): string {
 export function deckSlideContentParts(slide: Slide): string[] {
   return [
     ...slide.points,
+    ...(slide.process === undefined ? [] : slide.process.steps.flatMap((step) => [
+      step.label,
+      ...(step.detail === undefined ? [] : [step.detail]),
+    ])),
     ...(slide.chart === undefined ? [] : slide.chart.bars.flatMap((bar) => [
       bar.label,
       ...(bar.caption === undefined ? [] : [bar.caption]),

@@ -4,7 +4,7 @@ export const summaryManifest = {
   description: 'Summary slide with final takeaways.',
   fields: ['title', 'points'],
   limits: {
-    point_chars: 30,
+    point_chars: 40,
     points: 4,
     title_chars: 28,
   },

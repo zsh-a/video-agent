@@ -79,9 +79,22 @@ export function createProjectAgentRuntime(input: {
     },
     emit,
     async failRun(error) {
+      const message = errorMessage(error)
+      const state = await input.jobStore.read()
+      const runningStages = state.stages.filter((stage) => stage.status === 'running')
+
+      await runningStages.reduce(
+        async (previous, stage) => {
+          await previous
+          await input.jobStore.updateStage(stage.name, 'failed', message, stage.attempt)
+        },
+        Promise.resolve(),
+      )
+
+      await input.jobStore.complete('failed')
       await emit({
         level: 'error',
-        message: errorMessage(error),
+        message,
         type: 'agent:run:fail',
       })
     },

@@ -17,7 +17,8 @@ describe('html deck compiler', () => {
     expect(threePoints?.fields).to.deep.equal(['title', 'points'])
     expect(threePoints?.limits.points).to.equal(3)
     expect(threePoints?.quality_rules.requiredVisibleElements).to.include('.point')
-    expect(process?.limits.steps).to.equal(5)
+    expect(process?.fields).to.deep.equal(['title', 'process.steps'])
+    expect(process?.limits.steps).to.equal(7)
   })
 
   it('validates DeckIR slides against template manifest limits', () => {

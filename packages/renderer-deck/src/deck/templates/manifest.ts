@@ -63,6 +63,7 @@ export function validateSlideAgainstTemplateManifest(slide: Slide): string[] {
 
   return [
     ...validatePointCount(slide),
+    ...validateProcessSteps(slide, template.limits),
     ...validateTextLength(slide, 'title', slide.title, template.limits.title_chars, 'title limit'),
     ...validateTextLength(slide, 'subtitle', slide.subtitle, template.limits.subtitle_chars, 'subtitle limit'),
     ...validatePointCharacters(slide, template.limits.point_chars),
@@ -74,6 +75,10 @@ export function validateSlideAgainstTemplateManifest(slide: Slide): string[] {
 }
 
 function validatePointCount(slide: Slide): string[] {
+  if (slide.type === 'process') {
+    return []
+  }
+
   const maxPoints = maxPointsForDeckTemplate(slide.type)
   const minPoints = minPointsForDeckTemplate(slide.type)
 
@@ -84,6 +89,22 @@ function validatePointCount(slide: Slide): string[] {
     ...(minPoints !== undefined && slide.points.length < minPoints
       ? [`Slide ${slide.slideId} requires at least ${minPoints} ${slide.type} point.`]
       : []),
+  ]
+}
+
+function validateProcessSteps(slide: Slide, limits: DeckTemplateManifestEntry['limits']): string[] {
+  if (slide.type !== 'process') {
+    return slide.process === undefined ? [] : [`Slide ${slide.slideId} includes process steps on non-process template ${slide.type}.`]
+  }
+
+  if (slide.process === undefined) {
+    return [`Slide ${slide.slideId} requires process steps for process template.`]
+  }
+
+  return [
+    ...validateCountLimit(slide, 'process steps', slide.process.steps.length, limits.steps, 'steps'),
+    ...textLimitIssues(slide, slide.process.steps.map((step) => step.label), limits.step_label_chars ?? Number.POSITIVE_INFINITY, 'process step label'),
+    ...textLimitIssues(slide, slide.process.steps.flatMap((step) => step.detail === undefined ? [] : [step.detail]), limits.step_detail_chars ?? Number.POSITIVE_INFINITY, 'process step detail'),
   ]
 }
 

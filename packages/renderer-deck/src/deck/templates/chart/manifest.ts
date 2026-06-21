@@ -5,7 +5,7 @@ export const chartManifest = {
   fields: ['title', 'chart.bars.label', 'chart.bars.value', 'chart.bars.caption'],
   limits: {
     bars: 4,
-    point_chars: 28,
+    point_chars: 40,
     title_chars: 28,
   },
   motionPresets: ['line-draw', 'stagger-up', 'progressive-reveal'],

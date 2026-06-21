@@ -4,7 +4,7 @@ export const statManifest = {
   description: 'Large number or metric slide.',
   fields: ['title', 'stat.value', 'stat.label', 'stat.caption', 'points'],
   limits: {
-    point_chars: 28,
+    point_chars: 40,
     points: 3,
     title_chars: 24,
   },
