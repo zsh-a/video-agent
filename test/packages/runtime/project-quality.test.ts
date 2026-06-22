@@ -7,6 +7,7 @@ import {join} from 'node:path'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
 import {readProjectQuality, readProjectQualityDetails} from '../../../packages/runtime/src/project/quality.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('project quality', () => {
   it('summarizes pipeline, render, and artifact quality', async () => {
@@ -46,6 +47,27 @@ describe('project quality', () => {
     }
   })
 
+  it('omits malformed raw quality artifacts from details instead of throwing', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-malformed-raw-'))
+
+    try {
+      await createProject(root, 'demo')
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await writeText(join(artifactsDir, 'quality-report.json'), 'not json\n')
+      await writeText(join(artifactsDir, 'render-output.json'), 'not json\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const report = await readProjectQualityDetails('demo', root)
+
+      expect('qualityReport' in report).to.equal(false)
+      expect('renderOutput' in report).to.equal(false)
+      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.include.members(['quality-report.json', 'render-output.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('counts deck quality report issues in project quality', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-'))
 
@@ -53,9 +75,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.md',
+        pipeline: 'deck',
         projectId: 'demo',
         stages: ['render-final'],
       })
@@ -185,9 +209,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })
@@ -214,9 +240,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })
@@ -243,9 +271,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -272,9 +302,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -301,9 +333,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -330,9 +364,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -359,9 +395,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })
@@ -405,9 +443,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })
@@ -452,9 +492,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })
@@ -492,9 +534,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -535,9 +579,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -581,9 +627,11 @@ describe('project quality', () => {
       const projectDir = join(root, 'projects', 'demo')
       const artifactsDir = join(projectDir, 'artifacts')
 
+      await writeConfig(root, {})
       await mkdir(artifactsDir, {recursive: true})
       await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['quality'],
       })
@@ -620,9 +668,11 @@ async function createProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
     stages: ['ingest', 'quality'],
   })
@@ -652,7 +702,28 @@ async function createProject(root: string, projectId: string): Promise<void> {
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
       audioDiagnostics: {
-        missingVoiceovers: [{index: 0, reason: 'missing'}],
+        availableVoiceovers: 0,
+        missingVoiceovers: [{
+          index: 0,
+          narrationId: 'narration-1',
+          path: 'tts/narration-1.wav',
+          reason: 'missing',
+        }],
+        plan: {
+          generatedAt: '2026-01-01T00:00:00.000Z',
+          segments: [
+            {
+              alignment: 'narration-id',
+              duration: 1,
+              index: 0,
+              narrationId: 'narration-1',
+              path: 'tts/narration-1.wav',
+              start: 0,
+              status: 'missing',
+            },
+          ],
+          version: 1,
+        },
         warnings: ['audio warning'],
       },
       audioInputs: 1,
@@ -688,9 +759,11 @@ async function createCollapsedExplainerProject(root: string, projectId: string):
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
     stages: ['quality'],
   })

@@ -8,17 +8,20 @@ import type {LLMClient, LLMTraceRecorder} from './types.js'
 import {AISDKLLMClient} from './ai-sdk/adapter.js'
 import {bunEnv} from './bun-runtime.js'
 
-export type LLMProviderName = 'anthropic' | 'openai-compatible'
+export const ANTHROPIC_LLM_PROVIDER = 'anthropic' as const
+export const DEFAULT_LLM_API_KEY_ENV = 'VIDEO_AGENT_LLM_TOKEN' as const
+export const MIMO_API_KEY_ENV = 'MIMO_API_KEY' as const
+export const OPENAI_COMPATIBLE_LLM_PROVIDER = 'openai-compatible' as const
+export const LLM_PROVIDER_NAMES = [ANTHROPIC_LLM_PROVIDER, OPENAI_COMPATIBLE_LLM_PROVIDER] as const
+export type LLMProviderName = (typeof LLM_PROVIDER_NAMES)[number]
 
 export interface LLMClientConfig {
   apiKeyEnv?: string
-  authTokenEnv?: string
   baseURL?: string
   headers?: Record<string, string>
   model: string
   name?: string
   provider: LLMProviderName
-  supportsStructuredOutputs?: boolean
 }
 
 export interface LLMClientFactoryOptions {
@@ -33,7 +36,6 @@ export function createLLMClientFromConfig(config?: LLMClientConfig, options: LLM
 
   return new AISDKLLMClient({
     model: createLanguageModelFromConfig(config, options),
-    structuredOutputs: config.supportsStructuredOutputs ?? true,
     trace: options.trace,
   })
 }
@@ -41,10 +43,12 @@ export function createLLMClientFromConfig(config?: LLMClientConfig, options: LLM
 export function createLanguageModelFromConfig(config: LLMClientConfig, options: LLMClientFactoryOptions = {}): LanguageModel {
   assertNonEmpty('llm.model', config.model)
 
-  if (config.provider === 'anthropic') {
+  if (config.provider === ANTHROPIC_LLM_PROVIDER) {
+    const env = options.env ?? bunEnv()
+    const apiKey = resolveApiKey(config, env)
     const provider = createAnthropic({
+      ...(apiKey === undefined ? {} : {apiKey}),
       ...(config.baseURL === undefined ? {} : {baseURL: normalizeNonEmptyString('llm.baseURL', config.baseURL)}),
-      ...resolveAnthropicAuth(config, options.env ?? bunEnv()),
       ...(config.headers === undefined ? {} : {headers: config.headers}),
       ...(config.name === undefined ? {} : {name: config.name}),
     })
@@ -52,15 +56,14 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
     return provider(config.model)
   }
 
-  if (config.provider === 'openai-compatible') {
+  if (config.provider === OPENAI_COMPATIBLE_LLM_PROVIDER) {
     const env = options.env ?? bunEnv()
     const provider = createOpenAICompatible({
       apiKey: resolveOpenAICompatibleApiKey(config, env),
       baseURL: normalizeNonEmptyString('llm.baseURL', config.baseURL),
       ...(config.headers === undefined ? {} : {headers: config.headers}),
       includeUsage: true,
-      name: config.name ?? 'openai-compatible',
-      supportsStructuredOutputs: config.supportsStructuredOutputs ?? true,
+      name: config.name ?? OPENAI_COMPATIBLE_LLM_PROVIDER,
       ...(config.name === 'mimo' ? {transformRequestBody: transformMimoRequestBody} : {}),
     })
 
@@ -70,17 +73,30 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
   throw new Error(`Unsupported LLM provider: ${(config as {provider: string}).provider}`)
 }
 
-function resolveOpenAICompatibleApiKey(config: LLMClientConfig, env: Record<string, string | undefined>): string | undefined {
-  if (config.name === 'mimo') {
-    return resolveFirstEnvValue([
-      config.apiKeyEnv,
-      config.authTokenEnv,
-      'MIMO_API_KEY',
-      'VIDEO_AGENT_LLM_TOKEN',
-    ], env)
+export function isLLMProviderName(value: unknown): value is LLMProviderName {
+  return typeof value === 'string' && (LLM_PROVIDER_NAMES as readonly string[]).includes(value)
+}
+
+export function createMimoApiKeyEnvCandidates(config?: Pick<LLMClientConfig, 'apiKeyEnv'>): string[] {
+  const names: string[] = []
+
+  for (const candidate of [config?.apiKeyEnv, MIMO_API_KEY_ENV, DEFAULT_LLM_API_KEY_ENV]) {
+    const name = candidate?.trim()
+
+    if (name !== undefined && name !== '' && !names.includes(name)) {
+      names.push(name)
+    }
   }
 
-  return resolveEnvValue(config.apiKeyEnv ?? config.authTokenEnv ?? 'VIDEO_AGENT_LLM_TOKEN', env)
+  return names
+}
+
+function resolveOpenAICompatibleApiKey(config: LLMClientConfig, env: Record<string, string | undefined>): string | undefined {
+  if (config.name === 'mimo') {
+    return resolveFirstEnvValue(createMimoApiKeyEnvCandidates(config), env)
+  }
+
+  return resolveApiKey(config, env)
 }
 
 function resolveFirstEnvValue(names: Array<string | undefined>, env: Record<string, string | undefined>): string | undefined {
@@ -160,16 +176,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function resolveAnthropicAuth(config: LLMClientConfig, env: Record<string, string | undefined>): {apiKey?: string; authToken?: string} {
-  const authToken = resolveEnvValue(config.authTokenEnv, env)
-
-  if (authToken !== undefined) {
-    return {authToken}
-  }
-
-  const apiKey = resolveEnvValue(config.apiKeyEnv, env)
-
-  return apiKey === undefined ? {} : {apiKey}
+function resolveApiKey(config: LLMClientConfig, env: Record<string, string | undefined>): string | undefined {
+  return resolveEnvValue(config.apiKeyEnv ?? DEFAULT_LLM_API_KEY_ENV, env)
 }
 
 function resolveEnvValue(name: string | undefined, env: Record<string, string | undefined>): string | undefined {

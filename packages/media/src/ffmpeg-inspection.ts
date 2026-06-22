@@ -44,9 +44,13 @@ export function parseAudioVolumeOutput(input: string, stderr: string): AudioVolu
 }
 
 export function parseVideoBlackDetectOutput(input: string, stderr: string, duration?: number): VideoBlackDetectInfo {
+  if (duration !== undefined && (!Number.isFinite(duration) || duration <= 0)) {
+    throw new Error(`ffmpeg blackdetect duration must be a positive finite number when provided; no black-ratio omission fallback is allowed. Received: ${String(duration)}`)
+  }
+
   const blackSegments = parseBlackSegments(stderr)
   const blackDuration = blackSegments.reduce((total, segment) => total + segment.duration, 0)
-  const blackRatio = duration === undefined || duration <= 0 ? undefined : blackDuration / duration
+  const blackRatio = duration === undefined ? undefined : blackDuration / duration
 
   return {
     blackDuration,

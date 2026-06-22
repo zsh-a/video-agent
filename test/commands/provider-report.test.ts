@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {formatProviderReport} from '../../src/commands/provider-report.js'
+import {formatProviderReport} from '../../src/utils/provider-report-output.js'
 
 describe('provider-report command', () => {
   it('formats provider report summaries', () => {
@@ -56,7 +56,7 @@ describe('provider-report command', () => {
             },
           },
           byOperation: {
-            generateObjectFallbackText: {
+            generateObject: {
               durationMs: 300,
               failed: 0,
               succeeded: 1,
@@ -95,7 +95,7 @@ describe('provider-report command', () => {
       'LLM usage: 140 tokens, 100 input tokens, 40 output tokens',
       '',
       'By LLM operation:',
-      '  generateObjectFallbackText: 1 calls, 0 failed, 300ms, usage 140 tokens, 100 input tokens, 40 output tokens',
+      '  generateObject: 1 calls, 0 failed, 300ms, usage 140 tokens, 100 input tokens, 40 output tokens',
       '',
       'By LLM provider:',
       '  mimo.chat: 1 calls, 0 failed, 300ms, usage 140 tokens, 100 input tokens, 40 output tokens',

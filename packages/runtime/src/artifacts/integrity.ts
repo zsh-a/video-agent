@@ -1,22 +1,24 @@
 import type {ArtifactManifest} from './store.js'
-import type {ArtifactIntegrityChangedIssue, ArtifactIntegrityMissingIssue, ArtifactIntegrityResult, ArtifactIntegritySummary, ArtifactSchemaInvalidIssue} from './index.js'
+import type {ArtifactIntegrityChangedIssue, ArtifactIntegrityMissingIssue, ArtifactIntegrityResult, ArtifactIntegritySummary, ArtifactSchemaInvalidIssue, ArtifactSchemaIssue} from './index.js'
 
 import {createHash} from 'node:crypto'
-import {stat} from 'node:fs/promises'
+import {readFile, stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {ARTIFACT_MANIFEST_NAME} from './store.js'
-import {bunFile} from '../shared/bun-runtime.js'
-import {readOptionalJson} from '../shared/file-io.js'
+import {ARTIFACT_MANIFEST_NAME} from './artifact-names.js'
+import {ArtifactManifestSchema} from './store.js'
+import {JsonFileParseError, readOptionalJson} from '../shared/file-io.js'
 import {collectArtifactFiles} from './files.js'
 import {findMissingArtifactReferences} from './reference-integrity.js'
-import {validateKnownArtifactSchema} from './schemas.js'
-export async function verifyProjectArtifacts(projectId: string, workspaceDir = '.video-agent'): Promise<ArtifactIntegrityResult> {
+import {validateKnownArtifactSchema} from './schema-registry.js'
+
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+export async function verifyProjectArtifacts(projectId: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ArtifactIntegrityResult> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
   const manifestPath = resolve(artifactsDir, ARTIFACT_MANIFEST_NAME)
-  const manifest = await readArtifactManifest(artifactsDir)
+  const manifestResult = await readIntegrityArtifactManifest(manifestPath)
 
-  if (manifest === undefined) {
+  if (manifestResult.status === 'missing') {
     const missing = [{name: ARTIFACT_MANIFEST_NAME, reason: 'missing'}] satisfies ArtifactIntegrityMissingIssue[]
 
     return {
@@ -37,6 +39,28 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     }
   }
 
+  if (manifestResult.status === 'invalid') {
+    const schemaInvalid = [manifestResult.issue]
+
+    return {
+      changed: [],
+      checked: 0,
+      manifestPath,
+      missing: [],
+      ok: false,
+      schemaInvalid,
+      summary: summarizeArtifactIntegrity({
+        changed: [],
+        checked: 0,
+        missing: [],
+        schemaInvalid,
+        untracked: [],
+      }),
+      untracked: [],
+    }
+  }
+
+  const manifest = manifestResult.manifest
   const changed: ArtifactIntegrityChangedIssue[] = []
   const missing: ArtifactIntegrityMissingIssue[] = []
   const schemaInvalid: ArtifactSchemaInvalidIssue[] = []
@@ -46,7 +70,7 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = '
     const path = resolve(artifactsDir, artifact.name)
 
     try {
-      const [content, metadata] = await Promise.all([bunFile(path).bytes(), stat(path)])
+      const [content, metadata] = await Promise.all([readFile(path), stat(path)])
       const sha256 = createHash('sha256').update(content).digest('hex')
       const schemaIssue = validateKnownArtifactSchema(artifact.name, content)
 
@@ -124,6 +148,59 @@ function summarizeArtifactIntegrity(result: {
   }
 }
 
-async function readArtifactManifest(artifactsDir: string): Promise<ArtifactManifest | undefined> {
-  return readOptionalJson<ArtifactManifest>(resolve(artifactsDir, ARTIFACT_MANIFEST_NAME))
+async function readIntegrityArtifactManifest(manifestPath: string): Promise<
+  | {status: 'missing'}
+  | {issue: ArtifactSchemaInvalidIssue; status: 'invalid'}
+  | {manifest: ArtifactManifest; status: 'valid'}
+> {
+  let value: unknown | undefined
+
+  try {
+    value = await readOptionalJson(manifestPath)
+  } catch (error) {
+    if (error instanceof JsonFileParseError) {
+      return {
+        issue: {
+          issues: [{
+            code: 'invalid_json',
+            message: error.details.issues,
+            path: [],
+          }],
+          name: ARTIFACT_MANIFEST_NAME,
+        },
+        status: 'invalid',
+      }
+    }
+
+    throw error
+  }
+
+  if (value === undefined) {
+    return {status: 'missing'}
+  }
+
+  const manifest = ArtifactManifestSchema.safeParse(value)
+
+  if (!manifest.success) {
+    return {
+      issue: {
+        issues: toArtifactSchemaIssues(manifest.error.issues),
+        name: ARTIFACT_MANIFEST_NAME,
+      },
+      status: 'invalid',
+    }
+  }
+
+  return {
+    manifest: manifest.data,
+    status: 'valid',
+  }
+}
+
+function toArtifactSchemaIssues(issues: Array<{code: string; message: string; path: Array<PropertyKey>}>): ArtifactSchemaIssue[] {
+  return issues.map((issue) => ({
+    code: issue.code,
+    message: issue.message,
+    path: issue.path.map(String),
+  }))
 }

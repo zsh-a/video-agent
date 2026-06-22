@@ -77,6 +77,24 @@ describe('Studio run status view model', () => {
     expect(view.stageGroups[1]?.steps[0]?.message).to.equal('Rendering frames')
   })
 
+  it('does not coerce obsolete status aliases', () => {
+    const data = createDashboardData({
+      projectStatus: {
+        job: {
+          pipeline: 'deck',
+          stages: [{name: 'render', status: 'complete'}],
+          status: 'error',
+        },
+      },
+    })
+
+    const view = createRunViewModel(data, 'deck-demo')
+
+    expect(view.status).to.equal('idle')
+    expect(view.stageGroups[0]?.status).to.equal('pending')
+    expect(view.stageGroups[0]?.steps[0]?.status).to.equal('running')
+  })
+
   it('summarizes project outputs for the run header', () => {
     const data = createDashboardData({
       artifacts: [

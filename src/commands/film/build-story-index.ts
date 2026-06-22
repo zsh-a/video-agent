@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {createFilmStoryIndexProject} from '@video-agent/pipeline-film'
 
+import {workspaceFlag} from '../../utils/cli-flags.js'
 export default class FilmBuildStoryIndex extends Command {
   static args = {
     projectId: Args.string({description: 'Film Recap project id with source understanding artifacts', required: true}),
@@ -10,8 +11,8 @@ export default class FilmBuildStoryIndex extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    language: Flags.string({description: 'Story index language tag', default: 'zh-CN'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    language: Flags.string({description: 'Story index language tag override; defaults to the ASR transcript language'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

@@ -8,7 +8,6 @@ import type {
   ProviderReport,
   ProjectSnapshot,
   QualityDetails,
-  RenderOutput,
   VisualSample,
 } from './types'
 import {emptyData} from './types'
@@ -47,12 +46,9 @@ export async function loadProjectData(projectId: string): Promise<DashboardData>
     api<{actions: GuidedAction[]}>(`/projects/${encodeURIComponent(projectId)}/actions`),
     api<ArtifactIntegrity>(`/projects/${encodeURIComponent(projectId)}/artifacts/verify`).catch(() => undefined),
   ])
-  const [visualSamples, renderOutput] = await Promise.all([
-    api<{samples: VisualSample[]}>(`/projects/${encodeURIComponent(projectId)}/visual?includeContent=true`).then((result) => result.samples).catch(() => []),
-    artifacts.artifacts.some((artifact) => artifact.name === 'render-output.json')
-      ? api<{content: RenderOutput}>(`/projects/${encodeURIComponent(projectId)}/artifacts/render-output.json`).then((result) => result.content).catch(() => undefined)
-      : undefined,
-  ])
+  const visualSamples = await api<{samples: VisualSample[]}>(`/projects/${encodeURIComponent(projectId)}/visual?includeContent=true`)
+    .then((result) => result.samples)
+    .catch(() => [])
 
   return {
     actions: actions.actions,
@@ -63,7 +59,7 @@ export async function loadProjectData(projectId: string): Promise<DashboardData>
     providerReport,
     projects: [],
     quality,
-    renderOutput,
+    renderOutput: quality.renderOutput,
     visualSamples,
   }
 }
@@ -93,7 +89,7 @@ async function createApiError(response: Response): Promise<Error> {
   return new Error(formatApiError(response.status, body?.error, bodyText))
 }
 
-function formatApiError(status: number, error: Record<string, unknown> | undefined, fallback: string): string {
+function formatApiError(status: number, error: Record<string, unknown> | undefined, defaultMessage: string): string {
   if (error?.code === 'checkpoint_invalid') {
     return [
       `HTTP ${status} checkpoint_invalid: ${String(error.message ?? 'Checkpoint artifacts are invalid.')}`,
@@ -120,7 +116,7 @@ function formatApiError(status: number, error: Record<string, unknown> | undefin
     return `HTTP ${status} validation_error: ${issues}`
   }
 
-  return `HTTP ${status}: ${String(error?.message ?? fallback)}`
+  return `HTTP ${status}: ${String(error?.message ?? defaultMessage)}`
 }
 
 function listText(value: unknown): string {

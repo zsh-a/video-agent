@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
+    "@video-agent/core": "workspace:*",
     "@video-agent/db": "workspace:*",
     "@video-agent/ir": "workspace:*",
     "@video-agent/llm": "workspace:*",

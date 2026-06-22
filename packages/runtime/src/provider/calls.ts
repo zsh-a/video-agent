@@ -1,63 +1,17 @@
-import type {Narration, NarrationSegment, RecapScript, StoryIndex} from '@video-agent/ir'
-import type {MediaInput, ProviderCostMetadata, ProviderResponseMetadata, ProviderSet, ProviderUsageMetadata, SceneFrameBatch, Transcript, TTSSegment, VLMScene} from '@video-agent/providers'
+import type {RecapScript, StoryIndex} from '@video-agent/ir'
+import type {MediaInput, ProviderName, ProviderResponseMetadata, ProviderSet, SceneFrameBatch, ScriptProvider, Transcript, TTSInputSegment, TTSSegment, VLMScene} from '@video-agent/providers'
+import type {ProviderCallRecord, ProviderCallRecorder, ProviderCallRole} from './call-record.js'
 
+import {CALL_STATUS_FAILED, CALL_STATUS_SUCCEEDED} from '@video-agent/ir'
 import {ProviderExecutionError, ProviderResponseValidationError, readProviderMetadata} from '@video-agent/providers'
 import {randomUUID} from 'node:crypto'
 import {appendFile, mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
-export type ProviderCallRole = 'asr' | 'script' | 'tts' | 'vlm'
-export type ProviderCallStatus = 'failed' | 'succeeded'
-
-export interface ProviderCallRecord {
-  completedAt: string
-  cost?: ProviderCostMetadata
-  durationMs: number
-  error?: {
-    code?: string
-    details?: Record<string, unknown>
-    message: string
-    name: string
-    retryable?: boolean
-    validationIssues?: {
-      code: string
-      message: string
-      path: string[]
-    }[]
-  }
-  input: Record<string, unknown>
-  model?: string
-  operation: string
-  output?: Record<string, unknown>
-  provider: string
-  requestId: string
-  role: ProviderCallRole
-  startedAt: string
-  status: ProviderCallStatus
-  usage?: ProviderUsageMetadata
-  version: 1
-}
-
-export interface ProviderCallStartRecord {
-  input: Record<string, unknown>
-  operation: string
-  provider: string
-  requestId: string
-  role: ProviderCallRole
-  startedAt: string
-  status: 'started'
-  version: 1
-}
-
-export interface ProviderCallRecorder {
-  record(call: ProviderCallRecord): Promise<void>
-  start?(call: ProviderCallStartRecord): Promise<void>
-}
-
 export interface ProviderSelection {
-  asr: string
-  tts: string
-  vlm: string
+  asr: ProviderName
+  tts: ProviderName
+  vlm: ProviderName
 }
 
 export function createJsonlProviderCallRecorder(path: string): ProviderCallRecorder {
@@ -84,54 +38,6 @@ export function instrumentProviders(providers: ProviderSet, selection: ProviderS
         })
       },
     },
-    script: {
-      async createNarration(input) {
-        return recordProviderCall({
-          call: () => providers.script.createNarration(input),
-          input: {
-            clips: input.clipPlan.clips.length,
-            scenes: input.storyboard.scenes.length,
-          },
-          operation: 'createNarration',
-          output: summarizeNarration,
-          provider: 'script',
-          recorder,
-          role: 'script',
-        })
-      },
-      async createRecapScript(input) {
-        return recordProviderCall({
-          call: () => providers.script.createRecapScript(input),
-          input: {
-            beats: input.storyIndex.beats.length,
-            sourceDuration: input.sourceManifest.duration,
-            targetDurationSeconds: input.targetDurationSeconds,
-          },
-          operation: 'createRecapScript',
-          output: summarizeRecapScript,
-          provider: 'script',
-          recorder,
-          role: 'script',
-        })
-      },
-      async createStoryIndex(input) {
-        return recordProviderCall({
-          call: () => providers.script.createStoryIndex(input),
-          input: {
-            language: input.language,
-            sourceDuration: input.sourceManifest.duration,
-            timelineItems: input.timelineFusion.items.length,
-            vlmScenes: input.vlmAnalysis.scenes.length,
-          },
-          operation: 'createStoryIndex',
-          output: summarizeStoryIndex,
-          provider: 'script',
-          recorder,
-          role: 'script',
-        })
-      },
-    },
-    storyboard: providers.storyboard,
     tts: {
       async synthesize(segments, options) {
         return recordProviderCall({
@@ -161,6 +67,42 @@ export function instrumentProviders(providers: ProviderSet, selection: ProviderS
   }
 }
 
+export function instrumentScriptProvider(provider: ScriptProvider, recorder: ProviderCallRecorder): ScriptProvider {
+  return {
+    async createRecapScript(input) {
+      return recordProviderCall({
+        call: () => provider.createRecapScript(input),
+        input: {
+          beats: input.storyIndex.beats.length,
+          sourceDuration: input.sourceManifest.duration,
+          targetDurationSeconds: input.targetDurationSeconds,
+        },
+        operation: 'createRecapScript',
+        output: summarizeRecapScript,
+        provider: 'script',
+        recorder,
+        role: 'script',
+      })
+    },
+    async createStoryIndex(input) {
+      return recordProviderCall({
+        call: () => provider.createStoryIndex(input),
+        input: {
+          language: input.language,
+          sourceDuration: input.sourceManifest.duration,
+          timelineItems: input.timelineFusion.items.length,
+          vlmScenes: input.vlmAnalysis.scenes.length,
+        },
+        operation: 'createStoryIndex',
+        output: summarizeStoryIndex,
+        provider: 'script',
+        recorder,
+        role: 'script',
+      })
+    },
+  }
+}
+
 interface RecordProviderCallOptions<T> {
   call: () => Promise<T>
   input: Record<string, unknown>
@@ -174,13 +116,13 @@ interface RecordProviderCallOptions<T> {
 async function recordProviderCall<T>(options: RecordProviderCallOptions<T>): Promise<T> {
   const startedAtMs = Date.now()
   const startedAt = new Date(startedAtMs).toISOString()
-  const fallbackRequestId = createProviderRequestId(options.role)
+  const localRequestId = createProviderRequestId(options.role)
 
   await options.recorder.start?.({
     input: options.input,
     operation: options.operation,
     provider: options.provider,
-    requestId: fallbackRequestId,
+    requestId: localRequestId,
     role: options.role,
     startedAt,
     status: 'started',
@@ -194,7 +136,7 @@ async function recordProviderCall<T>(options: RecordProviderCallOptions<T>): Pro
 
     await options.recorder.record({
       completedAt: new Date(completedAtMs).toISOString(),
-      ...serializeProviderMetadata(metadata, fallbackRequestId),
+      ...serializeProviderMetadata(metadata, localRequestId),
       durationMs: completedAtMs - startedAtMs,
       input: options.input,
       operation: options.operation,
@@ -202,7 +144,7 @@ async function recordProviderCall<T>(options: RecordProviderCallOptions<T>): Pro
       provider: options.provider,
       role: options.role,
       startedAt,
-      status: 'succeeded',
+      status: CALL_STATUS_SUCCEEDED,
       version: 1,
     })
 
@@ -217,10 +159,10 @@ async function recordProviderCall<T>(options: RecordProviderCallOptions<T>): Pro
       input: options.input,
       operation: options.operation,
       provider: options.provider,
-      requestId: fallbackRequestId,
+      requestId: localRequestId,
       role: options.role,
       startedAt,
-      status: 'failed',
+      status: CALL_STATUS_FAILED,
       version: 1,
     })
 
@@ -232,11 +174,11 @@ function createProviderRequestId(role: ProviderCallRole): string {
   return `${role}_${randomUUID()}`
 }
 
-function serializeProviderMetadata(metadata: ProviderResponseMetadata | undefined, fallbackRequestId: string): Pick<ProviderCallRecord, 'cost' | 'model' | 'requestId' | 'usage'> {
+function serializeProviderMetadata(metadata: ProviderResponseMetadata | undefined, localRequestId: string): Pick<ProviderCallRecord, 'cost' | 'model' | 'requestId' | 'usage'> {
   return {
     ...(metadata?.cost === undefined ? {} : {cost: metadata.cost}),
     ...(metadata?.model === undefined ? {} : {model: metadata.model}),
-    requestId: metadata?.requestId ?? fallbackRequestId,
+    requestId: metadata?.requestId ?? localRequestId,
     ...(metadata?.usage === undefined ? {} : {usage: metadata.usage}),
   }
 }
@@ -256,17 +198,10 @@ function summarizeSceneFrameBatches(input: SceneFrameBatch[], context: string | 
   }
 }
 
-function summarizeNarrationSegments(segments: NarrationSegment[]): Record<string, unknown> {
+function summarizeNarrationSegments(segments: TTSInputSegment[]): Record<string, unknown> {
   return {
     segments: segments.length,
     textLength: segments.reduce((count, segment) => count + segment.text.length, 0),
-  }
-}
-
-function summarizeNarration(narration: Narration): Record<string, unknown> {
-  return {
-    segments: narration.segments.length,
-    textLength: narration.segments.reduce((count, segment) => count + segment.text.length, 0),
   }
 }
 

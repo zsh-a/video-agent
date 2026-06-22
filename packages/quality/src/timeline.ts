@@ -1,9 +1,11 @@
-import type {Timeline} from '@video-agent/ir'
+import type {QualityIssueSeverity, Timeline} from '@video-agent/ir'
+
+import {QUALITY_ERROR_SEVERITY} from './issues.js'
 
 export interface QualityIssue {
   code: string
   message: string
-  severity: 'error' | 'warning'
+  severity: QualityIssueSeverity
 }
 
 export function checkTimelineBounds(timeline: Timeline): QualityIssue[] {
@@ -12,6 +14,6 @@ export function checkTimelineBounds(timeline: Timeline): QualityIssue[] {
     .map((item) => ({
       code: 'timeline.item.out_of_bounds',
       message: `Timeline item ${item.id} exceeds project duration.`,
-      severity: 'error',
+      severity: QUALITY_ERROR_SEVERITY,
     }))
 }

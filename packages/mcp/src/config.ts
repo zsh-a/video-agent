@@ -1,6 +1,10 @@
-export type McpClientConfigMode = 'dev' | 'installed'
+import {DEFAULT_WORKSPACE_DIR, normalizeEnvAssignments} from '@video-agent/runtime'
+export const MCP_CLIENT_CONFIG_MODES = ['dev', 'installed'] as const
+export const MCP_CLIENT_CONFIG_SHAPES = ['full', 'server'] as const
+
+export type McpClientConfigMode = (typeof MCP_CLIENT_CONFIG_MODES)[number]
 export type McpClientConfigPreset = 'claude-desktop' | 'cursor' | 'generic' | 'server-entry'
-export type McpClientConfigShape = 'full' | 'server'
+export type McpClientConfigShape = (typeof MCP_CLIENT_CONFIG_SHAPES)[number]
 
 export const supportedMcpClientConfigPresets = [
   'generic',
@@ -109,8 +113,8 @@ function resolveConfigShape(options: McpClientConfigOptions & {shape?: McpClient
 }
 
 function createMcpClientServerConfig(options: McpClientConfigOptions): McpClientServerConfig {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const env = normalizeEnv(options.env)
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
+  const env = normalizeEnvAssignments(options.env)
 
   if ((options.mode ?? 'dev') === 'installed') {
     return {
@@ -125,12 +129,4 @@ function createMcpClientServerConfig(options: McpClientConfigOptions): McpClient
     command: 'bun',
     ...(env === undefined ? {} : {env}),
   }
-}
-
-function normalizeEnv(env: Record<string, string> | undefined): Record<string, string> | undefined {
-  if (env === undefined || Object.keys(env).length === 0) {
-    return undefined
-  }
-
-  return Object.fromEntries(Object.entries(env).sort(([left], [right]) => left.localeCompare(right)))
 }

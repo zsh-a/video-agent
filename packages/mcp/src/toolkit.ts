@@ -1,3 +1,15 @@
+import {
+  isRecord,
+  readOptionalBooleanInput,
+  readOptionalEnumInput,
+  readOptionalNonNegativeIntegerInput,
+  readOptionalNumberInput,
+  readOptionalPositiveIntegerInput,
+  readOptionalStringArrayInput,
+  readOptionalStringInput,
+  readOptionalStringRecordInput,
+} from '@video-agent/runtime'
+
 export interface McpTool {
   description: string
   inputSchema: JsonSchemaObject
@@ -25,6 +37,11 @@ export type McpToolHandler = (args: Record<string, unknown>, workspaceDir: strin
 export interface McpToolDefinition {
   handler: McpToolHandler
   tool: McpTool
+}
+
+const MCP_ARGUMENT_READER = {
+  createError: createMcpArgumentError,
+  label: 'MCP tool argument',
 }
 
 export function createToolDefinition(
@@ -91,10 +108,18 @@ export function booleanSchema(description?: string): Record<string, unknown> {
   }
 }
 
-export function integerSchema(description?: string): Record<string, unknown> {
+export function nonNegativeIntegerSchema(description?: string): Record<string, unknown> {
   return {
     ...(description === undefined ? {} : {description}),
     minimum: 0,
+    type: 'integer',
+  }
+}
+
+export function positiveIntegerSchema(description?: string): Record<string, unknown> {
+  return {
+    ...(description === undefined ? {} : {description}),
+    minimum: 1,
     type: 'integer',
   }
 }
@@ -106,12 +131,14 @@ export function numberSchema(description?: string): Record<string, unknown> {
   }
 }
 
-export function stringArraySchema(description?: string): Record<string, unknown> {
+export function commandArraySchema(description?: string): Record<string, unknown> {
   return {
     ...(description === undefined ? {} : {description}),
     items: {
+      minLength: 1,
       type: 'string',
     },
+    minItems: 1,
     type: 'array',
   }
 }
@@ -145,103 +172,56 @@ export function readRequiredString(value: Record<string, unknown>, field: string
 }
 
 export function readOptionalString(value: Record<string, unknown>, field: string): string | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
-  }
-
-  if (typeof value[field] !== 'string') {
-    throw new TypeError(`MCP tool argument ${field} must be a string.`)
-  }
-
-  return value[field]
+  return readOptionalStringInput(value, field, MCP_ARGUMENT_READER)
 }
 
 export function readOptionalBoolean(value: Record<string, unknown>, field: string): boolean | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
-  }
-
-  if (typeof value[field] !== 'boolean') {
-    throw new TypeError(`MCP tool argument ${field} must be a boolean.`)
-  }
-
-  return value[field]
+  return readOptionalBooleanInput(value, field, MCP_ARGUMENT_READER)
 }
 
-export function readOptionalInteger(value: Record<string, unknown>, field: string): number | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
-  }
+export function readOptionalNonNegativeInteger(value: Record<string, unknown>, field: string): number | undefined {
+  return readOptionalNonNegativeIntegerInput(value, field, MCP_ARGUMENT_READER)
+}
 
-  if (!Number.isInteger(value[field]) || (value[field] as number) < 0) {
-    throw new TypeError(`MCP tool argument ${field} must be a non-negative integer.`)
-  }
-
-  return value[field] as number
+export function readOptionalPositiveInteger(value: Record<string, unknown>, field: string): number | undefined {
+  return readOptionalPositiveIntegerInput(value, field, MCP_ARGUMENT_READER)
 }
 
 export function readOptionalNumber(value: Record<string, unknown>, field: string): number | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
-  }
-
-  if (typeof value[field] !== 'number' || !Number.isFinite(value[field])) {
-    throw new TypeError(`MCP tool argument ${field} must be a finite number.`)
-  }
-
-  return value[field]
+  return readOptionalNumberInput(value, field, MCP_ARGUMENT_READER)
 }
 
-export function readOptionalStringArray(value: Record<string, unknown>, field: string): string[] | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
-  }
-
-  if (!Array.isArray(value[field]) || !(value[field] as unknown[]).every((item) => typeof item === 'string')) {
-    throw new TypeError(`MCP tool argument ${field} must be an array of strings.`)
-  }
-
-  return value[field]
+export function readOptionalCommandArray(value: Record<string, unknown>, field: string): string[] | undefined {
+  return readOptionalStringArrayInput(value, field, {
+    ...MCP_ARGUMENT_READER,
+    allowEmpty: false,
+    allowEmptyItems: false,
+    description: 'a non-empty string array',
+  })
 }
 
 export function readOptionalStringRecord(value: Record<string, unknown>, field: string): Record<string, string> | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
-  }
-
-  if (!isRecord(value[field])) {
-    throw new TypeError(`MCP tool argument ${field} must be an object of string values.`)
-  }
-
-  const record: Record<string, string> = {}
-
-  for (const [key, item] of Object.entries(value[field])) {
-    if (typeof item !== 'string') {
-      throw new TypeError(`MCP tool argument ${field}.${key} must be a string.`)
-    }
-
-    record[key] = item
-  }
-
-  return record
+  return readOptionalStringRecordInput(value, field, MCP_ARGUMENT_READER)
 }
 
 export function readOptionalEnum<T extends string>(value: Record<string, unknown>, field: string, values: readonly T[]): T | undefined {
-  if (value[field] === undefined || value[field] === null) {
-    return undefined
+  return readOptionalEnumInput(value, field, values, MCP_ARGUMENT_READER)
+}
+
+export function readRequiredEnum<T extends string>(value: Record<string, unknown>, field: string, values: readonly T[]): T {
+  const result = readOptionalEnum(value, field, values)
+
+  if (result === undefined) {
+    throw new TypeError(`MCP tool argument ${field} is required and must be one of: ${values.join(', ')}.`)
   }
 
-  if (typeof value[field] === 'string' && values.includes(value[field] as T)) {
-    return value[field] as T
-  }
-
-  throw new TypeError(`MCP tool argument ${field} must be one of: ${values.join(', ')}.`)
+  return result
 }
 
 function requiredFromProperties(properties: Record<string, unknown>): string[] {
   return Object.keys(properties).filter((key) => key === 'inputPath' || key === 'projectId')
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function createMcpArgumentError(message: string): TypeError {
+  return new TypeError(message)
 }

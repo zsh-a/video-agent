@@ -4,12 +4,17 @@ import {
   ClaimsSchema,
   ContentBlocksSchema,
   DeckSchema,
+  LongVideoSelectedMomentsSchema,
   MotionTimelineSchema,
   OutputNarrationSchema,
   OutputTimelineMapSchema,
+  RecapScriptSchema,
+  SlideTimingSchema,
   SourceQuotesSchema,
   StoryIndexSchema,
+  StoryboardSchema,
   TimedDeckSchema,
+  TimelineSchema,
 } from '../../../packages/ir/src/index.js'
 
 describe('pipeline-specific IR schemas', () => {
@@ -138,6 +143,14 @@ describe('pipeline-specific IR schemas', () => {
     }
 
     expect(error).to.be.instanceOf(Error)
+  })
+
+  it('rejects zero-length slide timings', () => {
+    expect(() => SlideTimingSchema.parse({
+      end: 1,
+      slideId: 's001',
+      start: 1,
+    })).to.throw('greater than start')
   })
 
   it('requires generated deck content fields instead of applying semantic defaults', () => {
@@ -276,6 +289,82 @@ describe('pipeline-specific IR schemas', () => {
     })).to.throw('greater than start')
   })
 
+  it('rejects zero-length Storyboard ranges', () => {
+    expect(() => StoryboardSchema.parse({
+      language: 'en-US',
+      scenes: [
+        {
+          duration: 1,
+          evidence: [],
+          id: 'scene-001',
+          outputRange: [0, 0],
+          sourceRange: [0, 0],
+          start: 0,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic',
+      version: 1,
+    })).to.throw('greater than start')
+  })
+
+  it('rejects zero-length Film semantic source ranges', () => {
+    expect(() => StoryIndexSchema.parse({
+      beats: [
+        {
+          characters: [],
+          evidence: [],
+          id: 'beat-001',
+          sourceRange: [0, 0],
+          summary: 'A zero-length beat is not a valid semantic anchor.',
+          type: 'setup',
+        },
+      ],
+      characters: [],
+      language: 'en-US',
+      source: '/tmp/source.mp4',
+      sourceDuration: 10,
+      version: 1,
+    })).to.throw('greater than start')
+
+    expect(() => LongVideoSelectedMomentsSchema.parse({
+      moments: [
+        {
+          chunkId: 'chunk-001',
+          evidence: [],
+          id: 'moment-001',
+          reason: 'Selected by the story planner.',
+          sourceRange: [1, 1],
+          summary: 'A zero-length moment is not valid evidence.',
+        },
+      ],
+      source: 'global-outline.json',
+      version: 1,
+    })).to.throw('greater than start')
+
+    expect(() => RecapScriptSchema.parse({
+      hook: 'Start here.',
+      language: 'en-US',
+      outro: 'End here.',
+      segments: [
+        {
+          clipSelectionReason: 'The selected shot supports the beat.',
+          emotionalTone: 'setup',
+          id: 'recap-script-001',
+          narrationText: 'A narrated beat.',
+          overlapsSpeech: false,
+          pauseAfterMs: 0,
+          sourceRange: [2, 2],
+          suggestedDuration: 1,
+          targetBeatIds: ['beat-001'],
+          visualGuidance: 'Use the selected shot.',
+        },
+      ],
+      totalEstimatedDuration: 1,
+      version: 1,
+    })).to.throw('greater than start')
+  })
+
   it('validates renderer-agnostic MotionIR timelines', () => {
     const timeline = MotionTimelineSchema.parse({
       duration: 3,
@@ -321,6 +410,63 @@ describe('pipeline-specific IR schemas', () => {
 
     expect(timeline.fps).to.equal(30)
     expect(timeline.tracks.map((track) => track.property)).to.deep.equal(['opacity', 'translateY'])
+  })
+
+  it('rejects zero-length MotionIR scenes', () => {
+    expect(() => MotionTimelineSchema.parse({
+      duration: 1,
+      scenes: [
+        {
+          end: 0.5,
+          id: 'scene-001',
+          start: 0.5,
+        },
+      ],
+      tracks: [],
+      version: 1,
+    })).to.throw('greater than start')
+  })
+
+  it('rejects invalid Timeline items', () => {
+    expect(() => TimelineSchema.parse({
+      duration: 1,
+      items: [
+        {
+          duration: 0,
+          id: 'video-001',
+          start: 0,
+          track: 'video',
+        },
+      ],
+      version: 1,
+    })).to.throw('greater than 0')
+
+    expect(() => TimelineSchema.parse({
+      duration: 1,
+      items: [
+        {
+          duration: 0.5,
+          id: 'video-001',
+          sourceRange: [0, 0],
+          start: 0,
+          track: 'video',
+        },
+      ],
+      version: 1,
+    })).to.throw('sourceRange')
+
+    expect(() => TimelineSchema.parse({
+      duration: 1,
+      items: [
+        {
+          duration: 0.5,
+          id: 'video-001',
+          start: 0.75,
+          track: 'video',
+        },
+      ],
+      version: 1,
+    })).to.throw('must not end after')
   })
 
   it('validates film story index and output-timeline narration', () => {

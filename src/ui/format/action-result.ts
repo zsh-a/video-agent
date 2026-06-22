@@ -1,13 +1,13 @@
-import type {RecoverWorkspaceJobResult} from '@video-agent/pipeline-film'
-import type {PipelineCheckpointError as PipelineCheckpointErrorType, PipelineStage, ProviderSmokeTestReport} from '@video-agent/runtime'
+import type {RecoverFilmWorkspaceJobResult} from '@video-agent/pipeline-film'
+import type {PipelineCheckpointError as PipelineCheckpointErrorType, ProviderSmokeTestReport} from '@video-agent/runtime'
 import type {TuiActionResult, TuiCheckpointErrorActionResult} from '../actions/types.js'
 
 import {PipelineCheckpointError} from '@video-agent/runtime'
 
-import {formatExportQualityFailure} from '../../commands/export.js'
-import {formatQualityRenderSummary} from '../../commands/quality.js'
-import {formatProjectStatus} from '../../commands/status.js'
 import {formatCheckpointFailure} from '../../utils/checkpoint-errors.js'
+import {formatExportQualityFailure} from '../../utils/export-output.js'
+import {formatQualityRenderSummary} from '../../utils/quality-output.js'
+import {formatProjectStatus} from '../../utils/status-output.js'
 import {formatTuiCommands} from './command.js'
 import {formatTuiEventRecord} from './event.js'
 
@@ -91,7 +91,7 @@ export function formatTuiActionResult(result: TuiActionResult): string {
   if (result.type === 'projects') {
     return [
       `Action: projects -> ${result.projects.length} projects`,
-      ...(result.projects.length === 0 ? ['  none'] : result.projects.map((project) => `  ${project.projectId}\t${project.status ?? 'unknown'}\t${project.updatedAt ?? '-'}`)),
+      ...(result.projects.length === 0 ? ['  none'] : result.projects.map((project) => `  ${project.projectId}\t${project.status}\t${project.updatedAt}`)),
     ].join('\n')
   }
 
@@ -180,7 +180,7 @@ export function formatTuiActionResult(result: TuiActionResult): string {
   ].join('\n')
 }
 
-function formatTuiWorkerIssue(result: RecoverWorkspaceJobResult): string[] {
+function formatTuiWorkerIssue(result: RecoverFilmWorkspaceJobResult): string[] {
   const summary = `  ${result.projectId} ${result.status}${result.fromStage === undefined ? '' : ` from ${result.fromStage}`}${result.skipReason === undefined ? '' : ` (${result.skipReason})`}${result.error === undefined ? '' : ` - ${result.error}`}`
   const missing = result.missingArtifacts?.map((artifact) => `    missing: ${artifact}`) ?? []
   const changed = result.changedArtifacts?.map((artifact) => `    changed: ${artifact}`) ?? []
@@ -192,7 +192,7 @@ function formatTuiWorkerIssue(result: RecoverWorkspaceJobResult): string[] {
 }
 
 function createCheckpointErrorFromPayload(error: TuiCheckpointErrorActionResult['error']): PipelineCheckpointErrorType {
-  return new PipelineCheckpointError(error.fromStage as PipelineStage, {
+  return new PipelineCheckpointError(error.fromStage, {
     changedArtifacts: error.changedArtifacts,
     missingArtifacts: error.missingArtifacts,
     schemaInvalidArtifacts: error.schemaInvalidArtifacts,

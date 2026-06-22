@@ -1,6 +1,7 @@
 import {ExportQualityError, PipelineCheckpointError} from '@video-agent/runtime'
 import {ZodError} from 'zod'
 
+import {ApiRequestError} from './request.js'
 import {jsonResponse} from './response.js'
 
 export function errorResponse(error: unknown): Response {
@@ -51,6 +52,19 @@ export function errorResponse(error: unknown): Response {
         },
       },
       {status: 409},
+    )
+  }
+
+  if (error instanceof ApiRequestError) {
+    return jsonResponse(
+      {
+        error: {
+          code: 'bad_request',
+          message: error.message,
+          name: error.name,
+        },
+      },
+      {status: 400},
     )
   }
 

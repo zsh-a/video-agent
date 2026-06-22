@@ -1,17 +1,13 @@
 import type {DeckSlideType, DeckTransition} from '@video-agent/ir'
 
+import {CONTENT_BLOCK_TYPES, DECK_BASE_MOTION_PRESETS, DECK_CLAIM_TYPES, DECK_COHERENCE_REVIEW_STAGES, DECK_PRESET_THEMES, DECK_TRANSITION_TYPES, QualityIssueSeveritySchema, STORYBOARD_TARGET_PLATFORMS} from '@video-agent/ir'
 import {deckTemplateTypes, findDeckTemplateManifestEntry, maxPointsForDeckTemplate, minPointsForDeckTemplate} from '@video-agent/renderer-deck'
 import {z} from 'zod'
 
+import {DECK_LLM_SLIDE_PLAN_STAGE, type DeckLLMValidationStage} from './llm-text-plan-stages.js'
 import {assertNoGeneratedTextControlSyntax, cleanGeneratedText} from './utils.js'
 
-const LLM_DECK_MOTION_PRESETS = ['fade-in', 'slide-up', 'soft-scale', 'blur-rise', 'stagger-up', 'progressive-reveal', 'card-stack', 'line-draw', 'number-count', 'spotlight', 'wipe', 'zoom-focus', 'cinematic-rise'] as const
-const LLM_DECK_CONTENT_BLOCK_TYPES = ['claim', 'context', 'data', 'example', 'quote', 'recommendation', 'summary'] as const
-const LLM_DECK_CLAIM_TYPES = ['claim', 'data', 'recommendation', 'summary'] as const
 const LLM_DECK_VISUAL_KINDS = ['chart', 'code', 'process', 'table', 'text', 'title-card'] as const
-const LLM_DECK_TARGET_PLATFORMS = ['douyin', 'kuaishou', 'bilibili', 'youtube', 'xhs', 'generic'] as const
-const LLM_DECK_TRANSITION_TYPES = ['crossfade', 'fade', 'slide-left', 'slide-up'] as const
-const LLM_DECK_THEMES = ['elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper'] as const
 const LLM_DECK_POINT_CHARACTERS_MAX = 120
 const LLM_DECK_PROCESS_STEP_DETAIL_CHARACTERS_MAX = 72
 const LLM_DECK_PROCESS_STEP_LABEL_CHARACTERS_MAX = 32
@@ -42,11 +38,11 @@ const LLMSourceQuoteTextSchema = z.string().min(1).refine((value) => value.trim(
 
 const LLMTextDeckSlideSemanticSchema = z.object({
   blockText: LLMGeneratedTextSchema,
-  blockType: z.enum(LLM_DECK_CONTENT_BLOCK_TYPES),
+  blockType: z.enum(CONTENT_BLOCK_TYPES),
   claim: z.union([z.object({
     confidence: z.number().min(0).max(1),
     text: LLMGeneratedTextSchema,
-    type: z.enum(LLM_DECK_CLAIM_TYPES),
+    type: z.enum(DECK_CLAIM_TYPES),
   }), z.null()]),
   momentReason: LLMGeneratedTextSchema,
   momentScore: z.number().min(0).max(1),
@@ -108,7 +104,7 @@ const LLMDeckStatSchema = z.object({
 
 const LLMDeckTransitionOutSchema = z.union([z.object({
   duration: z.number().finite().positive(),
-  type: z.enum(LLM_DECK_TRANSITION_TYPES),
+  type: z.enum(DECK_TRANSITION_TYPES),
 }), z.null()])
 
 const LLMDeckVisualSchema = z.object({
@@ -126,7 +122,7 @@ export const LLMTextDeckContentAnalysisSchema = z.object({
       confidence: z.number().min(0).max(1),
       sourceQuoteText: z.string().min(1),
       text: z.string().min(1),
-      type: z.enum(LLM_DECK_CLAIM_TYPES),
+      type: z.enum(DECK_CLAIM_TYPES),
     })).min(1),
     mustCover: z.boolean(),
     role: z.string().min(1),
@@ -172,7 +168,7 @@ export const LLMTextDeckSlidePlanSchema = z.object({
     code: LLMDeckCodeSchema.optional(),
     comparison: LLMDeckComparisonSchema.optional(),
     durationIntent: z.number().finite().positive(),
-    motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+    motion: z.enum(DECK_BASE_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)),
     process: LLMDeckProcessSchema.optional(),
     quote: LLMDeckQuoteSchema.optional(),
@@ -185,8 +181,8 @@ export const LLMTextDeckSlidePlanSchema = z.object({
     type: z.enum(deckTemplateTypes as [DeckSlideType, ...DeckSlideType[]], {error: 'Slide type must be one of the registered Deck template types.'}),
     visual: LLMDeckVisualSchema,
   })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
-  targetPlatform: z.enum(LLM_DECK_TARGET_PLATFORMS),
-  theme: z.enum(LLM_DECK_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
+  targetPlatform: z.enum(STORYBOARD_TARGET_PLATFORMS),
+  theme: z.enum(DECK_PRESET_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
   title: z.string().min(1),
 })
 
@@ -206,9 +202,9 @@ export const LLMTextDeckCoherenceReviewSchema = z.object({
     code: z.enum(['COHERENCE_GAP', 'TIMING_BUDGET_MISMATCH', 'TEMPLATE_REPETITION', 'LOW_INFORMATION_DEPTH', 'MISSING_PRACTICAL_DETAIL']),
     message: z.string().min(1),
     path: z.string().min(1).optional(),
-    severity: z.enum(['error', 'warning']),
+    severity: QualityIssueSeveritySchema,
     slideIndex: z.number().int().nonnegative().optional(),
-    stage: z.enum(['slide-outline', 'slide-plan', 'script-semantics']),
+    stage: z.enum(DECK_COHERENCE_REVIEW_STAGES),
   })),
   summary: z.string().min(1),
 })
@@ -222,7 +218,7 @@ export const LLMTextDeckPlanSchema = z.object({
     code: LLMDeckCodeSchema.optional(),
     comparison: LLMDeckComparisonSchema.optional(),
     duration: z.number().finite().positive(),
-    motion: z.enum(LLM_DECK_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+    motion: z.enum(DECK_BASE_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
     points: z.array(z.string().min(1)),
     process: LLMDeckProcessSchema.optional(),
     quote: LLMDeckQuoteSchema.optional(),
@@ -239,8 +235,8 @@ export const LLMTextDeckPlanSchema = z.object({
     visual: LLMDeckVisualSchema,
   })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
   summary: z.string().min(1),
-  targetPlatform: z.enum(LLM_DECK_TARGET_PLATFORMS),
-  theme: z.enum(LLM_DECK_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
+  targetPlatform: z.enum(STORYBOARD_TARGET_PLATFORMS),
+  theme: z.enum(DECK_PRESET_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
   title: z.string().min(1),
 })
 
@@ -264,7 +260,7 @@ export interface LLMTextDeckValidationIssue {
   path?: string
   slideIndex?: number
   slideTitle?: string
-  stage: 'final-build' | 'script-semantics' | 'slide-outline' | 'slide-plan'
+  stage: DeckLLMValidationStage
   template?: DeckSlideType
 }
 
@@ -645,7 +641,7 @@ function createLLMSlideTemplateIssue(
     ...issue,
     slideIndex,
     slideTitle: slide.title,
-    stage: 'slide-plan',
+    stage: DECK_LLM_SLIDE_PLAN_STAGE,
     template: slide.type,
   }
 }

@@ -1,6 +1,7 @@
 import type {Deck, DeckBrief, DeckContentAnalysis, DeckCoverageReport, DeckSlideOutline} from '@video-agent/ir'
 
 import {DeckCoverageReportSchema} from '@video-agent/ir'
+import {SLIDE_OUTLINE_ARTIFACT_NAME} from '@video-agent/runtime'
 
 export function createDeckCoverageReport(input: {
   analysis: DeckContentAnalysis
@@ -28,7 +29,7 @@ export function createDeckCoverageReport(input: {
     requiredSections: requiredSectionIds.size,
     requiredUncovered,
     slideCoverage,
-    source: 'slide-outline.json',
+    source: SLIDE_OUTLINE_ARTIFACT_NAME,
     summary: {
       errors: requiredUncovered.length,
       warnings,

@@ -1,6 +1,4 @@
-import type {Deck, MediaInfo, SlideTiming, TimedDeck} from '@video-agent/ir'
-
-export const DECK_THEMES = ['auto', 'elegant-dark', 'clean-white', 'finance-terminal', 'tech-gradient', 'minimal-editorial', 'warm-paper', 'custom'] as const
+import {DECK_THEMES, type Deck, type MediaInfo, type SlideTiming, type TimedDeck} from '@video-agent/ir'
 export const DECK_THEME_DESCRIPTIONS: Record<string, string> = {
   'elegant-dark': '深色科技风，适合技术、AI、数据、编程主题',
   'clean-white': '简洁白净，适合商业汇报、教育、通用主题',

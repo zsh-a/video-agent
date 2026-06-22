@@ -6,6 +6,7 @@ import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {readProjectStatus} from '../../../packages/runtime/src/project/status.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('project status', () => {
   it('summarizes pipeline events and provider calls', async () => {
@@ -25,8 +26,8 @@ describe('project status', () => {
       await writeText(
         join(root, 'projects', 'demo', 'artifacts', 'provider-calls.jsonl'),
         [
-          JSON.stringify({completedAt: '2026-01-01T00:00:00.100Z', durationMs: 100, input: {}, operation: 'transcribe', output: {}, provider: 'mock', role: 'asr', startedAt: '2026-01-01T00:00:00.000Z', status: 'succeeded', version: 1}),
-          JSON.stringify({completedAt: '2026-01-01T00:00:00.200Z', cost: {amount: 0.04, currency: 'USD'}, durationMs: 100, error: {message: 'failed', name: 'Error'}, input: {}, operation: 'analyzeScenes', provider: 'command', role: 'vlm', startedAt: '2026-01-01T00:00:00.100Z', status: 'failed', version: 1}),
+          JSON.stringify({completedAt: '2026-01-01T00:00:00.100Z', durationMs: 100, input: {}, operation: 'transcribe', output: {}, provider: 'mock', requestId: 'provider-call-1', role: 'asr', startedAt: '2026-01-01T00:00:00.000Z', status: 'succeeded', version: 1}),
+          JSON.stringify({completedAt: '2026-01-01T00:00:00.200Z', cost: {amount: 0.04, currency: 'USD'}, durationMs: 100, error: {message: 'failed', name: 'Error'}, input: {}, operation: 'analyzeScenes', provider: 'command', requestId: 'provider-call-2', role: 'vlm', startedAt: '2026-01-01T00:00:00.100Z', status: 'failed', version: 1}),
         ].join('\n'),
       )
       await writeText(
@@ -59,9 +60,27 @@ describe('project status', () => {
             missingVoiceovers: [
               {
                 index: 0,
+                narrationId: 'narration-1',
+                path: 'tts/narration-1.wav',
                 reason: 'missing',
               },
             ],
+            availableVoiceovers: 0,
+            plan: {
+              generatedAt: '2026-01-01T00:00:02.000Z',
+              segments: [
+                {
+                  alignment: 'narration-id',
+                  duration: 1,
+                  index: 0,
+                  narrationId: 'narration-1',
+                  path: 'tts/narration-1.wav',
+                  start: 0,
+                  status: 'missing',
+                },
+              ],
+              version: 1,
+            },
             warnings: ['1 TTS voiceover segment(s) were referenced but unavailable.'],
           },
           audioInputs: 2,
@@ -177,14 +196,154 @@ describe('project status', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('does not infer status summaries from malformed JSONL logs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-status-malformed-jsonl-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeText(join(root, 'projects', 'demo', 'artifacts', 'pipeline-events.jsonl'), 'not json\n')
+      await writeText(join(root, 'projects', 'demo', 'artifacts', 'provider-calls.jsonl'), 'not json\n')
+
+      const status = await readProjectStatus('demo', root)
+
+      expect(status.agent).to.deep.equal({runs: []})
+      expect(status.summary.events.count).to.equal(0)
+      expect(status.summary.providers.total).to.equal(0)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('does not infer render counts from schema-invalid render outputs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeText(
+        join(root, 'projects', 'demo', 'artifacts', 'render-output.json'),
+        `${JSON.stringify({
+          audioInputs: -1,
+          outputQuality: {
+            errors: 3,
+            warnings: 2,
+          },
+          renderer: 'ffmpeg',
+          version: 1,
+        })}\n`,
+      )
+
+      const status = await readProjectStatus('demo', root)
+
+      expect(status.summary.render).to.deep.equal({
+        audioInputs: 0,
+        audioQualityErrors: 0,
+        audioQualityWarnings: 0,
+        audioWarnings: 0,
+        missingVoiceovers: 0,
+        outputErrors: 0,
+        outputWarnings: 0,
+        rendered: false,
+        reviewAvailable: false,
+        subtitleErrors: 0,
+        subtitleWarnings: 0,
+        templateErrors: 0,
+        templateWarnings: 0,
+        visualErrors: 0,
+        visualWarnings: 0,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('does not infer render counts from malformed render outputs', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeText(join(root, 'projects', 'demo', 'artifacts', 'render-output.json'), 'not json\n')
+
+      const status = await readProjectStatus('demo', root)
+
+      expect(status.summary.render).to.deep.equal({
+        audioInputs: 0,
+        audioQualityErrors: 0,
+        audioQualityWarnings: 0,
+        audioWarnings: 0,
+        missingVoiceovers: 0,
+        outputErrors: 0,
+        outputWarnings: 0,
+        rendered: false,
+        reviewAvailable: false,
+        subtitleErrors: 0,
+        subtitleWarnings: 0,
+        templateErrors: 0,
+        templateWarnings: 0,
+        visualErrors: 0,
+        visualWarnings: 0,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('does not infer quality counts from schema-invalid summary-only reports', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeText(
+        join(root, 'projects', 'demo', 'artifacts', 'quality-report.json'),
+        `${JSON.stringify({
+          summary: {
+            errors: 2,
+            warnings: 1,
+          },
+          version: 1,
+        })}\n`,
+      )
+
+      const status = await readProjectStatus('demo', root)
+
+      expect(status.summary.quality).to.deep.equal({
+        errors: 0,
+        issues: 0,
+        warnings: 0,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('does not infer quality counts from malformed quality reports', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
+
+    try {
+      await createProject(root, 'demo')
+      await writeText(join(root, 'projects', 'demo', 'artifacts', 'quality-report.json'), 'not json\n')
+
+      const status = await readProjectStatus('demo', root)
+
+      expect(status.summary.quality).to.deep.equal({
+        errors: 0,
+        issues: 0,
+        warnings: 0,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function createProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
 
+  await writeConfig(root, {})
   await mkdir(join(projectDir, 'artifacts'), {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
+    pipeline: 'film',
     projectId,
     stages: ['ingest', 'quality'],
   })

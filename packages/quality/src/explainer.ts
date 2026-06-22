@@ -2,6 +2,8 @@ import type {LongVideoSelectedMoments, MediaInfo, Narration, Storyboard} from '@
 
 import type {QualityIssue} from './timeline.js'
 
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY} from './issues.js'
+
 export interface ExplainerStructureInput {
   mediaInfo: MediaInfo
   narration: Narration
@@ -21,7 +23,15 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     return []
   }
 
-  const duration = input.mediaInfo.duration ?? inferSelectedMomentsDuration(input.selectedMoments)
+  if (input.mediaInfo.duration === undefined) {
+    return [{
+      code: 'explainer.media.duration_missing',
+      message: 'Long-video explainer quality requires probed media duration; no selected-moment duration fallback is allowed.',
+      severity: QUALITY_ERROR_SEVERITY,
+    }]
+  }
+
+  const duration = input.mediaInfo.duration
   const minLongVideoDuration = options.minLongVideoDuration ?? 60
 
   if (duration < minLongVideoDuration) {
@@ -38,7 +48,7 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     issues.push({
       code: 'explainer.selected_moments.too_few',
       message: `Long-video explainer has ${input.selectedMoments.moments.length} selected moment(s) for ${formatSeconds(duration)}s of source; expected at least ${expectedSegments}.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -46,7 +56,7 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     issues.push({
       code: 'explainer.storyboard.collapsed',
       message: `Storyboard has ${input.storyboard.scenes.length} scene(s) for ${input.selectedMoments.moments.length} selected moment(s).`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -54,7 +64,7 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     issues.push({
       code: 'explainer.narration.collapsed',
       message: `Narration has ${input.narration.segments.length} segment(s) for ${input.storyboard.scenes.length} storyboard scene(s).`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -64,7 +74,7 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     issues.push({
       code: 'explainer.storyboard.visual_style',
       message: `Long-video explainer contains ${nonSlideScenes.length} storyboard scene(s) that are not slide_explainer.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -74,17 +84,27 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     issues.push({
       code: 'explainer.storyboard.segment_too_long',
       message: `Long-video explainer contains ${longScenes.length} storyboard scene(s) longer than ${formatSeconds(maxSegmentDuration)}s.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
-  const longNarrationSegments = input.narration.segments.filter((segment) => (segment.duration ?? 0) > maxSegmentDuration)
+  const missingDurationNarrationSegments = input.narration.segments.filter((segment) => segment.duration === undefined)
+
+  if (missingDurationNarrationSegments.length > 0) {
+    issues.push({
+      code: 'explainer.narration.duration_missing',
+      message: `Long-video explainer contains ${missingDurationNarrationSegments.length} narration segment(s) without LLM-authored duration; no zero-duration narration fallback is allowed.`,
+      severity: QUALITY_ERROR_SEVERITY,
+    })
+  }
+
+  const longNarrationSegments = input.narration.segments.filter((segment) => segment.duration !== undefined && segment.duration > maxSegmentDuration)
 
   if (longNarrationSegments.length > 0) {
     issues.push({
       code: 'explainer.narration.segment_too_long',
       message: `Long-video explainer contains ${longNarrationSegments.length} narration segment(s) longer than ${formatSeconds(maxSegmentDuration)}s.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -94,15 +114,11 @@ export function checkExplainerStructure(input: ExplainerStructureInput, options:
     issues.push({
       code: 'explainer.narration.text_too_long',
       message: `Long-video explainer contains ${verboseNarrationSegments.length} narration segment(s) over ${maxNarrationCharacters} characters.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
   return issues
-}
-
-function inferSelectedMomentsDuration(selectedMoments: LongVideoSelectedMoments): number {
-  return selectedMoments.moments.reduce((duration, moment) => Math.max(duration, moment.sourceRange[1]), 0)
 }
 
 function formatSeconds(value: number): string {

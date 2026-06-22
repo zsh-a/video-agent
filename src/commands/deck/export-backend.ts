@@ -1,32 +1,35 @@
-import type {DeckRendererBackend} from '@video-agent/pipeline-deck'
+import type {DeckRendererBackend} from '@video-agent/runtime'
 
 import {Args, Command, Flags} from '@oclif/core'
 import {createDeckRendererBackendProject} from '@video-agent/pipeline-deck'
+import {DECK_RENDERER_BACKENDS} from '@video-agent/runtime'
+
+import {normalizePositiveIntegerFlag as normalizePositiveInteger, parseRequiredEnumFlag, workspaceFlag} from '../../utils/cli-flags.js'
 
 export default class DeckExportBackend extends Command {
   static args = {
     projectId: Args.string({description: 'Deck Explainer project id with timed-deck.json', required: true}),
   }
 
-  static description = 'Export a Deck project to an optional renderer backend project'
+  static description = 'Export a Deck project to a renderer backend project'
 
   static flags = {
     backend: Flags.string({
-      default: 'remotion',
       description: 'Renderer backend project to generate',
-      options: ['remotion', 'motion-canvas'],
+      options: [...DECK_RENDERER_BACKENDS],
+      required: true,
     }),
     'composition-id': Flags.string({description: 'Remotion composition id'}),
     fps: Flags.integer({description: 'Renderer project frames per second'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     output: Flags.string({description: 'Output directory for the generated backend project'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(DeckExportBackend)
     const output = await createDeckRendererBackendProject({
-      backend: flags.backend as DeckRendererBackend,
+      backend: parseRequiredEnumFlag<DeckRendererBackend>(flags.backend, DECK_RENDERER_BACKENDS, '--backend'),
       compositionId: flags['composition-id'],
       fps: normalizePositiveInteger(flags.fps, '--fps'),
       outputDir: flags.output,
@@ -49,16 +52,4 @@ export default class DeckExportBackend extends Command {
     this.log(`Render: ${output.renderCommand.join(' ')}`)
     this.log(`Artifact: ${output.artifactPath}`)
   }
-}
-
-function normalizePositiveInteger(value: number | undefined, flagName: string): number | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (!Number.isFinite(value) || value < 1 || Math.floor(value) !== value) {
-    throw new TypeError(`${flagName} must be a positive integer.`)
-  }
-
-  return value
 }

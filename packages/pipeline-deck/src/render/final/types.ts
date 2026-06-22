@@ -1,14 +1,16 @@
+import type {DeckHtmlCaptureBackend} from '@video-agent/ir'
 import type {SubtitleQualityResult, VisualSmokeQualityResult} from '@video-agent/quality'
-import type {DeckHtmlFrameSequenceCaptureBackend, DeckHtmlKeyframeCaptureBackend} from '@video-agent/renderer-html'
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 import type {RemotionRenderMediaResult} from '@video-agent/renderer-remotion'
+import type {DeckVideoRenderer} from '@video-agent/runtime'
 
 import type {DeckReviewFrameRenderer} from '../../quality/review.js'
+import type {DeckFinalRenderer} from '../renderers.js'
 
 export interface CreateDeckFinalRenderProjectOptions {
   chromiumCommand?: string[]
   compositionId?: string
-  frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
+  frameCaptureBackend?: DeckHtmlCaptureBackend
   frameConcurrency?: number
   frameEnd?: number
   frameStart?: number
@@ -18,10 +20,10 @@ export interface CreateDeckFinalRenderProjectOptions {
   htmlRender?: boolean
   htmlRenderCommand?: string[]
   htmlValidate?: boolean
-  keyframeCaptureBackend?: DeckHtmlKeyframeCaptureBackend
+  keyframeCaptureBackend?: DeckHtmlCaptureBackend
   playwrightCommand?: string[]
   projectId: string
-  renderer?: 'html' | 'remotion'
+  renderer?: DeckFinalRenderer
   workspaceDir?: string
 }
 
@@ -32,7 +34,7 @@ export interface CreateDeckFinalRenderProjectResult {
   finalized: boolean
   frameEnd?: number
   frameManifestPath?: string
-  frameRenderer?: DeckHtmlFrameSequenceCaptureBackend
+  frameRenderer?: DeckHtmlCaptureBackend
   frameStart?: number
   frameCount?: number
   htmlEntryPath?: string
@@ -45,7 +47,7 @@ export interface CreateDeckFinalRenderProjectResult {
   remotion?: RemotionRenderMediaResult
   reviewHtmlPath?: string
   reviewReportPath?: string
-  renderer: 'html' | 'remotion'
+  renderer: DeckFinalRenderer
   rendered?: HyperframesCliResult
   status: 'frames-rendered' | 'rendered'
   subtitleMuxed?: boolean
@@ -53,6 +55,6 @@ export interface CreateDeckFinalRenderProjectResult {
   subtitlePath?: string
   subtitleQuality?: SubtitleQualityResult
   validation?: HyperframesCliResult
-  videoRenderer: 'chromium+ffmpeg' | 'playwright+ffmpeg' | 'remotion+ffmpeg'
+  videoRenderer: DeckVideoRenderer
   visualQuality?: VisualSmokeQualityResult
 }

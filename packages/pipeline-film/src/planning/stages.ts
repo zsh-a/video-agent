@@ -1,7 +1,8 @@
 import {ASRResultSchema, ClipPlanSchema, RecapScriptSchema, SourceManifestSchema, StoryIndexSchema, TimelineFusionSchema, VLMAnalysisSchema} from '@video-agent/ir'
 
-import {createRuntimeProviders, instrumentProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
+import {ASR_RESULT_ARTIFACT_NAME, CHARACTER_INDEX_ARTIFACT_NAME, CLIP_PLAN_ARTIFACT_NAME, NARRATIVE_BEATS_ARTIFACT_NAME, RECAP_SCRIPT_ARTIFACT_NAME, SOURCE_MANIFEST_ARTIFACT_NAME, STORY_INDEX_ARTIFACT_NAME, TIMELINE_FUSION_ARTIFACT_NAME, VLM_ANALYSIS_ARTIFACT_NAME, createRuntimeScriptProvider, instrumentScriptProvider, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
 import {createFilmClipPlan} from './clip-plan.js'
+import {FILM_STAGE_IDS} from '../pipeline.js'
 import type {
   CreateFilmClipPlanProjectOptions,
   CreateFilmClipPlanProjectResult,
@@ -10,31 +11,30 @@ import type {
   CreateFilmStoryIndexProjectOptions,
   CreateFilmStoryIndexProjectResult,
 } from '../project/types.js'
-import {completeFilmStage, createFilmProviderCallRecorder, failFilmStage, openFilmStageWorkspace} from '../shared/stage-runtime.js'
+import {createFilmProviderCallRecorder, openFilmStageWorkspace} from '../shared/stage-runtime.js'
 import {validateGeneratedRecapScript, validateGeneratedStoryIndex} from './validation.js'
 
 export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexProjectOptions): Promise<CreateFilmStoryIndexProjectResult> {
   const projectId = options.projectId
-  const {jobStore, workspace} = await openFilmStageWorkspace({
+  const {agent, workspace} = await openFilmStageWorkspace({
     projectId,
-    stage: 'build-story-index',
+    stage: FILM_STAGE_IDS.buildStoryIndex,
     workspaceDir: options.workspaceDir,
   })
 
   try {
     const config = await readConfig(workspace.workspaceDir)
-    const providers = instrumentProviders(
-      await createRuntimeProviders(config, workspace.workspaceDir, {
+    const scriptProvider = instrumentScriptProvider(
+      await createRuntimeScriptProvider(config, workspace.workspaceDir, {
         llmClient: options.llmClient,
       }),
-      config.providers,
       createFilmProviderCallRecorder(workspace),
     )
     const [sourceManifest, timelineFusion, asrResult, vlmAnalysis] = await Promise.all([
-      SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
-      TimelineFusionSchema.parseAsync(await workspace.store.readJson('timeline-fusion.json')),
-      ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
-      VLMAnalysisSchema.parseAsync(await workspace.store.readJson('vlm-analysis.json')),
+      SourceManifestSchema.parseAsync(await workspace.store.readJson(SOURCE_MANIFEST_ARTIFACT_NAME)),
+      TimelineFusionSchema.parseAsync(await workspace.store.readJson(TIMELINE_FUSION_ARTIFACT_NAME)),
+      ASRResultSchema.parseAsync(await workspace.store.readJson(ASR_RESULT_ARTIFACT_NAME)),
+      VLMAnalysisSchema.parseAsync(await workspace.store.readJson(VLM_ANALYSIS_ARTIFACT_NAME)),
     ])
     const language = options.language ?? asrResult.language
 
@@ -42,7 +42,7 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
       throw new Error('Film Recap story indexing requires an explicit language from options or ASR; no language fallback is allowed.')
     }
 
-    const indexed = validateGeneratedStoryIndex(await providers.script.createStoryIndex({
+    const indexed = validateGeneratedStoryIndex(await scriptProvider.createStoryIndex({
       asrResult,
       language,
       sourceManifest,
@@ -50,12 +50,13 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
       vlmAnalysis,
     }), sourceManifest)
     const artifacts = {
-      storyIndex: await workspace.store.writeJson('story-index.json', indexed.storyIndex),
-      narrativeBeats: await workspace.store.writeJson('narrative-beats.json', indexed.narrativeBeats),
-      characterIndex: await workspace.store.writeJson('character-index.json', indexed.characterIndex),
+      storyIndex: await workspace.store.writeJson(STORY_INDEX_ARTIFACT_NAME, indexed.storyIndex),
+      narrativeBeats: await workspace.store.writeJson(NARRATIVE_BEATS_ARTIFACT_NAME, indexed.narrativeBeats),
+      characterIndex: await workspace.store.writeJson(CHARACTER_INDEX_ARTIFACT_NAME, indexed.characterIndex),
     }
 
-    await completeFilmStage(jobStore, workspace, 'build-story-index')
+    await agent.completeStage(FILM_STAGE_IDS.buildStoryIndex)
+    await agent.completeRun('Film stage build-story-index complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -66,35 +67,35 @@ export async function createFilmStoryIndexProject(options: CreateFilmStoryIndexP
       status: 'indexed',
     }
   } catch (error) {
-    await failFilmStage(jobStore, workspace, 'build-story-index', error)
+    await agent.failStage(FILM_STAGE_IDS.buildStoryIndex, error)
+    await agent.failRun(error)
     throw error
   }
 }
 
 export async function createFilmRecapScriptProject(options: CreateFilmRecapScriptProjectOptions): Promise<CreateFilmRecapScriptProjectResult> {
   const projectId = options.projectId
-  const {jobStore, workspace} = await openFilmStageWorkspace({
+  const {agent, workspace} = await openFilmStageWorkspace({
     projectId,
-    stage: 'write-script',
+    stage: FILM_STAGE_IDS.writeScript,
     workspaceDir: options.workspaceDir,
   })
 
   try {
     const config = await readConfig(workspace.workspaceDir)
-    const providers = instrumentProviders(
-      await createRuntimeProviders(config, workspace.workspaceDir, {
+    const scriptProvider = instrumentScriptProvider(
+      await createRuntimeScriptProvider(config, workspace.workspaceDir, {
         llmClient: options.llmClient,
       }),
-      config.providers,
       createFilmProviderCallRecorder(workspace),
     )
     const [sourceManifest, storyIndex, asrResult, vlmAnalysis] = await Promise.all([
-      SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
-      StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
-      ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
-      VLMAnalysisSchema.parseAsync(await workspace.store.readJson('vlm-analysis.json')),
+      SourceManifestSchema.parseAsync(await workspace.store.readJson(SOURCE_MANIFEST_ARTIFACT_NAME)),
+      StoryIndexSchema.parseAsync(await workspace.store.readJson(STORY_INDEX_ARTIFACT_NAME)),
+      ASRResultSchema.parseAsync(await workspace.store.readJson(ASR_RESULT_ARTIFACT_NAME)),
+      VLMAnalysisSchema.parseAsync(await workspace.store.readJson(VLM_ANALYSIS_ARTIFACT_NAME)),
     ])
-    const recapScript = validateGeneratedRecapScript(RecapScriptSchema.parse(await providers.script.createRecapScript({
+    const recapScript = validateGeneratedRecapScript(RecapScriptSchema.parse(await scriptProvider.createRecapScript({
       asrResult,
       sourceManifest,
       storyIndex,
@@ -102,10 +103,11 @@ export async function createFilmRecapScriptProject(options: CreateFilmRecapScrip
       vlmAnalysis,
     })), storyIndex, sourceManifest, options.targetDurationSeconds)
     const artifacts = {
-      recapScript: await workspace.store.writeJson('recap-script.json', recapScript),
+      recapScript: await workspace.store.writeJson(RECAP_SCRIPT_ARTIFACT_NAME, recapScript),
     }
 
-    await completeFilmStage(jobStore, workspace, 'write-script')
+    await agent.completeStage(FILM_STAGE_IDS.writeScript)
+    await agent.completeRun('Film stage write-script complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -117,31 +119,33 @@ export async function createFilmRecapScriptProject(options: CreateFilmRecapScrip
       totalEstimatedDuration: recapScript.totalEstimatedDuration,
     }
   } catch (error) {
-    await failFilmStage(jobStore, workspace, 'write-script', error)
+    await agent.failStage(FILM_STAGE_IDS.writeScript, error)
+    await agent.failRun(error)
     throw error
   }
 }
 
 export async function createFilmClipPlanProject(options: CreateFilmClipPlanProjectOptions): Promise<CreateFilmClipPlanProjectResult> {
   const projectId = options.projectId
-  const {jobStore, workspace} = await openFilmStageWorkspace({
+  const {agent, workspace} = await openFilmStageWorkspace({
     projectId,
-    stage: 'plan-clips',
+    stage: FILM_STAGE_IDS.planClips,
     workspaceDir: options.workspaceDir,
   })
 
   try {
     const [sourceManifest, storyIndex, recapScript] = await Promise.all([
-      SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
-      StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
-      RecapScriptSchema.parseAsync(await workspace.store.readJson('recap-script.json')),
+      SourceManifestSchema.parseAsync(await workspace.store.readJson(SOURCE_MANIFEST_ARTIFACT_NAME)),
+      StoryIndexSchema.parseAsync(await workspace.store.readJson(STORY_INDEX_ARTIFACT_NAME)),
+      RecapScriptSchema.parseAsync(await workspace.store.readJson(RECAP_SCRIPT_ARTIFACT_NAME)),
     ])
     const clipPlan = ClipPlanSchema.parse(createFilmClipPlan(sourceManifest, storyIndex, options.targetDurationSeconds, recapScript))
     const artifacts = {
-      clipPlan: await workspace.store.writeJson('clip-plan.json', clipPlan),
+      clipPlan: await workspace.store.writeJson(CLIP_PLAN_ARTIFACT_NAME, clipPlan),
     }
 
-    await completeFilmStage(jobStore, workspace, 'plan-clips')
+    await agent.completeStage(FILM_STAGE_IDS.planClips)
+    await agent.completeRun('Film stage plan-clips complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -153,7 +157,8 @@ export async function createFilmClipPlanProject(options: CreateFilmClipPlanProje
       status: 'planned',
     }
   } catch (error) {
-    await failFilmStage(jobStore, workspace, 'plan-clips', error)
+    await agent.failStage(FILM_STAGE_IDS.planClips, error)
+    await agent.failRun(error)
     throw error
   }
 }

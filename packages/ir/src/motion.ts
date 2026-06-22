@@ -38,8 +38,8 @@ export const MotionSceneSchema = z.object({
   id: z.string().min(1),
   sourceId: z.string().min(1).optional(),
   start: z.number().finite().nonnegative(),
-}).refine((scene) => scene.end >= scene.start, {
-  message: 'Motion scene end must be greater than or equal to start.',
+}).refine((scene) => scene.end > scene.start, {
+  message: 'Motion scene end must be greater than start.',
   path: ['end'],
 })
 

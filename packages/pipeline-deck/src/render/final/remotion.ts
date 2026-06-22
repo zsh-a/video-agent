@@ -1,37 +1,38 @@
 import {DeckQualityReportSchema, TimedDeckSchema} from '@video-agent/ir'
 import {compileDeckMotionPlan, resolveMotionStepsForTemplate} from '@video-agent/renderer-deck'
 import {renderRemotionDeckMedia, writeRemotionDeckProject} from '@video-agent/renderer-remotion'
+import {DECK_KEYFRAMES_ARTIFACT_NAME, DECK_QUALITY_REPORT_ARTIFACT_NAME, DECK_REMOTION_VIDEO_RENDERER, DECK_RENDERER_REMOTION_ARTIFACT_NAME, REMOTION_RENDER_OUTPUT_RENDERER, TIMED_DECK_ARTIFACT_NAME} from '@video-agent/runtime'
 import {mkdir, rm} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {assertFileExists} from '@video-agent/runtime'
 import {createDeckRendererBackendArtifact} from '../backend-artifacts.js'
 import {removeDeckHtmlFrameArtifacts} from './cleanup.js'
 import {inspectDeckRenderedOutput, muxDeckFinalVideo, writeDeckSubtitles} from './media.js'
-import {completeDeckFinalRender, failDeckFinalRender, openDeckFinalRenderContext} from './runtime.js'
+import {beginDeckFinalRender, completeDeckFinalRender, failDeckFinalRender, openDeckFinalRenderContext} from './runtime.js'
 import type {CreateDeckFinalRenderProjectOptions, CreateDeckFinalRenderProjectResult} from './types.js'
 import {normalizeDeckRendererFps, sha256File} from '../frames/index.js'
 import {createDeckFinalVideoKeyframeQuality} from '../../quality/keyframes.js'
 import {assertDeckQualityReportHasNoErrors, createDeckQualityReport} from '../../quality/report.js'
 import {writeDeckRemotionRenderOutputArtifact} from '../output-artifacts.js'
 import {writeDeckReviewArtifacts} from '../../quality/review.js'
+import {assertFileExists, requireTimedDeckDuration} from '../../shared/utils.js'
 
 export async function createDeckRemotionFinalRenderProject(options: CreateDeckFinalRenderProjectOptions): Promise<CreateDeckFinalRenderProjectResult> {
   const context = await openDeckFinalRenderContext(options)
   const {projectId, workspace} = context
 
   try {
-    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson(TIMED_DECK_ARTIFACT_NAME))
     const audioRef = requireTimedDeckAudioRef(timedDeck, 'Deck Remotion final render')
     const audioPath = resolve(workspace.projectDir, audioRef)
     const remotionOutputDir = resolve(workspace.rendersDir, 'remotion')
     const silentVideoPath = resolve(workspace.rendersDir, 'deck_silent.mp4')
     const outputPath = resolve(workspace.rendersDir, 'final.mp4')
-    const sourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+    const sourceSha256 = await sha256File(workspace.store.resolve(TIMED_DECK_ARTIFACT_NAME))
     const motionTimeline = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate).timeline
     const fps = normalizeDeckRendererFps(motionTimeline.fps)
     const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
-    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
+    const deckQualityReportPath = await workspace.store.writeJson(DECK_QUALITY_REPORT_ARTIFACT_NAME, deckQualityReport)
 
     assertDeckQualityReportHasNoErrors(deckQualityReport, deckQualityReportPath)
 
@@ -39,6 +40,7 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
     await rm(remotionOutputDir, {force: true, recursive: true})
     await removeDeckHtmlFrameArtifacts(workspace)
     await mkdir(workspace.rendersDir, {recursive: true})
+    await beginDeckFinalRender(context)
 
     const remotionProject = await writeRemotionDeckProject({
       compositionId: options.compositionId,
@@ -55,12 +57,12 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
       projectId,
       sourceSha256,
     })
-    const backendArtifactPath = await workspace.store.writeJson('deck-renderer-remotion.json', backendArtifact)
+    const backendArtifactPath = await workspace.store.writeJson(DECK_RENDERER_REMOTION_ARTIFACT_NAME, backendArtifact)
     const remotion = await renderRemotionDeckMedia({
       outputPath: silentVideoPath,
       project: remotionProject,
     })
-	    const subtitleOutput = await writeDeckSubtitles(workspace, timedDeck)
+    const subtitleOutput = await writeDeckSubtitles(workspace, timedDeck)
 
     await muxDeckFinalVideo({
       audioPath,
@@ -70,9 +72,9 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
     })
 
     const keyframeQuality = await createDeckFinalVideoKeyframeQuality(workspace, timedDeck, outputPath, fps)
-    const keyframeQualityPath = await workspace.store.writeJson('deck-keyframes.json', keyframeQuality.artifact)
+    const keyframeQualityPath = await workspace.store.writeJson(DECK_KEYFRAMES_ARTIFACT_NAME, keyframeQuality.artifact)
     const outputQuality = await inspectDeckRenderedOutput(outputPath, {
-      expectedDuration: timedDeck.timings.at(-1)?.end ?? 0,
+      expectedDuration: requireTimedDeckDuration(timedDeck, 'Deck Remotion final render'),
     })
     const review = await writeDeckReviewArtifacts({
       deckQualityReport,
@@ -83,7 +85,7 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
       projectId,
       subtitleQuality: subtitleOutput.quality,
       timedDeck,
-      videoRenderer: 'remotion+ffmpeg',
+      videoRenderer: DECK_REMOTION_VIDEO_RENDERER,
       workspace,
     })
     const artifactPath = await writeDeckRemotionRenderOutputArtifact(workspace, {
@@ -116,13 +118,13 @@ export async function createDeckRemotionFinalRenderProject(options: CreateDeckFi
       remotion,
       reviewHtmlPath: review.htmlPath,
       reviewReportPath: review.reportPath,
-      renderer: 'remotion',
+      renderer: REMOTION_RENDER_OUTPUT_RENDERER,
       status: 'rendered',
       subtitleMuxMode: 'mov_text',
       subtitleMuxed: true,
       subtitlePath: subtitleOutput.outputPath,
       subtitleQuality: subtitleOutput.quality,
-      videoRenderer: 'remotion+ffmpeg',
+      videoRenderer: DECK_REMOTION_VIDEO_RENDERER,
       visualQuality: keyframeQuality.visualQuality,
     }
   } catch (error) {

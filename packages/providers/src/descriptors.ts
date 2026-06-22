@@ -51,8 +51,14 @@ export function getProviderDescriptor(name: string): ProviderDescriptor | undefi
   return isProviderName(name) ? PROVIDER_DESCRIPTORS[name] : undefined
 }
 
-export function getProviderEnvironmentDefinitions(role: ProviderRole, provider: string): ProviderEnvironmentDefinition[] {
-  return getProviderDescriptor(provider)?.requirements(role) ?? []
+export function getProviderEnvironmentDefinitions(role: ProviderRole, provider: ProviderName): ProviderEnvironmentDefinition[] {
+  const descriptor = getProviderDescriptor(provider)
+
+  if (descriptor === undefined) {
+    throw new Error(`Unsupported ${role} provider: ${String(provider)}`)
+  }
+
+  return descriptor.requirements(role)
 }
 
 export function isProviderName(name: string): name is ProviderName {

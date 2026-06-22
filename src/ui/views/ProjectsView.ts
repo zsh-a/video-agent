@@ -19,7 +19,7 @@ export function ProjectsView({selectedProjectIndex, snapshot}: {selectedProjectI
       columns: [
         {header: 'Name', key: 'name', render: (project) => project.projectId, width: 30},
         {header: 'Status', key: 'status', render: (project) => compactStatus(project.status), width: 12, color: (project) => statusColor(project.status)},
-        {header: 'Updated', key: 'updated', render: (project) => project.updatedAt ?? '-', width: 26},
+        {header: 'Updated', key: 'updated', render: (project) => project.updatedAt, width: 26},
       ],
       data: projects,
       maxRows: 16,

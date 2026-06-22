@@ -1,40 +1,42 @@
 import type {JobRunStatus, JobStageState} from '@video-agent/db'
 
+import {JOB_STATUS_FAILED, JOB_STATUS_PENDING, JOB_STATUS_RUNNING} from '@video-agent/db'
 import {ZodError} from 'zod'
 
-import type {RerunProjectResult} from './rerun.js'
-import {FILM_PIPELINE_DEFINITION} from './pipeline.js'
-import {assertPipelineCheckpointArtifacts, detectPipelineKind, isPipelineStage, listProjects, PipelineCheckpointError, readProjectStatus, type PipelineKind, type PipelineStage} from '@video-agent/runtime'
-import {rerunProject} from './rerun.js'
+import type {RerunFilmProjectResult} from './rerun.js'
+import {FILM_PIPELINE_DEFINITION, type FilmPipelineStage} from './pipeline.js'
+import {PIPELINE_KIND_FILM, detectPipelineKind, isPipelineStage, type PipelineKind} from '@video-agent/core'
+import {assertPipelineCheckpointArtifacts, listProjects, PipelineCheckpointError, readProjectStatus, DEFAULT_WORKSPACE_DIR} from '@video-agent/runtime'
+import {rerunFilmProject} from './rerun.js'
 
-export interface RecoverWorkspaceJobsOptions {
+export interface RecoverFilmWorkspaceJobsOptions {
   dryRun?: boolean
   limit?: number
   maxAttempts?: number
-  orderBy?: RecoveryOrderBy
+  orderBy?: FilmRecoveryOrderBy
   runningStaleAfterMs?: number
-  statuses?: RecoverableJobStatus[]
+  statuses?: readonly FilmRecoverableJobStatus[]
   workspaceDir?: string
 }
 
-export interface RecoverWorkspaceJobsReport {
+export interface RecoverFilmWorkspaceJobsReport {
   dryRun: boolean
   recovered: number
-  results: RecoverWorkspaceJobResult[]
+  results: RecoverFilmWorkspaceJobResult[]
   skipped: number
   workspaceDir: string
 }
 
-export interface RecoverWorkspaceJobResult {
+export interface RecoverFilmWorkspaceJobResult {
   attempt?: number
   changedArtifacts?: string[]
   error?: string
-  fromStage?: PipelineStage
+  fromStage?: FilmPipelineStage
   jobStatus?: JobRunStatus
   missingArtifacts?: string[]
-  pipeline?: PipelineKind
+  pipeline: PipelineKind
   projectId: string
-  result?: RerunProjectResult
+  result?: RerunFilmProjectResult
   schemaInvalidArtifacts?: string[]
   skipReason?: 'attempt-limit' | 'checkpoint-invalid' | 'limit' | 'not-recoverable' | 'running-active'
   status: 'failed' | 'recovered' | 'skipped' | 'would-recover'
@@ -43,21 +45,24 @@ export interface RecoverWorkspaceJobResult {
   validationIssues?: CheckpointValidationIssue[]
 }
 
-export type RecoverableJobStatus = 'failed' | 'running'
-export type RecoveryOrderBy = 'attempt' | 'oldest' | 'recent'
+export const FILM_RECOVERABLE_JOB_STATUSES = [JOB_STATUS_FAILED, JOB_STATUS_RUNNING] as const
+export const FILM_RECOVERY_STATUS_OPTIONS = ['active', ...FILM_RECOVERABLE_JOB_STATUSES] as const
+export const FILM_RECOVERY_ORDER_BY_VALUES = ['attempt', 'oldest', 'recent'] as const
 
-type RecoveryCandidate = RecoverWorkspaceJobResult & {
-  fromStage: PipelineStage
+export type FilmRecoverableJobStatus = (typeof FILM_RECOVERABLE_JOB_STATUSES)[number]
+export type FilmRecoveryStatusOption = (typeof FILM_RECOVERY_STATUS_OPTIONS)[number]
+export type FilmRecoveryOrderBy = (typeof FILM_RECOVERY_ORDER_BY_VALUES)[number]
+
+type RecoveryCandidate = RecoverFilmWorkspaceJobResult & {
+  fromStage: FilmPipelineStage
   jobStatus: JobRunStatus
-  pipeline: PipelineKind
+  pipeline: typeof PIPELINE_KIND_FILM
   status: 'would-recover'
 }
 
-const RECOVERABLE_STATUSES: readonly RecoverableJobStatus[] = ['failed', 'running']
-
-export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions = {}): Promise<RecoverWorkspaceJobsReport> {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
-  const statuses = options.statuses ?? RECOVERABLE_STATUSES
+export async function recoverFilmWorkspaceJobs(options: RecoverFilmWorkspaceJobsOptions = {}): Promise<RecoverFilmWorkspaceJobsReport> {
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
+  const statuses = options.statuses ?? FILM_RECOVERABLE_JOB_STATUSES
   const projects = await listProjects(workspaceDir)
   const inspected = await Promise.all(projects.map(async (project) => readRecoveryCandidate(project.projectId, workspaceDir, {
     maxAttempts: options.maxAttempts,
@@ -87,21 +92,41 @@ export async function recoverWorkspaceJobs(options: RecoverWorkspaceJobsOptions 
   }
 }
 
+export function resolveFilmRecoverableStatuses(status: null | FilmRecoveryStatusOption | undefined): readonly FilmRecoverableJobStatus[] | undefined {
+  if (status === undefined || status === null || status === 'active') {
+    return undefined
+  }
+
+  if (isFilmRecoverableJobStatus(status)) {
+    return [status]
+  }
+
+  throw new Error(`Invalid recoverable job status: ${status}`)
+}
+
+export function isFilmRecoverableJobStatus(status: string): status is FilmRecoverableJobStatus {
+  return (FILM_RECOVERABLE_JOB_STATUSES as readonly string[]).includes(status)
+}
+
+export function isFilmRecoveryOrderBy(value: string): value is FilmRecoveryOrderBy {
+  return (FILM_RECOVERY_ORDER_BY_VALUES as readonly string[]).includes(value)
+}
+
 interface ReadRecoveryCandidateOptions {
   maxAttempts?: number
   runningStaleAfterMs?: number
-  statuses: readonly RecoverableJobStatus[]
+  statuses: readonly FilmRecoverableJobStatus[]
 }
 
-async function readRecoveryCandidate(projectId: string, workspaceDir: string, options: ReadRecoveryCandidateOptions): Promise<RecoverWorkspaceJobResult> {
+async function readRecoveryCandidate(projectId: string, workspaceDir: string, options: ReadRecoveryCandidateOptions): Promise<RecoverFilmWorkspaceJobResult> {
   const status = await readProjectStatus(projectId, workspaceDir)
   const {status: jobStatus, updatedAt} = status.job
-  const pipeline = detectRecoverablePipeline(status.job)
+  const pipeline = detectPipelineKind(status.job)
 
-  if (pipeline === undefined || pipeline !== 'film') {
+  if (pipeline !== PIPELINE_KIND_FILM) {
     return {
       jobStatus,
-      ...(pipeline === undefined ? {} : {pipeline}),
+      pipeline,
       projectId,
       skipReason: 'not-recoverable',
       status: 'skipped',
@@ -109,7 +134,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
     }
   }
 
-  const stage = options.statuses.includes(jobStatus as RecoverableJobStatus) ? findRecoveryStage(status.job.stages, pipeline) : undefined
+  const stage = isFilmRecoverableJobStatus(jobStatus) && options.statuses.includes(jobStatus) ? findRecoveryStage(status.job.stages) : undefined
 
   if (stage === undefined) {
     return {
@@ -122,7 +147,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
     }
   }
 
-  if (jobStatus === 'running' && isRunningJobActive(updatedAt, options.runningStaleAfterMs)) {
+  if (jobStatus === JOB_STATUS_RUNNING && isRunningJobActive(updatedAt, options.runningStaleAfterMs)) {
     return {
       attempt: stage.attempt,
       fromStage: stage.name,
@@ -148,7 +173,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
     }
   }
 
-  const checkpointIssue = await readCheckpointIssue(projectId, workspaceDir, pipeline, stage.name)
+  const checkpointIssue = await readCheckpointIssue(projectId, workspaceDir, stage.name)
 
   if (checkpointIssue !== undefined) {
     return {
@@ -180,15 +205,7 @@ async function readRecoveryCandidate(projectId: string, workspaceDir: string, op
   }
 }
 
-function detectRecoverablePipeline(job: {pipeline?: string}): PipelineKind | undefined {
-  try {
-    return detectPipelineKind(job)
-  } catch {
-    return undefined
-  }
-}
-
-function sortRecoveryCandidates(results: RecoverWorkspaceJobResult[], orderBy: RecoveryOrderBy | undefined): RecoverWorkspaceJobResult[] {
+function sortRecoveryCandidates(results: RecoverFilmWorkspaceJobResult[], orderBy: FilmRecoveryOrderBy | undefined): RecoverFilmWorkspaceJobResult[] {
   const sorted = [...results]
 
   if (orderBy === 'oldest') {
@@ -206,19 +223,19 @@ function sortRecoveryCandidates(results: RecoverWorkspaceJobResult[], orderBy: R
   return sorted
 }
 
-function selectRecoveryCandidates(results: RecoverWorkspaceJobResult[], limit: number | undefined): RecoveryCandidate[] {
-  const candidates = results.filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined && result.pipeline !== undefined)
+function selectRecoveryCandidates(results: RecoverFilmWorkspaceJobResult[], limit: number | undefined): RecoveryCandidate[] {
+  const candidates = results.filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined)
 
   return limit === undefined ? candidates : candidates.slice(0, limit)
 }
 
-function selectDeferredCandidates(results: RecoverWorkspaceJobResult[], limit: number | undefined): RecoverWorkspaceJobResult[] {
+function selectDeferredCandidates(results: RecoverFilmWorkspaceJobResult[], limit: number | undefined): RecoverFilmWorkspaceJobResult[] {
   if (limit === undefined) {
     return []
   }
 
   return results
-    .filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined && result.pipeline !== undefined)
+    .filter((result): result is RecoveryCandidate => result.status === 'would-recover' && result.fromStage !== undefined && result.jobStatus !== undefined)
     .slice(limit)
     .map((candidate) => ({
       attempt: candidate.attempt,
@@ -233,29 +250,27 @@ function selectDeferredCandidates(results: RecoverWorkspaceJobResult[], limit: n
 }
 
 type RecoverableStage = JobStageState & {
-  name: PipelineStage
+  name: FilmPipelineStage
 }
 
-function findRecoveryStage(stages: JobStageState[], pipeline: PipelineKind): RecoverableStage | undefined {
-  const stage = stages.find((item) => item.status === 'failed') ?? stages.find((item) => item.status === 'running') ?? stages.find((item) => item.status === 'pending')
-
-  if (pipeline !== 'film') {
-    return undefined
-  }
+function findRecoveryStage(stages: JobStageState[]): RecoverableStage | undefined {
+  const stage = stages.find((item) => item.status === JOB_STATUS_FAILED)
+    ?? stages.find((item) => item.status === JOB_STATUS_RUNNING)
+    ?? stages.find((item) => item.status === JOB_STATUS_PENDING)
 
   return isPipelineStage(FILM_PIPELINE_DEFINITION, stage?.name) ? {...stage, name: stage.name} : undefined
 }
 
 interface RecoverProjectOptions {
   attempt?: number
-  fromStage: PipelineStage
+  fromStage: FilmPipelineStage
   jobStatus: JobRunStatus
-  pipeline: PipelineKind
+  pipeline: typeof PIPELINE_KIND_FILM
   projectId: string
   workspaceDir: string
 }
 
-async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWorkspaceJobResult> {
+async function recoverProject(options: RecoverProjectOptions): Promise<RecoverFilmWorkspaceJobResult> {
   try {
     return {
       attempt: options.attempt,
@@ -263,7 +278,7 @@ async function recoverProject(options: RecoverProjectOptions): Promise<RecoverWo
       jobStatus: options.jobStatus,
       pipeline: options.pipeline,
       projectId: options.projectId,
-      result: await rerunProject(options.projectId, {
+      result: await rerunFilmProject(options.projectId, {
         fromStage: options.fromStage,
         workspaceDir: options.workspaceDir,
       }),
@@ -297,11 +312,7 @@ export interface CheckpointValidationIssue {
   path: string[]
 }
 
-async function readCheckpointIssue(projectId: string, workspaceDir: string, pipeline: PipelineKind, fromStage: PipelineStage): Promise<CheckpointIssue | undefined> {
-  if (pipeline !== 'film') {
-    return undefined
-  }
-
+async function readCheckpointIssue(projectId: string, workspaceDir: string, fromStage: FilmPipelineStage): Promise<CheckpointIssue | undefined> {
   try {
     await assertPipelineCheckpointArtifacts(projectId, workspaceDir, FILM_PIPELINE_DEFINITION, fromStage)
     return undefined

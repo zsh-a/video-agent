@@ -1,20 +1,23 @@
 import {resolve} from 'node:path'
 
-import type {ProviderCallRecord} from '../provider/calls.js'
 import type {ProjectRuntimeSummary} from './status-types.js'
+import type {z} from 'zod'
 
-import {readJsonLines} from '../shared/file-io.js'
-import {summarizeEvents, type PipelineEventLike} from './event-summary.js'
+import {QUALITY_REPORT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
+import {PIPELINE_EVENTS_LOG_ARTIFACT_NAME, PROVIDER_CALLS_LOG_ARTIFACT_NAME} from '../artifacts/log-artifact-names.js'
+import {PipelineEventLogLineSchema, ProviderCallLogLineSchema} from '../artifacts/log-schemas.js'
+import {JsonLineReadError, readParsedJsonLines} from '../shared/file-io.js'
+import {summarizeEvents} from './event-summary.js'
 import {summarizeProviderCalls} from './provider-summary.js'
 import {readQualitySummary} from './quality-summary.js'
 import {readRenderSummary} from './render-summary.js'
 
 export async function readProjectRuntimeSummary(artifactsDir: string): Promise<ProjectRuntimeSummary> {
   const [events, providerCalls, quality, render] = await Promise.all([
-    readJsonLines<PipelineEventLike>(resolve(artifactsDir, 'pipeline-events.jsonl')),
-    readJsonLines<ProviderCallRecord>(resolve(artifactsDir, 'provider-calls.jsonl')),
-    readQualitySummary(resolve(artifactsDir, 'quality-report.json')),
-    readRenderSummary(resolve(artifactsDir, 'render-output.json')),
+    readStatusJsonLines(resolve(artifactsDir, PIPELINE_EVENTS_LOG_ARTIFACT_NAME), PipelineEventLogLineSchema),
+    readStatusJsonLines(resolve(artifactsDir, PROVIDER_CALLS_LOG_ARTIFACT_NAME), ProviderCallLogLineSchema),
+    readQualitySummary(resolve(artifactsDir, QUALITY_REPORT_ARTIFACT_NAME)),
+    readRenderSummary(resolve(artifactsDir, RENDER_OUTPUT_ARTIFACT_NAME)),
   ])
 
   return {
@@ -22,5 +25,17 @@ export async function readProjectRuntimeSummary(artifactsDir: string): Promise<P
     providers: summarizeProviderCalls(providerCalls),
     quality,
     render,
+  }
+}
+
+async function readStatusJsonLines<T>(path: string, schema: z.ZodType<T>): Promise<T[]> {
+  try {
+    return await readParsedJsonLines(path, schema)
+  } catch (error) {
+    if (error instanceof JsonLineReadError) {
+      return []
+    }
+
+    throw error
   }
 }

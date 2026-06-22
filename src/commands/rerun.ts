@@ -1,8 +1,11 @@
+import type {FilmPipelineStage} from '@video-agent/pipeline-film'
+
 import {Args, Command, Flags} from '@oclif/core'
-import {FILM_PIPELINE_STAGES, rerunProject} from '@video-agent/pipeline-film'
-import {type PipelineStage, PipelineCheckpointError} from '@video-agent/runtime'
+import {FILM_PIPELINE_STAGES, rerunFilmProject} from '@video-agent/pipeline-film'
+import {PipelineCheckpointError} from '@video-agent/runtime'
 
 import {createCheckpointErrorPayload, formatCheckpointFailure} from '../utils/checkpoint-errors.js'
+import {parseOptionalEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
 
 export default class Rerun extends Command {
   static args = {
@@ -15,16 +18,16 @@ export default class Rerun extends Command {
       options: [...FILM_PIPELINE_STAGES],
     }),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Rerun)
-    let output: Awaited<ReturnType<typeof rerunProject>>
+    let output: Awaited<ReturnType<typeof rerunFilmProject>>
 
     try {
-      output = await rerunProject(args.project, {
-        fromStage: flags['from-stage'] as PipelineStage | undefined,
+      output = await rerunFilmProject(args.project, {
+        fromStage: parseOptionalEnumFlag<FilmPipelineStage>(flags['from-stage'], FILM_PIPELINE_STAGES, '--from-stage'),
         workspaceDir: flags.workspace,
       })
     } catch (error) {

@@ -123,12 +123,13 @@ function requireSingleTargetBeat(segment: RecapScriptSegment, beatsById: Map<str
 function requireScriptSegmentSourceRange(segment: RecapScriptSegment, sourceDuration: number): [number, number] {
   const sourceRange = requireProviderSourceRange(segment.sourceRange, sourceDuration, `Recap script segment ${segment.id}`)
   const duration = roundSeconds(sourceRange[1] - sourceRange[0])
+  const suggestedDuration = requireScriptSegmentSuggestedDuration(segment)
 
   if (duration <= 0) {
     throw new Error(`Recap script segment ${segment.id} must provide a positive sourceRange for LLM-driven clip planning.`)
   }
 
-  if (Math.abs(duration - roundSeconds(segment.suggestedDuration)) > 0.001) {
+  if (Math.abs(duration - suggestedDuration) > 0.001) {
     throw new Error(`Recap script segment ${segment.id} suggestedDuration must match its LLM-selected sourceRange duration; no runtime clip truncation is allowed.`)
   }
 
@@ -136,7 +137,7 @@ function requireScriptSegmentSourceRange(segment: RecapScriptSegment, sourceDura
 }
 
 function assertRecapScriptDurationMatchesTarget(recapScript: RecapScript, effectiveTarget: number): void {
-  const segmentDuration = roundSeconds(recapScript.segments.reduce((total, segment) => total + Math.max(0, segment.suggestedDuration), 0))
+  const segmentDuration = roundSeconds(recapScript.segments.reduce((total, segment) => total + requireScriptSegmentSuggestedDuration(segment), 0))
   const scriptDuration = roundSeconds(recapScript.totalEstimatedDuration)
   const targetDuration = roundSeconds(effectiveTarget)
 
@@ -147,6 +148,16 @@ function assertRecapScriptDurationMatchesTarget(recapScript: RecapScript, effect
   if (Math.abs(scriptDuration - targetDuration) > 0.001) {
     throw new Error(`Film Recap clip planning requires LLM-authored recapScript.totalEstimatedDuration ${scriptDuration}s to match target duration ${targetDuration}s; no runtime duration scaling is allowed.`)
   }
+}
+
+function requireScriptSegmentSuggestedDuration(segment: RecapScriptSegment): number {
+  const suggestedDuration = roundSeconds(segment.suggestedDuration)
+
+  if (!Number.isFinite(suggestedDuration) || suggestedDuration <= 0) {
+    throw new Error(`Recap script segment ${segment.id} must have a positive finite suggestedDuration; no runtime duration repair fallback is allowed.`)
+  }
+
+  return suggestedDuration
 }
 
 function requirePositiveScriptTarget(recapScript: RecapScript, sourceDuration: number): number {

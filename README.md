@@ -26,7 +26,7 @@ packages/ir/               Zod schemas and shared IR types
 packages/core/             stage and pipeline orchestration contracts
 packages/runtime/          workspace, artifacts, jobs, config, events, checkpoint/runtime APIs
 packages/media/            ffmpeg / ffprobe / subprocess wrappers
-packages/providers/        ASR, VLM, TTS, storyboard, and script provider contracts
+packages/providers/        ASR, VLM, TTS, and script provider contracts
 packages/pipeline-deck/    Deck Explainer business pipeline boundary over runtime APIs
 packages/pipeline-film/    Film Recap business pipeline boundary over runtime APIs
 packages/llm/              internal LLMClient and AI SDK-backed adapter
@@ -65,7 +65,9 @@ The shared runtime owns jobs, events, agent progress, checkpoints, artifacts, wo
 
 Deck text planning uses a staged generation pipeline: deterministic source mapping, LLM content analysis, deck brief, slide outline, slide plan, script semantics, LLM coherence review, timing preflight, optional TTS timing repair, visual preflight, final render, and review. Long text and large transcript batches are chunked for content analysis and merged before brief/outline planning. Deterministic checks for source coverage, template limits, and speaker-note timing are fed back to the responsible LLM stage as structured rewrite issues; the LLM coherence review also checks narrative continuity, pacing realism, practical detail, and template variety before artifacts are built. Artifact build no longer derives semantic planning artifacts from the final raw plan.
 
-Agent-style LLM work is observable through the same runtime state as every other project operation. Deck planning emits `agent:*` and `stage:progress` events for content analysis, brief, outline, slide plan, script semantics, coherence review, and validation rewrites. CLI/TUI, Web Studio, API, and MCP read the same projected job and agent status instead of parsing LLM trace files directly.
+Agent-style LLM work is observable through the same runtime state as every other project operation. Deck planning emits `agent:*` and `stage:progress` events for content analysis, brief, outline, slide plan, script semantics, coherence review, and validation rewrites. Pipeline definitions are the single job-stage schema; mode-specific no-op stages are recorded as `skipped` rather than removed from the job. CLI/TUI, Web Studio, API, and MCP read the same projected job and agent status from the configured JSON or SQLite store instead of parsing LLM trace files directly.
+
+Film pipeline runs and reruns use the shared core runner, so configured stage retries produce `stage:retry` events in the project log while stage implementations keep owning their typed artifacts.
 
 ## Setup
 
@@ -99,21 +101,21 @@ bun run dev deck ./notes.md --source-type markdown --duration 3m --content-densi
 bun run dev status <projectId>
 bun run dev provider-report <projectId>
 bun run dev render <projectId>
-bun run dev export <projectId> --output ./output
+bun run dev export <projectId> --format video --output ./output
 ```
 
-`film` and `deck` own workflow behavior. The root `render` command is an ffmpeg timeline renderer for projects that have `timeline.json`; Deck final rendering should use `deck render`, and Film final rendering should use `film render` or the full `film` pipeline. `export` copies the latest rendered video when `render-output.json` is present, or a project bundle when no rendered output exists. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
+`film` and `deck` own workflow behavior. The root `render` command is an ffmpeg timeline renderer for projects that have `timeline.json`; Deck final rendering should use `deck render`, and Film final rendering should use `film render` or the full `film` pipeline. `export` requires an explicit `--format video` or `--format bundle`; video export copies the path recorded in `render-output.json`, while bundle export copies the project directory. `--json`, CI, and non-TTY output keep the machine-readable or line-oriented behavior.
 
 Use `provider-report <projectId>` to audit real provider calls and LLM traces after a run. It summarizes calls by role, provider, and model, plus traced LLM operations by provider/model, including failures, latency, usage, and cost from `artifacts/provider-calls.jsonl` and `artifacts/llm-traces.jsonl`; the same report is available from `GET /projects/:projectId/provider-report` and the `video_agent_provider_report` MCP tool.
 
-Deck final rendering defaults to Remotion. `@video-agent/pipeline-deck` compiles DeckIR plus MotionIR into a Remotion composition, renders a silent H.264 video with JPEG intermediate frames, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The Deck HTML renderer remains available through `deck render PROJECT --renderer html` for compatibility and inspection workflows. The HTML path uses the template manifest, React server rendering, Tailwind CSS, CSS variables, and a seekable runtime for deterministic browser frame capture; it defaults to Playwright and can use Chromium through `--frame-capture-backend chromium` / `--keyframe-capture-backend chromium`. HTML frame capture still supports bounded concurrency, frame shards, shard batch retry, and `--finalize-only`, but it is no longer the default full-video path. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
+Deck final rendering defaults to Remotion. `@video-agent/pipeline-deck` compiles DeckIR plus MotionIR into a Remotion composition, renders a silent H.264 video with JPEG intermediate frames, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The Deck HTML renderer remains available through `deck render PROJECT --renderer html` for inspection, deterministic browser frame capture, and keyframe QC workflows. The HTML path uses the template manifest, React server rendering, Tailwind CSS, CSS variables, and a seekable runtime; it defaults to Playwright and can use Chromium through `--frame-capture-backend chromium` / `--keyframe-capture-backend chromium`. HTML frame capture still supports bounded concurrency, frame shards, shard batch retry, and `--finalize-only`, but it is no longer the default full-video path. Renderer templates are layered as layout primitives, visual components, slide templates, themes, and motion presets rather than free-form HTML pages.
 
 Optional renderer backend projects can be exported from the same Deck artifacts without making Remotion or Motion Canvas part of the default runtime renderer:
 
 ```sh
 bun run dev deck export-backend notes-demo --backend remotion
 bun run dev deck export-backend notes-demo --backend motion-canvas --fps 24
-bun run dev deck render-backend notes-demo --backend remotion --remotion-command '["bun","run","render"]'
+bun run dev deck render-backend notes-demo --remotion-command '["bun","run","render"]'
 ```
 
 Export commands write a backend project under `renders/remotion/` or `renders/motion-canvas/` by default and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json` for artifact auditing. `deck render-backend` runs an explicit external Remotion command inside the generated Remotion project, expects `renders/remotion/out/final.mp4` by default, and records `deck-renderer-remotion-output.json`.
@@ -173,10 +175,12 @@ bun run dev config --asr command --vlm command --tts command
 export VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 export VIDEO_AGENT_VLM_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 export VIDEO_AGENT_TTS_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
-bun run dev provider-test --json
+SMOKE_MEDIA=/path/to/sample.wav
+SMOKE_FRAME=/path/to/frame.jpg
+bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --json
 ```
 
-`provider-test` is the provider certification entry point before a real run. It exercises the configured ASR/VLM/TTS contracts and reports failure details, retryability, usage metadata, cost metadata when supplied by the provider, and LLM trace summaries for AI SDK-backed calls.
+`provider-test` is the provider certification entry point before a real run. It exercises the configured ASR/VLM/TTS contracts against caller-supplied sample media, frame, and text inputs, then reports failure details, retryability, usage metadata, cost metadata when supplied by the provider, and LLM trace summaries for AI SDK-backed calls.
 
 See [docs/provider-configuration-model.md](./docs/provider-configuration-model.md) for config details and [docs/provider-adapter-recipes.md](./docs/provider-adapter-recipes.md) for adapter examples.
 

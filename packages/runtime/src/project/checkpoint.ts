@@ -1,7 +1,9 @@
-import {ARTIFACT_MANIFEST_NAME} from '../artifacts/store.js'
+import type {PipelineDefinition, PipelineStage} from '@video-agent/core'
+
+import {access} from 'node:fs/promises'
+
+import {ARTIFACT_MANIFEST_NAME} from '../artifacts/artifact-names.js'
 import {verifyProjectArtifacts} from '../artifacts/index.js'
-import {bunFile} from '../shared/bun-runtime.js'
-import type {PipelineDefinition, PipelineStage} from '../shared/pipeline-definitions.js'
 import {createProjectWorkspace} from '../shared/workspace.js'
 
 export class PipelineCheckpointError extends Error {
@@ -51,7 +53,7 @@ export async function assertPipelineCheckpointArtifacts(projectId: string, works
   const requiredArtifacts = [...checkpointArtifacts, ARTIFACT_MANIFEST_NAME]
   const missing = (
     await Promise.all(
-      requiredArtifacts.map(async (artifact) => await bunFile(workspace.store.resolve(artifact)).exists() ? null : artifact),
+      requiredArtifacts.map(async (artifact) => await fileExists(workspace.store.resolve(artifact)) ? null : artifact),
     )
   ).filter((artifact): artifact is string => artifact !== null)
   const integrity = await verifyProjectArtifacts(workspace.projectId, workspace.workspaceDir)
@@ -69,5 +71,18 @@ export async function assertPipelineCheckpointArtifacts(projectId: string, works
       schemaInvalidArtifacts,
       untrackedArtifacts,
     })
+  }
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+
+    throw error
   }
 }

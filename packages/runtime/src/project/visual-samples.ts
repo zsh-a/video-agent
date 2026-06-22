@@ -1,8 +1,15 @@
-import {stat} from 'node:fs/promises'
+import type {z} from 'zod'
+
+import {readFile, stat} from 'node:fs/promises'
 import {isAbsolute, relative, resolve} from 'node:path'
 
-import {bunFile} from '../shared/bun-runtime.js'
-import {readOptionalJson} from '../shared/file-io.js'
+import {RENDER_OUTPUT_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
+import {RenderOutputSchema} from '../artifacts/core-schemas.js'
+import {readOptionalProjectJson} from './optional-json.js'
+
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+type RenderOutputArtifact = z.infer<typeof RenderOutputSchema>
+type VisualFrameSampleArtifact = NonNullable<NonNullable<RenderOutputArtifact['visualQuality']>['frameSamples']>[number]
 
 export interface ProjectVisualSamplesOptions {
   includeContent?: boolean
@@ -30,7 +37,7 @@ export interface ProjectVisualSample {
 }
 
 export async function readProjectVisualSamples(projectId: string, options: ProjectVisualSamplesOptions = {}): Promise<ProjectVisualSamplesReport> {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
   const projectDir = resolve(workspaceDir, 'projects', projectId)
   const renderOutput = await readRenderOutput(projectDir)
   const samples = await Promise.all(readFrameSamples(renderOutput).map((sample) => readFrameSample(projectDir, sample, options.includeContent === true)))
@@ -42,33 +49,18 @@ export async function readProjectVisualSamples(projectId: string, options: Proje
   }
 }
 
-async function readRenderOutput(projectDir: string): Promise<RenderOutputLike | undefined> {
-  return readOptionalJson<RenderOutputLike>(resolve(projectDir, 'artifacts', 'render-output.json'))
+async function readRenderOutput(projectDir: string): Promise<RenderOutputArtifact | undefined> {
+  const value = await readOptionalProjectJson(resolve(projectDir, 'artifacts', RENDER_OUTPUT_ARTIFACT_NAME))
+
+  return value === undefined ? undefined : RenderOutputSchema.parse(value)
 }
 
-function readFrameSamples(renderOutput: RenderOutputLike | undefined): VisualFrameSampleLike[] {
-  if (renderOutput === undefined) {
-    return []
-  }
-
-  if (Array.isArray(renderOutput.visualQuality?.frameSamples)) {
-    return renderOutput.visualQuality.frameSamples.filter((sample): sample is VisualFrameSampleLike => isFrameSampleLike(sample))
-  }
-
-  return isFrameSampleLike(renderOutput.visualQuality?.frameSample) ? [renderOutput.visualQuality.frameSample] : []
+function readFrameSamples(renderOutput: RenderOutputArtifact | undefined): VisualFrameSampleArtifact[] {
+  return renderOutput?.visualQuality?.frameSamples ?? []
 }
 
-async function readFrameSample(projectDir: string, sample: VisualFrameSampleLike, includeContent: boolean): Promise<ProjectVisualSample> {
+async function readFrameSample(projectDir: string, sample: VisualFrameSampleArtifact, includeContent: boolean): Promise<ProjectVisualSample> {
   const base = createBaseSample(sample)
-
-  if (sample.path === undefined) {
-    return {
-      ...base,
-      error: 'Visual sample path is missing.',
-      exists: false,
-    }
-  }
-
   const path = isAbsolute(sample.path) ? resolve(sample.path) : resolve(projectDir, sample.path)
 
   if (!isInsideDirectory(projectDir, path)) {
@@ -82,7 +74,7 @@ async function readFrameSample(projectDir: string, sample: VisualFrameSampleLike
 
   try {
     const metadata = await stat(path)
-    const content = includeContent ? await bunFile(path).bytes() : undefined
+    const content = includeContent ? await readFile(path) : undefined
 
     return {
       ...base,
@@ -107,9 +99,9 @@ async function readFrameSample(projectDir: string, sample: VisualFrameSampleLike
   }
 }
 
-function createBaseSample(sample: VisualFrameSampleLike): Omit<ProjectVisualSample, 'exists'> {
+function createBaseSample(sample: VisualFrameSampleArtifact): Omit<ProjectVisualSample, 'exists'> {
   return {
-    ...(sample.capturedAt === undefined ? {} : {capturedAt: sample.capturedAt}),
+    capturedAt: sample.capturedAt,
     ok: sample.ok,
     ...(sample.sha256 === undefined ? {} : {reportSha256: sample.sha256}),
     ...(sample.size === undefined ? {} : {reportSize: sample.size}),
@@ -121,37 +113,4 @@ function isInsideDirectory(directory: string, path: string): boolean {
   const relativePath = relative(directory, path)
 
   return relativePath !== '' && !relativePath.startsWith('..') && !relativePath.startsWith('/') && !relativePath.startsWith('\\')
-}
-
-function isFrameSampleLike(value: unknown): value is VisualFrameSampleLike {
-  return (
-    isRecord(value) &&
-    typeof value.ok === 'boolean' &&
-    typeof value.timestamp === 'number' &&
-    Number.isFinite(value.timestamp) &&
-    (value.capturedAt === undefined || typeof value.capturedAt === 'string') &&
-    (value.path === undefined || typeof value.path === 'string') &&
-    (value.sha256 === undefined || typeof value.sha256 === 'string') &&
-    (value.size === undefined || (typeof value.size === 'number' && Number.isFinite(value.size)))
-  )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-interface RenderOutputLike {
-  visualQuality?: {
-    frameSample?: unknown
-    frameSamples?: unknown[]
-  }
-}
-
-interface VisualFrameSampleLike {
-  capturedAt?: string
-  ok: boolean
-  path?: string
-  sha256?: string
-  size?: number
-  timestamp: number
 }

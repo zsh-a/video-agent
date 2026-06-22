@@ -1,19 +1,18 @@
-import type {DeckFormat, DeckQualityReport, DeckSlideType, Slide, SlideTiming, TimedDeck} from '@video-agent/ir'
+import type {DeckFormat, DeckHtmlCaptureBackend, DeckQualityReport, DeckSlideType, Slide, SlideTiming, TimedDeck} from '@video-agent/ir'
 import type {RenderedMediaQualityResult, SubtitleQualityResult, VisualFrameSample, VisualSmokeQualityResult} from '@video-agent/quality'
-import type {DeckHtmlKeyframeCaptureBackend} from '@video-agent/renderer-html'
+import type {DeckKeyframeCaptureMode, DeckKeyframeSource, DeckVideoRenderer, ProjectWorkspace} from '@video-agent/runtime'
 
-import {mkdir, rm} from 'node:fs/promises'
+import {TIMED_DECK_ARTIFACT_NAME} from '@video-agent/ir'
+import {REVIEW_REPORT_ARTIFACT_NAME} from '@video-agent/runtime'
+import {mkdir, rm, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {bunWrite, type ProjectWorkspace} from '@video-agent/runtime'
-
-import {roundSeconds} from '../shared/utils.js'
+import {requireSlideTimingDuration, requireTimedDeckDuration, roundSeconds} from '../shared/utils.js'
 
 export const DECK_REVIEW_FRAME_RENDERER = 'remotion'
 export const DEFAULT_DECK_REVIEW_FRAME_CONCURRENCY = 4
 
-export type DeckReviewFrameRenderer = DeckHtmlKeyframeCaptureBackend | typeof DECK_REVIEW_FRAME_RENDERER
-export type DeckReviewVideoRenderer = 'chromium+ffmpeg' | 'playwright+ffmpeg' | 'remotion+ffmpeg'
+export type DeckReviewFrameRenderer = DeckHtmlCaptureBackend | typeof DECK_REVIEW_FRAME_RENDERER
 
 export interface DeckReviewArtifacts {
   htmlPath: string
@@ -31,7 +30,7 @@ export interface DeckReviewReportArtifact {
   renderer: DeckReviewFrameRenderer
   reviewHtmlPath: string
   slides: DeckReviewSlideReport[]
-  source: 'timed-deck.json'
+  source: typeof TIMED_DECK_ARTIFACT_NAME
   summary: {
     deckErrors: number
     deckWarnings: number
@@ -46,7 +45,7 @@ export interface DeckReviewReportArtifact {
   }
   title: string
   version: 1
-  videoRenderer: DeckReviewVideoRenderer
+  videoRenderer: DeckVideoRenderer
 }
 
 export interface DeckReviewSlideReport {
@@ -79,13 +78,13 @@ export interface DeckReviewSlideReport {
 }
 
 export interface DeckKeyframeArtifact {
-  captureMode: 'browser-keyframes' | 'final-video' | 'frame-sequence'
+  captureMode: DeckKeyframeCaptureMode
   duration: number
   fps: number
   generatedAt: string
   renderer: DeckReviewFrameRenderer
   samples: DeckKeyframeSample[]
-  source: 'deck-frame-manifest.json' | 'timed-deck.json'
+  source: DeckKeyframeSource
   version: 1
   viewport: {height: number; width: number}
 }
@@ -109,7 +108,7 @@ export interface DeckKeyframeSample extends DeckKeyframeTarget {
 export async function removeDeckReviewArtifacts(workspace: ProjectWorkspace): Promise<void> {
   await Promise.all([
     rm(resolve(workspace.rendersDir, 'review'), {force: true, recursive: true}),
-    rm(workspace.store.resolve('review-report.json'), {force: true}),
+    rm(workspace.store.resolve(REVIEW_REPORT_ARTIFACT_NAME), {force: true}),
   ])
 }
 
@@ -125,7 +124,7 @@ export async function writeDeckReviewArtifacts(input: {
   projectId: string
   subtitleQuality: SubtitleQualityResult
   timedDeck: TimedDeck
-  videoRenderer: DeckReviewVideoRenderer
+  videoRenderer: DeckVideoRenderer
   workspace: ProjectWorkspace
 }): Promise<DeckReviewArtifacts> {
   const reviewDir = resolve(input.workspace.rendersDir, 'review')
@@ -139,9 +138,9 @@ export async function writeDeckReviewArtifacts(input: {
     htmlPath,
   })
 
-  await bunWrite(htmlPath, renderDeckReviewHtml(report))
+  await writeFile(htmlPath, renderDeckReviewHtml(report))
 
-  const reportPath = await input.workspace.store.writeJson('review-report.json', report)
+  const reportPath = await input.workspace.store.writeJson(REVIEW_REPORT_ARTIFACT_NAME, report)
 
   return {
     htmlPath,
@@ -175,12 +174,12 @@ function createDeckReviewReport(input: {
   projectId: string
   subtitleQuality: SubtitleQualityResult
   timedDeck: TimedDeck
-  videoRenderer: DeckReviewVideoRenderer
+  videoRenderer: DeckVideoRenderer
   workspace: ProjectWorkspace
 }): DeckReviewReportArtifact {
   const keyframeBySlide = new Map(input.keyframeQuality.artifact.samples.map((sample) => [sample.slideId, sample]))
   const timingBySlide = new Map(input.timedDeck.timings.map((timing) => [timing.slideId, timing]))
-  const duration = input.timedDeck.timings.at(-1)?.end ?? input.keyframeQuality.artifact.duration
+  const duration = requireTimedDeckDuration(input.timedDeck, 'Deck review artifact')
 
   return {
     duration,
@@ -192,7 +191,7 @@ function createDeckReviewReport(input: {
     renderer: input.keyframeQuality.artifact.renderer,
     reviewHtmlPath: toProjectPath(input.workspace.projectDir, input.htmlPath),
     slides: input.timedDeck.deck.slides.map((slide, index) => createDeckReviewSlideReport(slide, index, timingBySlide.get(slide.slideId), keyframeBySlide.get(slide.slideId))),
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     summary: {
       deckErrors: input.deckQualityReport.summary.errors,
       deckWarnings: input.deckQualityReport.summary.warnings,
@@ -218,9 +217,10 @@ function createDeckReviewSlideReport(slide: Slide, index: number, timing: SlideT
 
   const start = roundSeconds(timing.start)
   const end = roundSeconds(timing.end)
+  const duration = requireSlideTimingDuration(timing, 'Deck review report')
 
   return {
-    duration: roundSeconds(Math.max(0, end - start)),
+    duration: roundSeconds(duration),
     end,
     index: index + 1,
     ...(slide.chart === undefined ? {} : {chartBars: slide.chart.bars}),

@@ -2,7 +2,16 @@ import type {MediaStream, SourceManifest} from '@video-agent/ir'
 
 import {createHash} from 'node:crypto'
 import {createReadStream} from 'node:fs'
+import {access} from 'node:fs/promises'
 import {isAbsolute, relative, resolve, sep} from 'node:path'
+
+export async function assertFileExists(path: string, message = `ENOENT: no such file or directory, access '${path}'`): Promise<void> {
+  try {
+    await access(path)
+  } catch {
+    throw Object.assign(new Error(message), {code: 'ENOENT'})
+  }
+}
 
 export function uniqueStrings(values: string[], context = 'semantic strings'): string[] {
   const seen = new Set<string>()

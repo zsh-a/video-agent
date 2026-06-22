@@ -84,4 +84,38 @@ describe('ffmpeg subtitles', () => {
     expect(cueText.includes('需\n求')).to.equal(false)
     expect(cueText.includes('1-\n4')).to.equal(false)
   })
+
+  it('rejects subtitle segments without explicit start times', () => {
+    expect(() => narrationToSrtCues({
+      segments: [
+        {
+          duration: 1,
+          text: 'hello',
+        },
+      ],
+    })).to.throw('no zero-start subtitle fallback is allowed')
+  })
+
+  it('rejects subtitle segments without explicit duration or end time', () => {
+    expect(() => narrationToSrtCues({
+      segments: [
+        {
+          start: 0,
+          text: 'hello',
+        },
+      ],
+    })).to.throw('no text-length subtitle duration fallback is allowed')
+  })
+
+  it('rejects blank subtitle text instead of rendering an empty cue', () => {
+    expect(() => narrationToSrtCues({
+      segments: [
+        {
+          duration: 1,
+          start: 0,
+          text: '   ',
+        },
+      ],
+    })).to.throw('no blank subtitle cue fallback is allowed')
+  })
 })

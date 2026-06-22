@@ -11,13 +11,15 @@
 
 ## Decision
 
-Provider selection remains role-based and string-valued for v0:
+Provider selection remains role-based and uses the built-in provider-name union:
 
 - `mock` is the fixed-output local development provider for media roles.
 - `command` runs an external JSON stdin/stdout adapter.
 - `llm` uses the configured shared `LLMClient`.
 
 Provider profiles prefill non-secret LLM configuration for a hosted service while still using those provider names. The first profile is `mimo`, which selects `llm` for ASR, VLM, and TTS and enables the AI SDK-backed planner/script path with the profile LLM model. MiMo ASR uses the same token but a role-specific AI SDK OpenAI-compatible model config. MiMo TTS uses the MiMo chat-completions audio API to write real wav files into the project workspace before render. MiMo model IDs are centralized in `MIMO_PROVIDER_MODEL_IDS` in `packages/providers/src/profiles.ts`.
+
+Runtime config normalization validates provider names, provider profiles, provider settings roles and fields, and persistence backends before any pipeline stage creates providers or job stores. Unknown values fail at `readConfig`/`doctor` time instead of being silently treated as defaults or surfacing later in a provider factory.
 
 Hosted LLM-like services should be integrated through `packages/llm` and the Vercel AI SDK first. Provider-specific request shape differences belong in the AI SDK config boundary, for example `transformRequestBody`. Media-producing endpoints may stay behind provider interfaces when the SDK boundary cannot return required binary artifacts cleanly, as with MiMo TTS wav output. Add named providers only for boundaries that are not a good fit for AI SDK, such as local command services or non-LLM executors.
 
@@ -100,13 +102,7 @@ VIDEO_AGENT_TTS_MIMO_STYLE=清晰自然地播报
 VIDEO_AGENT_TTS_MIMO_MODEL=mimo-v2.5-tts
 ```
 
-MiMo ASR may return plain transcript text without timestamps. Runtime passes media duration into the ASR provider; the MiMo provider uses that duration to synthesize coarse transcript timestamps from local audio windows. Short audio is returned as one `0..duration` segment. Longer audio is cut into 30 second wav windows with ffmpeg, each window is transcribed separately, and the local window boundaries become segment `start` and `end`. Transcript artifacts may include `timestampConfidence`:
-
-```text
-exact: ASR returned usable timestamps
-chunked: local audio window boundaries were used
-untimed: no reliable duration was available
-```
+MiMo ASR must return transcript JSON with explicit timed segments and `timestampConfidence: "exact"`. Runtime passes media duration into the ASR provider only to validate returned timestamps against the requested audio window; it does not convert plain text into synthetic source-backed timestamps. Longer audio is still cut into 30 second wav windows with ffmpeg, but each window response must provide exact timestamps relative to that window.
 
 The runtime reads `.env` from the current working directory and from the workspace directory. Values from the workspace `.env` override the current working directory `.env`; real process environment variables override both. Explicit `--env KEY=VALUE` flags and API/MCP `env` objects bypass `.env` and use only the supplied values.
 

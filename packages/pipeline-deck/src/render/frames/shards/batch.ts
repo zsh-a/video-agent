@@ -1,13 +1,15 @@
-import {TimedDeckSchema} from '@video-agent/ir'
+import {DEFAULT_DECK_HTML_CAPTURE_BACKEND, TimedDeckSchema} from '@video-agent/ir'
 import {writeDeckHtmlProject} from '@video-agent/renderer-deck'
 import {captureDeckHtmlFrameSequence, createDeckHtmlFrameSequence} from '@video-agent/renderer-html'
+import {JOB_STATUS_FAILED} from '@video-agent/db'
 import {mkdir, rm} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {refreshArtifactManifest} from '@video-agent/runtime'
+import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DECK_FRAME_SHARD_BATCH_COMPLETED_STATUS, DECK_FRAME_SHARD_BATCH_PARTIAL_STATUS, DECK_FRAME_SHARD_COMPLETE_STATUS, DECK_FRAME_SHARD_FAILED_STATUS, TIMED_DECK_ARTIFACT_NAME, refreshArtifactManifest} from '@video-agent/runtime'
 import {DEFAULT_DECK_RENDER_FPS, assertCompleteDeckFrameSequence, createDeckFrameCaptureFromFrames, createDeckFrameManifest, createDeckFrameShardArtifact, createDeckFrameShardRanges, createPlannedDeckFrameManifest, normalizeDeckFrameConcurrency, normalizeDeckFrameShardSize, normalizeDeckShardConcurrency, normalizeDeckShardRetries, normalizeDeckShardRetryDelayMs, readReusableDeckFrameManifest, retryDeckShardCapture, runConcurrentMap, sha256File} from '../index.js'
 import {beginDeckFrameShardBatch, completeDeckFrameShardBatch, failDeckFrameShardBatch, openDeckFrameShardWorkspace} from './runtime.js'
 import type {CreateDeckFrameShardBatchProjectOptions, CreateDeckFrameShardBatchProjectResult, DeckFrameShardBatchShard} from './types.js'
+import {DECK_STAGE_IDS} from '../../../pipeline.js'
 import {toProjectPath} from '../../../project/paths.js'
 
 export async function createDeckFrameShardBatchProject(options: CreateDeckFrameShardBatchProjectOptions): Promise<CreateDeckFrameShardBatchProjectResult> {
@@ -17,19 +19,20 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
   await beginDeckFrameShardBatch(context)
 
   try {
-    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson(TIMED_DECK_ARTIFACT_NAME))
     const framesDir = resolve(workspace.rendersDir, 'deck-frames')
     const htmlOutputDir = resolve(workspace.rendersDir, 'html-shards')
-    const frameCaptureBackend = options.frameCaptureBackend ?? 'playwright'
+    const frameCaptureBackend = options.frameCaptureBackend ?? DEFAULT_DECK_HTML_CAPTURE_BACKEND
     const frameConcurrency = normalizeDeckFrameConcurrency(options.frameConcurrency)
     const shardConcurrency = normalizeDeckShardConcurrency(options.shardConcurrency)
     const shardRetries = normalizeDeckShardRetries(options.shardRetries)
     const shardRetryDelayMs = normalizeDeckShardRetryDelayMs(options.shardRetryDelayMs)
     const frameShardSize = normalizeDeckFrameShardSize(options.frameShardSize)
-    const timedDeckSourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+    const timedDeckSourceSha256 = await sha256File(workspace.store.resolve(TIMED_DECK_ARTIFACT_NAME))
     const reusableFrameManifest = await readReusableDeckFrameManifest(workspace, {
       fps: DEFAULT_DECK_RENDER_FPS,
       outputDir: framesDir,
+      renderer: frameCaptureBackend,
       sourceSha256: timedDeckSourceSha256,
     })
 
@@ -51,7 +54,7 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
       timedDeck,
     })
     const ranges = createDeckFrameShardRanges(frames.length, frameShardSize)
-    let frameManifestPath = await workspace.store.writeJson('deck-frame-manifest.json', createPlannedDeckFrameManifest({
+    let frameManifestPath = await workspace.store.writeJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME, createPlannedDeckFrameManifest({
       concurrency: frameConcurrency,
       fps: DEFAULT_DECK_RENDER_FPS,
       outputDir: framesDir,
@@ -99,7 +102,7 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
           frameEnd: range.end,
           frameStart: range.start,
           skippedFrames: frameCapture.skippedFrames,
-          status: 'complete',
+          status: DECK_FRAME_SHARD_COMPLETE_STATUS,
         }
       } catch (error) {
         return {
@@ -110,7 +113,7 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
           frameEnd: range.end,
           frameStart: range.start,
           skippedFrames: 0,
-          status: 'failed',
+          status: DECK_FRAME_SHARD_FAILED_STATUS,
         }
       }
     })
@@ -125,15 +128,15 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
       timedDeck,
     })
 
-    frameManifestPath = await workspace.store.writeJson('deck-frame-manifest.json', createDeckFrameManifest({
+    frameManifestPath = await workspace.store.writeJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME, createDeckFrameManifest({
       frameCapture,
       projectDir: workspace.projectDir,
       sourceSha256: timedDeckSourceSha256,
     }))
 
-    const failedShards = shardResults.filter((shard) => shard.status === 'failed').length
+    const failedShards = shardResults.filter((shard) => shard.status === DECK_FRAME_SHARD_FAILED_STATUS).length
     const completedShards = shardResults.length - failedShards
-    const status = failedShards === 0 ? 'completed' as const : 'partial' as const
+    const status = failedShards === 0 ? DECK_FRAME_SHARD_BATCH_COMPLETED_STATUS : DECK_FRAME_SHARD_BATCH_PARTIAL_STATUS
     const artifact = {
       completedShards,
       duration: frameCapture.duration,
@@ -163,18 +166,18 @@ export async function createDeckFrameShardBatchProject(options: CreateDeckFrameS
         skippedFrames: shard.skippedFrames,
         status: shard.status,
       })),
-      source: 'timed-deck.json',
+      source: TIMED_DECK_ARTIFACT_NAME,
       sourceSha256: timedDeckSourceSha256,
       status,
       version: 1 as const,
     }
-    const artifactPath = await workspace.store.writeJson('deck-frame-shard-batch.json', artifact)
+    const artifactPath = await workspace.store.writeJson(DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, artifact)
 
     if (failedShards === 0) {
       await assertCompleteDeckFrameSequence(workspace.projectDir, frameCapture.frames)
       await completeDeckFrameShardBatch(context, 'Frame shard batch captured; run finalize-only to encode final video.')
     } else {
-      await context.jobStore.updateStage('render-final', 'failed', `${failedShards} frame shard(s) failed; rerun the batch or capture failed ranges before finalize-only.`, 1)
+      await context.jobStore.updateStage(DECK_STAGE_IDS.renderFinal, JOB_STATUS_FAILED, `${failedShards} frame shard(s) failed; rerun the batch or capture failed ranges before finalize-only.`, 1)
     }
     await refreshArtifactManifest(workspace.artifactsDir)
 

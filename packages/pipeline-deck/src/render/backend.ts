@@ -1,18 +1,17 @@
 import type {RemotionRenderCliResult} from '@video-agent/renderer-remotion'
+import type {DeckRendererBackend} from '@video-agent/runtime'
 
-import {JsonJobStore} from '@video-agent/db'
 import {TimedDeckSchema} from '@video-agent/ir'
 import {compileDeckMotionPlan, resolveMotionStepsForTemplate} from '@video-agent/renderer-deck'
 import {writeMotionCanvasDeckProject} from '@video-agent/renderer-motion-canvas'
 import {renderRemotionDeckProject, writeRemotionDeckProject} from '@video-agent/renderer-remotion'
 import {resolve} from 'node:path'
 
-import {createProjectWorkspace, refreshArtifactManifest} from '@video-agent/runtime'
+import {DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME, createProjectWorkspace, deckRendererBackendArtifactName, refreshArtifactManifest, DEFAULT_WORKSPACE_DIR} from '@video-agent/runtime'
 import {createDeckRendererBackendArtifact} from './backend-artifacts.js'
 import {normalizeDeckRendererFps, sha256File} from './frames/index.js'
 import {resolveProjectPath, toProjectPath} from '../project/paths.js'
-
-export type DeckRendererBackend = 'motion-canvas' | 'remotion'
+import {createDeckJobStore} from '../project/runtime.js'
 
 export interface CreateDeckRendererBackendProjectOptions {
   backend: DeckRendererBackend
@@ -62,19 +61,19 @@ export interface CreateDeckRemotionRenderProjectResult {
 }
 
 export async function createDeckRendererBackendProject(options: CreateDeckRendererBackendProjectOptions): Promise<CreateDeckRendererBackendProjectResult> {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createDeckJobStore({projectId, workspaceDir})
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
     projectId,
     workspaceDir,
   })
-  const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+  const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson(TIMED_DECK_ARTIFACT_NAME))
   const motionTimeline = compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate).timeline
   const outputDir = resolve(options.outputDir ?? resolve(workspace.rendersDir, options.backend))
-  const sourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+  const sourceSha256 = await sha256File(workspace.store.resolve(TIMED_DECK_ARTIFACT_NAME))
   const fps = normalizeDeckRendererFps(options.fps ?? motionTimeline.fps)
   const backendProject = options.backend === 'remotion'
     ? await writeRemotionDeckProject({
@@ -98,7 +97,7 @@ export async function createDeckRendererBackendProject(options: CreateDeckRender
     projectId,
     sourceSha256,
   })
-  const artifactPath = await workspace.store.writeJson(`deck-renderer-${options.backend}.json`, artifact)
+  const artifactPath = await workspace.store.writeJson(deckRendererBackendArtifactName(options.backend), artifact)
 
   await refreshArtifactManifest(workspace.artifactsDir)
 
@@ -135,9 +134,9 @@ export async function createDeckRemotionRenderProject(options: CreateDeckRemotio
     outputPath: options.outputPath,
     projectDir: backendProject.outputDir,
   })
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
   const projectId = options.projectId
-  const jobStore = new JsonJobStore(resolve(workspaceDir, 'projects', projectId, 'job-state.json'))
+  const jobStore = await createDeckJobStore({projectId, workspaceDir})
   const state = await jobStore.read()
   const workspace = await createProjectWorkspace({
     inputPath: state.inputPath,
@@ -152,13 +151,13 @@ export async function createDeckRemotionRenderProject(options: CreateDeckRemotio
     exportArtifactPath: toProjectPath(workspace.projectDir, backendProject.artifactPath),
     outputPath: toProjectPath(workspace.projectDir, rendered.outputPath),
     rendererProjectDir: toProjectPath(workspace.projectDir, backendProject.outputDir),
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: backendProject.sourceSha256,
     stderr: rendered.stderr,
     stdout: rendered.stdout,
     version: 1 as const,
   }
-  const artifactPath = await workspace.store.writeJson('deck-renderer-remotion-output.json', artifact)
+  const artifactPath = await workspace.store.writeJson(DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, artifact)
 
   await refreshArtifactManifest(workspace.artifactsDir)
 

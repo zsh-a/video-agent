@@ -1,13 +1,19 @@
 import type {ArtifactIntegrityMissingIssue} from './index.js'
+import type {ZodType} from 'zod'
 
-import {LongVideoAnalysisFramesSchema, TimedDeckSchema} from '@video-agent/ir'
+import {FilmAudioMixSchema, FilmSubtitleOutputSchema, LongVideoAnalysisFramesSchema, TimedDeckSchema} from '@video-agent/ir'
 import {TtsSegmentsSchema} from '@video-agent/providers'
 import {stat} from 'node:fs/promises'
 import {isAbsolute, relative, resolve, sep} from 'node:path'
 
 import {collectArtifactFiles} from './files.js'
-import {AudioMixSchema, DeckFrameManifestSchema, DeckFrameShardBatchSchema, DeckFrameShardSchema, DeckKeyframesSchema, DeckRendererBackendProjectSchema, DeckRendererRemotionOutputSchema, DeckReviewReportSchema, DeckVoiceoverSchema, ExportOutputSchema, IngestReportSchema, RenderOutputReferenceSchema, RenderOutputSchema, SubtitleOutputSchema} from './schemas.js'
-import {bunFile} from '../shared/bun-runtime.js'
+import {AUDIO_MIX_ARTIFACT_NAME, DECK_VOICEOVER_ARTIFACT_NAME, EXPORT_OUTPUT_ARTIFACT_NAME, FRAMES_ARTIFACT_NAME, INGEST_REPORT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME, REVIEW_REPORT_ARTIFACT_NAME, SUBTITLES_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME} from './artifact-names.js'
+import {ExportOutputSchema, IngestReportSchema, RenderOutputReferenceSchema, RenderOutputSchema} from './core-schemas.js'
+import {DeckFrameManifestSchema, DeckFrameShardBatchSchema, DeckFrameShardSchema, DeckKeyframesSchema, DeckRendererBackendProjectSchema, DeckRendererRemotionOutputSchema, DeckReviewReportSchema, DeckVoiceoverSchema} from './deck-schemas.js'
+import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DECK_KEYFRAMES_ARTIFACT_NAME, DECK_RENDERER_BACKEND_ARTIFACT_NAMES, DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME} from './deck-artifact-constants.js'
+import {JsonFileParseError, readOptionalJson} from '../shared/file-io.js'
+
+const DECK_RENDERER_BACKEND_ARTIFACT_NAME_SET = new Set<string>(DECK_RENDERER_BACKEND_ARTIFACT_NAMES)
 
 export async function findMissingArtifactReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
   const missing = await Promise.all([
@@ -33,273 +39,313 @@ export async function findMissingArtifactReferences(artifactsDir: string): Promi
 }
 
 async function findMissingTimedDeckReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const timedDeck = TimedDeckSchema.parse(await bunFile(resolve(artifactsDir, 'timed-deck.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
+  const timedDeck = await readOptionalReferenceArtifact(artifactsDir, TIMED_DECK_ARTIFACT_NAME, TimedDeckSchema)
 
-    return findMissingProjectPathReferences(projectDir, uniquePaths([timedDeck.audioRef]))
-  } catch {
+  if (timedDeck === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+
+  return findMissingProjectPathReferences(projectDir, uniquePaths([timedDeck.audioRef]))
 }
 
 async function findMissingDeckVoiceoverReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const deckVoiceover = DeckVoiceoverSchema.parse(await bunFile(resolve(artifactsDir, 'deck-voiceover.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const paths = uniquePaths([
-      deckVoiceover.outputPath,
-      ...deckVoiceover.segments.map((segment) => segment.path),
-    ])
+  const deckVoiceover = await readOptionalReferenceArtifact(artifactsDir, DECK_VOICEOVER_ARTIFACT_NAME, DeckVoiceoverSchema)
 
-    return findMissingProjectPathReferences(projectDir, paths)
-  } catch {
+  if (deckVoiceover === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const paths = uniquePaths([
+    deckVoiceover.outputPath,
+    ...deckVoiceover.segments.map((segment) => segment.path),
+  ])
+
+  return findMissingProjectPathReferences(projectDir, paths)
 }
 
 async function findMissingDeckFrameManifestReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const manifest = DeckFrameManifestSchema.parse(await bunFile(resolve(artifactsDir, 'deck-frame-manifest.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const paths = uniquePaths([
-      manifest.outputDir,
-      ...manifest.frames.map((frame) => frame.path),
-    ])
+  const manifest = await readOptionalReferenceArtifact(artifactsDir, DECK_FRAME_MANIFEST_ARTIFACT_NAME, DeckFrameManifestSchema)
 
-    return findMissingProjectPathReferences(projectDir, paths)
-  } catch {
+  if (manifest === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const paths = uniquePaths([
+    manifest.outputDir,
+    ...manifest.frames.map((frame) => frame.path),
+  ])
+
+  return findMissingProjectPathReferences(projectDir, paths)
 }
 
 async function findMissingDeckFrameShardReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
-    const shardNames = entries.map((entry) => entry.name).filter((name) => /^deck-frame-shard-\d{6}-\d{6}\.json$/.test(name))
-    const nested = await Promise.all(shardNames.map(async (name) => {
-      const shard = DeckFrameShardSchema.parse(await bunFile(resolve(artifactsDir, name)).json())
-      const projectDir = resolve(artifactsDir, '..')
+  const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
+  const shardNames = entries.map((entry) => entry.name).filter((name) => /^deck-frame-shard-\d{6}-\d{6}\.json$/.test(name))
+  const nested = await Promise.all(shardNames.map(async (name) => {
+    const shard = await readOptionalReferenceArtifact(artifactsDir, name, DeckFrameShardSchema)
 
-      return findMissingProjectPathReferences(projectDir, uniquePaths([
-        shard.outputDir,
-        ...shard.frames.map((frame) => frame.path),
-      ]))
-    }))
+    if (shard === undefined) {
+      return []
+    }
 
-    return nested.flat()
-  } catch {
-    return []
-  }
+    const projectDir = resolve(artifactsDir, '..')
+
+    return findMissingProjectPathReferences(projectDir, uniquePaths([
+      shard.outputDir,
+      ...shard.frames.map((frame) => frame.path),
+    ]))
+  }))
+
+  return nested.flat()
 }
 
 async function findMissingDeckFrameShardBatchReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const batch = DeckFrameShardBatchSchema.parse(await bunFile(resolve(artifactsDir, 'deck-frame-shard-batch.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
+  const batch = await readOptionalReferenceArtifact(artifactsDir, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DeckFrameShardBatchSchema)
 
-    return findMissingProjectPathReferences(projectDir, uniquePaths([
-      batch.frameManifestPath,
-      batch.htmlOutputDir,
-      batch.outputDir,
-      ...batch.shards.flatMap((shard) => shard.artifactPath === undefined ? [] : [shard.artifactPath]),
-    ]))
-  } catch {
+  if (batch === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+
+  return findMissingProjectPathReferences(projectDir, uniquePaths([
+    batch.frameManifestPath,
+    batch.htmlOutputDir,
+    batch.outputDir,
+    ...batch.shards.flatMap((shard) => shard.artifactPath === undefined ? [] : [shard.artifactPath]),
+  ]))
 }
 
 async function findMissingDeckRendererBackendReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
-    const artifactNames = entries.map((entry) => entry.name).filter((name) => /^deck-renderer-(motion-canvas|remotion)\.json$/.test(name))
-    const nested = await Promise.all(artifactNames.map(async (name) => {
-      const artifact = DeckRendererBackendProjectSchema.parse(await bunFile(resolve(artifactsDir, name)).json())
-      const projectDir = resolve(artifactsDir, '..')
+  const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
+  const artifactNames = entries.map((entry) => entry.name).filter((name) => DECK_RENDERER_BACKEND_ARTIFACT_NAME_SET.has(name))
+  const nested = await Promise.all(artifactNames.map(async (name) => {
+    const artifact = await readOptionalReferenceArtifact(artifactsDir, name, DeckRendererBackendProjectSchema)
 
-      return findMissingProjectPathReferences(projectDir, uniquePaths([
-        artifact.commandCwd,
-        artifact.outputDir,
-        artifact.motionTimelinePath,
-        ...Object.values(artifact.files),
-      ]))
-    }))
+    if (artifact === undefined) {
+      return []
+    }
 
-    return nested.flat()
-  } catch {
-    return []
-  }
-}
-
-async function findMissingDeckRendererRemotionOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const output = DeckRendererRemotionOutputSchema.parse(await bunFile(resolve(artifactsDir, 'deck-renderer-remotion-output.json')).json())
     const projectDir = resolve(artifactsDir, '..')
 
     return findMissingProjectPathReferences(projectDir, uniquePaths([
-      output.commandCwd,
-      output.exportArtifactPath,
-      output.outputPath,
-      output.rendererProjectDir,
+      artifact.commandCwd,
+      artifact.outputDir,
+      artifact.motionTimelinePath,
+      ...Object.values(artifact.files),
     ]))
-  } catch {
+  }))
+
+  return nested.flat()
+}
+
+async function findMissingDeckRendererRemotionOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+  const output = await readOptionalReferenceArtifact(artifactsDir, DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, DeckRendererRemotionOutputSchema)
+
+  if (output === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+
+  return findMissingProjectPathReferences(projectDir, uniquePaths([
+    output.commandCwd,
+    output.exportArtifactPath,
+    output.outputPath,
+    output.rendererProjectDir,
+  ]))
 }
 
 async function findMissingDeckKeyframeReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const keyframes = DeckKeyframesSchema.parse(await bunFile(resolve(artifactsDir, 'deck-keyframes.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
+  const keyframes = await readOptionalReferenceArtifact(artifactsDir, DECK_KEYFRAMES_ARTIFACT_NAME, DeckKeyframesSchema)
 
-    return findMissingProjectPathReferences(projectDir, uniquePaths(keyframes.samples.map((sample) => sample.path)))
-  } catch {
+  if (keyframes === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+
+  return findMissingProjectPathReferences(projectDir, uniquePaths(keyframes.samples.map((sample) => sample.path)))
 }
 
 async function findMissingDeckReviewReportReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const report = DeckReviewReportSchema.parse(await bunFile(resolve(artifactsDir, 'review-report.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const paths = uniquePaths([
-      report.keyframeQualityPath,
-      report.outputPath,
-      report.reviewHtmlPath,
-      ...report.slides.map((slide) => slide.keyframe?.path),
-    ])
+  const report = await readOptionalReferenceArtifact(artifactsDir, REVIEW_REPORT_ARTIFACT_NAME, DeckReviewReportSchema)
 
-    return findMissingProjectPathReferences(projectDir, paths)
-  } catch {
+  if (report === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const paths = uniquePaths([
+    report.keyframeQualityPath,
+    report.outputPath,
+    report.reviewHtmlPath,
+    ...report.slides.map((slide) => slide.keyframe?.path),
+  ])
+
+  return findMissingProjectPathReferences(projectDir, paths)
 }
 
 async function findMissingSubtitleOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const subtitles = SubtitleOutputSchema.parse(await bunFile(resolve(artifactsDir, 'subtitles.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
+  const subtitles = await readOptionalReferenceArtifact(artifactsDir, SUBTITLES_ARTIFACT_NAME, FilmSubtitleOutputSchema)
 
-    return findMissingProjectPathReferences(projectDir, uniquePaths([subtitles.path]))
-  } catch {
+  if (subtitles === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+
+  return findMissingProjectPathReferences(projectDir, uniquePaths([subtitles.path]))
 }
 
 async function findMissingAudioMixReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const audioMix = AudioMixSchema.parse(await bunFile(resolve(artifactsDir, 'audio-mix.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const paths = uniquePaths([
-      audioMix.outputPath,
-      audioMix.sourcePath,
-      ...audioMix.voiceoverSegments.flatMap((segment) => [segment.path, segment.resolvedPath]),
-    ])
+  const audioMix = await readOptionalReferenceArtifact(artifactsDir, AUDIO_MIX_ARTIFACT_NAME, FilmAudioMixSchema)
 
-    return findMissingProjectPathReferences(projectDir, paths)
-  } catch {
+  if (audioMix === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const paths = uniquePaths([
+    audioMix.outputPath,
+    audioMix.sourcePath,
+    ...audioMix.voiceoverSegments.flatMap((segment) => [segment.path, segment.resolvedPath]),
+  ])
+
+  return findMissingProjectPathReferences(projectDir, paths)
 }
 
 async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const manifest = LongVideoAnalysisFramesSchema.parse(await bunFile(resolve(artifactsDir, 'frames.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const missing = await Promise.all(manifest.frames.map(async (frame) => {
-      const exists = await bunFile(frame.path).exists()
+  const manifest = await readOptionalReferenceArtifact(artifactsDir, FRAMES_ARTIFACT_NAME, LongVideoAnalysisFramesSchema)
 
-      return exists ? null : {name: relative(projectDir, frame.path).split(sep).join('/'), reason: 'missing' as const}
-    }))
-
-    return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
-  } catch {
+  if (manifest === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const missing = await Promise.all(manifest.frames.map(async (frame) => {
+    const exists = await pathExists(frame.path)
+
+    return exists ? null : {name: relative(projectDir, frame.path).split(sep).join('/'), reason: 'missing' as const}
+  }))
+
+  return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
 }
 
 async function findMissingIngestSideArtifactReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const report = IngestReportSchema.parse(await bunFile(resolve(artifactsDir, 'ingest-report.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const paths = [
-      report.artifacts?.preview,
-      report.artifacts?.sourceAudio,
-    ].filter((path): path is string => typeof path === 'string' && path.length > 0)
-    const missing = await Promise.all(paths.map(async (path) => {
-      const resolvedPath = resolveProjectPath(projectDir, path)
-      const exists = await bunFile(resolvedPath).exists()
+  const report = await readOptionalReferenceArtifact(artifactsDir, INGEST_REPORT_ARTIFACT_NAME, IngestReportSchema)
 
-      return exists ? null : {name: relative(projectDir, resolvedPath).split(sep).join('/'), reason: 'missing' as const}
-    }))
-
-    return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
-  } catch {
+  if (report === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const paths = [
+    report.artifacts?.preview,
+    report.artifacts?.sourceAudio,
+  ].filter((path): path is string => typeof path === 'string' && path.length > 0)
+  const missing = await Promise.all(paths.map(async (path) => {
+    const resolvedPath = resolveProjectPath(projectDir, path)
+    const exists = await pathExists(resolvedPath)
+
+    return exists ? null : {name: relative(projectDir, resolvedPath).split(sep).join('/'), reason: 'missing' as const}
+  }))
+
+  return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
 }
 
 async function findMissingTtsSegmentReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const segments = TtsSegmentsSchema.parse(await bunFile(resolve(artifactsDir, 'tts-segments.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
-    const missing = await Promise.all(segments.map(async (segment) => {
-      const resolvedPath = resolveProjectPath(projectDir, segment.path)
-      const exists = await bunFile(resolvedPath).exists()
+  const segments = await readOptionalReferenceArtifact(artifactsDir, TTS_SEGMENTS_ARTIFACT_NAME, TtsSegmentsSchema)
 
-      return exists ? null : {name: relative(projectDir, resolvedPath).split(sep).join('/'), reason: 'missing' as const}
-    }))
-
-    return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
-  } catch {
+  if (segments === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+  const missing = await Promise.all(segments.map(async (segment) => {
+    const resolvedPath = resolveProjectPath(projectDir, segment.path)
+    const exists = await pathExists(resolvedPath)
+
+    return exists ? null : {name: relative(projectDir, resolvedPath).split(sep).join('/'), reason: 'missing' as const}
+  }))
+
+  return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
 }
 
 async function findMissingRenderOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const value = await bunFile(resolve(artifactsDir, 'render-output.json')).json()
+  const renderOutput = await readOptionalReferenceArtifact(artifactsDir, RENDER_OUTPUT_ARTIFACT_NAME, RenderOutputSchema)
 
-    RenderOutputSchema.parse(value)
-
-    const renderOutput = RenderOutputReferenceSchema.parse(value)
-    const projectDir = resolve(artifactsDir, '..')
-    const paths = uniquePaths([
-      renderOutput.outputPath,
-      renderOutput.reviewHtmlPath,
-      renderOutput.reviewReportPath,
-      renderOutput.audioPath,
-      renderOutput.audioMixPath,
-      renderOutput.frameManifestPath,
-      renderOutput.keyframeQualityPath,
-      renderOutput.subtitlePath,
-      renderOutput.silentVideoPath,
-      renderOutput.voiceoverPlanPath,
-      renderOutput.outputDir,
-      renderOutput.entryHtml,
-      renderOutput.planPath,
-      renderOutput.runtimePath,
-      renderOutput.stylesPath,
-      extractHyperframesRenderOutputPath(renderOutput.rendered?.command),
-      renderOutput.visualQuality?.frameSample?.path,
-      ...(renderOutput.visualQuality?.frameSamples ?? []).map((sample) => sample.path),
-    ])
-
-    return findMissingProjectPathReferences(projectDir, paths)
-  } catch {
+  if (renderOutput === undefined) {
     return []
   }
+
+  const referenceResult = RenderOutputReferenceSchema.safeParse(renderOutput)
+
+  if (!referenceResult.success) {
+    return []
+  }
+
+  const references = referenceResult.data
+  const projectDir = resolve(artifactsDir, '..')
+  const paths = uniquePaths([
+    references.outputPath,
+    references.reviewHtmlPath,
+    references.reviewReportPath,
+    references.audioPath,
+    references.audioMixPath,
+    references.frameManifestPath,
+    references.keyframeQualityPath,
+    references.subtitlePath,
+    references.silentVideoPath,
+    references.voiceoverPlanPath,
+    references.outputDir,
+    references.entryHtml,
+    references.planPath,
+    references.runtimePath,
+    references.stylesPath,
+    extractHyperframesRenderOutputPath(references.rendered?.command),
+    ...(references.visualQuality?.frameSamples ?? []).map((sample) => sample.path),
+  ])
+
+  return findMissingProjectPathReferences(projectDir, paths)
 }
 
 async function findMissingExportOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  try {
-    const exportOutput = ExportOutputSchema.parse(await bunFile(resolve(artifactsDir, 'export-output.json')).json())
-    const projectDir = resolve(artifactsDir, '..')
+  const exportOutput = await readOptionalReferenceArtifact(artifactsDir, EXPORT_OUTPUT_ARTIFACT_NAME, ExportOutputSchema)
 
-    return findMissingProjectPathReferences(projectDir, uniquePaths([exportOutput.outputPath, exportOutput.sourcePath]))
-  } catch {
+  if (exportOutput === undefined) {
     return []
   }
+
+  const projectDir = resolve(artifactsDir, '..')
+
+  return findMissingProjectPathReferences(projectDir, uniquePaths([exportOutput.outputPath, exportOutput.sourcePath]))
+}
+
+async function readOptionalReferenceArtifact<T>(artifactsDir: string, name: string, schema: ZodType<T>): Promise<T | undefined> {
+  let value: unknown
+
+  try {
+    value = await readOptionalJson(resolve(artifactsDir, name))
+  } catch (error) {
+    if (error instanceof JsonFileParseError) {
+      return undefined
+    }
+
+    throw error
+  }
+
+  if (value === undefined) {
+    return undefined
+  }
+
+  const result = schema.safeParse(value)
+
+  return result.success ? result.data : undefined
 }
 
 async function findMissingProjectPathReferences(projectDir: string, paths: string[]): Promise<ArtifactIntegrityMissingIssue[]> {

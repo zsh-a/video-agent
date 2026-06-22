@@ -1,16 +1,18 @@
-import type {DeckSourceMap, DeckSourceSection, Document} from '@video-agent/ir'
+import type {DeckSourceMap, DeckSourceSection, DocumentSourceType} from '@video-agent/ir'
 
 import {DeckSourceMapSchema} from '@video-agent/ir'
 
 export function createDeckSourceMap(input: {
   inputPath: string
   language: string
-  sourceType: Document['source']['sourceType']
+  sourceType: DocumentSourceType
   text: string
   title?: string
 }): DeckSourceMap {
+  assertNonEmptySourceText(input.text)
+
   const sections = createSourceSections(input.text)
-  const title = input.title ?? inferSourceTitle(sections)
+  const title = normalizeExplicitSourceTitle(input.title)
 
   return DeckSourceMapSchema.parse({
     generatedAt: new Date().toISOString(),
@@ -25,6 +27,12 @@ export function createDeckSourceMap(input: {
     ...(title === undefined ? {} : {title}),
     version: 1,
   })
+}
+
+function assertNonEmptySourceText(text: string): void {
+  if (text.trim() === '') {
+    throw new Error('Deck source map requires non-empty source text; no synthetic source section fallback is allowed.')
+  }
 }
 
 function createSourceSections(text: string): DeckSourceSection[] {
@@ -152,7 +160,7 @@ function createSourceSections(text: string): DeckSourceSection[] {
       headingPath: [],
       kind: 'paragraph',
       lines: [text],
-      range: [0, Math.max(1, text.length)],
+      range: [0, text.length],
     })
   }
 
@@ -229,8 +237,14 @@ function lineRange(offsets: number[], textLength: number, startLine: number, end
   return [start, Math.max(start + 1, end)]
 }
 
-function inferSourceTitle(sections: DeckSourceSection[]): string | undefined {
-  const heading = sections.find((section) => section.kind === 'heading')
+function normalizeExplicitSourceTitle(title: string | undefined): string | undefined {
+  if (title === undefined) {
+    return undefined
+  }
 
-  return heading?.text.split('\n')[0]?.trim()
+  if (title.trim() === '') {
+    throw new Error('Deck source-map title must be explicit non-empty text when provided; no source heading title inference fallback is allowed.')
+  }
+
+  return title
 }

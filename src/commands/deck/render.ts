@@ -1,5 +1,11 @@
+import type {DeckHtmlCaptureBackend} from '@video-agent/ir'
+import type {DeckFinalRenderer} from '@video-agent/pipeline-deck'
+
 import {Args, Command, Flags} from '@oclif/core'
-import {createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject} from '@video-agent/pipeline-deck'
+import {DECK_HTML_CAPTURE_BACKENDS, DEFAULT_DECK_HTML_CAPTURE_BACKEND} from '@video-agent/ir'
+import {DECK_FINAL_RENDERERS, DEFAULT_DECK_FINAL_RENDERER, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject} from '@video-agent/pipeline-deck'
+
+import {normalizeNonNegativeIntegerFlag as normalizeNonNegativeInteger, normalizePositiveIntegerFlag as normalizePositiveInteger, parseCommandPrefixFlag as parseCommandPrefix, parseRequiredEnumFlag, workspaceFlag} from '../../utils/cli-flags.js'
 
 export default class DeckRender extends Command {
   static args = {
@@ -12,7 +18,7 @@ export default class DeckRender extends Command {
     'chromium-command': Flags.string({description: 'Chromium command prefix for HTML frame capture, either a binary name or JSON string array'}),
     finalize: Flags.boolean({default: false, description: 'Finalize video after a frame range capture when all frames are available'}),
     'finalize-only': Flags.boolean({default: false, description: 'Finalize video from the existing complete frame sequence without running browser capture'}),
-    'frame-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for full frame sequence capture', options: ['chromium', 'playwright']}),
+    'frame-capture-backend': Flags.string({default: DEFAULT_DECK_HTML_CAPTURE_BACKEND, description: 'Browser backend for full frame sequence capture', options: [...DECK_HTML_CAPTURE_BACKENDS]}),
     'frame-concurrency': Flags.integer({description: 'Maximum browser screenshot captures to run concurrently', default: 1}),
     'frame-end': Flags.integer({description: 'Last 1-based frame number to capture for a frame shard'}),
     'frame-shard-size': Flags.integer({description: 'Frame count per planned shard when using --plan-shards'}),
@@ -22,23 +28,24 @@ export default class DeckRender extends Command {
     'html-render-command': Flags.string({description: 'HTML renderer command prefix, either a binary name or JSON string array'}),
     'html-validate': Flags.boolean({default: false, description: 'Run external HTML renderer validation against renders/html'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    'keyframe-capture-backend': Flags.string({default: 'playwright', description: 'Browser backend for independent keyframe visual QC', options: ['chromium', 'playwright']}),
+    'keyframe-capture-backend': Flags.string({default: DEFAULT_DECK_HTML_CAPTURE_BACKEND, description: 'Browser backend for independent keyframe visual QC', options: [...DECK_HTML_CAPTURE_BACKENDS]}),
     'plan-shards': Flags.boolean({default: false, description: 'Write a frame shard plan and full frame manifest without rendering frames'}),
     'playwright-command': Flags.string({description: 'Playwright capture command prefix, either a binary name or JSON string array'}),
-    renderer: Flags.string({default: 'remotion', description: 'Deck video renderer', options: ['remotion', 'html']}),
+    renderer: Flags.string({default: DEFAULT_DECK_FINAL_RENDERER, description: 'Deck video renderer', options: [...DECK_FINAL_RENDERERS]}),
     'run-shards': Flags.boolean({default: false, description: 'Capture all frame shards locally with bounded shard concurrency, then write a resumable shard batch artifact'}),
     'shard-concurrency': Flags.integer({description: 'Maximum frame shards to capture concurrently when using --run-shards', default: 1}),
     'shard-retries': Flags.integer({description: 'Retry count for each failed frame shard when using --run-shards', default: 0}),
     'shard-retry-delay-ms': Flags.integer({description: 'Delay between shard retry attempts in milliseconds when using --run-shards', default: 0}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(DeckRender)
+    const frameCaptureBackend = parseRequiredEnumFlag<DeckHtmlCaptureBackend>(flags['frame-capture-backend'], DECK_HTML_CAPTURE_BACKENDS, '--frame-capture-backend')
 
     if (flags['plan-shards']) {
       const output = await createDeckFrameShardPlanProject({
-        frameCaptureBackend: flags['frame-capture-backend'] as 'chromium' | 'playwright',
+        frameCaptureBackend,
         frameShardSize: normalizePositiveInteger(flags['frame-shard-size'], '--frame-shard-size'),
         projectId: args.projectId,
         workspaceDir: flags.workspace,
@@ -52,7 +59,7 @@ export default class DeckRender extends Command {
       this.log(`Project: ${output.projectId}`)
       this.log(`Workspace: ${output.projectDir}`)
       this.log(`Status: ${output.status}`)
-      this.log(`Frame capture backend: ${flags['frame-capture-backend']}`)
+      this.log(`Frame capture backend: ${frameCaptureBackend}`)
       this.log(`Frame shard size: ${output.frameShardSize}`)
       this.log(`Frame count: ${output.frameCount}`)
       this.log(`Shards: ${output.shardCount}`)
@@ -65,7 +72,7 @@ export default class DeckRender extends Command {
     if (flags['run-shards']) {
       const output = await createDeckFrameShardBatchProject({
         chromiumCommand: parseCommandPrefix(flags['chromium-command'], '--chromium-command'),
-        frameCaptureBackend: flags['frame-capture-backend'] as 'chromium' | 'playwright',
+        frameCaptureBackend,
         frameConcurrency: normalizePositiveInteger(flags['frame-concurrency'], '--frame-concurrency'),
         frameShardSize: normalizePositiveInteger(flags['frame-shard-size'], '--frame-shard-size'),
         playwrightCommand: parseCommandPrefix(flags['playwright-command'], '--playwright-command'),
@@ -100,7 +107,7 @@ export default class DeckRender extends Command {
       chromiumCommand: parseCommandPrefix(flags['chromium-command'], '--chromium-command'),
       finalize: flags.finalize,
       finalizeOnly: flags['finalize-only'],
-      frameCaptureBackend: flags['frame-capture-backend'] as 'chromium' | 'playwright',
+      frameCaptureBackend,
       frameConcurrency: normalizePositiveInteger(flags['frame-concurrency'], '--frame-concurrency'),
       frameEnd: normalizePositiveInteger(flags['frame-end'], '--frame-end'),
       frameStart: normalizePositiveInteger(flags['frame-start'], '--frame-start'),
@@ -108,10 +115,10 @@ export default class DeckRender extends Command {
       htmlRender: flags['html-render'],
       htmlRenderCommand: parseCommandPrefix(flags['html-render-command'], '--html-render-command'),
       htmlValidate: flags['html-validate'],
-      keyframeCaptureBackend: flags['keyframe-capture-backend'] as 'chromium' | 'playwright',
+      keyframeCaptureBackend: parseRequiredEnumFlag<DeckHtmlCaptureBackend>(flags['keyframe-capture-backend'], DECK_HTML_CAPTURE_BACKENDS, '--keyframe-capture-backend'),
       playwrightCommand: parseCommandPrefix(flags['playwright-command'], '--playwright-command'),
       projectId: args.projectId,
-      renderer: flags.renderer as 'html' | 'remotion',
+      renderer: parseRequiredEnumFlag<DeckFinalRenderer>(flags.renderer, DECK_FINAL_RENDERERS, '--renderer'),
       workspaceDir: flags.workspace,
     })
 
@@ -140,52 +147,4 @@ export default class DeckRender extends Command {
     this.log(`Final video: ${output.finalized ? output.outputPath : 'not finalized'}`)
     this.log(`${output.finalized ? 'Render output' : 'Shard output'}: ${output.artifactPath}`)
   }
-}
-
-function normalizeNonNegativeInteger(value: number | undefined, flagName: string): number | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (!Number.isFinite(value) || value < 0 || Math.floor(value) !== value) {
-    throw new TypeError(`${flagName} must be a non-negative integer.`)
-  }
-
-  return value
-}
-
-function normalizePositiveInteger(value: number | undefined, flagName: string): number | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  if (!Number.isFinite(value) || value < 1 || Math.floor(value) !== value) {
-    throw new TypeError(`${flagName} must be a positive integer.`)
-  }
-
-  return value
-}
-
-function parseCommandPrefix(value: string | undefined, flagName: string): string[] | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  const trimmed = value.trim()
-
-  if (trimmed === '') {
-    throw new TypeError(`${flagName} must not be empty.`)
-  }
-
-  if (trimmed.startsWith('[')) {
-    const parsed = JSON.parse(trimmed) as unknown
-
-    if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== 'string' || item.length === 0)) {
-      throw new TypeError(`${flagName} JSON value must be an array of non-empty strings.`)
-    }
-
-    return parsed
-  }
-
-  return [trimmed]
 }

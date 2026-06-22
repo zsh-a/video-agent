@@ -1,4 +1,4 @@
-import {getProviderEnvironmentDefinitions, PROVIDER_ROLES, type ProviderRole} from '@video-agent/providers'
+import {getProviderEnvironmentDefinitions, PROVIDER_ROLES, type ProviderName, type ProviderRole} from '@video-agent/providers'
 
 import type {AgentConfig} from '../shared/config.js'
 
@@ -6,6 +6,7 @@ import {readConfig} from '../shared/config.js'
 import {readRuntimeEnv} from '../shared/env.js'
 import {createProviderEnv} from './settings.js'
 
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
 export interface ProviderEnvironmentReport {
   providers: ProviderEnvironmentRoleReport[]
   summary: ProviderEnvironmentSummary
@@ -13,9 +14,9 @@ export interface ProviderEnvironmentReport {
 }
 
 export interface ProviderEnvironmentRoleReport {
-  provider: string
+  provider: ProviderName
   requirements: ProviderEnvironmentRequirement[]
-  role: 'asr' | 'tts' | 'vlm'
+  role: ProviderRole
 }
 
 export interface ProviderEnvironmentRequirement {
@@ -38,7 +39,7 @@ export interface ProviderEnvironmentShellTemplateOptions {
   includeOptional?: boolean
 }
 
-export async function readProviderEnvironment(workspaceDir = '.video-agent', env?: Record<string, string | undefined>): Promise<ProviderEnvironmentReport> {
+export async function readProviderEnvironment(workspaceDir = DEFAULT_WORKSPACE_DIR, env?: Record<string, string | undefined>): Promise<ProviderEnvironmentReport> {
   const config = await readConfig(workspaceDir)
   const providerEnv = createProviderEnv(config, env ?? await readRuntimeEnv(workspaceDir))
   const providers = PROVIDER_ROLES.map((role) => createProviderEnvironmentRoleReport(role, config, providerEnv))
@@ -86,7 +87,7 @@ function createProviderEnvironmentRoleReport(role: ProviderRole, config: AgentCo
   }
 }
 
-function createProviderRequirements(role: ProviderRole, provider: string, env: Record<string, string | undefined>): ProviderEnvironmentRequirement[] {
+function createProviderRequirements(role: ProviderRole, provider: ProviderName, env: Record<string, string | undefined>): ProviderEnvironmentRequirement[] {
   return getProviderEnvironmentDefinitions(role, provider).map((definition) => createRequirement({
     description: definition.description,
     env,
@@ -125,5 +126,11 @@ function summarizeProviderEnvironment(providers: ProviderEnvironmentRoleReport[]
 }
 
 function placeholderForRequirement(provider: ProviderEnvironmentRoleReport, requirement: ProviderEnvironmentRequirement): string {
-  return getProviderEnvironmentDefinitions(provider.role, provider.provider).find((definition) => definition.env === requirement.env)?.placeholder ?? '<value>'
+  const definition = getProviderEnvironmentDefinitions(provider.role, provider.provider).find((item) => item.env === requirement.env)
+
+  if (definition === undefined) {
+    throw new Error(`Provider ${provider.role}:${provider.provider} has no environment definition for ${requirement.env}.`)
+  }
+
+  return definition.placeholder
 }

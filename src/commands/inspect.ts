@@ -1,10 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {probeMedia} from '@video-agent/media'
-import {createProjectWorkspace} from '@video-agent/runtime'
-import {resolve} from 'node:path'
+import {inspectMediaProject} from '@video-agent/runtime'
 
-import {assertFileExists} from '../bun-runtime.js'
-
+import {workspaceFlag} from '../utils/cli-flags.js'
 export default class Inspect extends Command {
   static args = {
     input: Args.string({description: 'Input media file to inspect', required: true}),
@@ -13,30 +10,23 @@ export default class Inspect extends Command {
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Inspect)
-    const inputPath = resolve(args.input)
-
-    await assertFileExists(inputPath)
-
-    const workspace = await createProjectWorkspace({
-      inputPath,
+    const result = await inspectMediaProject(args.input, {
       projectId: flags['project-id'],
       workspaceDir: flags.workspace,
     })
-    const mediaInfo = await probeMedia(inputPath)
-    const artifactPath = await workspace.store.writeJson('media-info.json', mediaInfo)
 
     const output = {
-      artifactPath,
-      duration: mediaInfo.duration,
-      inputPath,
-      projectDir: workspace.projectDir,
-      projectId: workspace.projectId,
-      streams: mediaInfo.streams.length,
+      artifactPath: result.artifactPath,
+      duration: result.duration,
+      inputPath: result.inputPath,
+      projectDir: result.projectDir,
+      projectId: result.projectId,
+      streams: result.streams,
     }
 
     if (flags.json) {
@@ -44,10 +34,10 @@ export default class Inspect extends Command {
       return
     }
 
-    this.log(`Project: ${workspace.projectId}`)
-    this.log(`Workspace: ${workspace.projectDir}`)
-    this.log(`Artifact: ${artifactPath}`)
-    this.log(`Duration: ${mediaInfo.duration ?? 'unknown'}s`)
-    this.log(`Streams: ${mediaInfo.streams.length}`)
+    this.log(`Project: ${result.projectId}`)
+    this.log(`Workspace: ${result.projectDir}`)
+    this.log(`Artifact: ${result.artifactPath}`)
+    this.log(`Duration: ${result.duration ?? 'unknown'}s`)
+    this.log(`Streams: ${result.streams}`)
   }
 }

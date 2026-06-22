@@ -1,9 +1,11 @@
-import type {TimedDeck} from '@video-agent/ir'
-import type {CaptureDeckHtmlFrameSequenceResult, DeckHtmlFrameSequenceCaptureBackend, DeckHtmlFrameSequenceFrame} from '@video-agent/renderer-html'
+import type {DeckHtmlCaptureBackend, TimedDeck} from '@video-agent/ir'
+import type {CaptureDeckHtmlFrameSequenceResult, DeckHtmlFrameSequenceFrame} from '@video-agent/renderer-html'
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
+import {DECK_HTML_CAPTURE_BACKENDS} from '@video-agent/ir'
 import {deckCanvasSize} from '@video-agent/renderer-deck'
 import {createDeckHtmlFrameSequence} from '@video-agent/renderer-html'
+import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME} from '@video-agent/runtime'
 import {resolve} from 'node:path'
 import {z} from 'zod'
 
@@ -26,7 +28,7 @@ const DeckFrameManifestReuseSchema = z.object({
   frameStart: z.number().int().positive().optional(),
   outputDir: z.string().min(1),
   pattern: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright']),
+  renderer: z.enum(DECK_HTML_CAPTURE_BACKENDS),
   skippedFrames: z.number().int().nonnegative().optional(),
   sourceSha256: z.string().min(1),
   viewport: z.object({
@@ -40,12 +42,14 @@ type ReusableDeckFrameManifest = z.infer<typeof DeckFrameManifestReuseSchema>
 export async function readReusableDeckFrameManifest(workspace: ProjectWorkspace, expected: {
   fps: number
   outputDir: string
+  renderer?: DeckHtmlCaptureBackend
   sourceSha256: string
 }): Promise<ReusableDeckFrameManifest | undefined> {
   try {
-    const manifest = DeckFrameManifestReuseSchema.parse(await workspace.store.readJson('deck-frame-manifest.json'))
+    const manifest = DeckFrameManifestReuseSchema.parse(await workspace.store.readJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME))
     const matches = manifest.fps === expected.fps
       && manifest.outputDir === toProjectPath(workspace.projectDir, expected.outputDir)
+      && (expected.renderer === undefined || manifest.renderer === expected.renderer)
       && manifest.sourceSha256 === expected.sourceSha256
 
     return matches ? manifest : undefined
@@ -106,7 +110,7 @@ export function createPlannedDeckFrameManifest(input: {
   fps: number
   outputDir: string
   projectDir: string
-  renderer: DeckHtmlFrameSequenceCaptureBackend
+  renderer: DeckHtmlCaptureBackend
   sourceSha256: string
   timedDeck: TimedDeck
 }) {
@@ -131,7 +135,7 @@ export function createPlannedDeckFrameManifest(input: {
     outputDir: toProjectPath(input.projectDir, input.outputDir),
     pattern: toProjectPath(input.projectDir, resolve(input.outputDir, 'frame-%06d.png')),
     renderer: input.renderer,
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: input.sourceSha256,
     version: 1 as const,
     viewport: deckCanvasSize(input.timedDeck.deck.format),
@@ -162,7 +166,7 @@ export function createDeckFrameManifest(input: {
     pattern: toProjectPath(input.projectDir, input.frameCapture.pattern),
     renderer: input.frameCapture.backend,
     skippedFrames: input.frameCapture.skippedFrames,
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: input.sourceSha256,
     version: 1 as const,
     viewport: input.frameCapture.viewport,
@@ -170,7 +174,7 @@ export function createDeckFrameManifest(input: {
 }
 
 export function createDeckFrameCaptureFromFrames(input: {
-  backend: DeckHtmlFrameSequenceCaptureBackend
+  backend: DeckHtmlCaptureBackend
   capturedFrames: number
   concurrency: number
   fps: number
@@ -223,7 +227,7 @@ export function createDeckFrameShardArtifact(input: {
     outputDir: toProjectPath(input.projectDir, input.frameCapture.outputDir),
     renderer: input.frameCapture.backend,
     skippedFrames: input.frameCapture.skippedFrames,
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: input.sourceSha256,
     version: 1 as const,
   }

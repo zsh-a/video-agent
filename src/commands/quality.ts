@@ -1,6 +1,8 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {readProjectQuality, readProjectQualityDetails, type RenderSummary} from '@video-agent/runtime'
+import {readProjectQuality, readProjectQualityDetails} from '@video-agent/runtime'
 
+import {workspaceFlag} from '../utils/cli-flags.js'
+import {formatQualityRenderSummary} from '../utils/quality-output.js'
 export default class Quality extends Command {
   static args = {
     project: Args.string({description: 'Project id to inspect', required: true}),
@@ -9,7 +11,7 @@ export default class Quality extends Command {
   static flags = {
     details: Flags.boolean({description: 'Include raw quality-report.json and render-output.json content'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -30,20 +32,4 @@ export default class Quality extends Command {
     this.log(`Render: ${formatQualityRenderSummary(report.render)}`)
     this.log(`Artifacts: ${report.artifacts.ok ? 'ok' : 'not ok'} (${report.artifacts.summary.changed} changed, ${report.artifacts.summary.missing} missing, ${report.artifacts.summary.schemaInvalid} schema invalid, ${report.artifacts.summary.untracked} untracked)`)
   }
-}
-
-export function formatQualityRenderSummary(render: RenderSummary): string {
-  const errors = render.outputErrors + render.subtitleErrors + render.audioQualityErrors + render.templateErrors + render.visualErrors
-  const warnings = render.outputWarnings + render.subtitleWarnings + render.audioWarnings + render.audioQualityWarnings + render.templateWarnings + render.visualWarnings + render.missingVoiceovers
-  const status = render.rendered ? 'rendered' : 'not rendered'
-
-  return [
-    `${status}, ${errors} errors, ${warnings} warnings`,
-    `output ${render.outputErrors}/${render.outputWarnings}`,
-    `subtitle ${render.subtitleErrors}/${render.subtitleWarnings}`,
-    `audio ${render.audioQualityErrors}/${render.audioQualityWarnings + render.audioWarnings + render.missingVoiceovers}`,
-    `template ${render.templateErrors}/${render.templateWarnings}`,
-    `visual ${render.visualErrors}/${render.visualWarnings}`,
-    `review ${render.reviewAvailable ? 'available' : 'none'}`,
-  ].join(', ')
 }

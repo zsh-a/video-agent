@@ -69,4 +69,42 @@ describe('pipeline', () => {
     expect(events.map((event) => event.type)).to.deep.equal(['stage:start', 'stage:fail', 'stage:retry', 'stage:start', 'stage:fail'])
     expect(events.map((event) => event.attempt)).to.deep.equal([1, 1, 1, 2, 2])
   })
+
+  it('rejects invalid retry policy values instead of clamping them to zero', async () => {
+    const events: PipelineEvent[] = []
+    let runs = 0
+    const stage: Stage<number, number> = {
+      name: 'should-not-run',
+      async run(input) {
+        runs += 1
+        return input
+      },
+    }
+    const error = await captureAsyncError(() => runPipeline<number, number>(1, [stage], {
+      artifactsDir: '/tmp/artifacts',
+      emit(event) {
+        events.push(event)
+      },
+      projectId: 'demo',
+      retryPolicy: {
+        maxRetries: -1,
+      },
+      workspaceDir: '/tmp/workspace',
+    }))
+
+    expect(error).to.be.instanceOf(Error)
+    expect(String(error)).to.include('no retry policy clamp fallback is allowed')
+    expect(runs).to.equal(0)
+    expect(events).to.deep.equal([])
+  })
 })
+
+async function captureAsyncError(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn()
+  } catch (error) {
+    return error
+  }
+
+  throw new Error('Expected function to throw.')
+}

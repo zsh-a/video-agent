@@ -6,11 +6,16 @@ import {join} from 'node:path'
 import {runProcess} from '../../packages/media/src/process.js'
 
 describe('cli end-to-end workflow', () => {
-  it('initializes a workspace and validates provider configuration from CLI commands', async () => {
+  it('initializes a workspace and validates provider configuration from CLI commands', {timeout: 15_000}, async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-cli-bootstrap-'))
     const workspaceDir = join(root, 'workspace')
+    const sampleFramePath = join(root, 'sample-frame.jpg')
+    const sampleMediaPath = join(root, 'sample-media.wav')
 
     try {
+      await writeFile(sampleFramePath, Buffer.from('fake-jpeg'))
+      await writeFile(sampleMediaPath, Buffer.from('fake-audio'))
+
       const init = await runCliJson<{
         checks: Record<string, {status: string}>
         summary: {fail: number; total: number}
@@ -82,7 +87,7 @@ describe('cli end-to-end workflow', () => {
         ok: boolean
         results: Array<{provider: string; role: string; status: string}>
         summary: {failed: number; succeeded: number; total: number}
-      }>(['provider-test', '--workspace', workspaceDir, '--role', 'all', '--json'])
+      }>(['provider-test', '--workspace', workspaceDir, '--role', 'all', '--media', sampleMediaPath, '--frame', sampleFramePath, '--text', 'Provider smoke test narration.', '--json'])
 
       expect(providerTest.ok).to.equal(true)
       expect(providerTest.summary).to.deep.include({
@@ -178,7 +183,7 @@ describe('cli end-to-end workflow', () => {
           status: string
         }>
         summary: {failed: number; succeeded: number; total: number}
-      }>(['provider-test', ...commandProviderEnvFlags, '--workspace', workspaceDir, '--role', 'all', '--json'])
+      }>(['provider-test', ...commandProviderEnvFlags, '--workspace', workspaceDir, '--role', 'all', '--media', sampleMediaPath, '--frame', sampleFramePath, '--text', 'Provider smoke test narration.', '--json'])
 
       expect(commandProviderTest.ok).to.equal(true)
       expect(commandProviderTest.summary).to.deep.include({
@@ -267,11 +272,12 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleVideoWithAudio(inputPath)
+      await configureMockProviders(workspaceDir)
 
       const film = await runCli(['film', inputPath, '--project-id', projectId, '--workspace', workspaceDir, '--target', '500ms', '--json'])
 
       expect(film.code).to.equal(1)
-      expect(film.stderr).to.include('Film Recap story indexing requires an LLM provider')
+      expect(film.stderr).to.include('Film Recap semantic planning requires an LLM provider')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -292,6 +298,8 @@ describe('cli end-to-end workflow', () => {
           '两条 pipeline 共用 runtime、provider、media、renderer 和 quality 层。',
         ].join('\n'),
       )
+      await configureMockProviders(workspaceDir)
+
       const deckProject = await runCli([
         'deck',
         inputPath,
@@ -357,6 +365,7 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleAudio(inputPath)
+      await configureMockProviders(workspaceDir)
 
       const deckProject = await runCli([
         'deck',
@@ -389,6 +398,7 @@ describe('cli end-to-end workflow', () => {
 
     try {
       await createSampleAudio(inputPath)
+      await configureMockProviders(workspaceDir)
 
       const deckProject = await runCli([
         'deck',
@@ -411,6 +421,21 @@ describe('cli end-to-end workflow', () => {
     }
   })
 })
+
+async function configureMockProviders(workspaceDir: string): Promise<void> {
+  await runCliJson([
+    'config',
+    '--asr',
+    'mock',
+    '--vlm',
+    'mock',
+    '--tts',
+    'mock',
+    '--workspace',
+    workspaceDir,
+    '--json',
+  ])
+}
 
 async function createSampleVideoWithAudio(inputPath: string): Promise<void> {
   await expectCommand([

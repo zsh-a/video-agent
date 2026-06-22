@@ -2,8 +2,9 @@ import type {RenderedMediaQualityResult, SubtitleQualityResult, VisualSmokeQuali
 import type {CaptureDeckHtmlFrameSequenceResult} from '@video-agent/renderer-html'
 import type {HyperframesCliResult} from '@video-agent/renderer-hyperframes'
 import type {RemotionRenderMediaResult} from '@video-agent/renderer-remotion'
-import type {ProjectWorkspace} from '@video-agent/runtime'
+import type {DeckHtmlVideoRenderer, ProjectWorkspace} from '@video-agent/runtime'
 
+import {DECK_REMOTION_VIDEO_RENDERER, HTML_RENDER_OUTPUT_RENDERER, REMOTION_RENDER_OUTPUT_RENDERER, RENDER_OUTPUT_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME} from '@video-agent/runtime'
 import {toProjectPath} from '../project/paths.js'
 import {type DeckReviewFrameRenderer} from '../quality/review.js'
 
@@ -47,9 +48,9 @@ export async function writeDeckHtmlRenderOutputArtifact(workspace: ProjectWorksp
     quality: SubtitleQualityResult
   }
   validation?: HyperframesCliResult
-  videoRenderer: 'chromium+ffmpeg' | 'playwright+ffmpeg'
+  videoRenderer: DeckHtmlVideoRenderer
 }): Promise<string> {
-  return workspace.store.writeJson('render-output.json', {
+  return workspace.store.writeJson(RENDER_OUTPUT_ARTIFACT_NAME, {
     audioInputs: 1,
     audioPath: toProjectPath(workspace.projectDir, input.audioPath),
     completedAt: new Date().toISOString(),
@@ -75,13 +76,13 @@ export async function writeDeckHtmlRenderOutputArtifact(workspace: ProjectWorksp
     outputPath: toProjectPath(workspace.projectDir, input.outputPath),
     outputQuality: input.outputQuality,
     planPath: toProjectPath(workspace.projectDir, input.htmlProject.planPath),
-    renderer: 'html' as const,
+    renderer: HTML_RENDER_OUTPUT_RENDERER,
     rendered: input.rendered,
     reviewHtmlPath: toProjectPath(workspace.projectDir, input.review.htmlPath),
     reviewReportPath: toProjectPath(workspace.projectDir, input.review.reportPath),
     runtimePath: toProjectPath(workspace.projectDir, input.htmlProject.runtimePath),
     silentVideoPath: toProjectPath(workspace.projectDir, input.silentVideoPath),
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: input.sourceSha256,
     stylesPath: toProjectPath(workspace.projectDir, input.htmlProject.stylesPath),
     subtitleMuxMode: 'mov_text' as const,
@@ -113,7 +114,7 @@ export async function writeDeckRemotionRenderOutputArtifact(workspace: ProjectWo
     quality: SubtitleQualityResult
   }
 }): Promise<string> {
-  return workspace.store.writeJson('render-output.json', {
+  return workspace.store.writeJson(RENDER_OUTPUT_ARTIFACT_NAME, {
     audioInputs: 1,
     audioPath: toProjectPath(workspace.projectDir, input.audioPath),
     backendArtifactPath: toProjectPath(workspace.projectDir, input.backendArtifactPath),
@@ -123,7 +124,7 @@ export async function writeDeckRemotionRenderOutputArtifact(workspace: ProjectWo
     keyframeRenderer: input.keyframeQuality.artifact.renderer,
     outputPath: toProjectPath(workspace.projectDir, input.outputPath),
     outputQuality: input.outputQuality,
-    renderer: 'remotion' as const,
+    renderer: REMOTION_RENDER_OUTPUT_RENDERER,
     remotion: {
       codec: input.remotion.codec,
       compositionId: input.remotion.compositionId,
@@ -138,7 +139,7 @@ export async function writeDeckRemotionRenderOutputArtifact(workspace: ProjectWo
     reviewHtmlPath: toProjectPath(workspace.projectDir, input.review.htmlPath),
     reviewReportPath: toProjectPath(workspace.projectDir, input.review.reportPath),
     silentVideoPath: toProjectPath(workspace.projectDir, input.silentVideoPath),
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: input.sourceSha256,
     subtitleMuxMode: 'mov_text' as const,
     subtitleMuxed: true,
@@ -146,7 +147,7 @@ export async function writeDeckRemotionRenderOutputArtifact(workspace: ProjectWo
     subtitleQuality: input.subtitleOutput.quality,
     subtitlesBurned: false,
     version: 1 as const,
-    videoRenderer: 'remotion+ffmpeg' as const,
+    videoRenderer: DECK_REMOTION_VIDEO_RENDERER,
     visualQuality: input.keyframeQuality.visualQuality,
   })
 }

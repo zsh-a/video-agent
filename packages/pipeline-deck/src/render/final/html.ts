@@ -1,31 +1,32 @@
 import type {CaptureDeckHtmlFrameSequenceResult} from '@video-agent/renderer-html'
 
-import {DeckQualityReportSchema, TimedDeckSchema} from '@video-agent/ir'
+import {DeckQualityReportSchema, DEFAULT_DECK_HTML_CAPTURE_BACKEND, TimedDeckSchema} from '@video-agent/ir'
 import {writeDeckHtmlProject} from '@video-agent/renderer-deck'
 import {captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes} from '@video-agent/renderer-html'
 import {renderHyperframesProject, validateHyperframesProject} from '@video-agent/renderer-hyperframes'
+import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, DECK_KEYFRAMES_ARTIFACT_NAME, DECK_QUALITY_REPORT_ARTIFACT_NAME, HTML_RENDER_OUTPUT_RENDERER, TIMED_DECK_ARTIFACT_NAME, deckHtmlVideoRendererForCaptureBackend} from '@video-agent/runtime'
 import {mkdir, rm} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {assertFileExists} from '@video-agent/runtime'
 import {removeDeckFinalRenderArtifacts} from './cleanup.js'
 import {inspectDeckRenderedOutput, muxDeckFinalVideo, renderDeckFrameSequenceVideo, writeDeckSubtitles} from './media.js'
-import {completeDeckFinalRender, failDeckFinalRender, openDeckFinalRenderContext} from './runtime.js'
+import {beginDeckFinalRender, completeDeckFinalRender, failDeckFinalRender, openDeckFinalRenderContext} from './runtime.js'
 import type {CreateDeckFinalRenderProjectOptions, CreateDeckFinalRenderProjectResult} from './types.js'
-import {DEFAULT_DECK_RENDER_FPS, assertCompleteDeckFrameSequence, createDeckFrameCaptureFromManifest, createDeckFrameManifest, createDeckFrameShardArtifact, createPlannedDeckFrameManifest, deckFrameVideoRenderer, normalizeDeckFrameConcurrency, normalizeDeckFrameRange, readReusableDeckFrameManifest, resolveDeckFinalizeOnlyManifest, sha256File} from '../frames/index.js'
+import {DEFAULT_DECK_RENDER_FPS, assertCompleteDeckFrameSequence, createDeckFrameCaptureFromManifest, createDeckFrameManifest, createDeckFrameShardArtifact, createPlannedDeckFrameManifest, normalizeDeckFrameConcurrency, normalizeDeckFrameRange, readReusableDeckFrameManifest, resolveDeckFinalizeOnlyManifest, sha256File} from '../frames/index.js'
 import {createDeckKeyframeQuality} from '../../quality/keyframes.js'
 import {assertDeckQualityReportHasNoErrors, createDeckQualityReport} from '../../quality/report.js'
 import {writeDeckHtmlRenderOutputArtifact} from '../output-artifacts.js'
 import {writeDeckReviewArtifacts} from '../../quality/review.js'
+import {assertFileExists, requireTimedDeckDuration} from '../../shared/utils.js'
 
 export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalRenderProjectOptions): Promise<CreateDeckFinalRenderProjectResult> {
   const context = await openDeckFinalRenderContext(options)
   const {projectId, workspace} = context
 
   try {
-    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson('timed-deck.json'))
+    const timedDeck = TimedDeckSchema.parse(await workspace.store.readJson(TIMED_DECK_ARTIFACT_NAME))
     const deckQualityReport = DeckQualityReportSchema.parse(createDeckQualityReport(timedDeck))
-    const deckQualityReportPath = await workspace.store.writeJson('deck-quality-report.json', deckQualityReport)
+    const deckQualityReportPath = await workspace.store.writeJson(DECK_QUALITY_REPORT_ARTIFACT_NAME, deckQualityReport)
 
     assertDeckQualityReportHasNoErrors(deckQualityReport, deckQualityReportPath)
 
@@ -36,14 +37,16 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
     const htmlRenderedOutputPath = resolve(options.htmlOutput ?? resolve(workspace.rendersDir, 'deck_html_capture.mp4'))
     const silentVideoPath = resolve(workspace.rendersDir, 'deck_silent.mp4')
     const outputPath = resolve(workspace.rendersDir, 'final.mp4')
+    const frameCaptureBackend = options.frameCaptureBackend ?? DEFAULT_DECK_HTML_CAPTURE_BACKEND
     const frameConcurrency = normalizeDeckFrameConcurrency(options.frameConcurrency)
     const requestedFrameRange = normalizeDeckFrameRange(options)
     const finalizeOnly = options.finalizeOnly === true
     const shouldFinalize = finalizeOnly || requestedFrameRange === undefined || options.finalize === true
-    const timedDeckSourceSha256 = await sha256File(workspace.store.resolve('timed-deck.json'))
+    const timedDeckSourceSha256 = await sha256File(workspace.store.resolve(TIMED_DECK_ARTIFACT_NAME))
     const reusableFrameManifest = await readReusableDeckFrameManifest(workspace, {
       fps: DEFAULT_DECK_RENDER_FPS,
       outputDir: framesDir,
+      renderer: finalizeOnly ? undefined : frameCaptureBackend,
       sourceSha256: timedDeckSourceSha256,
     })
     const reuseExistingFrames = reusableFrameManifest !== undefined
@@ -61,6 +64,7 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
     }
     await rm(htmlOutputDir, {force: true, recursive: true})
     await mkdir(framesDir, {recursive: true})
+    await beginDeckFinalRender(context, shouldFinalize ? 'Rendering final deck video' : 'Capturing deck frame shard')
 
     const htmlProject = await writeDeckHtmlProject({
       outputDir: htmlOutputDir,
@@ -92,7 +96,7 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
         })
       : undefined
     let frameCapture: CaptureDeckHtmlFrameSequenceResult
-    let frameManifestPath = workspace.store.resolve('deck-frame-manifest.json')
+    let frameManifestPath = workspace.store.resolve(DECK_FRAME_MANIFEST_ARTIFACT_NAME)
 
     if (finalizeOnlyManifest !== undefined) {
       frameCapture = createDeckFrameCaptureFromManifest({
@@ -101,17 +105,17 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
         projectDir: workspace.projectDir,
       })
     } else {
-      await workspace.store.writeJson('deck-frame-manifest.json', createPlannedDeckFrameManifest({
+      await workspace.store.writeJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME, createPlannedDeckFrameManifest({
         concurrency: frameConcurrency,
         fps: DEFAULT_DECK_RENDER_FPS,
         outputDir: framesDir,
         projectDir: workspace.projectDir,
-        renderer: options.frameCaptureBackend ?? 'playwright',
+        renderer: frameCaptureBackend,
         sourceSha256: timedDeckSourceSha256,
         timedDeck,
       }))
       frameCapture = await captureDeckHtmlFrameSequence({
-        backend: options.frameCaptureBackend,
+        backend: frameCaptureBackend,
         chromiumCommand: options.chromiumCommand,
         concurrency: frameConcurrency,
         frameEnd: requestedFrameRange?.end,
@@ -123,7 +127,7 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
         reuseExistingFrames,
         timedDeck,
       })
-      frameManifestPath = await workspace.store.writeJson('deck-frame-manifest.json', createDeckFrameManifest({
+      frameManifestPath = await workspace.store.writeJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME, createDeckFrameManifest({
         frameCapture,
         projectDir: workspace.projectDir,
         sourceSha256: timedDeckSourceSha256,
@@ -156,17 +160,17 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
         projectDir: workspace.projectDir,
         projectId,
         ...(rendered === undefined ? {} : {rendered}),
-        renderer: 'html',
+        renderer: HTML_RENDER_OUTPUT_RENDERER,
         status: 'frames-rendered',
         ...(validation === undefined ? {} : {validation}),
-        videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+        videoRenderer: deckHtmlVideoRendererForCaptureBackend(frameCapture.backend),
       }
     }
 
     await assertCompleteDeckFrameSequence(workspace.projectDir, frameCapture.frames)
 
     const keyframeQuality = await createDeckKeyframeQuality(workspace, frameCapture, browserKeyframes)
-    const keyframeQualityPath = await workspace.store.writeJson('deck-keyframes.json', keyframeQuality.artifact)
+    const keyframeQualityPath = await workspace.store.writeJson(DECK_KEYFRAMES_ARTIFACT_NAME, keyframeQuality.artifact)
     const subtitleOutput = await writeDeckSubtitles(workspace, timedDeck)
 
     await renderDeckFrameSequenceVideo(frameCapture.pattern, frameCapture.fps, silentVideoPath)
@@ -178,7 +182,7 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
     })
 
     const outputQuality = await inspectDeckRenderedOutput(outputPath, {
-      expectedDuration: timedDeck.timings.at(-1)?.end ?? 0,
+      expectedDuration: requireTimedDeckDuration(timedDeck, 'Deck HTML final render'),
     })
     const review = await writeDeckReviewArtifacts({
       deckQualityReport,
@@ -189,7 +193,7 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
       projectId,
       subtitleQuality: subtitleOutput.quality,
       timedDeck,
-      videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+      videoRenderer: deckHtmlVideoRendererForCaptureBackend(frameCapture.backend),
       workspace,
     })
     const artifactPath = await writeDeckHtmlRenderOutputArtifact(workspace, {
@@ -209,7 +213,7 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
       sourceSha256: timedDeckSourceSha256,
       subtitleOutput,
       validation,
-      videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+      videoRenderer: deckHtmlVideoRendererForCaptureBackend(frameCapture.backend),
     })
 
     await completeDeckFinalRender(context)
@@ -234,14 +238,14 @@ export async function createDeckHtmlFinalRenderProject(options: CreateDeckFinalR
       reviewHtmlPath: review.htmlPath,
       reviewReportPath: review.reportPath,
       ...(rendered === undefined ? {} : {rendered}),
-      renderer: 'html',
+      renderer: HTML_RENDER_OUTPUT_RENDERER,
       status: 'rendered',
       subtitleMuxMode: 'mov_text',
       subtitleMuxed: true,
       subtitlePath: subtitleOutput.outputPath,
       subtitleQuality: subtitleOutput.quality,
       ...(validation === undefined ? {} : {validation}),
-      videoRenderer: deckFrameVideoRenderer(frameCapture.backend),
+      videoRenderer: deckHtmlVideoRendererForCaptureBackend(frameCapture.backend),
       visualQuality: keyframeQuality.visualQuality,
     }
   } catch (error) {

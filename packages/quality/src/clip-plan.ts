@@ -2,6 +2,8 @@ import type {ClipPlan, Timeline, TimelineItem} from '@video-agent/ir'
 
 import type {QualityIssue} from './timeline.js'
 
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY} from './issues.js'
+
 export interface ClipPlanQualityOptions {
   timingTolerance?: number
 }
@@ -15,7 +17,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
     issues.push({
       code: 'clip_plan.timeline_duration_mismatch',
       message: 'Clip plan duration differs from timeline duration.',
-      severity: 'error',
+      severity: QUALITY_ERROR_SEVERITY,
     })
   }
 
@@ -23,7 +25,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
     issues.push({
       code: 'clip_plan.timeline_item_count_mismatch',
       message: `Clip plan has ${clipPlan.clips.length} clip(s), but timeline has ${videoItems.length} video item(s).`,
-      severity: 'error',
+      severity: QUALITY_ERROR_SEVERITY,
     })
   }
 
@@ -40,7 +42,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
         issues.push({
           code: 'clip_plan.source_range.overlap',
           message: `Clip ${clip.id} source range overlaps ${previousClip.id}.`,
-          severity: 'error',
+          severity: QUALITY_ERROR_SEVERITY,
         })
       }
 
@@ -48,7 +50,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
         issues.push({
           code: 'clip_plan.source_range.gap',
           message: `Clip ${clip.id} skips unused source media after ${previousClip.id}.`,
-          severity: 'warning',
+          severity: QUALITY_WARNING_SEVERITY,
         })
       }
     }
@@ -57,7 +59,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
       issues.push({
         code: 'clip_plan.source_range.invalid',
         message: `Clip ${clip.id} has an invalid source range.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
       })
     }
 
@@ -65,7 +67,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
       issues.push({
         code: 'clip_plan.source_range.out_of_bounds',
         message: `Clip ${clip.id} exceeds source media duration.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
       })
     }
 
@@ -73,7 +75,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
       issues.push({
         code: 'clip_plan.duration_mismatch',
         message: `Clip ${clip.id} duration differs from its source range.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
       })
     }
 
@@ -81,7 +83,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
       issues.push({
         code: 'clip_plan.clip.out_of_bounds',
         message: `Clip ${clip.id} exceeds clip plan duration.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
       })
     }
 
@@ -91,7 +93,7 @@ export function checkClipPlanConsistency(clipPlan: ClipPlan, timeline: Timeline,
       issues.push({
         code: 'clip_plan.timeline_item_mismatch',
         message: `Timeline item ${videoItem.id} does not match clip ${clip.id}.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
       })
     }
 

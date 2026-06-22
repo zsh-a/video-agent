@@ -3,14 +3,14 @@ import type {LLMClient} from '@video-agent/llm'
 import {mkdir, writeFile} from 'node:fs/promises'
 import {join, posix} from 'node:path'
 
-import type {NarrationSegment} from '@video-agent/ir'
-import type {TTSProvider, TTSProviderSynthesizeOptions, TTSSegment} from '../contracts.js'
+import type {TTSInputSegment, TTSProvider, TTSProviderSynthesizeOptions, TTSSegment} from '../contracts.js'
 
 import {probeMedia} from '@video-agent/media'
 import {isRecord, normalizeBaseURL, normalizeOutputDir, normalizePathPrefix, readStringField, sanitizePathSegment} from './media-utils.js'
 import {attachProviderMetadata} from '../metadata.js'
 import {ProviderExecutionError} from '../errors.js'
 import {createProviderObjectPromptRequest} from '../prompt.js'
+import {PROVIDER_PROMPT_TTS_MANIFEST_STAGE} from '../prompt-stages.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
 import {TtsSegmentsSchema} from '../schemas.js'
 
@@ -21,7 +21,7 @@ export const MIMO_TTS_MODEL = MIMO_PROVIDER_MODEL_IDS.tts
 export class LLMTTSProvider implements TTSProvider {
   constructor(private readonly llm: LLMClient) {}
 
-  async synthesize(segments: NarrationSegment[]): Promise<TTSSegment[]> {
+  async synthesize(segments: TTSInputSegment[]): Promise<TTSSegment[]> {
     requireExplicitTtsInputDurations(segments)
 
     const result = await this.llm.generateObject(createProviderObjectPromptRequest({
@@ -44,7 +44,7 @@ export class LLMTTSProvider implements TTSProvider {
       promptInput: {segments},
       schema: TtsSegmentsSchema,
       schemaName: 'TtsSegments',
-      stage: 'tts-manifest',
+      stage: PROVIDER_PROMPT_TTS_MANIFEST_STAGE,
       temperature: 0.1,
     }))
 
@@ -57,15 +57,15 @@ export class LLMTTSProvider implements TTSProvider {
   }
 }
 
-function requireExplicitTtsInputDurations(segments: NarrationSegment[]): void {
+function requireExplicitTtsInputDurations(segments: TTSInputSegment[]): void {
   for (const [index, segment] of segments.entries()) {
-    if (segment.duration === undefined || !Number.isFinite(segment.duration) || segment.duration <= 0) {
+    if (!Number.isFinite(segment.duration) || segment.duration <= 0) {
       throw new Error(`LLM TTS input segment ${index + 1} for narration "${segment.id}" must include a positive duration; no text-length duration estimation fallback is allowed.`)
     }
   }
 }
 
-function validateLLMTtsOutputMatchesInput(segments: NarrationSegment[], ttsSegments: TTSSegment[]): void {
+function validateLLMTtsOutputMatchesInput(segments: TTSInputSegment[], ttsSegments: TTSSegment[]): void {
   if (ttsSegments.length !== segments.length) {
     throw new Error(`LLM TTS output returned ${ttsSegments.length} segments for ${segments.length} narration inputs; no segment count reconciliation fallback is allowed.`)
   }
@@ -120,7 +120,7 @@ export class MimoTTSProvider implements TTSProvider {
     this.voice = options.voice ?? MIMO_TTS_DEFAULT_VOICE
   }
 
-  async synthesize(segments: NarrationSegment[], options: TTSProviderSynthesizeOptions = {}): Promise<TTSSegment[]> {
+  async synthesize(segments: TTSInputSegment[], options: TTSProviderSynthesizeOptions = {}): Promise<TTSSegment[]> {
     const outputDir = normalizeOutputDir(options.outputDir)
     await mkdir(outputDir, {recursive: true})
 
@@ -148,7 +148,7 @@ export class MimoTTSProvider implements TTSProvider {
     })
   }
 
-  private async synthesizeSegment(segment: NarrationSegment, index: number, outputDir: string, pathPrefix: string | undefined): Promise<{metadata: MimoTTSRequestMetadata; segment: TTSSegment}> {
+  private async synthesizeSegment(segment: TTSInputSegment, index: number, outputDir: string, pathPrefix: string | undefined): Promise<{metadata: MimoTTSRequestMetadata; segment: TTSSegment}> {
     const filename = `${String(index + 1).padStart(4, '0')}-${sanitizePathSegment(segment.id)}.wav`
     const outputPath = join(outputDir, filename)
     const relativePath = pathPrefix === undefined ? outputPath : posix.join(normalizePathPrefix(pathPrefix), filename)
@@ -176,7 +176,7 @@ export class MimoTTSProvider implements TTSProvider {
     }
   }
 
-  private async requestSegment(segment: NarrationSegment): Promise<{json: unknown; requestId?: string}> {
+  private async requestSegment(segment: TTSInputSegment): Promise<{json: unknown; requestId?: string}> {
     let response: Response
 
     try {
@@ -320,9 +320,9 @@ function readMimoTtsUsage(response: unknown): MimoTTSRequestMetadata['usage'] | 
   }
 }
 
-function resolveMimoTtsVoice(segmentVoice: string | undefined, fallback: string): string {
+function resolveMimoTtsVoice(segmentVoice: string | undefined, defaultVoice: string): string {
   if (segmentVoice === undefined) {
-    return fallback
+    return defaultVoice
   }
 
   if (segmentVoice.trim() === '') {
@@ -371,11 +371,19 @@ function isRetryableHttpStatus(status: number): boolean {
 }
 
 function normalizeRetryCount(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`MiMo TTS maxRetries must be a non-negative integer; no retry count coercion fallback is allowed. Received: ${String(value)}`)
+  }
+
+  return value
 }
 
 function normalizeRetryDelay(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`MiMo TTS retryBackoffMs must be a non-negative integer; no retry delay coercion fallback is allowed. Received: ${String(value)}`)
+  }
+
+  return value
 }
 
 async function sleep(ms: number): Promise<void> {

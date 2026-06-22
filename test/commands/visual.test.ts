@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {formatVisualSample} from '../../src/commands/visual.js'
+import {formatVisualSample} from '../../src/utils/visual-output.js'
 
 describe('visual command', () => {
   it('formats visual samples for terminal output', () => {

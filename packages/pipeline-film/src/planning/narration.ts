@@ -1,8 +1,8 @@
-import type {ASRResult, ASRSegment, ClipPlan, Narration, OutputNarration, OutputTimelineMap, RecapScript, RecapScriptSegment, StoryIndex} from '@video-agent/ir'
+import type {ASRResult, ASRSegment, ClipPlan, OutputNarration, OutputTimelineMap, RecapScript, RecapScriptSegment, StoryIndex} from '@video-agent/ir'
 
 import {rangeOverlapSeconds, roundSeconds} from '../shared/utils.js'
 
-export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, asrResult: ASRResult | undefined, language: string, recapScript: RecapScript): OutputNarration {
+export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: OutputTimelineMap, storyIndex: StoryIndex, asrResult: ASRResult, language: string, recapScript: RecapScript): OutputNarration {
   const beatsById = new Map(storyIndex.beats.map((beat) => [beat.id, beat]))
   const clipsById = new Map(clipPlan.clips.map((clip) => [clip.id, clip]))
   const scriptSegmentsById = new Map(recapScript.segments.map((segment) => [segment.id, segment]))
@@ -20,16 +20,17 @@ export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: Out
         throw new Error(`Clip ${clip.id} is not script-driven; every Film Recap narration segment must reference recap-script.json.`)
       }
 
-      const beat = clip.beatId === undefined ? undefined : beatsById.get(clip.beatId)
+      const beat = requireClipStoryBeat(clip, beatsById)
       const scriptSegment = scriptSegmentsById.get(clip.scriptSegmentId)
 
       if (scriptSegment === undefined) {
         throw new Error(`Clip ${clip.id} references missing recap script segment ${clip.scriptSegmentId}.`)
       }
 
+      requireScriptSegmentBeatAlignment(clip, scriptSegment)
+
       const start = roundSeconds(mappedClip.outputStart)
       const end = roundSeconds(mappedClip.outputEnd)
-      const beatRef = beat?.id ?? clip.sceneId ?? mappedClip.clipId
       const clipSourceRange = [mappedClip.sourceStart, mappedClip.sourceEnd] as [number, number]
       const asrSegments = collectAsrSegmentsForRange(asrResult, clipSourceRange)
       const text = createScriptNarrationText(scriptSegment, index, language)
@@ -37,7 +38,7 @@ export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: Out
       return {
         end,
         evidence: [
-          beatRef,
+          `story-index.json#${beat.id}`,
           mappedClip.clipId,
           `recap-script.json#${scriptSegment.id}`,
           ...asrSegments.map((segment) => `asr-result.json#${segment.id}`),
@@ -56,17 +57,23 @@ export function createOutputNarration(clipPlan: ClipPlan, outputTimelineMap: Out
   }
 }
 
-export function createCompatibleNarration(outputNarration: OutputNarration): Narration {
-  return {
-    language: outputNarration.language,
-    segments: outputNarration.segments.map((segment) => ({
-      duration: roundSeconds(segment.end - segment.start),
-      id: segment.id,
-      sceneId: segment.evidence[0],
-      start: segment.start,
-      text: segment.text,
-    })),
-    version: 1,
+function requireClipStoryBeat(clip: ClipPlan['clips'][number], beatsById: Map<string, StoryIndex['beats'][number]>): StoryIndex['beats'][number] {
+  if (clip.beatId === undefined) {
+    throw new Error(`Clip ${clip.id} must include beatId before Film output narration; no sceneId or clipId evidence fallback is allowed.`)
+  }
+
+  const beat = beatsById.get(clip.beatId)
+
+  if (beat === undefined) {
+    throw new Error(`Clip ${clip.id} references missing story-index beat ${clip.beatId}; no sceneId or clipId evidence fallback is allowed.`)
+  }
+
+  return beat
+}
+
+function requireScriptSegmentBeatAlignment(clip: ClipPlan['clips'][number], scriptSegment: RecapScriptSegment): void {
+  if (clip.beatId === undefined || scriptSegment.targetBeatIds.length !== 1 || scriptSegment.targetBeatIds[0] !== clip.beatId) {
+    throw new Error(`Clip ${clip.id} beatId must match recap script segment ${scriptSegment.id} targetBeatIds exactly; no narration beat remapping fallback is allowed.`)
   }
 }
 
@@ -100,11 +107,7 @@ function cleanNarrationText(text: string, language: string): string {
   return text
 }
 
-function collectAsrSegmentsForRange(asrResult: ASRResult | undefined, sourceRange: [number, number]): ASRSegment[] {
-  if (asrResult === undefined || asrResult.timestampConfidence === 'untimed') {
-    return []
-  }
-
+function collectAsrSegmentsForRange(asrResult: ASRResult, sourceRange: [number, number]): ASRSegment[] {
   return asrResult.segments
     .filter((segment) => {
       const overlap = rangeOverlapSeconds([segment.start, segment.end], sourceRange)

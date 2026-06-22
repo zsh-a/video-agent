@@ -4,8 +4,10 @@ import type {MediaInfo, SpeakerScript, TimedDeck} from '@video-agent/ir'
 
 import type {TextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/types.js'
 import {createAudioAnchoredDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/audio-anchored-plan.js'
+import {speakerNoteCharactersForSeconds, speakerNoteWordsForSeconds} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-validation.js'
 import {createSlideTimingsFromSpeakerScript, createSlideTimingsFromTts} from '../../../packages/pipeline-deck/src/planning/timing.js'
 import {createDeckVoiceoverUpdate} from '../../../packages/pipeline-deck/src/project/voiceover-update.js'
+import {createDeckScriptTimingReport} from '../../../packages/pipeline-deck/src/quality/script-timing.js'
 import {createDeckTimingDriftReport} from '../../../packages/pipeline-deck/src/quality/timing-drift.js'
 import {requireExactTranscriptSegments, requireExactTranscriptText, requireTranscriptLanguage} from '../../../packages/pipeline-deck/src/project/transcript.js'
 
@@ -89,6 +91,17 @@ describe('Deck timing updates from TTS', () => {
     }, 12)).to.throw('Rewrite LLM Deck plan durations instead of scaling locally')
   })
 
+  it('rejects non-positive LLM script durations instead of creating zero-length timings', () => {
+    expect(() => createSlideTimingsFromSpeakerScript({
+      language: 'en-US',
+      mode: 'script-generated',
+      segments: [
+        {estimatedDuration: 0, slideId: 'slide-001', text: 'First narration.'},
+      ],
+      version: 1,
+    }, undefined)).to.throw('no runtime slide duration fallback is allowed')
+  })
+
   it('reports TTS output that is substantially shorter than the LLM-authored timing', () => {
     const report = createDeckTimingDriftReport({
       speakerScript: {
@@ -106,6 +119,38 @@ describe('Deck timing updates from TTS', () => {
 
     expect(report.summary.warnings).to.equal(1)
     expect(report.segments[0]?.issueCodes).to.include('deck.timing_drift.short_warning')
+  })
+
+  it('rejects script timing reports without LLM-authored estimated durations', () => {
+    expect(() => createDeckScriptTimingReport(makeSpeakerScript())).to.throw('no zero-duration timing report fallback is allowed')
+  })
+
+  it('rejects empty script timing text instead of applying a minimum speech duration', () => {
+    expect(() => createDeckScriptTimingReport({
+      language: 'en-US',
+      mode: 'script-generated',
+      segments: [
+        {estimatedDuration: 2, slideId: 'slide-001', text: '   '},
+      ],
+      version: 1,
+    })).to.throw('no minimum speech-duration fallback is allowed')
+  })
+
+  it('rejects invalid speaker note budget suggestions instead of applying minimum counts', () => {
+    expect(() => speakerNoteWordsForSeconds(0)).to.throw('no suggested speaker note budget fallback is allowed')
+    expect(() => speakerNoteCharactersForSeconds(Number.NaN)).to.throw('no suggested speaker note budget fallback is allowed')
+    expect(() => speakerNoteWordsForSeconds(0.1)).to.throw('no minimum suggestion fallback is allowed')
+    expect(speakerNoteWordsForSeconds(30)).to.equal(78)
+  })
+
+  it('rejects timing drift reports without LLM-authored estimated durations', () => {
+    expect(() => createDeckTimingDriftReport({
+      speakerScript: makeSpeakerScript(),
+      ttsSegments: [
+        {duration: 2, narrationId: 'narration-1', path: 'audio/tts/0001.wav'},
+        {duration: 2, narrationId: 'narration-2', path: 'audio/tts/0002.wav'},
+      ],
+    })).to.throw('no zero-duration drift fallback is allowed')
   })
 
   it('repairs deck timings from TTS output even when LLM-authored timing drift is large', () => {

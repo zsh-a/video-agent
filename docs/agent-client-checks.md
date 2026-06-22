@@ -25,7 +25,7 @@ bun run dev init --workspace "$WORKSPACE"
 | MCP preset discovery | Let an external agent or host UI discover supported presets and default shapes | `bun run dev mcp --list-client-presets --workspace "$WORKSPACE"` |
 | Installed CLI config | Clients that should call the packaged binary | `bun run dev mcp --print-config --config-mode installed --workspace "$WORKSPACE"` |
 | Runtime health | Confirm the client will reach a usable workspace and fail fast on unhealthy checks | `bun run dev doctor --workspace "$WORKSPACE"` |
-| Provider smoke test | Confirm configured ASR/VLM/TTS providers satisfy response contracts | `bun run dev provider-test --json --workspace "$WORKSPACE"` |
+| Provider smoke test | Confirm configured ASR/VLM/TTS providers satisfy response contracts | `bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --json --workspace "$WORKSPACE"` |
 | Web Studio | Confirm HTTP adapter access for visual review | `bun run dev serve --workspace "$WORKSPACE" --port 4317` then `http://127.0.0.1:4317/studio` |
 
 For HTTP clients, `GET /health` is process liveness and should stay `200` while the server is running. Use `GET /doctor` for readiness; it returns the full doctor JSON report and responds with `503` when provider configuration, workspace access, or media tooling is unhealthy.
@@ -36,7 +36,9 @@ These commands should remain valid from the repository root:
 
 ```sh
 bun run dev doctor --workspace "$WORKSPACE"
-bun run dev provider-test --json --workspace "$WORKSPACE"
+SMOKE_MEDIA=/path/to/sample.wav
+SMOKE_FRAME=/path/to/frame.jpg
+bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --json --workspace "$WORKSPACE"
 bun run dev mcp --print-config --workspace "$WORKSPACE"
 bun run dev mcp --print-config --client claude-desktop --workspace "$WORKSPACE"
 bun run dev mcp --print-config --client cursor --workspace "$WORKSPACE"
@@ -65,8 +67,8 @@ bun run dev provider-env --json --workspace "$WORKSPACE"
 bun run dev provider-env --shell-template --workspace "$WORKSPACE"
 bun run dev doctor --env VIDEO_AGENT_LLM_TOKEN=redacted --json --workspace "$WORKSPACE"
 bun run dev provider-env --env VIDEO_AGENT_LLM_TOKEN=redacted --json --workspace "$WORKSPACE"
-bun run dev provider-test --json --workspace "$WORKSPACE"
-bun run dev provider-test --env VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]' --role asr --json --workspace "$WORKSPACE"
+bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --json --workspace "$WORKSPACE"
+bun run dev provider-test --env VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]' --role asr --media "$SMOKE_MEDIA" --json --workspace "$WORKSPACE"
 bun run dev mcp --print-config --env VIDEO_AGENT_LLM_TOKEN=redacted --workspace "$WORKSPACE"
 ```
 

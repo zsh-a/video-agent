@@ -5,7 +5,9 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
+import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
 import {createVideoAgentGuidedActions, readVideoAgentGuidedActions} from '../../../packages/runtime/src/project/guided-actions.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('guided actions', () => {
   it('creates sorted workspace actions without a selected project', () => {
@@ -15,7 +17,6 @@ describe('guided actions', () => {
     })
 
     expect(actions.map((action) => action.id)).to.deep.equal([
-      'provider-test',
       'worker-dry-run',
       'list-projects',
     ])
@@ -67,7 +68,7 @@ describe('guided actions', () => {
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action visual --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action audio --workspace ${root}`)
       expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action render --workspace ${root}`)
-      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action export --export-require-quality --workspace ${root}`)
+      expect(result.actions.map((action) => action.command)).to.include(`bun run dev tui --project 'demo project' --action export --export-format video --export-require-quality --workspace ${root}`)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -78,6 +79,7 @@ async function createProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   const store = new JsonJobStore(join(projectDir, 'job-state.json'))
 
@@ -89,4 +91,5 @@ async function createProject(root: string, projectId: string): Promise<void> {
   })
   await store.updateStage('ingest', 'completed')
   await writeText(join(artifactsDir, 'quality report.json'), '{"ok":true}\n')
+  await refreshArtifactManifest(artifactsDir)
 }

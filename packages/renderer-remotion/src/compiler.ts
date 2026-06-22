@@ -90,12 +90,21 @@ export function createRemotionDeckCompositionSpec(input: {
   timedDeck: TimedDeck
   width: number
 }): RemotionDeckCompositionSpec {
-  const duration = Math.max(0.1, input.timedDeck.timings.at(-1)?.end ?? 0.1)
+  const fps = normalizeFps(input.fps)
+  const lastTiming = input.timedDeck.timings.at(-1)
+
+  if (lastTiming === undefined) {
+    throw new Error('Remotion Deck composition requires at least one slide timing; no minimum-duration render fallback is allowed.')
+  }
+
+  if (!Number.isFinite(lastTiming.end) || lastTiming.end <= 0) {
+    throw new Error('Remotion Deck composition requires a positive final slide timing end; no minimum-duration render fallback is allowed.')
+  }
 
   return {
     compositionId: input.compositionId,
-    durationInFrames: Math.max(1, Math.ceil(duration * input.fps)),
-    fps: input.fps,
+    durationInFrames: Math.ceil(lastTiming.end * fps),
+    fps,
     height: input.height,
     width: input.width,
   }
@@ -216,11 +225,11 @@ function sceneLayerStyle(scene: typeof motionTimeline.scenes[number], time: numb
 }
 
 function normalizeFps(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    return 30
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Remotion Deck renderer fps must be a positive integer; no renderer fps fallback or coercion is allowed. Received: ${String(value)}`)
   }
 
-  return Math.max(1, Math.floor(value))
+  return value
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {

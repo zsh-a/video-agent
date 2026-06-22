@@ -3,13 +3,14 @@ import {createApiFetchHandler} from '@video-agent/api'
 
 import {bunServe} from '../bun-runtime.js'
 
+import {normalizeRequiredPositiveIntegerFlag, workspaceFlag} from '../utils/cli-flags.js'
 export default class Serve extends Command {
   static description = 'Start a Bun HTTP API server for video-agent runtime state'
   static flags = {
     host: Flags.string({default: '127.0.0.1', description: 'Host to bind'}),
     json: Flags.boolean({description: 'Print machine-readable startup output'}),
     port: Flags.integer({default: 4317, description: 'Port to bind'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -17,7 +18,7 @@ export default class Serve extends Command {
     const server = bunServe({
       fetch: createApiFetchHandler({workspaceDir: flags.workspace}),
       hostname: flags.host,
-      port: flags.port,
+      port: normalizeRequiredPositiveIntegerFlag(flags.port, '--port'),
     })
     const output = {
       host: server.hostname,

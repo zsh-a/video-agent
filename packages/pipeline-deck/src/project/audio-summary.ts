@@ -2,9 +2,10 @@ import {probeMedia} from '@video-agent/media'
 import {TranscriptSchema} from '@video-agent/providers'
 import {resolve} from 'node:path'
 
-import {assertFileExists, createProjectAgentRuntime, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
+import {createProjectAgentRuntime, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
 import {isAudioInputPath} from '../planning/input.js'
 import {createLLMTextDeckProjectPlan} from '../planning/index.js'
+import {DECK_STAGE_IDS} from '../pipeline.js'
 import {writeDeckAudioSummaryPlanArtifacts} from './artifacts.js'
 import {initializeDeckJob} from './job.js'
 import {
@@ -14,7 +15,7 @@ import {
 	  withLLMTracePath,
 	} from './runtime.js'
 import type {CreateDeckSummarizeProjectOptions, CreateDeckSummarizeProjectResult} from './types.js'
-import {DECK_SUMMARIZE_STAGES} from '../shared/stages.js'
+import {assertFileExists} from '../shared/utils.js'
 import {requireExactTranscriptSegments, requireExactTranscriptText, requireTranscriptLanguage} from './transcript.js'
 
 export async function createDeckSummarizeProject(options: CreateDeckSummarizeProjectOptions): Promise<CreateDeckSummarizeProjectResult> {
@@ -33,7 +34,10 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
   })
   const workspaceDir = workspace.workspaceDir
   const llmTrace = createProjectLLMTrace(workspace, options.trace)
-  const jobStore = createDeckJobStore(workspace.projectDir)
+  const jobStore = await createDeckJobStore({
+    projectId: workspace.projectId,
+    workspaceDir,
+  })
   const agent = createProjectAgentRuntime({
     jobStore,
     workspace,
@@ -42,10 +46,9 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
   await initializeDeckJob(jobStore, {
     inputPath,
     projectId: workspace.projectId,
-    stages: DECK_SUMMARIZE_STAGES,
   })
   await agent.startRun('Deck audio summary generation started')
-  await agent.startStage('ingest', 'Inspecting source audio')
+  await agent.startStage(DECK_STAGE_IDS.ingest, 'Inspecting source audio')
 
   try {
     const sourceMediaInfo = await probeMedia(inputPath)
@@ -69,8 +72,8 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
       llmTrace: llmTrace.recorder,
     })
 
-    await agent.completeStage('ingest', 'Source audio inspected')
-    await agent.startStage('transcribe', 'Transcribing source audio')
+    await agent.completeStage(DECK_STAGE_IDS.ingest, 'Source audio inspected')
+    await agent.startStage(DECK_STAGE_IDS.transcribe, 'Transcribing source audio')
 
     const transcript = TranscriptSchema.parse(await providers.asr.transcribe({
       duration: sourceDuration,
@@ -79,9 +82,9 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
     const transcriptSegments = requireExactTranscriptSegments(transcript, 'Deck audio summary planning')
     const text = requireExactTranscriptText(transcript, 'Deck audio summary planning')
 
-    await agent.completeStage('transcribe', 'Transcription complete')
-    await agent.startStage('source-map', 'Building transcript source map')
-    await agent.completeStage('source-map', 'Transcript source map prepared')
+    await agent.completeStage(DECK_STAGE_IDS.transcribe, 'Transcription complete')
+    await agent.startStage(DECK_STAGE_IDS.sourceMap, 'Building transcript source map')
+    await agent.completeStage(DECK_STAGE_IDS.sourceMap, 'Transcript source map prepared')
 
     const language = options.language ?? requireTranscriptLanguage(transcript, 'Deck audio summary planning')
     const plan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
@@ -98,12 +101,12 @@ export async function createDeckSummarizeProject(options: CreateDeckSummarizePro
       title: options.title,
       transcriptSegments,
     }, agent)
-    await agent.startStage('timing-preflight', 'Checking script timing')
-    await agent.completeStage('timing-preflight', 'Script timing preflight complete')
+    await agent.startStage(DECK_STAGE_IDS.timingPreflight, 'Checking script timing')
+    await agent.completeStage(DECK_STAGE_IDS.timingPreflight, 'Script timing preflight complete')
+    await agent.skipStage(DECK_STAGE_IDS.align, 'Audio summary uses synthesized narration timing')
 
     const artifacts = await writeDeckAudioSummaryPlanArtifacts(workspace, transcript, plan, llmTrace.path)
 
-    await jobStore.complete('completed')
     await agent.completeRun('Deck audio summary generation complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 

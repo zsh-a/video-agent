@@ -5,14 +5,17 @@ import {join} from 'node:path'
 
 import {createApiFetchHandler} from '../../../packages/api/src/server.js'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
+import {FILM_PIPELINE_STAGES} from '../../../packages/pipeline-film/src/pipeline.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
 import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('api server handler', () => {
   it('serves health, projects, status, events, and artifacts', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+    const sampleMediaPath = join(root, 'sample-media.wav')
 
     try {
+      await writeFile(sampleMediaPath, Buffer.from('fake-audio'))
       await createApiProject(root, 'demo')
 
       const fetch = createApiFetchHandler({workspaceDir: root})
@@ -24,7 +27,7 @@ describe('api server handler', () => {
         fetch,
         '/provider-test',
         {
-          body: JSON.stringify({role: 'asr'}),
+          body: JSON.stringify({mediaPath: sampleMediaPath, role: 'asr'}),
           method: 'POST',
         },
       )
@@ -68,7 +71,7 @@ describe('api server handler', () => {
       })
       expect(providerReport.summary.byModel['mock-asr']?.total).to.equal(1)
       expect(quality.projectId).to.equal('demo')
-      expect(quality.ok).to.equal(false)
+      expect(quality.ok).to.equal(true)
       expect(actions.projectId).to.equal('demo')
       expect(actions.actions.find((action) => action.id === 'inspect-status')).to.include({
         category: 'inspect',
@@ -177,8 +180,12 @@ describe('api server handler', () => {
   it('uses explicit provider env values for environment reports and smoke tests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
     const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+    const sampleFramePath = join(root, 'sample-frame.jpg')
+    const sampleMediaPath = join(root, 'sample-media.wav')
 
     try {
+      await writeFile(sampleFramePath, Buffer.from('fake-jpeg'))
+      await writeFile(sampleMediaPath, Buffer.from('fake-audio'))
       await writeConfig(root, {
         asr: 'command',
         tts: 'command',
@@ -207,7 +214,10 @@ describe('api server handler', () => {
               VIDEO_AGENT_TTS_COMMAND: command,
               VIDEO_AGENT_VLM_COMMAND: command,
             },
+            framePath: sampleFramePath,
+            mediaPath: sampleMediaPath,
             role: 'all',
+            text: 'Provider smoke test narration.',
           }),
           method: 'POST',
         },
@@ -540,6 +550,52 @@ describe('api server handler', () => {
     }
   })
 
+  it('returns a bad request when Deck backend export does not specify a backend', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(
+        new Request('http://localhost/projects/deck-demo/deck/backend', {
+          body: JSON.stringify({}),
+          method: 'POST',
+        }),
+      )
+      const result = (await response.json()) as {error: {code: string; message: string; name: string}}
+
+      expect(response.status).to.equal(400)
+      expect(result.error).to.deep.include({
+        code: 'bad_request',
+        message: 'Field backend is required and must be one of: motion-canvas, remotion.',
+        name: 'ApiRequestError',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns a bad request for invalid positive Deck integer fields', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(new Request('http://local.test/projects/deck-demo/deck/shards', {
+        body: JSON.stringify({frameShardSize: 1.5}),
+        method: 'POST',
+      }))
+      const result = (await response.json()) as {error: {code: string; message: string; name: string}}
+
+      expect(response.status).to.equal(400)
+      expect(result.error).to.deep.include({
+        code: 'bad_request',
+        message: 'Field frameShardSize must be a positive integer.',
+        name: 'ApiRequestError',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('verifies project artifacts from the API', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
 
@@ -658,7 +714,7 @@ describe('api server handler', () => {
         fetch,
         '/projects/demo/export',
         {
-          body: JSON.stringify({outputPath}),
+          body: JSON.stringify({format: 'video', outputPath}),
           method: 'POST',
         },
       )
@@ -666,6 +722,30 @@ describe('api server handler', () => {
       expect(result.format).to.equal('video')
       expect(result.outputPath).to.equal(outputPath)
       expect(await readFile(outputPath, 'utf8')).to.equal('video')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns a bad request when export format is missing from the API', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-api-'))
+
+    try {
+      const fetch = createApiFetchHandler({workspaceDir: root})
+      const response = await fetch(
+        new Request('http://localhost/projects/demo/export', {
+          body: JSON.stringify({}),
+          method: 'POST',
+        }),
+      )
+      const result = (await response.json()) as {error: {code: string; message: string; name: string}}
+
+      expect(response.status).to.equal(400)
+      expect(result.error).to.deep.include({
+        code: 'bad_request',
+        message: 'Field format is required and must be one of: video, bundle.',
+        name: 'ApiRequestError',
+      })
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -712,6 +792,7 @@ describe('api server handler', () => {
 
     try {
       await createApiProject(root, 'demo')
+      await writeQualityArtifacts(root, 'demo')
       await mkdir(join(root, 'projects', 'demo', 'renders'), {recursive: true})
       await writeFile(join(root, 'projects', 'demo', 'renders', 'final.mp4'), 'video')
 
@@ -719,6 +800,7 @@ describe('api server handler', () => {
       const response = await fetch(
         new Request('http://localhost/projects/demo/export', {
           body: JSON.stringify({
+            format: 'video',
             requireQuality: true,
           }),
           method: 'POST',
@@ -771,13 +853,17 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
   const artifactsDir = join(projectDir, 'artifacts')
   const inputPath = join(root, `${projectId}.mp4`)
 
+  if (!await exists(join(root, 'config.json'))) {
+    await writeConfig(root, {})
+  }
+
   await mkdir(artifactsDir, {recursive: true})
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath,
     pipeline: 'film',
     projectId,
-    stages: ['ingest'],
+    stages: FILM_PIPELINE_STAGES,
   })
   await writeFile(
     join(artifactsDir, 'media-info.json'),
@@ -808,6 +894,7 @@ async function createApiProject(root: string, projectId: string): Promise<void> 
       version: 1,
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeQualityArtifacts(root: string, projectId: string): Promise<void> {
@@ -831,6 +918,7 @@ async function writeQualityArtifacts(root: string, projectId: string): Promise<v
       version: 1,
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeVisualSamples(root: string, projectId: string): Promise<void> {
@@ -846,17 +934,21 @@ async function writeVisualSamples(root: string, projectId: string): Promise<void
       renderer: 'ffmpeg',
       version: 1,
       visualQuality: {
+        errors: 0,
         frameSamples: [
           {
+            capturedAt: '2026-01-01T00:00:00.000Z',
             ok: true,
             path: join(rendersDir, 'final-frame-first.jpg'),
             size: 5,
             timestamp: 0,
           },
         ],
+        warnings: 0,
       },
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeDeckArtifacts(root: string, projectId: string): Promise<void> {
@@ -890,6 +982,7 @@ async function writeDeckArtifacts(root: string, projectId: string): Promise<void
       version: 1,
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeRerunArtifacts(root: string, projectId: string): Promise<void> {
@@ -909,10 +1002,11 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       })}\n`,
     ),
     writeFile(
-      join(artifactsDir, 'narration.json'),
+      join(artifactsDir, 'output-narration.json'),
       `${JSON.stringify({
         language: 'zh-CN',
         segments: [],
+        timeline: 'output',
         version: 1,
       })}\n`,
     ),

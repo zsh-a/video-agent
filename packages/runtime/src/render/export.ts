@@ -1,18 +1,20 @@
-import {mkdir, readdir, rm, stat} from 'node:fs/promises'
+import {copyFile, mkdir, readdir, rm, stat} from 'node:fs/promises'
 import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path'
 
 import type {ProjectQualityReport} from '../project/quality.js'
 
-import {bunCopyFile} from '../shared/bun-runtime.js'
-import {readOptionalJson} from '../shared/file-io.js'
+import {EXPORT_OUTPUT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
+import {RenderOutputSchema} from '../artifacts/core-schemas.js'
+import {JsonFileParseError, readOptionalJson} from '../shared/file-io.js'
 import {readProjectQuality} from '../project/quality.js'
 import {createProjectWorkspace} from '../shared/workspace.js'
+import {isExportFormat, type ExportFormat} from './export-format.js'
 
-export type ExportFormat = 'bundle' | 'video'
+export {EXPORT_FORMATS, isExportFormat, type ExportFormat} from './export-format.js'
 
 export interface ExportProjectOptions {
   cleanOutput?: boolean
-  format?: ExportFormat
+  format: ExportFormat
   outputPath?: string
   projectId: string
   requireQuality?: boolean
@@ -41,11 +43,6 @@ export class ExportQualityError extends Error {
   }
 }
 
-interface RenderOutputExportReference {
-  outputPath?: string
-  renderer?: string
-}
-
 export async function exportProject(options: ExportProjectOptions): Promise<ExportProjectResult> {
   const quality = options.requireQuality === true ? await readProjectQuality(options.projectId, options.workspaceDir) : undefined
 
@@ -57,9 +54,8 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
     projectId: options.projectId,
     workspaceDir: options.workspaceDir,
   })
-  const renderOutput = await readOptionalJson<RenderOutputExportReference>(resolve(workspace.artifactsDir, 'render-output.json'))
-  const format = options.format ?? inferExportFormat(renderOutput)
-  const sourcePath = resolveExportSource(workspace.projectDir, format, renderOutput)
+  const format = requireExportFormat(options.format)
+  const sourcePath = await resolveExportSource(workspace.projectDir, workspace.artifactsDir, format)
   const outputPath = resolve(options.outputPath ?? defaultOutputPath(options.projectId, format))
   const cleanOutput = options.cleanOutput === true
 
@@ -68,7 +64,7 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
   await mkdir(dirname(outputPath), {recursive: true})
 
   if (format === 'video') {
-    await bunCopyFile(sourcePath, outputPath)
+    await copyFile(sourcePath, outputPath)
   } else {
     if (cleanOutput) {
       await rm(outputPath, {force: true, recursive: true})
@@ -77,7 +73,7 @@ export async function exportProject(options: ExportProjectOptions): Promise<Expo
     await copyDirectory(sourcePath, outputPath)
   }
 
-  const artifactPath = await workspace.store.writeJson('export-output.json', {
+  const artifactPath = await workspace.store.writeJson(EXPORT_OUTPUT_ARTIFACT_NAME, {
     cleanOutput,
     completedAt: new Date().toISOString(),
     format,
@@ -109,16 +105,48 @@ function defaultOutputPath(projectId: string, format: ExportFormat): string {
   return `${projectId}-${format}`
 }
 
-function inferExportFormat(renderOutput: RenderOutputExportReference | undefined): ExportFormat {
-  return renderOutput?.renderer === undefined ? 'bundle' : 'video'
-}
-
-function resolveExportSource(projectDir: string, format: ExportFormat, renderOutput: RenderOutputExportReference | undefined): string {
-  if (format === 'video') {
-    return resolveProjectPath(projectDir, renderOutput?.outputPath ?? 'renders/final.mp4')
+function requireExportFormat(format: ExportFormat | undefined): ExportFormat {
+  if (format !== undefined && isExportFormat(format)) {
+    return format
   }
 
-  return projectDir
+  throw new Error('Export format is required; choose "video" or "bundle". No render-output format inference is allowed.')
+}
+
+async function resolveExportSource(projectDir: string, artifactsDir: string, format: ExportFormat): Promise<string> {
+  if (format === 'bundle') {
+    return projectDir
+  }
+
+  const value = await readExportRenderOutputJson(resolve(artifactsDir, RENDER_OUTPUT_ARTIFACT_NAME))
+
+  if (value === undefined) {
+    throw new Error('Video export requires render-output.json with a non-empty outputPath; no renders/final.mp4 path fallback is allowed.')
+  }
+
+  const renderOutput = RenderOutputSchema.safeParse(value)
+
+  if (!renderOutput.success) {
+    throw new Error('Video export requires schema-valid render-output.json; no render-output shape inference is allowed.')
+  }
+
+  if (renderOutput.data.outputPath === undefined || renderOutput.data.outputPath.trim() === '') {
+    throw new Error('Video export requires render-output.json with a non-empty outputPath; no renders/final.mp4 path fallback is allowed.')
+  }
+
+  return resolveProjectPath(projectDir, renderOutput.data.outputPath)
+}
+
+async function readExportRenderOutputJson(path: string): Promise<unknown | undefined> {
+  try {
+    return await readOptionalJson(path)
+  } catch (error) {
+    if (error instanceof JsonFileParseError) {
+      throw new Error('Video export requires valid JSON in render-output.json; no render-output shape inference is allowed.')
+    }
+
+    throw error
+  }
 }
 
 function resolveProjectPath(projectDir: string, path: string): string {
@@ -173,7 +201,7 @@ async function copyDirectory(sourceDir: string, outputDir: string): Promise<void
     if (entry.isDirectory()) {
       await copyDirectory(sourcePath, outputPath)
     } else if (entry.isFile()) {
-      await bunCopyFile(sourcePath, outputPath)
+      await copyFile(sourcePath, outputPath)
     }
   }
   /* eslint-enable no-await-in-loop */

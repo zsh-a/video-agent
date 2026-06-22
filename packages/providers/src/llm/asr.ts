@@ -1,6 +1,6 @@
 import type {LLMClient, LLMMessage, LLMUsage} from '@video-agent/llm'
 
-import {mkdtemp, rm} from 'node:fs/promises'
+import {mkdtemp, readFile, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {z} from 'zod'
@@ -8,10 +8,10 @@ import {z} from 'zod'
 import type {ASRProvider, MediaInput, Transcript} from '../contracts.js'
 
 import {runFfmpeg} from '@video-agent/media'
-import {bunFile} from '../bun-runtime.js'
 import {attachProviderMetadata} from '../metadata.js'
 import {createProviderObjectPromptRequest} from '../prompt.js'
-import {createAudioDataUri, mergeLLMUsage, normalizePositiveFiniteNumber, parseOptionalJson, resolveAudioMimeType, roundTimestamp} from './media-utils.js'
+import {PROVIDER_PROMPT_ASR_LANGUAGE_STAGE, PROVIDER_PROMPT_ASR_TRANSCRIPT_STAGE} from '../prompt-stages.js'
+import {createAudioDataUri, mergeLLMUsage, normalizePositiveFiniteNumber, resolveAudioMimeType, roundTimestamp} from './media-utils.js'
 import {MIMO_PROVIDER_BASE_URL, MIMO_PROVIDER_MODEL_IDS} from '../profiles.js'
 import {TranscriptSchema} from '../schemas.js'
 
@@ -26,7 +26,7 @@ export class LLMASRProvider implements ASRProvider {
   constructor(private readonly llm: LLMClient) {}
 
   async transcribe(input: MediaInput): Promise<Transcript> {
-    const audio = await bunFile(input.path).bytes()
+    const audio = await readFile(input.path)
     const mediaType = resolveAudioMimeType(input)
     const result = await this.llm.generateObject(createProviderObjectPromptRequest({
       buildMessages: () => createLLMAsrMessages(input, audio, mediaType),
@@ -38,7 +38,7 @@ export class LLMASRProvider implements ASRProvider {
       },
       schema: TranscriptSchema,
       schemaName: 'Transcript',
-      stage: 'asr-transcript',
+      stage: PROVIDER_PROMPT_ASR_TRANSCRIPT_STAGE,
       temperature: 0.1,
     }))
     const transcript = normalizeLLMAsrTranscript(TranscriptSchema.parse(result.object))
@@ -79,12 +79,6 @@ function createLLMAsrMessages(input: MediaInput, audio: Uint8Array, mediaType: s
 }
 
 function normalizeLLMAsrTranscript(transcript: Transcript): Transcript {
-  if (transcript.timestampConfidence !== 'exact') {
-    const confidence = transcript.timestampConfidence ?? 'missing'
-
-    throw new Error(`LLM ASR transcript must provide exact timestamps from attached audio; received ${confidence}.`)
-  }
-
   assertTranscriptTextDoesNotNeedCleanup(transcript, 'LLM ASR transcript')
   assertTranscriptSegmentsDoNotNeedCleanup(transcript, 'LLM ASR transcript')
   requireExplicitTranscriptText(transcript, 'LLM ASR transcript')
@@ -108,8 +102,8 @@ export class MimoASRProvider implements ASRProvider {
   ) {}
 
   async transcribe(input: MediaInput): Promise<Transcript> {
+    const segmentLength = requireMimoAsrSegmentLength(this.options.segmentLengthSeconds)
     const duration = normalizePositiveFiniteNumber(input.duration)
-    const segmentLength = normalizePositiveFiniteNumber(this.options.segmentLengthSeconds) ?? MIMO_ASR_DEFAULT_SEGMENT_SECONDS
 
     if (duration !== undefined && duration > segmentLength) {
       return this.transcribeSegmented(input, duration, segmentLength)
@@ -177,7 +171,7 @@ export class MimoASRProvider implements ASRProvider {
   }
 
   private async transcribeAudioPath(input: MediaInput): Promise<{text: string; usage?: LLMUsage}> {
-    const audio = await bunFile(input.path).bytes()
+    const audio = await readFile(input.path)
     const mediaType = resolveAudioMimeType(input)
 
     return this.llm.generateText({
@@ -215,6 +209,18 @@ export interface MimoAsrWindow {
 }
 
 export type MimoAsrAudioSegmenter = (inputPath: string, outputPath: string, window: MimoAsrWindow) => Promise<void>
+
+function requireMimoAsrSegmentLength(value: number | undefined): number {
+  if (value === undefined) {
+    return MIMO_ASR_DEFAULT_SEGMENT_SECONDS
+  }
+
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`MiMo ASR segmentLengthSeconds must be a positive finite number; no segment length default fallback is allowed. Received: ${String(value)}`)
+  }
+
+  return value
+}
 
 function createMimoAsrWindows(duration: number, segmentLength: number): MimoAsrWindow[] {
   const windows: MimoAsrWindow[] = []
@@ -297,13 +303,27 @@ async function parseTranscriptFromMimoContent(
   },
 ): Promise<{transcript: Transcript; usage?: LLMUsage}> {
   const trimmed = content.trim()
-  const parsed = parseOptionalJson(trimmed)
+  const transcript = parseMimoTranscriptJson(trimmed)
 
-  if (parsed === undefined) {
-    throw new Error('MiMo ASR must return transcript JSON with timed segments; plain text ASR output cannot be converted into source-backed timestamps.')
+  return ensureTranscriptLanguage(llm, normalizeParsedMimoTranscript(transcript, options))
+}
+
+function parseMimoTranscriptJson(content: string): Transcript {
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(content) as unknown
+  } catch (error) {
+    throw new Error(`MiMo ASR response was not valid transcript JSON; provider must return only JSON with timed segments. ${formatErrorMessage(error)}`)
   }
 
-  return ensureTranscriptLanguage(llm, normalizeParsedMimoTranscript(TranscriptSchema.parse(parsed), options))
+  const result = TranscriptSchema.safeParse(parsed)
+
+  if (!result.success) {
+    throw new Error(`MiMo ASR transcript JSON failed schema validation. ${formatZodIssues(result.error.issues)}`)
+  }
+
+  return result.data
 }
 
 function normalizeParsedMimoTranscript(
@@ -324,10 +344,6 @@ function normalizeParsedMimoTranscript(
       ...transcript,
       timestampConfidence: 'exact',
     })
-  }
-
-  if (transcript.timestampConfidence !== undefined && transcript.timestampConfidence !== 'exact') {
-    throw new Error(`MiMo ASR transcript JSON must provide exact timestamps; received ${transcript.timestampConfidence}.`)
   }
 
   requireExplicitTranscriptText(transcript, 'MiMo ASR transcript JSON')
@@ -428,7 +444,7 @@ async function ensureTranscriptLanguage(llm: LLMClient, transcript: Transcript):
     },
     schema: MimoTranscriptLanguageSchema,
     schemaName: 'MimoTranscriptLanguage',
-    stage: 'asr-language',
+    stage: PROVIDER_PROMPT_ASR_LANGUAGE_STAGE,
     temperature: 0,
   }))
 
@@ -491,4 +507,8 @@ function transcriptText(transcript: Transcript): string {
 
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function formatZodIssues(issues: z.ZodIssue[]): string {
+  return issues.map((issue) => `${issue.path.map(String).join('.') || '<root>'}: ${issue.message}`).join('; ')
 }

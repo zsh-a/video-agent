@@ -161,11 +161,11 @@ export default makeScene2D(function* (view) {
 }
 
 function normalizeFps(value: number): number {
-  if (!Number.isFinite(value) || value <= 0) {
-    return 30
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Motion Canvas Deck renderer fps must be a positive integer; no renderer fps fallback or coercion is allowed. Received: ${String(value)}`)
   }
 
-  return Math.max(1, Math.floor(value))
+  return value
 }
 
 function motionCanvasDeckCanvasSize(format: DeckFormat | undefined): {height: number; width: number} {

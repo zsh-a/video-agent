@@ -99,7 +99,7 @@ export async function renderRemotionDeckMedia(options: RemotionRenderMediaOption
   const codec = options.codec ?? 'h264'
   const concurrency = options.concurrency ?? '75%'
   const imageFormat = options.imageFormat ?? 'jpeg'
-  const jpegQuality = normalizeJpegQuality(options.jpegQuality)
+  const jpegQuality = normalizeRemotionJpegQuality(options.jpegQuality)
   const x264Preset = options.x264Preset ?? 'veryfast'
   const serveUrl = await bundle({
     entryPoint: options.project.entryPath,
@@ -142,10 +142,14 @@ export async function renderRemotionDeckMedia(options: RemotionRenderMediaOption
   }
 }
 
-function normalizeJpegQuality(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
+export function normalizeRemotionJpegQuality(value: number | undefined): number {
+  if (value === undefined) {
     return 85
   }
 
-  return Math.max(0, Math.min(100, Math.floor(value)))
+  if (!Number.isInteger(value) || value < 0 || value > 100) {
+    throw new Error(`Remotion Deck jpegQuality must be an integer between 0 and 100; no render option clamp or coercion is allowed. Received: ${String(value)}`)
+  }
+
+  return value
 }

@@ -52,7 +52,7 @@ const storyIndex: StoryIndex = {
   version: 1,
 }
 
-function recapScript(narrationText = '主角发现证据，故事由此展开。', overlapsSpeech = true): RecapScript {
+function recapScript(narrationText = '主角发现证据，故事由此展开。', overlapsSpeech = true, targetBeatIds = ['beat-001']): RecapScript {
   return {
     hook: '故事从证据开始。',
     language: 'zh-CN',
@@ -66,7 +66,7 @@ function recapScript(narrationText = '主角发现证据，故事由此展开。
       pauseAfterMs: 430,
       sourceRange: [0, 2],
       suggestedDuration: 2,
-      targetBeatIds: ['beat-001'],
+      targetBeatIds,
       visualGuidance: '使用主角发现证据的画面。',
     }],
     totalEstimatedDuration: 2,
@@ -93,6 +93,7 @@ describe('film output narration planning', () => {
     const outputNarration = createOutputNarration(clipPlan, outputTimelineMap, storyIndex, asrResult, 'zh-CN', recapScript())
 
     expect(outputNarration.segments[0]?.overlapsSpeech).to.equal(true)
+    expect(outputNarration.segments[0]?.evidence).to.include('story-index.json#beat-001')
     expect(outputNarration.segments[0]?.evidence).to.include('asr-result.json#asr-001')
     expect(outputNarration.segments[0]?.pauseAfterMs).to.equal(430)
   })
@@ -109,7 +110,7 @@ describe('film output narration planning', () => {
       clipPlan,
       outputTimelineMap,
       storyIndex,
-      undefined,
+      asrResult,
       'zh-CN',
       recapScript('The protagonist finds evidence and the story begins.'),
     )
@@ -117,12 +118,61 @@ describe('film output narration planning', () => {
     expect(outputNarration.segments[0]?.text).to.equal('The protagonist finds evidence and the story begins.')
   })
 
+  it('rejects output narration clips without beatId instead of falling back to sceneId or clipId evidence', () => {
+    const [clip] = clipPlan.clips
+
+    expect(() => createOutputNarration(
+      {
+        ...clipPlan,
+        clips: [{
+          ...clip,
+          beatId: undefined,
+        }],
+      },
+      outputTimelineMap,
+      storyIndex,
+      asrResult,
+      'zh-CN',
+      recapScript(),
+    )).to.throw('no sceneId or clipId evidence fallback is allowed')
+  })
+
+  it('rejects output narration clips with unknown beatId instead of falling back to sceneId or clipId evidence', () => {
+    const [clip] = clipPlan.clips
+
+    expect(() => createOutputNarration(
+      {
+        ...clipPlan,
+        clips: [{
+          ...clip,
+          beatId: 'beat-missing',
+        }],
+      },
+      outputTimelineMap,
+      storyIndex,
+      asrResult,
+      'zh-CN',
+      recapScript(),
+    )).to.throw('no sceneId or clipId evidence fallback is allowed')
+  })
+
+  it('rejects output narration when clip beatId and recap script target beat diverge', () => {
+    expect(() => createOutputNarration(
+      clipPlan,
+      outputTimelineMap,
+      storyIndex,
+      asrResult,
+      'zh-CN',
+      recapScript('主角发现证据，故事由此展开。', true, ['beat-002']),
+    )).to.throw('no narration beat remapping fallback is allowed')
+  })
+
   it('rejects empty narration text instead of synthesizing a fallback', () => {
     expect(() => createOutputNarration(
       clipPlan,
       outputTimelineMap,
       storyIndex,
-      undefined,
+      asrResult,
       'zh-CN',
       recapScript('   '),
     )).to.throw('no runtime narration text fallback is allowed')
@@ -133,7 +183,7 @@ describe('film output narration planning', () => {
       clipPlan,
       outputTimelineMap,
       storyIndex,
-      undefined,
+      asrResult,
       'zh-CN',
       recapScript('第 1 段：主角发现证据，故事由此展开。'),
     )).to.throw('no runtime narration label cleanup is allowed')
@@ -144,7 +194,7 @@ describe('film output narration planning', () => {
       clipPlan,
       outputTimelineMap,
       storyIndex,
-      undefined,
+      asrResult,
       'zh-CN',
       recapScript(' 主角发现证据，故事由此展开。'),
     )).to.throw('no runtime narration whitespace cleanup is allowed')
@@ -155,7 +205,7 @@ describe('film output narration planning', () => {
       clipPlan,
       outputTimelineMap,
       storyIndex,
-      undefined,
+      asrResult,
       'zh-CN',
       recapScript('主角发现证据，\n故事由此展开。'),
     )).to.throw('no runtime narration whitespace cleanup is allowed')

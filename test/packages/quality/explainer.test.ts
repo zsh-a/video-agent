@@ -88,4 +88,65 @@ describe('explainer structure quality', () => {
 
     expect(issues).toEqual([])
   })
+
+  it('reports missing media duration instead of inferring it from selected moments', () => {
+    const issues = checkExplainerStructure({
+      mediaInfo: {
+        formatName: 'mov,mp4',
+        inputPath: '/tmp/input.mp4',
+        streams: [{codecName: 'h264', fps: 30, height: 1080, type: 'video', width: 1920}],
+      },
+      narration: {
+        language: 'zh-CN',
+        segments: [{duration: 70, id: 'scene-1', sceneId: 'scene-1', start: 0, text: '第 1 页：讲解第一部分'}],
+        version: 1,
+      },
+      selectedMoments: {
+        moments: [{chunkId: 'chunk-000', evidence: [], id: 'moment-1', reason: 'range', sourceRange: [0, 70], summary: '第 1 页：讲解第一部分'}],
+        source: '/tmp/input.mp4',
+        version: 1,
+      },
+      storyboard: {
+        language: 'zh-CN',
+        scenes: [{duration: 70, id: 'scene-1', sourceRange: [0, 70], start: 0, visualStyle: 'slide_explainer'}],
+        targetPlatform: 'generic',
+        version: 1,
+      },
+    })
+
+    expect(issues.map((issue) => issue.code)).toEqual(['explainer.media.duration_missing'])
+  })
+
+  it('reports missing narration duration instead of treating it as zero', () => {
+    const issues = checkExplainerStructure({
+      mediaInfo: {
+        duration: 70,
+        formatName: 'mov,mp4',
+        inputPath: '/tmp/input.mp4',
+        streams: [{codecName: 'h264', duration: 70, fps: 30, height: 1080, type: 'video', width: 1920}],
+      },
+      narration: {
+        language: 'zh-CN',
+        segments: [{id: 'scene-1', sceneId: 'scene-1', start: 0, text: '第 1 页：讲解第一部分'}],
+        version: 1,
+      },
+      selectedMoments: {
+        moments: [{chunkId: 'chunk-000', evidence: [], id: 'moment-1', reason: 'range', sourceRange: [0, 70], summary: '第 1 页：讲解第一部分'}],
+        source: '/tmp/input.mp4',
+        version: 1,
+      },
+      storyboard: {
+        language: 'zh-CN',
+        scenes: [{duration: 70, id: 'scene-1', sourceRange: [0, 70], start: 0, visualStyle: 'slide_explainer'}],
+        targetPlatform: 'generic',
+        version: 1,
+      },
+    })
+
+    expect(issues).toContainEqual({
+      code: 'explainer.narration.duration_missing',
+      message: 'Long-video explainer contains 1 narration segment(s) without LLM-authored duration; no zero-duration narration fallback is allowed.',
+      severity: 'error',
+    })
+  })
 })

@@ -18,7 +18,6 @@ describe('provider profiles', () => {
       model: MIMO_PROVIDER_MODEL_IDS.llm,
       name: 'mimo',
       provider: 'openai-compatible',
-      supportsStructuredOutputs: false,
     })
     expect(MIMO_PROVIDER_PROFILE.providerSettings).to.deep.equal({})
   })

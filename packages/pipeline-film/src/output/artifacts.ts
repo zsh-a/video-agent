@@ -1,13 +1,13 @@
-import type {Narration, OutputTimelineMap} from '@video-agent/ir'
+import type {FilmAudioMix, FilmAudioMixVoiceover, FilmSubtitleOutput, OutputNarration, OutputTimelineMap} from '@video-agent/ir'
 import type {TTSSegment} from '@video-agent/providers'
 import type {QualityIssue} from '@video-agent/quality'
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
-import {checkNarrationTiming, checkSrtSubtitles, checkTtsCoverage} from '@video-agent/quality'
+import {checkNarrationTiming, checkSrtSubtitles, checkTtsCoverage, countQualityIssues} from '@video-agent/quality'
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
-import {bunFile, bunWrite} from '@video-agent/runtime'
+import {FFMPEG_RENDER_OUTPUT_RENDERER, RENDER_OUTPUT_ARTIFACT_NAME, SUBTITLES_ARTIFACT_NAME} from '@video-agent/runtime'
+import {readFile, writeFile} from 'node:fs/promises'
 
-import type {FilmAudioMix, FilmAudioMixVoiceover, FilmSubtitleOutput} from '../shared/types.js'
 import {FILM_AUDIO_LOUDNESS_NORMALIZATION, checkFilmTtsDurationBounds, collectFilmRenderIssues, getAudioMixMode, inspectRenderedAudio, inspectRenderedOutput, withSubtitleBurnInWarning, type FilmRenderOutputArtifact} from '../render/index.js'
 import {toProjectReference} from '../shared/utils.js'
 
@@ -62,13 +62,13 @@ export function createFilmAudioMixArtifact(input: {
   }
 }
 
-export async function writeFilmSubtitles(workspace: ProjectWorkspace, narration: Narration, outputPath: string): Promise<{
+export async function writeFilmSubtitles(workspace: ProjectWorkspace, outputNarration: OutputNarration, outputPath: string): Promise<{
   artifactPath: string
   subtitles: FilmSubtitleOutput
 }> {
-  const cues = narrationToSrtCues(narration)
+  const cues = narrationToSrtCues(outputNarration)
 
-  await bunWrite(outputPath, narrationToSrt(narration))
+  await writeFile(outputPath, narrationToSrt(outputNarration))
 
   const subtitles = {
     cues: cues.length,
@@ -79,7 +79,7 @@ export async function writeFilmSubtitles(workspace: ProjectWorkspace, narration:
   }
 
   return {
-    artifactPath: await workspace.store.writeJson('subtitles.json', subtitles),
+    artifactPath: await workspace.store.writeJson(SUBTITLES_ARTIFACT_NAME, subtitles),
     subtitles,
   }
 }
@@ -101,19 +101,19 @@ export async function writeFilmRenderOutputArtifact(workspace: ProjectWorkspace,
     expectedDuration: input.outputDuration,
   })
   const audioQuality = outputQuality.audioStreams > 0 ? await inspectRenderedAudio(input.outputPath) : undefined
-  const subtitleQuality = withSubtitleBurnInWarning(checkSrtSubtitles(await bunFile(input.subtitlePath).text(), {
+  const subtitleQuality = withSubtitleBurnInWarning(checkSrtSubtitles(await readFile(input.subtitlePath, 'utf8'), {
     expectedCues: input.subtitles.cues,
     maxEnd: input.outputDuration,
   }), input.finalRender.subtitleBurnInIssue)
 
-  return workspace.store.writeJson('render-output.json', {
+  return workspace.store.writeJson(RENDER_OUTPUT_ARTIFACT_NAME, {
     audioInputs: 1,
     audioMixPath: input.audioMix.outputPath,
     ...(audioQuality === undefined ? {} : {audioQuality}),
     completedAt: new Date().toISOString(),
     outputPath: toProjectReference(workspace.projectDir, input.outputPath),
     outputQuality,
-    renderer: 'ffmpeg' as const,
+    renderer: FFMPEG_RENDER_OUTPUT_RENDERER,
     source: toProjectReference(workspace.projectDir, input.editedSourcePath),
     subtitlePath: input.subtitles.path,
     subtitleQuality,
@@ -124,7 +124,7 @@ export async function writeFilmRenderOutputArtifact(workspace: ProjectWorkspace,
 }
 
 export function createFilmQualityReport(input: {
-  narration: Narration
+  outputNarration: OutputNarration
   outputTimelineMap: OutputTimelineMap
   renderOutput: FilmRenderOutputArtifact
   ttsSegments: TTSSegment[]
@@ -137,19 +137,16 @@ export function createFilmQualityReport(input: {
   }
   const issues = [
     ...collectFilmRenderIssues(input.renderOutput),
-    ...checkNarrationTiming(input.narration, timeline),
-    ...checkTtsCoverage(input.narration, input.ttsSegments).filter((issue) => issue.code !== 'tts.duration.mismatch'),
-    ...checkFilmTtsDurationBounds(input.narration, input.ttsSegments, input.outputTimelineMap.outputDuration),
+    ...checkNarrationTiming(input.outputNarration, timeline),
+    ...checkTtsCoverage(input.outputNarration, input.ttsSegments).filter((issue) => issue.code !== 'tts.duration.mismatch'),
+    ...checkFilmTtsDurationBounds(input.outputNarration, input.ttsSegments, input.outputTimelineMap.outputDuration),
   ]
 
   return {
     checkedAt: new Date().toISOString(),
     issues,
-    narrationSegments: input.narration.segments.length,
-    summary: {
-      errors: issues.filter((issue) => issue.severity === 'error').length,
-      warnings: issues.filter((issue) => issue.severity === 'warning').length,
-    },
+    narrationSegments: input.outputNarration.segments.length,
+    summary: countQualityIssues(issues),
     ttsSegments: input.ttsSegments.length,
     version: 1 as const,
   }

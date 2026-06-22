@@ -1,109 +1,59 @@
-import type {
-  CreateFilmClipPlanProjectOptions,
-  CreateFilmClipPlanProjectResult,
-  CreateFilmIngestProjectOptions,
-  CreateFilmIngestProjectResult,
-  CreateFilmRecapScriptProjectResult,
-  CreateFilmStoryIndexProjectOptions,
-  CreateFilmStoryIndexProjectResult,
-  CreateFilmUnderstandingProjectOptions,
-  CreateFilmUnderstandingProjectResult,
-} from './project/index.js'
-import type {
-  CreateFilmAudioMixProjectResult,
-  CreateFilmCutProjectResult,
-  CreateFilmFinalRenderProjectResult,
-  CreateFilmOutputNarrationProjectResult,
-  CreateFilmQualityCheckProjectResult,
-  CreateFilmSubtitleProjectResult,
-  CreateFilmVoiceoverProjectResult,
-} from './output/index.js'
+import type {RunFilmRecapProjectOptions, RunFilmRecapProjectResult} from './recovery/runner.js'
 
-import {
-  createFilmClipPlanProject,
-  createFilmIngestProject,
-  createFilmRecapScriptProject,
-  createFilmStoryIndexProject,
-  createFilmUnderstandingProject,
-} from './project/index.js'
-import {
-  createFilmAudioMixProject,
-  createFilmCutProject,
-  createFilmFinalRenderProject,
-  createFilmOutputNarrationProject,
-  createFilmQualityCheckProject,
-  createFilmSubtitleProject,
-  createFilmVoiceoverProject,
-} from './output/index.js'
+import {FILM_STAGE_IDS} from './pipeline.js'
+import {runFilmRecapProject} from './recovery/runner.js'
 
-export interface RunFilmRecapPipelineOptions extends CreateFilmIngestProjectOptions {
-  llmClient?: CreateFilmStoryIndexProjectOptions['llmClient']
-  maxScenes?: CreateFilmUnderstandingProjectOptions['maxScenes']
-  targetDurationSeconds?: CreateFilmClipPlanProjectOptions['targetDurationSeconds']
-}
+export type RunFilmRecapPipelineOptions = Omit<RunFilmRecapProjectOptions, 'fromStage'>
 
-export interface RunFilmRecapPipelineResult {
-  audioMix: CreateFilmAudioMixProjectResult
-  clipPlan: CreateFilmClipPlanProjectResult
-  cut: CreateFilmCutProjectResult
-  finalRender: CreateFilmFinalRenderProjectResult
-  ingest: CreateFilmIngestProjectResult
-  narration: CreateFilmOutputNarrationProjectResult
-  projectDir: string
-  projectId: string
-  quality: CreateFilmQualityCheckProjectResult
-  script: CreateFilmRecapScriptProjectResult
+export interface RunFilmRecapPipelineResult extends Omit<RunFilmRecapProjectResult, 'audioMix' | 'clipPlan' | 'cut' | 'finalRender' | 'ingest' | 'outputNarration' | 'quality' | 'script' | 'storyIndex' | 'subtitle' | 'understanding' | 'voiceover'> {
+  audioMix: NonNullable<RunFilmRecapProjectResult['audioMix']>
+  clipPlan: NonNullable<RunFilmRecapProjectResult['clipPlan']>
+  cut: NonNullable<RunFilmRecapProjectResult['cut']>
+  finalRender: NonNullable<RunFilmRecapProjectResult['finalRender']>
+  ingest: NonNullable<RunFilmRecapProjectResult['ingest']>
+  outputNarration: NonNullable<RunFilmRecapProjectResult['outputNarration']>
+  quality: NonNullable<RunFilmRecapProjectResult['quality']>
+  script: NonNullable<RunFilmRecapProjectResult['script']>
   status: 'completed'
-  storyIndex: CreateFilmStoryIndexProjectResult
-  subtitle: CreateFilmSubtitleProjectResult
-  understanding: CreateFilmUnderstandingProjectResult
-  voiceover: CreateFilmVoiceoverProjectResult
+  storyIndex: NonNullable<RunFilmRecapProjectResult['storyIndex']>
+  subtitle: NonNullable<RunFilmRecapProjectResult['subtitle']>
+  understanding: NonNullable<RunFilmRecapProjectResult['understanding']>
+  voiceover: NonNullable<RunFilmRecapProjectResult['voiceover']>
 }
 
 export async function runFilmRecapPipeline(options: RunFilmRecapPipelineOptions): Promise<RunFilmRecapPipelineResult> {
-  const ingest = await createFilmIngestProject(options)
-  const common = {
-    llmClient: options.llmClient,
-    projectId: ingest.projectId,
-    trace: options.trace,
-    workspaceDir: options.workspaceDir,
-  }
-  const understanding = await createFilmUnderstandingProject({
-    ...common,
-    maxScenes: options.maxScenes,
+  const result = await runFilmRecapProject({
+    ...options,
+    fromStage: FILM_STAGE_IDS.ingest,
   })
-  const storyIndex = await createFilmStoryIndexProject(common)
-  const script = await createFilmRecapScriptProject({
-    ...common,
-    targetDurationSeconds: options.targetDurationSeconds,
-  })
-  const clipPlan = await createFilmClipPlanProject({
-    ...common,
-    targetDurationSeconds: options.targetDurationSeconds,
-  })
-  const cut = await createFilmCutProject(common)
-  const narration = await createFilmOutputNarrationProject(common)
-  const voiceover = await createFilmVoiceoverProject(common)
-  const audioMix = await createFilmAudioMixProject(common)
-  const subtitle = await createFilmSubtitleProject(common)
-  const finalRender = await createFilmFinalRenderProject(common)
-  const quality = await createFilmQualityCheckProject(common)
 
-  return {
-    audioMix,
-    clipPlan,
-    cut,
-    finalRender,
-    ingest,
-    narration,
-    projectDir: ingest.projectDir,
-    projectId: ingest.projectId,
-    quality,
-    script,
-    status: 'completed',
-    storyIndex,
-    subtitle,
-    understanding,
-    voiceover,
+  if (result.status !== 'completed') {
+    throw new Error('Film Recap pipeline completed with quality errors.')
   }
+
+  return requireFullPipelineResult(result)
+}
+
+function requireFullPipelineResult(result: RunFilmRecapProjectResult): RunFilmRecapPipelineResult {
+  if (!isFullPipelineResult(result)) {
+    throw new Error('Film Recap full pipeline did not produce every stage result.')
+  }
+
+  return result
+}
+
+function isFullPipelineResult(result: RunFilmRecapProjectResult): result is RunFilmRecapPipelineResult {
+  return result.status === 'completed'
+    && result.audioMix !== undefined
+    && result.clipPlan !== undefined
+    && result.cut !== undefined
+    && result.finalRender !== undefined
+    && result.ingest !== undefined
+    && result.outputNarration !== undefined
+    && result.quality !== undefined
+    && result.script !== undefined
+    && result.storyIndex !== undefined
+    && result.subtitle !== undefined
+    && result.understanding !== undefined
+    && result.voiceover !== undefined
 }

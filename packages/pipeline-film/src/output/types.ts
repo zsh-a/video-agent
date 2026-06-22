@@ -1,8 +1,9 @@
 import type {LLMClient} from '@video-agent/llm'
+import type {FilmAudioMix, FilmSubtitleOutput} from '@video-agent/ir'
 import type {TTSSegment} from '@video-agent/providers'
+import type {FfmpegRenderOutputRenderer} from '@video-agent/runtime'
 
 import type {FilmQualityReport} from './artifacts.js'
-import type {FilmAudioMix, FilmSubtitleOutput} from '../shared/types.js'
 
 export interface CreateFilmCutProjectOptions {
   projectId: string
@@ -28,7 +29,6 @@ export interface CreateFilmOutputNarrationProjectOptions {
 
 export interface CreateFilmOutputNarrationProjectResult {
   artifacts: {
-    narration: string
     outputNarration: string
   }
   projectDir: string
@@ -98,7 +98,7 @@ export interface CreateFilmFinalRenderProjectResult {
   outputPath: string
   projectDir: string
   projectId: string
-  renderer: 'ffmpeg'
+  renderer: FfmpegRenderOutputRenderer
   status: 'rendered'
   subtitlePath: string
 }

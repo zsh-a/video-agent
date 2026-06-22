@@ -8,10 +8,12 @@ import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '../../../packages/runtime/src/provider/environment.js'
 
 describe('provider environment', () => {
-  it('returns no requirements for mock providers', async () => {
+  it('returns no requirements for configured mock providers', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-env-'))
 
     try {
+      await writeConfig(root, {})
+
       const report = await readProviderEnvironment(root, {})
 
       expect(report.providers.map((provider) => provider.role)).to.deep.equal(['asr', 'vlm', 'tts'])

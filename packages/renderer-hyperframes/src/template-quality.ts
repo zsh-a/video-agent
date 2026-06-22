@@ -1,8 +1,7 @@
-import type {Narration, Storyboard, Timeline} from '@video-agent/ir'
+import type {Narration, QualityIssueSeverity, Storyboard, Timeline} from '@video-agent/ir'
 
-import {stat} from 'node:fs/promises'
-
-import {bunFile} from './bun-runtime.js'
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY} from '@video-agent/ir'
+import {readFile, stat} from 'node:fs/promises'
 
 export interface HyperframesTemplateQualityResult {
   errors: number
@@ -14,7 +13,7 @@ export interface HyperframesTemplateQualityResult {
 export interface HyperframesTemplateIssue {
   code: string
   message: string
-  severity: 'error' | 'warning'
+  severity: QualityIssueSeverity
 }
 
 export interface CheckHyperframesTemplateInput {
@@ -51,7 +50,7 @@ export async function checkHyperframesTemplateProject(input: CheckHyperframesTem
 
 async function readRequiredText(path: string, code: string, message: string, issues: HyperframesTemplateIssue[]): Promise<string | undefined> {
   try {
-    const [content, info] = await Promise.all([bunFile(path).text(), stat(path)])
+    const [content, info] = await Promise.all([readFile(path, 'utf8'), stat(path)])
 
     if (info.size === 0 || content.trim().length === 0) {
       issues.push({
@@ -205,8 +204,8 @@ function validateRenderPlan(plan: unknown, input: CheckHyperframesTemplateInput,
 }
 
 function summarizeIssues(issues: HyperframesTemplateIssue[]): HyperframesTemplateQualityResult {
-  const errors = issues.filter((issue) => issue.severity === 'error').length
-  const warnings = issues.filter((issue) => issue.severity === 'warning').length
+  const errors = issues.filter((issue) => issue.severity === QUALITY_ERROR_SEVERITY).length
+  const warnings = issues.filter((issue) => issue.severity === QUALITY_WARNING_SEVERITY).length
 
   return {
     errors,

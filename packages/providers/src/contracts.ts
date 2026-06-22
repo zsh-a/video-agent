@@ -1,4 +1,4 @@
-import type {ASRResult, CharacterIndex, ClipPlan, LongVideoChapterSummaries, LongVideoChunkPlan, LongVideoChunkSummaries, LongVideoGlobalOutline, LongVideoSelectedMoments, MediaInfo, Narration, NarrationSegment, NarrativeBeats, RecapScript, SourceManifest, StoryIndex, Storyboard, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
+import type {ASRResult, CharacterIndex, NarrativeBeats, RecapScript, SourceManifest, StoryIndex, TimelineFusion, VLMAnalysis} from '@video-agent/ir'
 
 export interface MediaInput {
   duration?: number
@@ -17,10 +17,10 @@ export interface Transcript {
   language?: string
   segments: TranscriptSegment[]
   text: string
-  timestampConfidence?: TranscriptTimestampConfidence
+  timestampConfidence: TranscriptTimestampConfidence
 }
 
-export type TranscriptTimestampConfidence = 'chunked' | 'exact' | 'untimed'
+export type TranscriptTimestampConfidence = 'exact'
 
 export interface SceneFrameBatch {
   frames: string[]
@@ -45,20 +45,20 @@ export interface TTSSegment {
   path: string
 }
 
+export interface TTSInputSegment {
+  duration: number
+  id: string
+  text: string
+  voice?: string
+}
+
 export interface ASRProvider {
   transcribe(input: MediaInput): Promise<Transcript>
 }
 
 export interface ScriptProvider {
-  createNarration(input: ScriptProviderInput): Promise<Narration>
   createRecapScript(input: RecapScriptProviderInput): Promise<RecapScript>
   createStoryIndex(input: StoryIndexProviderInput): Promise<StoryIndexProviderOutput>
-}
-
-export interface ScriptProviderInput {
-  clipPlan: ClipPlan
-  longVideo?: LongVideoPlanningContext
-  storyboard: Storyboard
 }
 
 export interface RecapScriptProviderInput {
@@ -83,32 +83,13 @@ export interface StoryIndexProviderOutput {
   storyIndex: StoryIndex
 }
 
-export interface StoryboardProvider {
-  createStoryboard(input: StoryboardProviderInput): Promise<Storyboard>
-}
-
-export interface StoryboardProviderInput {
-  longVideo?: LongVideoPlanningContext
-  mediaInfo: MediaInfo
-  sceneAnalysis: VLMScene[]
-  transcript: Transcript
-}
-
-export interface LongVideoPlanningContext {
-  chapters?: LongVideoChapterSummaries
-  chunkPlan?: LongVideoChunkPlan
-  chunkSummaries?: LongVideoChunkSummaries
-  globalOutline?: LongVideoGlobalOutline
-  selectedMoments?: LongVideoSelectedMoments
-}
-
 export interface TTSProviderSynthesizeOptions {
   outputDir?: string
   pathPrefix?: string
 }
 
 export interface TTSProvider {
-  synthesize(segments: NarrationSegment[], options?: TTSProviderSynthesizeOptions): Promise<TTSSegment[]>
+  synthesize(segments: TTSInputSegment[], options?: TTSProviderSynthesizeOptions): Promise<TTSSegment[]>
 }
 
 export interface VLMProvider {

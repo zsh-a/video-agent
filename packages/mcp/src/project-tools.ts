@@ -1,10 +1,13 @@
-import type {PipelineStage} from '@video-agent/runtime'
 import type {McpToolDefinition} from './toolkit.js'
 
-import {FILM_PIPELINE_STAGES, recoverWorkspaceJobs, rerunProject} from '@video-agent/pipeline-film'
+import {PIPELINE_EVENT_TYPES} from '@video-agent/core'
+import {FILM_PIPELINE_STAGES, FILM_RECOVERY_ORDER_BY_VALUES, FILM_RECOVERY_STATUS_OPTIONS, recoverFilmWorkspaceJobs, rerunFilmProject, resolveFilmRecoverableStatuses} from '@video-agent/pipeline-film'
 import {
   listProjectArtifacts,
   listProjects,
+  PROJECT_EVENT_KINDS,
+  PROVIDER_CALL_ROLES,
+  PROVIDER_CALL_STATUSES,
   readProjectArtifact,
   readProjectEvents,
   readProjectProviderReport,
@@ -19,27 +22,24 @@ import {
   booleanSchema,
   createToolDefinition,
   enumSchema,
-  integerSchema,
+  nonNegativeIntegerSchema,
   projectIdSchema,
   readOptionalBoolean,
   readOptionalEnum,
-  readOptionalInteger,
+  readOptionalNonNegativeInteger,
   readOptionalString,
   readRequiredString,
   stringSchema,
 } from './toolkit.js'
 
-const RERUN_STAGE_VALUES: PipelineStage[] = [...FILM_PIPELINE_STAGES]
-const PIPELINE_EVENT_TYPES = ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start'] as const
-
 export const PROJECT_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   createToolDefinition('video_agent_list_projects', 'List projects in the video-agent workspace.', {}, async (_args, workspaceDir) => ({projects: await listProjects(workspaceDir)})),
   createToolDefinition('video_agent_guided_actions', 'Read reusable guided action metadata for a workspace or focused project.', {
-    artifactLimit: integerSchema('Maximum number of project artifacts to include in generated artifact preview actions. Defaults to 5.'),
+    artifactLimit: nonNegativeIntegerSchema('Maximum number of project artifacts to include in generated artifact preview actions. Defaults to 5.'),
     commandPrefix: stringSchema('Command prefix for generated copyable commands, for example "vagent" or "bun run dev". Defaults to vagent.'),
     projectId: stringSchema('Optional project id to focus. Defaults to the most recently updated project when one exists.'),
   }, (args, workspaceDir) => readVideoAgentGuidedActions({
-    artifactLimit: readOptionalInteger(args, 'artifactLimit'),
+    artifactLimit: readOptionalNonNegativeInteger(args, 'artifactLimit'),
     commandPrefix: readOptionalString(args, 'commandPrefix'),
     projectId: readOptionalString(args, 'projectId'),
     workspaceDir,
@@ -63,29 +63,29 @@ export const PROJECT_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     workspaceDir,
   })),
   createToolDefinition('video_agent_events', 'Read pipeline and provider events for a project.', {
-    kind: enumSchema(['pipeline', 'provider'], 'Optional event stream filter.'),
-    limit: integerSchema('Maximum number of events to return.'),
+    kind: enumSchema([...PROJECT_EVENT_KINDS], 'Optional event stream filter.'),
+    limit: nonNegativeIntegerSchema('Maximum number of events to return.'),
     projectId: projectIdSchema(),
-    role: enumSchema(['asr', 'script', 'tts', 'vlm'], 'Provider role filter for provider events.'),
+    role: enumSchema([...PROVIDER_CALL_ROLES], 'Provider role filter for provider events.'),
     stage: stringSchema('Pipeline stage filter for pipeline events, for example ingest, understand, render, or quality.'),
-    status: enumSchema(['failed', 'succeeded'], 'Provider call status filter for provider events.'),
+    status: enumSchema([...PROVIDER_CALL_STATUSES], 'Provider call status filter for provider events.'),
     type: enumSchema([...PIPELINE_EVENT_TYPES], 'Pipeline event type filter.'),
   }, (args, workspaceDir) => readProjectEvents(readRequiredString(args, 'projectId'), {
-    kind: readOptionalEnum(args, 'kind', ['pipeline', 'provider']),
-    limit: readOptionalInteger(args, 'limit'),
+    kind: readOptionalEnum(args, 'kind', [...PROJECT_EVENT_KINDS]),
+    limit: readOptionalNonNegativeInteger(args, 'limit'),
     pipelineStage: readOptionalString(args, 'stage'),
     pipelineType: readOptionalEnum(args, 'type', [...PIPELINE_EVENT_TYPES]),
-    providerRole: readOptionalEnum(args, 'role', ['asr', 'script', 'tts', 'vlm']),
-    providerStatus: readOptionalEnum(args, 'status', ['failed', 'succeeded']),
+    providerRole: readOptionalEnum(args, 'role', [...PROVIDER_CALL_ROLES]),
+    providerStatus: readOptionalEnum(args, 'status', [...PROVIDER_CALL_STATUSES]),
     workspaceDir,
   })),
   createToolDefinition('video_agent_provider_report', 'Summarize provider calls and LLM traces, including usage, cost, and latency for a project.', {
     projectId: projectIdSchema(),
-    role: enumSchema(['asr', 'script', 'tts', 'vlm'], 'Optional provider role filter.'),
-    status: enumSchema(['failed', 'succeeded'], 'Optional provider call status filter.'),
+    role: enumSchema([...PROVIDER_CALL_ROLES], 'Optional provider role filter.'),
+    status: enumSchema([...PROVIDER_CALL_STATUSES], 'Optional provider call status filter.'),
   }, (args, workspaceDir) => readProjectProviderReport(readRequiredString(args, 'projectId'), {
-    role: readOptionalEnum(args, 'role', ['asr', 'script', 'tts', 'vlm']),
-    status: readOptionalEnum(args, 'status', ['failed', 'succeeded']),
+    role: readOptionalEnum(args, 'role', [...PROVIDER_CALL_ROLES]),
+    status: readOptionalEnum(args, 'status', [...PROVIDER_CALL_STATUSES]),
     workspaceDir,
   })),
   createToolDefinition('video_agent_artifacts', 'List project artifacts or read one artifact by name.', {
@@ -101,34 +101,26 @@ export const PROJECT_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
     projectId: projectIdSchema(),
   }, (args, workspaceDir) => verifyProjectArtifacts(readRequiredString(args, 'projectId'), workspaceDir)),
   createToolDefinition('video_agent_rerun', 'Rerun an existing project from a checkpoint stage.', {
-    fromStage: enumSchema(RERUN_STAGE_VALUES, 'Checkpoint stage to resume from. Defaults to the project pipeline default.'),
+    fromStage: enumSchema(FILM_PIPELINE_STAGES, 'Checkpoint stage to resume from. Defaults to the project pipeline default.'),
     projectId: projectIdSchema(),
-  }, (args, workspaceDir) => rerunProject(readRequiredString(args, 'projectId'), {
-    fromStage: readOptionalEnum(args, 'fromStage', RERUN_STAGE_VALUES),
+  }, (args, workspaceDir) => rerunFilmProject(readRequiredString(args, 'projectId'), {
+    fromStage: readOptionalEnum(args, 'fromStage', FILM_PIPELINE_STAGES),
     workspaceDir,
   })),
-  createToolDefinition('video_agent_worker', 'Recover failed or interrupted local pipeline jobs.', {
-    dryRun: booleanSchema('When true, list recovery actions without rerunning projects.'),
-    limit: integerSchema('Maximum number of recoverable jobs to process this call.'),
-    maxAttempts: integerSchema('Skip jobs whose recovery stage attempt is greater than or equal to this value.'),
-    orderBy: enumSchema(['attempt', 'oldest', 'recent'], 'Recovery candidate ordering before applying limit.'),
-    runningStaleAfterMs: integerSchema('Skip running jobs updated more recently than this threshold.'),
-    status: enumSchema(['active', 'failed', 'running'], 'Job status filter. active scans failed and running jobs.'),
-  }, (args, workspaceDir) => recoverWorkspaceJobs({
+  createToolDefinition('video_agent_worker', 'Recover failed or interrupted Film pipeline jobs.', {
+    dryRun: booleanSchema('When true, list Film recovery actions without rerunning projects.'),
+    limit: nonNegativeIntegerSchema('Maximum number of recoverable Film jobs to process this call.'),
+    maxAttempts: nonNegativeIntegerSchema('Skip Film jobs whose recovery stage attempt is greater than or equal to this value.'),
+    orderBy: enumSchema([...FILM_RECOVERY_ORDER_BY_VALUES], 'Film recovery candidate ordering before applying limit.'),
+    runningStaleAfterMs: nonNegativeIntegerSchema('Skip running Film jobs updated more recently than this threshold.'),
+    status: enumSchema([...FILM_RECOVERY_STATUS_OPTIONS], 'Film job status filter. active scans failed and running jobs.'),
+  }, (args, workspaceDir) => recoverFilmWorkspaceJobs({
     dryRun: readOptionalBoolean(args, 'dryRun'),
-    limit: readOptionalInteger(args, 'limit'),
-    maxAttempts: readOptionalInteger(args, 'maxAttempts'),
-    orderBy: readOptionalEnum(args, 'orderBy', ['attempt', 'oldest', 'recent']),
-    runningStaleAfterMs: readOptionalInteger(args, 'runningStaleAfterMs'),
-    statuses: resolveRecoverableStatuses(readOptionalEnum(args, 'status', ['active', 'failed', 'running'])),
+    limit: readOptionalNonNegativeInteger(args, 'limit'),
+    maxAttempts: readOptionalNonNegativeInteger(args, 'maxAttempts'),
+    orderBy: readOptionalEnum(args, 'orderBy', [...FILM_RECOVERY_ORDER_BY_VALUES]),
+    runningStaleAfterMs: readOptionalNonNegativeInteger(args, 'runningStaleAfterMs'),
+    statuses: resolveFilmRecoverableStatuses(readOptionalEnum(args, 'status', [...FILM_RECOVERY_STATUS_OPTIONS])),
     workspaceDir,
   })),
 ]
-
-function resolveRecoverableStatuses(status: 'active' | 'failed' | 'running' | undefined): Array<'failed' | 'running'> | undefined {
-  if (status === undefined || status === 'active') {
-    return undefined
-  }
-
-  return [status]
-}

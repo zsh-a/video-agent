@@ -9,8 +9,8 @@ export const TranscriptSegmentSchema = z.object({
   speaker: z.string().optional(),
   start: z.number().finite().nonnegative(),
   text: z.string(),
-}).refine((segment) => segment.end >= segment.start, {
-  message: 'Transcript segment end must be greater than or equal to start.',
+}).refine((segment) => segment.end > segment.start, {
+  message: 'Transcript segment end must be greater than start.',
   path: ['end'],
 })
 
@@ -18,7 +18,7 @@ export const TranscriptSchema = z.object({
   language: z.string().optional(),
   segments: z.array(TranscriptSegmentSchema),
   text: z.string(),
-  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']).optional(),
+  timestampConfidence: z.literal('exact'),
 })
 
 export const VlmSceneSchema = z.object({
@@ -40,15 +40,15 @@ export const SceneFrameBatchSchema = z.object({
   timeRange: z.tuple([
     z.number().finite().nonnegative(),
     z.number().finite().nonnegative(),
-  ]).refine(([start, end]) => end >= start, {
-    message: 'Scene frame batch timeRange end must be greater than or equal to start.',
+  ]).refine(([start, end]) => end > start, {
+    message: 'Scene frame batch timeRange end must be greater than start.',
   }),
 })
 
 export const SceneFrameBatchesSchema = z.array(SceneFrameBatchSchema)
 
 export const TtsSegmentSchema = z.object({
-  duration: z.number().finite().nonnegative(),
+  duration: z.number().finite().positive(),
   narrationId: z.string().min(1),
   path: z.string().min(1),
 })

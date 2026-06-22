@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {createFilmUnderstandingProject} from '@video-agent/pipeline-film'
+import {DEFAULT_FILM_MAX_SCENES, createFilmUnderstandingProject} from '@video-agent/pipeline-film'
 
+import {normalizeRequiredPositiveIntegerFlag, workspaceFlag} from '../../utils/cli-flags.js'
 export default class FilmUnderstand extends Command {
   static args = {
     projectId: Args.string({description: 'Film Recap project id created by film ingest', required: true}),
@@ -10,15 +11,15 @@ export default class FilmUnderstand extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    'max-scenes': Flags.integer({description: 'Maximum visual/silence-backed source scenes to create', default: 12}),
+    'max-scenes': Flags.integer({description: 'Maximum visual/silence-backed source scenes to create', default: DEFAULT_FILM_MAX_SCENES}),
     trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(FilmUnderstand)
     const output = await createFilmUnderstandingProject({
-      maxScenes: flags['max-scenes'],
+      maxScenes: normalizeRequiredPositiveIntegerFlag(flags['max-scenes'], '--max-scenes'),
       projectId: args.projectId,
       trace: flags.trace,
       workspaceDir: flags.workspace,

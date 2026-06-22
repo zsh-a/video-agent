@@ -1,34 +1,34 @@
-import {ASRResultSchema, ClipPlanSchema, NarrationSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, StoryIndexSchema} from '@video-agent/ir'
+import {ASRResultSchema, ClipPlanSchema, OutputNarrationSchema, OutputTimelineMapSchema, RecapScriptSchema, StoryIndexSchema} from '@video-agent/ir'
 
-import {refreshArtifactManifest} from '@video-agent/runtime'
-import {createCompatibleNarration, createOutputNarration} from '../planning/narration.js'
+import {ASR_RESULT_ARTIFACT_NAME, CLIP_PLAN_VALIDATED_ARTIFACT_NAME, OUTPUT_NARRATION_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME, RECAP_SCRIPT_ARTIFACT_NAME, STORY_INDEX_ARTIFACT_NAME, refreshArtifactManifest} from '@video-agent/runtime'
+import {createOutputNarration} from '../planning/narration.js'
+import {FILM_STAGE_IDS} from '../pipeline.js'
 import type {CreateFilmOutputNarrationProjectOptions, CreateFilmOutputNarrationProjectResult} from './types.js'
-import {completeFilmStage, failFilmStage, openFilmStageWorkspace} from '../shared/stage-runtime.js'
+import {openFilmStageWorkspace} from '../shared/stage-runtime.js'
 
 export async function createFilmOutputNarrationProject(options: CreateFilmOutputNarrationProjectOptions): Promise<CreateFilmOutputNarrationProjectResult> {
   const projectId = options.projectId
-  const {jobStore, workspace} = await openFilmStageWorkspace({
+  const {agent, workspace} = await openFilmStageWorkspace({
     projectId,
-    stage: 'narrate-output',
+    stage: FILM_STAGE_IDS.narrateOutput,
     workspaceDir: options.workspaceDir,
   })
 
   try {
     const [clipPlan, outputTimelineMap, storyIndex, asrResult, recapScript] = await Promise.all([
-      ClipPlanSchema.parseAsync(await workspace.store.readJson('clip-plan-validated.json')),
-      OutputTimelineMapSchema.parseAsync(await workspace.store.readJson('output-timeline-map.json')),
-      StoryIndexSchema.parseAsync(await workspace.store.readJson('story-index.json')),
-      ASRResultSchema.parseAsync(await workspace.store.readJson('asr-result.json')),
-      RecapScriptSchema.parseAsync(await workspace.store.readJson('recap-script.json')),
+      ClipPlanSchema.parseAsync(await workspace.store.readJson(CLIP_PLAN_VALIDATED_ARTIFACT_NAME)),
+      OutputTimelineMapSchema.parseAsync(await workspace.store.readJson(OUTPUT_TIMELINE_MAP_ARTIFACT_NAME)),
+      StoryIndexSchema.parseAsync(await workspace.store.readJson(STORY_INDEX_ARTIFACT_NAME)),
+      ASRResultSchema.parseAsync(await workspace.store.readJson(ASR_RESULT_ARTIFACT_NAME)),
+      RecapScriptSchema.parseAsync(await workspace.store.readJson(RECAP_SCRIPT_ARTIFACT_NAME)),
     ])
     const outputNarration = OutputNarrationSchema.parse(createOutputNarration(clipPlan, outputTimelineMap, storyIndex, asrResult, options.language ?? storyIndex.language, recapScript))
-    const narration = NarrationSchema.parse(createCompatibleNarration(outputNarration))
     const artifacts = {
-      outputNarration: await workspace.store.writeJson('output-narration.json', outputNarration),
-      narration: await workspace.store.writeJson('narration.json', narration),
+      outputNarration: await workspace.store.writeJson(OUTPUT_NARRATION_ARTIFACT_NAME, outputNarration),
     }
 
-    await completeFilmStage(jobStore, workspace, 'narrate-output')
+    await agent.completeStage(FILM_STAGE_IDS.narrateOutput)
+    await agent.completeRun('Film stage narrate-output complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -39,7 +39,8 @@ export async function createFilmOutputNarrationProject(options: CreateFilmOutput
       status: 'narrated',
     }
   } catch (error) {
-    await failFilmStage(jobStore, workspace, 'narrate-output', error)
+    await agent.failStage(FILM_STAGE_IDS.narrateOutput, error)
+    await agent.failRun(error)
     throw error
   }
 }

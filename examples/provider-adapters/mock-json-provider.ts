@@ -23,6 +23,7 @@ switch (kind) {
         },
       ],
       text: `Example transcript for ${readInputPath(payload)}`,
+      timestampConfidence: 'exact',
     }, {
       audioSeconds: 1,
       outputCharacters: 42,
@@ -31,7 +32,7 @@ switch (kind) {
   }
 
   case 'tts': {
-    const segments = readNarrationSegments(payload)
+    const segments = readTtsInputSegments(payload)
 
     emit(segments.map((segment) => ({
       duration: segment.duration,
@@ -113,7 +114,7 @@ function readSceneBatches(value: Record<string, unknown>): Array<{frames: string
   })
 }
 
-function readNarrationSegments(value: Record<string, unknown>): Array<{duration: number; id: string; text: string}> {
+function readTtsInputSegments(value: Record<string, unknown>): Array<{duration: number; id: string; text: string}> {
   const segments = Array.isArray(value.segments) ? value.segments : []
 
   return segments.map((segment, index) => {

@@ -1,5 +1,7 @@
 import type {QualityIssue} from './timeline.js'
 
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY, countQualityIssues} from './issues.js'
+
 export interface SubtitleCue {
   end: number
   index: number
@@ -31,7 +33,7 @@ export function checkSrtSubtitles(content: string, options: SubtitleQualityOptio
           {
             code: 'subtitle.cue_count.mismatch',
             message: `Subtitle cue count ${cues.length} does not match expected ${options.expectedCues}.`,
-            severity: 'warning' as const,
+            severity: QUALITY_WARNING_SEVERITY,
           },
         ]),
     ...checkCueTiming(cues, options),
@@ -42,7 +44,7 @@ export function checkSrtSubtitles(content: string, options: SubtitleQualityOptio
             {
               code: 'subtitle.cue.empty_text',
               message: `Subtitle cue ${cue.index} has empty text.`,
-              severity: 'warning',
+              severity: QUALITY_WARNING_SEVERITY,
             },
           ]
         : [],
@@ -51,9 +53,8 @@ export function checkSrtSubtitles(content: string, options: SubtitleQualityOptio
 
   return {
     cues: cues.length,
-    errors: issues.filter((issue) => issue.severity === 'error').length,
+    ...countQualityIssues(issues),
     issues,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -65,7 +66,7 @@ export function parseSrt(content: string): SubtitleCue[] {
     .map((block, index) => parseCue(block, index + 1))
 }
 
-function parseCue(block: string, fallbackIndex: number): SubtitleCue {
+function parseCue(block: string, defaultIndex: number): SubtitleCue {
   const lines = block.split(/\r?\n/)
   const parsedIndex = Number(lines[0])
   const timeLine = lines[1] ?? ''
@@ -73,7 +74,7 @@ function parseCue(block: string, fallbackIndex: number): SubtitleCue {
 
   return {
     end: parseSrtTime(endRaw),
-    index: Number.isInteger(parsedIndex) ? parsedIndex : fallbackIndex,
+    index: Number.isInteger(parsedIndex) ? parsedIndex : defaultIndex,
     start: parseSrtTime(startRaw),
     text: lines.slice(2).join('\n'),
   }
@@ -93,7 +94,7 @@ function checkCueReadability(cues: SubtitleCue[], options: SubtitleQualityOption
       issues.push({
         code: 'subtitle.cue.too_short',
         message: `Subtitle cue ${cue.index} duration is ${duration.toFixed(3)}s; target is at least ${minCueDuration}s.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       })
     }
 
@@ -103,7 +104,7 @@ function checkCueReadability(cues: SubtitleCue[], options: SubtitleQualityOption
       issues.push({
         code: 'subtitle.line.too_long',
         message: `Subtitle cue ${cue.index} has a line with ${[...longLine].length} characters; target is ${maxLineCharacters} or fewer.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       })
     }
   }
@@ -112,7 +113,7 @@ function checkCueReadability(cues: SubtitleCue[], options: SubtitleQualityOption
     issues.push({
       code: 'subtitle.cue.too_many_short',
       message: `${shortCues} of ${cues.length} subtitle cues are shorter than ${minCueDuration}s.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -132,7 +133,7 @@ function checkCueTiming(cues: SubtitleCue[], options: SubtitleQualityOptions): Q
             {
               code: 'subtitle.cue.invalid_time',
               message: `Subtitle cue ${cue.index} has invalid timing.`,
-              severity: 'error' as const,
+              severity: QUALITY_ERROR_SEVERITY,
             },
           ]),
       ...(Number.isFinite(cue.start) && Number.isFinite(cue.end) && cue.end <= cue.start
@@ -140,7 +141,7 @@ function checkCueTiming(cues: SubtitleCue[], options: SubtitleQualityOptions): Q
             {
               code: 'subtitle.cue.non_positive_duration',
               message: `Subtitle cue ${cue.index} must end after it starts.`,
-              severity: 'error' as const,
+              severity: QUALITY_ERROR_SEVERITY,
             },
           ]
         : []),
@@ -149,7 +150,7 @@ function checkCueTiming(cues: SubtitleCue[], options: SubtitleQualityOptions): Q
             {
               code: 'subtitle.cue.overlap',
               message: `Subtitle cue ${cue.index} overlaps cue ${previous.index}.`,
-              severity: 'warning' as const,
+              severity: QUALITY_WARNING_SEVERITY,
             },
           ]
         : []),
@@ -158,7 +159,7 @@ function checkCueTiming(cues: SubtitleCue[], options: SubtitleQualityOptions): Q
             {
               code: 'subtitle.cue.out_of_bounds',
               message: `Subtitle cue ${cue.index} exceeds project duration.`,
-              severity: 'error' as const,
+              severity: QUALITY_ERROR_SEVERITY,
             },
           ]
         : []),

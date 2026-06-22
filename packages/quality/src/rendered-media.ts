@@ -2,6 +2,8 @@ import type {MediaInfo} from '@video-agent/ir'
 
 import type {QualityIssue} from './timeline.js'
 
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY, countQualityIssues} from './issues.js'
+
 export interface RenderedMediaQualityOptions {
   expectAudio?: boolean
   expectedDuration?: number
@@ -30,7 +32,7 @@ export function checkRenderedMedia(mediaInfo: MediaInfo, options: RenderedMediaQ
           {
             code: 'render.output.missing_video',
             message: 'Rendered output does not contain a video stream.',
-            severity: 'error' as const,
+            severity: QUALITY_ERROR_SEVERITY,
           },
         ]),
     ...(options.expectAudio !== true || audioStreams > 0
@@ -39,7 +41,7 @@ export function checkRenderedMedia(mediaInfo: MediaInfo, options: RenderedMediaQ
           {
             code: 'render.output.missing_audio',
             message: 'Rendered output was expected to contain audio but no audio stream was found.',
-            severity: 'warning' as const,
+            severity: QUALITY_WARNING_SEVERITY,
           },
         ]),
     ...checkDuration(mediaInfo, options),
@@ -50,12 +52,11 @@ export function checkRenderedMedia(mediaInfo: MediaInfo, options: RenderedMediaQ
   return {
     audioStreams,
     ...(mediaInfo.duration === undefined ? {} : {duration: mediaInfo.duration}),
-    errors: issues.filter((issue) => issue.severity === 'error').length,
+    ...countQualityIssues(issues),
     issues,
     probed: true,
     subtitleStreams,
     videoStreams,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -64,7 +65,7 @@ export function createRenderedMediaProbeFailure(message: string): RenderedMediaQ
     {
       code: 'render.output.probe_failed',
       message,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 
@@ -89,7 +90,7 @@ function checkDuration(mediaInfo: MediaInfo, options: RenderedMediaQualityOption
       {
         code: 'render.output.missing_duration',
         message: 'Rendered output duration could not be read.',
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       },
     ]
   }
@@ -102,7 +103,7 @@ function checkDuration(mediaInfo: MediaInfo, options: RenderedMediaQualityOption
     {
       code: 'render.output.duration_mismatch',
       message: `Rendered output duration ${mediaInfo.duration} differs from expected ${options.expectedDuration}.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 }
@@ -121,7 +122,7 @@ function checkStreamDurations(mediaInfo: MediaInfo, options: RenderedMediaQualit
     issues.push({
       code: 'render.output.video_duration_mismatch',
       message: `Rendered video stream duration ${videoDuration} differs from expected ${options.expectedDuration}.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -129,7 +130,7 @@ function checkStreamDurations(mediaInfo: MediaInfo, options: RenderedMediaQualit
     issues.push({
       code: 'render.output.audio_duration_mismatch',
       message: `Rendered audio stream duration ${audioDuration} differs from expected ${options.expectedDuration}.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     })
   }
 
@@ -147,7 +148,7 @@ function checkVideoFrameRate(mediaInfo: MediaInfo): QualityIssue[] {
     {
       code: 'render.output.low_video_fps',
       message: `Rendered video stream frame rate is too low (${round(lowFpsStream.fps)} fps).`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 }

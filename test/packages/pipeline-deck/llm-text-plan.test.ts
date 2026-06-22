@@ -5,6 +5,8 @@ import {toJSONSchema} from 'zod'
 import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMEvent, StreamTextRequest} from '../../../packages/llm/src/index.js'
 import {LLMTextDeckPlanSchema, LLMTextDeckScriptSemanticsSchema, LLMTextDeckSlidePlanSchema, type LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 import {createLLMTextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/llm-text-plan.js'
+import {createScriptSemanticsRequest} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-requests.js'
+import {validateLLMTextDeckScriptSemanticsTiming} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-validation.js'
 import {createDeckSourceMap} from '../../../packages/pipeline-deck/src/planning/source-map.js'
 import {createTextDeckProjectPlanFromLLM as createStrictTextDeckProjectPlanFromLLM} from '../../../packages/pipeline-deck/src/planning/text-plan-builder.js'
 import type {TextDeckProjectPlanOptions} from '../../../packages/pipeline-deck/src/planning/types.js'
@@ -373,12 +375,142 @@ function createOneSlideRawPlan(sourceRange: [number, number] = [0, 8]): LLMTextD
   })
 }
 
+function createOneSlideScriptSemanticsRequestInput() {
+  const rawPlan = createOneSlideRawPlan()
+  const slide = rawPlan.slides[0]!
+
+  return {
+    analysis: {
+      language: rawPlan.language,
+      sections: [
+        {
+          id: 'section-001',
+          importance: slide.semantic.momentScore,
+          keyClaims: [
+            {
+              confidence: 0.82,
+              sourceQuoteText: slide.semantic.sourceQuoteText,
+              text: slide.semantic.blockText,
+              type: 'claim' as const,
+            },
+          ],
+          mustCover: true,
+          role: slide.semantic.blockType,
+          sourceRange: slide.sourceRange,
+          summary: slide.semantic.blockText,
+          title: slide.title,
+          visualRole: slide.semantic.visualStyle,
+        },
+      ],
+      summary: rawPlan.summary,
+      title: rawPlan.title,
+    },
+    brief: {
+      densityPolicy: 'Keep each slide source-grounded and within narration budget.',
+      language: rawPlan.language,
+      narrativeArc: [rawPlan.outline.sections[0]?.goal ?? slide.semantic.momentReason],
+      objective: rawPlan.summary,
+      optionalSectionIds: [],
+      requiredSectionIds: ['section-001'],
+      styleIntent: 'test deck',
+      targetDurationSeconds: slide.duration,
+      targetSlideCount: 1,
+      title: rawPlan.title,
+    },
+    options: {
+      deckFormat: 'portrait_1080x1920' as const,
+      durationTargetSeconds: slide.duration,
+      language: rawPlan.language,
+      maxSlideCharacters: 260,
+      sourceType: 'markdown' as const,
+    },
+    slideOutline: {
+      slides: [
+        {
+          goal: rawPlan.outline.sections[0]?.goal ?? slide.semantic.momentReason,
+          informationRole: slide.semantic.blockType,
+          mustCover: true,
+          narrationBudgetSeconds: slide.duration,
+          outlineId: 'outline-001',
+          sourceSectionIds: ['section-001'],
+          templateIntent: slide.type,
+          visualIntent: slide.semantic.visualStyle,
+        },
+      ],
+    },
+    slidePlan: {
+      slides: [
+        {
+          durationIntent: slide.duration,
+          motion: slide.motion,
+          outlineId: 'outline-001',
+          points: slide.points,
+          sectionIds: ['section-001'],
+          title: slide.title,
+          transitionOut: slide.transitionOut,
+          type: slide.type,
+          visual: slide.visual,
+        },
+      ],
+      targetPlatform: rawPlan.targetPlatform,
+      theme: rawPlan.theme,
+      title: rawPlan.title,
+    },
+  }
+}
+
 describe('Deck Explainer LLM text planning', () => {
-  it('uses an LLM schema that can be represented as JSON Schema for traces and fallback prompts', () => {
+  it('uses an LLM schema that can be represented as JSON Schema for provider traces', () => {
     const schema = toJSONSchema(LLMTextDeckPlanSchema) as {properties?: Record<string, unknown>}
 
     expect(schema.properties).to.have.property('slides')
     expect(schema.properties).to.have.property('theme')
+  })
+
+  it('rejects invalid script semantics timing inputs instead of creating epsilon source ranges', () => {
+    const input = createOneSlideScriptSemanticsRequestInput()
+
+    expect(() => createScriptSemanticsRequest(
+      '/tmp/timing.md',
+      input.analysis,
+      input.brief,
+      {...input.slideOutline, slides: [{...input.slideOutline.slides[0]!, narrationBudgetSeconds: 0}]},
+      input.slidePlan,
+      input.options,
+    )).to.throw('no epsilon timeline fallback is allowed')
+    expect(() => createScriptSemanticsRequest(
+      '/tmp/timing.md',
+      input.analysis,
+      input.brief,
+      {slides: []},
+      input.slidePlan,
+      input.options,
+    )).to.throw('no slide-plan duration fallback is allowed')
+    expect(() => createScriptSemanticsRequest(
+      '/tmp/timing.md',
+      input.analysis,
+      input.brief,
+      input.slideOutline,
+      input.slidePlan,
+      {...input.options, durationTargetSeconds: 0},
+    )).to.throw('Deck script timeline target duration must be a positive finite number')
+  })
+
+  it('rejects empty script semantics speaker notes instead of applying a minimum duration estimate', () => {
+    const input = createOneSlideScriptSemanticsRequestInput()
+
+    expect(() => validateLLMTextDeckScriptSemanticsTiming({
+      outline: deckOutline(),
+      slides: [
+        {
+          duration: 8,
+          semantic: deckSemantic('Empty speaker notes should not be timed.'),
+          slideIndex: 0,
+          sourceRange: [0, 8],
+          speakerNote: '   ',
+        },
+      ],
+    }, input.slideOutline, input.options)).to.throw('no minimum speakerNote-duration fallback is allowed')
   })
 
   it('normalizes LLM slide durations to the requested deck target before artifact timing', () => {
@@ -2859,7 +2991,7 @@ outline: deckOutline(),
         maxSlideCharacters: 260,
         sourceType: 'markdown',
       },
-    )).to.throw('no runtime duration fallback is allowed')
+    )).to.throw('Slide timing end must be greater than start')
   })
 
   it('rejects LLM slides that omit points instead of defaulting to an empty point list', () => {

@@ -1,12 +1,6 @@
 import type {Transcript, TranscriptSegment} from '@video-agent/providers'
 
 export function requireExactTranscriptSegments(transcript: Transcript, context: string): TranscriptSegment[] {
-  if (transcript.timestampConfidence !== 'exact') {
-    const confidence = transcript.timestampConfidence ?? 'missing'
-
-    throw new Error(`${context} requires exact ASR transcript timestamps; received ${confidence}. Chunked or untimed transcripts cannot drive source-backed Deck planning.`)
-  }
-
   if (transcript.segments.length === 0) {
     throw new Error(`${context} requires non-empty timed ASR transcript segments; no default timing fallback is allowed.`)
   }

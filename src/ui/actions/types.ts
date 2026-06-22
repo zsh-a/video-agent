@@ -1,9 +1,10 @@
-import type {RecoverWorkspaceJobResult, RecoveryOrderBy} from '@video-agent/pipeline-film'
-import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, PipelineStage, ProjectEventKind, ProjectEventsResult, ProjectPipelineEventType, ProjectQualityReport, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ReadProjectArtifactResult, RenderProjectResult} from '@video-agent/runtime'
+import type {FilmPipelineStage, RecoverFilmWorkspaceJobResult, FilmRecoveryOrderBy, FilmRecoveryStatusOption, RerunFilmProjectResult} from '@video-agent/pipeline-film'
+import type {PipelineEventType} from '@video-agent/core'
+import type {ArtifactIntegrityResult, ExportFormat, ExportProjectResult, FfmpegAudioDiagnostics, ProjectEventKind, ProjectEventsResult, ProjectQualityReport, ProjectStatus, ProjectSummary, ProjectVisualSamplesReport, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestReport, ProviderSmokeTestRoleOption, ReadProjectArtifactResult, RenderProjectResult} from '@video-agent/runtime'
 import type {TuiAction, TuiCommandSuggestion} from '../model.js'
 
 import type {createCheckpointErrorPayload} from '../../utils/checkpoint-errors.js'
-import type {createExportQualityFailurePayload} from '../../commands/export.js'
+import type {createExportQualityFailurePayload} from '../../utils/export-output.js'
 
 export type TuiQualityReport = ProjectQualityReport & {qualityReport?: unknown; renderOutput?: unknown}
 
@@ -23,7 +24,7 @@ export interface RunTuiActionOptions {
   eventKind?: ProjectEventKind
   eventLimit?: number
   eventPipelineStage?: string
-  eventPipelineType?: ProjectPipelineEventType
+  eventPipelineType?: PipelineEventType
   eventProviderRole?: ProviderCallRole
   eventProviderStatus?: ProviderCallStatus
   exportCleanOutput?: boolean
@@ -31,13 +32,13 @@ export interface RunTuiActionOptions {
   exportOutputPath?: string
   exportRequireQuality: boolean
   framePath?: string
-  fromStage?: PipelineStage
+  fromStage?: FilmPipelineStage
   limit?: number
   maxAttempts?: number
   mediaPath?: string
-  orderBy?: RecoveryOrderBy
+  orderBy?: FilmRecoveryOrderBy
   projectId?: string
-  providerRole: string
+  providerRole: ProviderSmokeTestRoleOption
   qualityDetails?: boolean
   renderAudio?: boolean
   renderAudioDucking?: boolean
@@ -50,7 +51,7 @@ export interface RunTuiActionOptions {
   renderSubtitles?: boolean
   renderVoiceoverVolume?: number
   runningStaleAfterMs?: number
-  status: string
+  status: FilmRecoveryStatusOption
   text?: string
   visualIncludeContent?: boolean
   workspaceDir: string
@@ -65,8 +66,8 @@ export type TuiActionResult =
   | {commands: TuiCommandSuggestion[]; selected?: TuiCommandSuggestion; type: 'select'}
   | {commands: TuiCommandSuggestion[]; type: 'commands'}
   | {diagnostics: FfmpegAudioDiagnostics; projectId: string; type: 'audio'}
-  | {dryRun: boolean; recovered: number; results: RecoverWorkspaceJobResult[]; skipped: number; type: 'worker'}
-  | {fromStage?: PipelineStage; projectId: string; status: string; type: 'rerun'}
+  | {dryRun: boolean; recovered: number; results: RecoverFilmWorkspaceJobResult[]; skipped: number; type: 'worker'}
+  | {fromStage?: FilmPipelineStage; projectId: string; status: RerunFilmProjectResult['status']; type: 'rerun'}
   | {projectId: string; result: ArtifactIntegrityResult; type: 'verify'}
   | {projects: ProjectSummary[]; type: 'projects'}
   | {report: ProjectVisualSamplesReport; type: 'visual'}

@@ -1,10 +1,11 @@
-import type {ProviderSmokeTestRole} from '@video-agent/runtime'
 import type {McpToolDefinition} from './toolkit.js'
 
 import {
+  PROVIDER_SMOKE_TEST_ROLE_OPTIONS,
   checkRuntimeHealth,
   createProviderEnvironmentShellTemplate,
   readProviderEnvironment,
+  resolveProviderSmokeTestRoles,
   runProviderSmokeTest,
 } from '@video-agent/runtime'
 import {
@@ -18,8 +19,6 @@ import {
   stringRecordSchema,
   stringSchema,
 } from './toolkit.js'
-
-const PROVIDER_TEST_ROLES = ['all', 'asr', 'tts', 'vlm'] as const
 
 export const PROVIDER_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   createToolDefinition('video_agent_doctor', 'Check runtime, workspace, provider config, and media binary health.', {
@@ -41,26 +40,18 @@ export const PROVIDER_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
 
     return report
   }),
-  createToolDefinition('video_agent_provider_test', 'Run smoke tests against configured ASR, VLM, and TTS providers.', {
+  createToolDefinition('video_agent_provider_test', 'Run smoke tests against configured ASR, VLM, and TTS providers. ASR requires mediaPath, VLM requires framePath, and TTS requires text when the selected role includes them.', {
     env: stringRecordSchema('Explicit environment variables for provider smoke tests. When set, only these values are checked and current shell environment is ignored.'),
-    framePath: stringSchema('Sample frame path for VLM smoke tests. Defaults to a synthetic placeholder path.'),
-    mediaPath: stringSchema('Sample media path for ASR smoke tests. Defaults to a synthetic placeholder path.'),
-    role: enumSchema(PROVIDER_TEST_ROLES, 'Provider role to test. Defaults to all.'),
-    text: stringSchema('Sample narration text for TTS smoke tests.'),
+    framePath: stringSchema('Sample frame path for VLM smoke tests. Required when role is all or vlm.'),
+    mediaPath: stringSchema('Sample media path for ASR smoke tests. Required when role is all or asr.'),
+    role: enumSchema(PROVIDER_SMOKE_TEST_ROLE_OPTIONS, 'Provider role to test. Defaults to all.'),
+    text: stringSchema('Sample narration text for TTS smoke tests. Required when role is all or tts.'),
   }, (args, workspaceDir) => runProviderSmokeTest({
     env: readOptionalStringRecord(args, 'env'),
     framePath: readOptionalString(args, 'framePath'),
     mediaPath: readOptionalString(args, 'mediaPath'),
-    roles: resolveProviderSmokeTestRoles(readOptionalEnum(args, 'role', PROVIDER_TEST_ROLES)),
+    roles: resolveProviderSmokeTestRoles(readOptionalEnum(args, 'role', PROVIDER_SMOKE_TEST_ROLE_OPTIONS)),
     text: readOptionalString(args, 'text'),
     workspaceDir,
   })),
 ]
-
-function resolveProviderSmokeTestRoles(role: typeof PROVIDER_TEST_ROLES[number] | undefined): ProviderSmokeTestRole[] | undefined {
-  if (role === undefined || role === 'all') {
-    return undefined
-  }
-
-  return [role]
-}

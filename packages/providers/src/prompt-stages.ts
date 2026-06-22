@@ -1,0 +1,16 @@
+export const PROVIDER_PROMPT_ASR_LANGUAGE_STAGE = 'asr-language' as const
+export const PROVIDER_PROMPT_ASR_TRANSCRIPT_STAGE = 'asr-transcript' as const
+export const PROVIDER_PROMPT_FILM_RECAP_SCRIPT_STAGE = 'recap-script' as const
+export const PROVIDER_PROMPT_FILM_STORY_INDEX_STAGE = 'story-index' as const
+export const PROVIDER_PROMPT_TTS_MANIFEST_STAGE = 'tts-manifest' as const
+export const PROVIDER_PROMPT_VLM_SCENE_ANALYSIS_STAGE = 'vlm-scene-analysis' as const
+
+export const PROVIDER_PROMPT_STAGES = [
+  PROVIDER_PROMPT_ASR_LANGUAGE_STAGE,
+  PROVIDER_PROMPT_ASR_TRANSCRIPT_STAGE,
+  PROVIDER_PROMPT_FILM_RECAP_SCRIPT_STAGE,
+  PROVIDER_PROMPT_FILM_STORY_INDEX_STAGE,
+  PROVIDER_PROMPT_TTS_MANIFEST_STAGE,
+  PROVIDER_PROMPT_VLM_SCENE_ANALYSIS_STAGE,
+] as const
+export type ProviderPromptStage = (typeof PROVIDER_PROMPT_STAGES)[number]

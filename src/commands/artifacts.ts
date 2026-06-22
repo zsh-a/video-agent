@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {listProjectArtifacts, readProjectArtifact, verifyProjectArtifacts} from '@video-agent/runtime'
 
+import {workspaceFlag} from '../utils/cli-flags.js'
 export default class Artifacts extends Command {
   static args = {
     project: Args.string({description: 'Project id to inspect', required: true}),
@@ -10,7 +11,7 @@ export default class Artifacts extends Command {
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
     verify: Flags.boolean({description: 'Verify artifact files against artifact-manifest.json'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

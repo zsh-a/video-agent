@@ -53,6 +53,59 @@ describe('motion canvas deck compiler', () => {
     }
   })
 
+  it('rejects invalid fps instead of using a renderer default or integer coercion', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-motion-canvas-invalid-fps-'))
+
+    try {
+      let error: unknown
+
+      try {
+        await writeMotionCanvasDeckProject({
+          fps: 29.97,
+          outputDir: root,
+          timedDeck: {
+            deck: {
+              format: 'portrait_1080x1920',
+              inputMode: 'script-generated',
+              language: 'en',
+              slides: [
+                {
+                  blockIds: [],
+                  evidence: [],
+                  motion: 'line-draw',
+                  points: ['MotionIR drives timing'],
+                  slideId: 'slide-001',
+                  speakerNote: 'Renderer export should preserve fps exactly.',
+                  title: 'Motion Canvas backend',
+                  type: 'process',
+                  visual: {assetRefs: [], kind: 'diagram'},
+                },
+              ],
+              theme: 'elegant-dark',
+              title: 'Deck',
+              version: 1,
+            },
+            timings: [{end: 3, slideId: 'slide-001', start: 0}],
+            version: 1,
+          },
+          motionTimeline: {
+            duration: 3,
+            fps: 30,
+            scenes: [{end: 3, id: 'slide-001', sourceId: 'slide-001', start: 0}],
+            tracks: [],
+            version: 1,
+          },
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Motion Canvas Deck renderer fps must be a positive integer; no renderer fps fallback or coercion is allowed. Received: 29.97')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('writes a Motion Canvas project from timed DeckIR and MotionIR', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-motion-canvas-'))
 

@@ -1,5 +1,5 @@
 export type TuiBorderTone = 'active' | 'default' | 'error'
-export type TuiStatusTone = 'completed' | 'failed' | 'pending' | 'retrying' | 'running' | 'succeeded' | 'warning'
+export type TuiStatusTone = 'completed' | 'failed' | 'pending' | 'retrying' | 'running' | 'skipped' | 'succeeded' | 'warning'
 
 export const symbols = {
   arrow: '→',
@@ -42,6 +42,7 @@ export const theme = {
     pending: 'gray',
     retrying: 'yellow',
     running: 'cyan',
+    skipped: 'gray',
     succeeded: 'green',
     warning: 'yellow',
   },
@@ -70,7 +71,7 @@ export function statusColor(status: string | undefined): string | undefined {
     return theme.status.retrying
   }
 
-  if (status === 'pending' || status === undefined) {
+  if (status === 'pending' || status === 'skipped' || status === undefined) {
     return theme.status.pending
   }
 
@@ -92,6 +93,10 @@ export function statusSymbol(status: string | undefined): string {
 
   if (status === 'warning') {
     return symbols.warning
+  }
+
+  if (status === 'skipped') {
+    return symbols.dot
   }
 
   return symbols.pending

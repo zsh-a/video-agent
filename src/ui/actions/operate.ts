@@ -1,19 +1,24 @@
+import type {ExportFormat} from '@video-agent/runtime'
 import type {RunTuiActionOptions, TuiActionResult} from './types.js'
 
-import {recoverWorkspaceJobs, rerunProject} from '@video-agent/pipeline-film'
-import {exportProject, ExportQualityError, PipelineCheckpointError, renderProject} from '@video-agent/runtime'
+import {recoverFilmWorkspaceJobs, rerunFilmProject, resolveFilmRecoverableStatuses} from '@video-agent/pipeline-film'
+import {exportProject, ExportQualityError, isExportFormat, PipelineCheckpointError, readMostRecentProjectId, renderProject} from '@video-agent/runtime'
 
-import {createExportQualityFailurePayload} from '../../commands/export.js'
 import {createCheckpointErrorPayload} from '../../utils/checkpoint-errors.js'
-import {readMostRecentProjectId, resolveRecoverableStatuses} from './resolvers.js'
+import {createExportQualityFailurePayload} from '../../utils/export-output.js'
+import {isTuiOperateAction} from '../model.js'
 
 export async function runTuiOperateAction(options: RunTuiActionOptions): Promise<TuiActionResult> {
+  if (!isTuiOperateAction(options.action)) {
+    throw new Error(`Unsupported TUI action "${options.action}".`)
+  }
+
   if (options.action === 'rerun') {
     const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
-    let result: Awaited<ReturnType<typeof rerunProject>>
+    let result: Awaited<ReturnType<typeof rerunFilmProject>>
 
     try {
-      result = await rerunProject(projectId, {
+      result = await rerunFilmProject(projectId, {
         fromStage: options.fromStage,
         workspaceDir: options.workspaceDir,
       })
@@ -61,12 +66,13 @@ export async function runTuiOperateAction(options: RunTuiActionOptions): Promise
 
   if (options.action === 'export') {
     const projectId = options.projectId ?? (await readMostRecentProjectId(options.workspaceDir))
+    const format = requireExportFormat(options.exportFormat)
 
     try {
       return {
         result: await exportProject({
           cleanOutput: options.exportCleanOutput,
-          format: options.exportFormat,
+          format,
           outputPath: options.exportOutputPath,
           projectId,
           requireQuality: options.exportRequireQuality,
@@ -89,21 +95,33 @@ export async function runTuiOperateAction(options: RunTuiActionOptions): Promise
     }
   }
 
-  const result = await recoverWorkspaceJobs({
-    dryRun: options.dryRun,
-    limit: options.limit,
-    maxAttempts: options.maxAttempts,
-    orderBy: options.orderBy,
-    runningStaleAfterMs: options.runningStaleAfterMs,
-    statuses: resolveRecoverableStatuses(options.status),
-    workspaceDir: options.workspaceDir,
-  })
+  if (options.action === 'worker') {
+    const result = await recoverFilmWorkspaceJobs({
+      dryRun: options.dryRun,
+      limit: options.limit,
+      maxAttempts: options.maxAttempts,
+      orderBy: options.orderBy,
+      runningStaleAfterMs: options.runningStaleAfterMs,
+      statuses: resolveFilmRecoverableStatuses(options.status),
+      workspaceDir: options.workspaceDir,
+    })
 
-  return {
-    dryRun: result.dryRun,
-    recovered: result.recovered,
-    results: result.results,
-    skipped: result.skipped,
-    type: 'worker',
+    return {
+      dryRun: result.dryRun,
+      recovered: result.recovered,
+      results: result.results,
+      skipped: result.skipped,
+      type: 'worker',
+    }
   }
+
+  throw new Error(`Unsupported TUI operation "${options.action}".`)
+}
+
+function requireExportFormat(format: ExportFormat | undefined): ExportFormat {
+  if (format !== undefined && isExportFormat(format)) {
+    return format
+  }
+
+  throw new Error('TUI export action requires --export-format; no render-output format inference is allowed.')
 }

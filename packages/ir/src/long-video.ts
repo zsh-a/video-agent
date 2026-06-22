@@ -9,6 +9,13 @@ export const LongVideoTimeRangeSchema = z.tuple([
   message: 'Time range end must be greater than or equal to start.',
 })
 
+export const LongVideoPositiveTimeRangeSchema = z.tuple([
+  z.number().finite().nonnegative(),
+  z.number().finite().nonnegative(),
+]).refine(([start, end]) => end > start, {
+  message: 'Time range end must be greater than start.',
+})
+
 export const LongVideoChunkPlanDefaultsSchema = z.object({
   asrChunking: z.boolean(),
   chunkDuration: z.number().finite().positive(),
@@ -104,9 +111,9 @@ export const LongVideoMomentSchema = z.object({
   chunkId: z.string().min(1).optional(),
   evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
-  outputRange: LongVideoTimeRangeSchema.optional(),
+  outputRange: LongVideoPositiveTimeRangeSchema.optional(),
   score: z.number().finite().min(0).max(1).optional(),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   summary: z.string().min(1),
   title: z.string().min(1).optional(),
 })
@@ -140,7 +147,7 @@ export const LongVideoChapterSummarySchema = z.object({
   id: z.string().min(1),
   index: z.number().int().nonnegative(),
   keyMoments: z.array(LongVideoMomentSchema),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   summary: z.string().min(1),
   title: z.string().min(1),
 })
@@ -155,7 +162,7 @@ export const LongVideoStoryBeatSchema = z.object({
   chapterIds: z.array(z.string().min(1)),
   evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
-  sourceRange: LongVideoTimeRangeSchema.optional(),
+  sourceRange: LongVideoPositiveTimeRangeSchema.optional(),
   summary: z.string().min(1),
   title: z.string().min(1),
 })
@@ -194,6 +201,7 @@ export type LongVideoChunkSummaries = z.infer<typeof LongVideoChunkSummariesSche
 export type LongVideoChunkSummary = z.infer<typeof LongVideoChunkSummarySchema>
 export type LongVideoGlobalOutline = z.infer<typeof LongVideoGlobalOutlineSchema>
 export type LongVideoMoment = z.infer<typeof LongVideoMomentSchema>
+export type LongVideoPositiveTimeRange = z.infer<typeof LongVideoPositiveTimeRangeSchema>
 export type LongVideoSelectedMoment = z.infer<typeof LongVideoSelectedMomentSchema>
 export type LongVideoSelectedMoments = z.infer<typeof LongVideoSelectedMomentsSchema>
 export type LongVideoStoryBeat = z.infer<typeof LongVideoStoryBeatSchema>

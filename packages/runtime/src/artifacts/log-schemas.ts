@@ -1,42 +1,32 @@
 import {z} from 'zod'
 
-import {ArtifactRefSchema} from '@video-agent/ir'
+import {PIPELINE_EVENT_TYPES, PROGRESS_UNITS} from '@video-agent/core'
+import {ArtifactRefSchema, CALL_STATUS_FAILED} from '@video-agent/ir'
+import {LLM_TRACE_OPERATIONS, LLM_TRACE_STATUSES} from '@video-agent/llm'
+import {PROVIDER_CALL_ROLES, PROVIDER_CALL_STATUSES} from '../provider/call-record.js'
 
 export const PipelineEventLogLineSchema = z.object({
   artifact: ArtifactRefSchema.optional(),
+  agentRunId: z.string().min(1).optional(),
+  agentStepId: z.string().min(1).optional(),
   attempt: z.number().int().positive().optional(),
   current: z.number().nonnegative().optional(),
   data: z.record(z.string(), z.unknown()).optional(),
+  durationMs: z.number().nonnegative().optional(),
   level: z.enum(['debug', 'error', 'info', 'warn']).optional(),
   maxAttempts: z.number().int().positive().optional(),
   message: z.string().min(1).optional(),
+  parentStepId: z.string().min(1).optional(),
   percent: z.number().nonnegative().optional(),
   projectId: z.string().min(1),
   retryDelayMs: z.number().nonnegative().optional(),
   stage: z.string().min(1).optional(),
   step: z.string().min(1).optional(),
   time: z.string().min(1),
+  toolCallId: z.string().min(1).optional(),
   total: z.number().nonnegative().optional(),
-  type: z.enum([
-    'agent:run:complete',
-    'agent:run:fail',
-    'agent:run:start',
-    'agent:step:complete',
-    'agent:step:fail',
-    'agent:step:progress',
-    'agent:step:start',
-    'artifact',
-    'log',
-    'stage:complete',
-    'stage:fail',
-    'stage:progress',
-    'stage:retry',
-    'stage:start',
-    'tool:call:complete',
-    'tool:call:fail',
-    'tool:call:start',
-  ]),
-  unit: z.enum(['chunks', 'files', 'frames', 'scenes', 'seconds', 'segments', 'tokens']).optional(),
+  type: z.enum(PIPELINE_EVENT_TYPES),
+  unit: z.enum(PROGRESS_UNITS).optional(),
 }).passthrough()
 
 const ProviderCostMetadataSchema = z.object({
@@ -77,13 +67,13 @@ export const ProviderCallLogLineSchema = z.object({
   output: z.record(z.string(), z.unknown()).optional(),
   provider: z.string().min(1),
   requestId: z.string().min(1),
-  role: z.enum(['asr', 'script', 'tts', 'vlm']),
+  role: z.enum(PROVIDER_CALL_ROLES),
   startedAt: z.string().min(1),
-  status: z.enum(['failed', 'succeeded']),
+  status: z.enum(PROVIDER_CALL_STATUSES),
   usage: ProviderUsageMetadataSchema.optional(),
   version: z.literal(1),
 }).passthrough().superRefine((value, ctx) => {
-  if (value.status === 'failed' && value.error === undefined) {
+  if (value.status === CALL_STATUS_FAILED && value.error === undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Failed provider calls must include an error.',
@@ -119,7 +109,7 @@ export const LLMTraceLogLineSchema = z.object({
     stack: z.string().min(1).optional(),
   }).strict().optional(),
   model: z.string().min(1).optional(),
-  operation: z.enum(['generateObject', 'generateObjectFallbackText', 'generateObjectJsonText', 'generateText', 'streamText']),
+  operation: z.enum(LLM_TRACE_OPERATIONS),
   provider: z.string().min(1).optional(),
   request: z.object({
     cache: z.object({
@@ -141,11 +131,11 @@ export const LLMTraceLogLineSchema = z.object({
     text: z.string().optional(),
   }).passthrough().optional(),
   startedAt: z.string().min(1),
-  status: z.enum(['failed', 'succeeded']),
+  status: z.enum(LLM_TRACE_STATUSES),
   usage: LLMUsageSchema.optional(),
   version: z.literal(1),
 }).passthrough().superRefine((value, ctx) => {
-  if (value.status === 'failed' && value.error === undefined) {
+  if (value.status === CALL_STATUS_FAILED && value.error === undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: 'Failed LLM traces must include an error.',

@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {extractAudio, parseAudioVolumeOutput, parseFfmpegProgressOutput, parseVideoBlackDetectOutput} from '../../../packages/media/src/ffmpeg.js'
+import {parseFfprobeMediaInfo} from '../../../packages/media/src/ffprobe.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 
 describe('ffmpeg media helpers', () => {
@@ -78,6 +79,76 @@ describe('ffmpeg media helpers', () => {
         start: 1.2,
       },
     ])
+  })
+
+  it('rejects invalid blackdetect durations instead of omitting black ratio', () => {
+    expect(() => parseVideoBlackDetectOutput('/tmp/final.mp4', '', 0))
+      .to.throw('no black-ratio omission fallback is allowed')
+  })
+
+  it('parses ffprobe JSON through a strict media boundary schema', () => {
+    const result = parseFfprobeMediaInfo('/tmp/input.mp4', JSON.stringify({
+      format: {
+        bit_rate: '96000',
+        duration: '12.5',
+        format_name: 'mov,mp4,m4a,3gp,3g2,mj2',
+        size: '12345',
+      },
+      streams: [
+        {
+          avg_frame_rate: '30000/1001',
+          codec_name: 'h264',
+          codec_type: 'video',
+          duration: '12.5',
+          height: 1080,
+          index: 0,
+          width: 1920,
+        },
+        {
+          codec_name: 'aac',
+          codec_type: 'audio',
+          duration: 'N/A',
+          index: 1,
+          r_frame_rate: '0/0',
+        },
+      ],
+    }))
+
+    expect(result).to.deep.include({
+      bitrate: 96000,
+      duration: 12.5,
+      formatName: 'mov,mp4,m4a,3gp,3g2,mj2',
+      inputPath: '/tmp/input.mp4',
+      size: 12345,
+      version: 1,
+    })
+    expect(result.streams).to.deep.equal([
+      {
+        codecName: 'h264',
+        duration: 12.5,
+        fps: 30000 / 1001,
+        height: 1080,
+        index: 0,
+        type: 'video',
+        width: 1920,
+      },
+      {
+        codecName: 'aac',
+        index: 1,
+        type: 'audio',
+      },
+    ])
+  })
+
+  it('rejects malformed ffprobe JSON instead of inferring media info shape', () => {
+    expect(() => parseFfprobeMediaInfo('/tmp/input.mp4', '{"format":'))
+      .to.throw('ffprobe returned invalid JSON; no media-info shape inference fallback is allowed')
+    expect(() => parseFfprobeMediaInfo('/tmp/input.mp4', '{"streams":{}}'))
+      .to.throw('ffprobe JSON has invalid shape; no media-info shape inference fallback is allowed')
+    expect(() => parseFfprobeMediaInfo('/tmp/input.mp4', '{"streams":[{"codec_type":"video"}]}'))
+      .to.throw('ffprobe JSON has invalid shape; no media-info shape inference fallback is allowed')
+    expect(() => parseFfprobeMediaInfo('/tmp/input.mp4', '{"format":{"duration":"later"},"streams":[]}'))
+      .to.throw('ffprobe format duration must be a finite numeric string')
   })
 
   it('extracts ASR audio as 24 kHz mono PCM wav when media tools are available', async () => {

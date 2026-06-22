@@ -2,17 +2,18 @@ import {resolve} from 'node:path'
 
 import {runFilmRecapProject, type RunFilmRecapProjectResult} from './recovery/runner.js'
 import {FILM_PIPELINE_DEFINITION, type FilmPipelineStage} from './pipeline.js'
-import {assertPipelineStage, createConfiguredJobStore, detectPipelineKind, readConfig, type PipelineStage} from '@video-agent/runtime'
+import {PIPELINE_KIND_FILM, assertPipelineStage, detectPipelineKind} from '@video-agent/core'
+import {createConfiguredJobStore, readConfig, DEFAULT_WORKSPACE_DIR} from '@video-agent/runtime'
 
-export interface RerunProjectOptions {
-  fromStage?: PipelineStage
+export interface RerunFilmProjectOptions {
+  fromStage?: FilmPipelineStage
   workspaceDir?: string
 }
 
-export type RerunProjectResult = RunFilmRecapProjectResult
+export type RerunFilmProjectResult = RunFilmRecapProjectResult
 
-export async function rerunProject(projectId: string, options: RerunProjectOptions = {}): Promise<RerunProjectResult> {
-  const workspaceDir = resolve(options.workspaceDir ?? '.video-agent')
+export async function rerunFilmProject(projectId: string, options: RerunFilmProjectOptions = {}): Promise<RerunFilmProjectResult> {
+  const workspaceDir = resolve(options.workspaceDir ?? DEFAULT_WORKSPACE_DIR)
   const projectDir = resolve(workspaceDir, 'projects', projectId)
   const config = await readConfig(workspaceDir)
   const job = await createConfiguredJobStore({
@@ -23,16 +24,16 @@ export async function rerunProject(projectId: string, options: RerunProjectOptio
   }).read()
   const pipelineKind = detectPipelineKind(job)
 
-  if (pipelineKind === 'film') {
-    const fromStage = assertPipelineStage(FILM_PIPELINE_DEFINITION, options.fromStage ?? FILM_PIPELINE_DEFINITION.defaultRerunStage)
-
-    return runFilmRecapProject({
-      fromStage: fromStage as FilmPipelineStage,
-      inputPath: job.inputPath,
-      projectId,
-      workspaceDir,
-    })
+  if (pipelineKind !== PIPELINE_KIND_FILM) {
+    throw new Error(`Film rerun requires a film project; job-state.json declares ${pipelineKind}.`)
   }
 
-  throw new Error(`Rerun is not implemented for ${pipelineKind} projects. Use the dedicated deck commands for deck stage recovery.`)
+  const fromStage = assertPipelineStage(FILM_PIPELINE_DEFINITION, options.fromStage ?? FILM_PIPELINE_DEFINITION.defaultRerunStage)
+
+  return runFilmRecapProject({
+    fromStage,
+    inputPath: job.inputPath,
+    projectId,
+    workspaceDir,
+  })
 }

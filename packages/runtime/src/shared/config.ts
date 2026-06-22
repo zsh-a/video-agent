@@ -1,14 +1,14 @@
 import type {LLMClientConfig, LLMProviderName} from '@video-agent/llm'
 
-import {getProviderProfile, type ProviderProfileName, type ProviderSettings} from '@video-agent/providers'
-import {mkdir} from 'node:fs/promises'
+import {OPENAI_COMPATIBLE_LLM_PROVIDER, isLLMProviderName} from '@video-agent/llm'
+import {PROVIDER_ROLES, getProviderProfile, isProviderName, isProviderProfileName, type ProviderName, type ProviderProfileName, type ProviderRole, type ProviderRoleSettings, type ProviderSettings} from '@video-agent/providers'
+import {mkdir, writeFile} from 'node:fs/promises'
 import {dirname, resolve} from 'node:path'
+import {z} from 'zod'
 
-import {bunFile, bunWrite} from './bun-runtime.js'
+import {JsonFileParseError, readOptionalJson} from './file-io.js'
 
-export type {LLMClientConfig, LLMProviderName} from '@video-agent/llm'
-export type {ProviderSettings} from '@video-agent/providers'
-
+import {DEFAULT_WORKSPACE_DIR} from './defaults.js'
 export interface AgentConfig {
   llm?: LLMClientConfig
   persistence: {
@@ -19,19 +19,19 @@ export interface AgentConfig {
     retryBackoffMs: number
   }
   providerProfile?: ProviderProfileName
-  providers: {
-    asr: string
-    tts: string
-    vlm: string
-  }
+  providers: Record<ProviderRole, ProviderName>
   providerSettings: ProviderSettings
   version: 1
 }
 
-export type JobStoreKind = 'json' | 'sqlite'
+export const JOB_STORE_KINDS = ['json', 'sqlite'] as const
+
+export type JobStoreKind = (typeof JOB_STORE_KINDS)[number]
+
+export const DEFAULT_JOB_STORE_KIND = 'json' satisfies JobStoreKind
 
 export interface ConfigUpdate {
-  asr?: string
+  asr?: ProviderName
   jobStore?: JobStoreKind
   llm?: null | Partial<LLMClientConfig>
   llmProvider?: LLMProviderName
@@ -39,58 +39,99 @@ export interface ConfigUpdate {
   providerProfile?: ProviderProfileName
   providerSettings?: ProviderSettings
   retryBackoffMs?: number
-  tts?: string
-  vlm?: string
+  tts?: ProviderName
+  vlm?: ProviderName
 }
 
+const StoredLLMConfigSchema = z.object({
+  apiKeyEnv: z.string().optional(),
+  baseURL: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  model: z.string().optional(),
+  name: z.string().optional(),
+  provider: z.string().optional(),
+}).passthrough()
+
+const StoredAgentConfigSchema = z.object({
+  llm: StoredLLMConfigSchema.optional(),
+  persistence: z.object({
+    jobStore: z.string().optional(),
+  }).strict().optional(),
+  pipeline: z.object({
+    maxStageRetries: z.number().optional(),
+    retryBackoffMs: z.number().optional(),
+  }).strict().optional(),
+  providerProfile: z.string().optional(),
+  providers: z.object({
+    asr: z.string().optional(),
+    tts: z.string().optional(),
+    vlm: z.string().optional(),
+  }).strict().optional(),
+  providerSettings: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+  version: z.unknown().optional(),
+}).strict()
+
+interface ParsedStoredLLMConfig {
+  [key: string]: unknown
+  apiKeyEnv?: string
+  baseURL?: string
+  headers?: Record<string, string>
+  model?: string
+  name?: string
+  provider?: string
+}
+
+type StoredLLMConfig = Partial<LLMClientConfig> | ParsedStoredLLMConfig
+
 interface StoredAgentConfig {
-  llm?: LLMClientConfig
+  llm?: StoredLLMConfig
   persistence?: {
-    jobStore?: JobStoreKind
+    jobStore?: string
   }
   pipeline?: {
     maxStageRetries?: number
     retryBackoffMs?: number
   }
-  providerProfile?: ProviderProfileName
+  providerProfile?: string
   providers?: {
     asr?: string
     tts?: string
     vlm?: string
   }
-  providerSettings?: ProviderSettings
-  version?: 1
+  providerSettings?: StoredProviderSettings
+  version?: unknown
 }
 
-export const DEFAULT_AGENT_CONFIG: AgentConfig = {
-  persistence: {
-    jobStore: 'json',
-  },
-  pipeline: {
-    maxStageRetries: 0,
-    retryBackoffMs: 0,
-  },
-  providers: {
-    asr: 'mock',
-    tts: 'mock',
-    vlm: 'mock',
-  },
-  providerSettings: {},
-  version: 1,
+type StoredProviderSettings = Record<string, ProviderRoleSettings | Record<string, unknown> | undefined>
+
+const DEFAULT_PERSISTENCE_CONFIG: AgentConfig['persistence'] = {
+  jobStore: DEFAULT_JOB_STORE_KIND,
 }
 
-export function resolveConfigPath(workspaceDir = '.video-agent'): string {
+const DEFAULT_PIPELINE_CONFIG: AgentConfig['pipeline'] = {
+  maxStageRetries: 0,
+  retryBackoffMs: 0,
+}
+
+const INITIAL_PROVIDER_CONFIG: AgentConfig['providers'] = {
+  asr: 'mock',
+  tts: 'mock',
+  vlm: 'mock',
+}
+
+export function resolveConfigPath(workspaceDir = DEFAULT_WORKSPACE_DIR): string {
   return resolve(workspaceDir, 'config.json')
 }
 
-export async function readConfig(workspaceDir = '.video-agent'): Promise<AgentConfig> {
+export async function readConfig(workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<AgentConfig> {
   const path = resolveConfigPath(workspaceDir)
+  const value = await readConfigJson(path)
 
-  if (!await bunFile(path).exists()) {
-    return DEFAULT_AGENT_CONFIG
+  if (value === undefined) {
+    throw new Error(`Config file not found: ${path}. Run "bun run dev init --workspace ${workspaceDir}" before runtime commands.`)
   }
 
-  return normalizeConfig(await bunFile(path).json<StoredAgentConfig>())
+  return normalizeConfig(parseStoredConfig(value))
 }
 
 export async function writeConfig(workspaceDir: string, update: ConfigUpdate): Promise<{config: AgentConfig; path: string}> {
@@ -131,30 +172,55 @@ export async function writeConfig(workspaceDir: string, update: ConfigUpdate): P
   const config = normalizeConfig(stored)
 
   await mkdir(dirname(path), {recursive: true})
-  await bunWrite(path, `${JSON.stringify(stored, null, 2)}\n`)
+  await writeFile(path, `${JSON.stringify(stored, null, 2)}\n`)
 
   return {config, path}
 }
 
 async function readStoredConfig(workspaceDir: string): Promise<StoredAgentConfig> {
   const path = resolveConfigPath(workspaceDir)
+  const value = await readConfigJson(path)
 
-  if (!await bunFile(path).exists()) {
-    return {version: 1}
+  if (value === undefined) {
+    return createDefaultStoredConfig()
   }
 
-  return bunFile(path).json<StoredAgentConfig>()
+  return parseStoredConfig(value)
+}
+
+async function readConfigJson(path: string): Promise<unknown | undefined> {
+  try {
+    return await readOptionalJson(path)
+  } catch (error) {
+    if (error instanceof JsonFileParseError) {
+      throw new Error(`Config file ${path} is invalid JSON; no config parse fallback is allowed. ${error.details.issues}`)
+    }
+
+    throw error
+  }
+}
+
+function createDefaultStoredConfig(): StoredAgentConfig {
+  return {
+    providers: {
+      ...INITIAL_PROVIDER_CONFIG,
+    },
+    version: 1,
+  }
 }
 
 function normalizeConfig(config: StoredAgentConfig): AgentConfig {
-  const profile = config.providerProfile === undefined ? undefined : getProviderProfile(config.providerProfile)
+  normalizeVersion(config.version)
+
+  const providerProfile = normalizeProviderProfile(config.providerProfile)
+  const profile = providerProfile === undefined ? undefined : getProviderProfile(providerProfile)
   const llm = mergeLLMConfig(profile?.llm, config.llm)
 
   return {
     ...(llm === undefined ? {} : {llm}),
     persistence: normalizePersistence(config),
     pipeline: normalizePipeline(config),
-    ...(config.providerProfile === undefined ? {} : {providerProfile: config.providerProfile}),
+    ...(providerProfile === undefined ? {} : {providerProfile}),
     providers: normalizeProviders(config, profile),
     providerSettings: normalizeProviderSettings(mergeProviderSettings(profile?.providerSettings, config.providerSettings)),
     version: 1,
@@ -163,28 +229,90 @@ function normalizeConfig(config: StoredAgentConfig): AgentConfig {
 
 function normalizePersistence(config: StoredAgentConfig): AgentConfig['persistence'] {
   return {
-    jobStore: config.persistence?.jobStore ?? DEFAULT_AGENT_CONFIG.persistence.jobStore,
+    jobStore: normalizeJobStoreKind(config.persistence?.jobStore),
   }
+}
+
+function normalizeJobStoreKind(value: string | undefined): JobStoreKind {
+  if (value === undefined) {
+    return DEFAULT_PERSISTENCE_CONFIG.jobStore
+  }
+
+  if (JOB_STORE_KINDS.includes(value as JobStoreKind)) {
+    return value as JobStoreKind
+  }
+
+  throw new TypeError(`Unsupported job store: ${value}`)
 }
 
 function normalizePipeline(config: StoredAgentConfig): AgentConfig['pipeline'] {
   return {
-    maxStageRetries: normalizeNonNegativeInteger(config.pipeline?.maxStageRetries, DEFAULT_AGENT_CONFIG.pipeline.maxStageRetries),
-    retryBackoffMs: normalizeNonNegativeInteger(config.pipeline?.retryBackoffMs, DEFAULT_AGENT_CONFIG.pipeline.retryBackoffMs),
+    maxStageRetries: normalizeNonNegativeInteger(config.pipeline?.maxStageRetries, DEFAULT_PIPELINE_CONFIG.maxStageRetries),
+    retryBackoffMs: normalizeNonNegativeInteger(config.pipeline?.retryBackoffMs, DEFAULT_PIPELINE_CONFIG.retryBackoffMs),
   }
 }
 
 function normalizeProviders(config: StoredAgentConfig, profile: ReturnType<typeof getProviderProfile>): AgentConfig['providers'] {
   return {
-    asr: config.providers?.asr ?? profile?.providers.asr ?? DEFAULT_AGENT_CONFIG.providers.asr,
-    tts: config.providers?.tts ?? profile?.providers.tts ?? DEFAULT_AGENT_CONFIG.providers.tts,
-    vlm: config.providers?.vlm ?? profile?.providers.vlm ?? DEFAULT_AGENT_CONFIG.providers.vlm,
+    asr: normalizeProviderName('asr', resolveConfiguredProvider('asr', config, profile)),
+    tts: normalizeProviderName('tts', resolveConfiguredProvider('tts', config, profile)),
+    vlm: normalizeProviderName('vlm', resolveConfiguredProvider('vlm', config, profile)),
   }
 }
 
+function resolveConfiguredProvider(role: keyof AgentConfig['providers'], config: StoredAgentConfig, profile: ReturnType<typeof getProviderProfile>): string {
+  const provider = config.providers?.[role] ?? profile?.providers[role]
+
+  if (provider === undefined) {
+    throw new TypeError(`Provider ${role} must be configured in providers or providerProfile.`)
+  }
+
+  return provider
+}
+
+function normalizeProviderName(role: keyof AgentConfig['providers'], provider: string): ProviderName {
+  if (isProviderName(provider)) {
+    return provider
+  }
+
+  throw new TypeError(`Unsupported ${role} provider: ${provider}`)
+}
+
+function normalizeProviderProfile(profile: string | undefined): ProviderProfileName | undefined {
+  if (profile === undefined) {
+    return undefined
+  }
+
+  if (isProviderProfileName(profile)) {
+    return profile
+  }
+
+  throw new TypeError(`Unsupported provider profile: ${profile}`)
+}
+
+function normalizeVersion(version: unknown): 1 {
+  if (version === 1) {
+    return version
+  }
+
+  throw new TypeError(`Unsupported config version: ${String(version)}`)
+}
+
+function parseStoredConfig(value: unknown): StoredAgentConfig {
+  const result = StoredAgentConfigSchema.safeParse(value)
+
+  if (!result.success) {
+    const issues = result.error.issues.map((issue) => `${issue.path.map(String).join('.') || '<root>'}: ${issue.message}`).join('; ')
+
+    throw new TypeError(`Config file config.json has invalid shape; no config shape inference fallback is allowed. ${issues}`)
+  }
+
+  return result.data
+}
+
 function mergeLLMConfig(
-  current: LLMClientConfig | undefined,
-  update?: Partial<LLMClientConfig>,
+  current: LLMClientConfig | StoredLLMConfig | undefined,
+  update?: Partial<LLMClientConfig> | StoredLLMConfig,
   provider?: LLMProviderName,
 ): LLMClientConfig | undefined {
   if (current === undefined && update === undefined && provider === undefined) {
@@ -198,74 +326,106 @@ function mergeLLMConfig(
   })
 }
 
-function normalizeLLMConfig(value: Partial<LLMClientConfig> | undefined): LLMClientConfig | undefined {
+function normalizeLLMConfig(value: Partial<LLMClientConfig> | StoredLLMConfig | undefined): LLMClientConfig | undefined {
   if (value === undefined) {
     return undefined
   }
 
-  if (value.provider !== 'anthropic' && value.provider !== 'openai-compatible') {
-    throw new TypeError(`Unsupported LLM provider: ${String(value.provider)}`)
+  const unsupportedKey = Object.keys(value).find((key) => !['apiKeyEnv', 'baseURL', 'headers', 'model', 'name', 'provider'].includes(key))
+
+  if (unsupportedKey !== undefined) {
+    throw new TypeError(`Unsupported LLM config field: ${unsupportedKey}`)
   }
 
-  if (typeof value.model !== 'string' || value.model.trim() === '') {
-    throw new TypeError('LLM model must be configured.')
+  const provider = value.provider
+
+  if (!isLLMProviderName(provider)) {
+    throw new TypeError(`Unsupported LLM provider: ${String(provider)}`)
   }
 
-  if (value.provider === 'openai-compatible' && (typeof value.baseURL !== 'string' || value.baseURL.trim() === '')) {
-    throw new TypeError('LLM baseURL must be configured for openai-compatible.')
+  const model = normalizeRequiredCleanString(value.model, 'LLM model')
+  const baseURL = normalizeOptionalString(value.baseURL, 'LLM baseURL')
+  const apiKeyEnv = normalizeOptionalString(value.apiKeyEnv, 'LLM apiKeyEnv')
+  const name = normalizeOptionalString(value.name, 'LLM name')
+
+  if (provider === OPENAI_COMPATIBLE_LLM_PROVIDER && baseURL === undefined) {
+    throw new TypeError(`LLM baseURL must be configured for ${OPENAI_COMPATIBLE_LLM_PROVIDER}.`)
   }
 
   return {
-    ...(normalizeOptionalString(value.apiKeyEnv) === undefined ? {} : {apiKeyEnv: normalizeOptionalString(value.apiKeyEnv)}),
-    ...(normalizeOptionalString(value.authTokenEnv) === undefined ? {} : {authTokenEnv: normalizeOptionalString(value.authTokenEnv)}),
-    ...(normalizeOptionalString(value.baseURL) === undefined ? {} : {baseURL: normalizeOptionalString(value.baseURL)}),
+    ...(apiKeyEnv === undefined ? {} : {apiKeyEnv}),
+    ...(baseURL === undefined ? {} : {baseURL}),
     ...(value.headers === undefined ? {} : {headers: normalizeHeaders(value.headers)}),
-    model: value.model.trim(),
-    ...(normalizeOptionalString(value.name) === undefined ? {} : {name: normalizeOptionalString(value.name)}),
-    provider: value.provider,
-    ...(value.supportsStructuredOutputs === undefined ? {} : {supportsStructuredOutputs: value.supportsStructuredOutputs}),
+    model,
+    ...(name === undefined ? {} : {name}),
+    provider,
   }
 }
 
-function normalizeOptionalString(value: string | undefined): string | undefined {
-  return value === undefined || value.trim() === '' ? undefined : value.trim()
+function normalizeOptionalString(value: string | undefined, field: string): string | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  return normalizeRequiredCleanString(value, field)
+}
+
+function normalizeRequiredCleanString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value === '' || value.trim() !== value) {
+    throw new TypeError(`${field} must be clean non-empty text; no config string cleanup fallback is allowed.`)
+  }
+
+  return value
 }
 
 function normalizeHeaders(value: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => entry[0].trim() !== '' && typeof entry[1] === 'string' && entry[1].trim() !== ''))
+  for (const [key, headerValue] of Object.entries(value)) {
+    if (key === '' || key.trim() !== key || typeof headerValue !== 'string' || headerValue === '' || headerValue.trim() !== headerValue) {
+      throw new TypeError('LLM headers must use clean non-empty string keys and values; no config header cleanup fallback is allowed.')
+    }
+  }
+
+  return value
 }
 
 function compactStoredConfig(config: StoredAgentConfig): StoredAgentConfig {
   const normalized = normalizeConfig(config)
   const profile = normalized.providerProfile === undefined ? undefined : getProviderProfile(normalized.providerProfile)
-  const baseProviders = {
-    asr: profile?.providers.asr ?? DEFAULT_AGENT_CONFIG.providers.asr,
-    tts: profile?.providers.tts ?? DEFAULT_AGENT_CONFIG.providers.tts,
-    vlm: profile?.providers.vlm ?? DEFAULT_AGENT_CONFIG.providers.vlm,
-  }
-  const providerOverrides = Object.fromEntries(
-    Object.entries(normalized.providers).filter(([role, provider]) => provider !== baseProviders[role as keyof typeof baseProviders]),
-  ) as StoredAgentConfig['providers']
+  const providers = normalized.providerProfile === undefined
+    ? normalized.providers
+    : diffProviders(normalized.providers, profile?.providers)
   const providerSettings = diffProviderSettings(normalized.providerSettings, profile?.providerSettings ?? {})
 
   return {
     ...(normalized.llm === undefined || deepEqual(normalized.llm, profile?.llm) ? {} : {llm: normalized.llm}),
-    ...(normalized.persistence.jobStore === DEFAULT_AGENT_CONFIG.persistence.jobStore ? {} : {persistence: normalized.persistence}),
-    ...(normalized.pipeline.maxStageRetries === DEFAULT_AGENT_CONFIG.pipeline.maxStageRetries && normalized.pipeline.retryBackoffMs === DEFAULT_AGENT_CONFIG.pipeline.retryBackoffMs ? {} : {pipeline: normalized.pipeline}),
+    ...(normalized.persistence.jobStore === DEFAULT_PERSISTENCE_CONFIG.jobStore ? {} : {persistence: normalized.persistence}),
+    ...(normalized.pipeline.maxStageRetries === DEFAULT_PIPELINE_CONFIG.maxStageRetries && normalized.pipeline.retryBackoffMs === DEFAULT_PIPELINE_CONFIG.retryBackoffMs ? {} : {pipeline: normalized.pipeline}),
     ...(normalized.providerProfile === undefined ? {} : {providerProfile: normalized.providerProfile}),
     ...(Object.keys(providerSettings).length === 0 ? {} : {providerSettings}),
-    ...(providerOverrides === undefined || Object.keys(providerOverrides).length === 0 ? {} : {providers: providerOverrides}),
+    ...(Object.keys(providers).length === 0 ? {} : {providers}),
     version: 1,
   }
 }
 
-function mergeProviderSettings(...values: Array<ProviderSettings | undefined>): ProviderSettings {
-  const merged: ProviderSettings = {}
+function diffProviders(value: AgentConfig['providers'], base: AgentConfig['providers'] | undefined): NonNullable<StoredAgentConfig['providers']> {
+  const diff: NonNullable<StoredAgentConfig['providers']> = {}
+
+  for (const role of PROVIDER_ROLES) {
+    if (value[role] !== base?.[role]) {
+      diff[role] = value[role]
+    }
+  }
+
+  return diff
+}
+
+function mergeProviderSettings(...values: Array<ProviderSettings | StoredProviderSettings | undefined>): StoredProviderSettings {
+  const merged: StoredProviderSettings = {}
 
   for (const value of values) {
     for (const [role, settings] of Object.entries(value ?? {})) {
-      merged[role as keyof ProviderSettings] = {
-        ...merged[role as keyof ProviderSettings],
+      merged[role] = {
+        ...merged[role],
         ...settings,
       }
     }
@@ -274,20 +434,58 @@ function mergeProviderSettings(...values: Array<ProviderSettings | undefined>): 
   return merged
 }
 
-function normalizeProviderSettings(value: ProviderSettings): ProviderSettings {
+function normalizeProviderSettings(value: StoredProviderSettings): ProviderSettings {
   const normalized: ProviderSettings = {}
 
   for (const [role, settings] of Object.entries(value)) {
-    const normalizedSettings = {
-      ...(Array.isArray(settings?.command) && settings.command.length > 0 ? {command: settings.command.filter((part) => typeof part === 'string' && part.trim() !== '')} : {}),
+    if (!isProviderRole(role)) {
+      throw new TypeError(`Unsupported provider settings role: ${role}`)
     }
 
+    const normalizedSettings = normalizeProviderRoleSettings(role, settings)
+
     if (Object.keys(normalizedSettings).length > 0) {
-      normalized[role as keyof ProviderSettings] = normalizedSettings
+      normalized[role] = normalizedSettings
     }
   }
 
   return normalized
+}
+
+function isProviderRole(role: string): role is ProviderRole {
+  return (PROVIDER_ROLES as readonly string[]).includes(role)
+}
+
+function normalizeProviderRoleSettings(role: ProviderRole, settings: ProviderRoleSettings | undefined): ProviderRoleSettings {
+  if (settings === undefined) {
+    return {}
+  }
+
+  if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
+    throw new TypeError(`Provider settings for ${role} must be an object.`)
+  }
+
+  const unsupportedKey = Object.keys(settings).find((key) => key !== 'command')
+
+  if (unsupportedKey !== undefined) {
+    throw new TypeError(`Unsupported provider settings field for ${role}: ${unsupportedKey}`)
+  }
+
+  if (settings.command === undefined) {
+    return {}
+  }
+
+  if (!Array.isArray(settings.command) || settings.command.length === 0) {
+    throw new TypeError(`Provider settings command for ${role} must be a non-empty string array.`)
+  }
+
+  if (settings.command.some((part) => typeof part !== 'string' || part === '' || part.trim() !== part)) {
+    throw new TypeError(`Provider settings command for ${role} must contain only clean non-empty strings; no command argv cleanup fallback is allowed.`)
+  }
+
+  return {
+    command: settings.command,
+  }
 }
 
 function diffProviderSettings(value: ProviderSettings, base: ProviderSettings): ProviderSettings {
@@ -302,9 +500,9 @@ function diffProviderSettings(value: ProviderSettings, base: ProviderSettings): 
   return diff
 }
 
-function normalizeNonNegativeInteger(value: number | undefined, fallback: number): number {
+function normalizeNonNegativeInteger(value: number | undefined, defaultValue: number): number {
   if (value === undefined) {
-    return fallback
+    return defaultValue
   }
 
   if (!Number.isInteger(value) || value < 0) {

@@ -35,6 +35,7 @@ describe('runtime job store', () => {
 
       await store.initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })
@@ -73,6 +74,7 @@ describe('runtime job store', () => {
 
       await store.initialize({
         inputPath: '/tmp/input.mp4',
+        pipeline: 'film',
         projectId: 'demo',
         stages: ['ingest'],
       })

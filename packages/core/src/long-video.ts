@@ -19,11 +19,7 @@ export function createLongVideoChunkPlan(mediaInfo: MediaInfo, options: LongVide
     ...DEFAULT_LONG_VIDEO_CHUNK_OPTIONS,
     ...options,
   })
-  const sourceDuration = inferSourceDuration(mediaInfo)
-
-  if (!Number.isFinite(sourceDuration) || sourceDuration < 0) {
-    throw new Error(`Invalid media duration for long video chunking: ${sourceDuration}`)
-  }
+  const sourceDuration = resolveSourceDuration(mediaInfo)
 
   const chunks: LongVideoChunkPlan['chunks'] = []
 
@@ -61,14 +57,23 @@ function roundSeconds(value: number): number {
   return Number(value.toFixed(6))
 }
 
-function inferSourceDuration(mediaInfo: MediaInfo): number {
+function resolveSourceDuration(mediaInfo: MediaInfo): number {
   if (mediaInfo.duration !== undefined) {
-    return mediaInfo.duration
+    if (Number.isFinite(mediaInfo.duration) && mediaInfo.duration > 0) {
+      return mediaInfo.duration
+    }
+
+    throw new Error('Long video chunk planning requires a positive media duration; no empty chunk-plan fallback is allowed.')
   }
 
   const streamDurations = mediaInfo.streams
     .map((stream) => stream.duration)
     .filter((duration): duration is number => duration !== undefined)
+  const streamDuration = streamDurations.length === 0 ? undefined : Math.max(...streamDurations)
 
-  return streamDurations.length === 0 ? 0 : Math.max(...streamDurations)
+  if (streamDuration !== undefined && Number.isFinite(streamDuration) && streamDuration > 0) {
+    return streamDuration
+  }
+
+  throw new Error('Long video chunk planning requires media or stream duration from probing; no empty chunk-plan fallback is allowed.')
 }

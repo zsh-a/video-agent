@@ -24,10 +24,12 @@ export VIDEO_AGENT_ASR_COMMAND='["bun","examples/provider-adapters/mock-json-pro
 export VIDEO_AGENT_VLM_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 export VIDEO_AGENT_TTS_COMMAND='["bun","examples/provider-adapters/mock-json-provider.ts"]'
 bun run dev provider-env --json --workspace .video-agent
-bun run dev provider-test --workspace .video-agent
+SMOKE_MEDIA=/path/to/sample.wav
+SMOKE_FRAME=/path/to/frame.jpg
+bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --workspace .video-agent
 ```
 
-When the env values are set, `provider-env` should report each required command variable as configured. `provider-test` should call each adapter with a minimal ASR/VLM/TTS payload and report `succeeded` for each role before you run the full pipeline. Command adapters can return an optional `metadata` envelope with `model`, `requestId`, `usage`, and `cost`; `provider-test` includes those fields in the certification output and records structured setup, validation, and execution failures.
+When the env values are set, `provider-env` should report each required command variable as configured. `provider-test` should call each adapter with caller-supplied ASR media, VLM frame, and TTS text samples and report `succeeded` for each role before you run the full pipeline. Command adapters can return an optional `metadata` envelope with `model`, `requestId`, `usage`, and `cost`; `provider-test` includes those fields in the certification output and records structured setup, input, validation, and execution failures.
 
 ## LLM Provider Smoke Test
 
@@ -136,7 +138,7 @@ When replacing the mock recipe with a local process or command-wrapped service:
 - run `bun run dev provider-env --json --workspace .video-agent` before a full pipeline run
 - run `bun run dev provider-env --shell-template --workspace .video-agent` to generate non-secret `export` placeholders for the current provider selection
 - run `bun run dev provider-env --env KEY=VALUE --json --workspace .video-agent` when an agent client should validate only explicit environment values
-- run `bun run dev provider-test --workspace .video-agent` to validate adapter response contracts before a full pipeline run
-- run `bun run dev provider-test --env KEY=VALUE --workspace .video-agent` when an agent client should smoke-test only explicit environment values
+- run `bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --workspace .video-agent` to validate adapter response contracts before a full pipeline run
+- run `bun run dev provider-test --env KEY=VALUE --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --workspace .video-agent` when an agent client should smoke-test only explicit environment values
 - use `GET /provider-env?env=KEY=VALUE`, `POST /provider-test` with an `env` object, or MCP provider tools with an `env` object for the same explicit-value checks from API/agent clients
 - run `bun run test` after changing in-repo adapter code

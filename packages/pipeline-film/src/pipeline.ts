@@ -1,40 +1,56 @@
-import type {PipelineDefinition} from '@video-agent/runtime'
+import {PIPELINE_KIND_FILM, type PipelineDefinition} from '@video-agent/core'
+import {ASR_RESULT_ARTIFACT_NAME, AUDIO_MIX_ARTIFACT_NAME, CLIP_PLAN_ARTIFACT_NAME, CLIP_PLAN_VALIDATED_ARTIFACT_NAME, FRAMES_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME, OUTPUT_NARRATION_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME, RECAP_SCRIPT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME, SCENES_ARTIFACT_NAME, SILENCE_PERIODS_ARTIFACT_NAME, SOURCE_MANIFEST_ARTIFACT_NAME, STORY_INDEX_ARTIFACT_NAME, SUBTITLES_ARTIFACT_NAME, TIMELINE_FUSION_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME, VLM_ANALYSIS_ARTIFACT_NAME} from '@video-agent/runtime'
+
+export const FILM_STAGE_IDS = {
+  buildStoryIndex: 'build-story-index',
+  ingest: 'ingest',
+  mixAudio: 'mix-audio',
+  narrateOutput: 'narrate-output',
+  planClips: 'plan-clips',
+  qualityCheck: 'quality-check',
+  renderCut: 'render-cut',
+  renderFinal: 'render-final',
+  subtitle: 'subtitle',
+  synthesizeVoice: 'synthesize-voice',
+  understandSource: 'understand-source',
+  writeScript: 'write-script',
+} as const
 
 export const FILM_PIPELINE_STAGES = [
-  'ingest',
-  'understand-source',
-  'build-story-index',
-  'write-script',
-  'plan-clips',
-  'render-cut',
-  'narrate-output',
-  'synthesize-voice',
-  'mix-audio',
-  'subtitle',
-  'render-final',
-  'quality-check',
+  FILM_STAGE_IDS.ingest,
+  FILM_STAGE_IDS.understandSource,
+  FILM_STAGE_IDS.buildStoryIndex,
+  FILM_STAGE_IDS.writeScript,
+  FILM_STAGE_IDS.planClips,
+  FILM_STAGE_IDS.renderCut,
+  FILM_STAGE_IDS.narrateOutput,
+  FILM_STAGE_IDS.synthesizeVoice,
+  FILM_STAGE_IDS.mixAudio,
+  FILM_STAGE_IDS.subtitle,
+  FILM_STAGE_IDS.renderFinal,
+  FILM_STAGE_IDS.qualityCheck,
 ] as const
 
 export type FilmPipelineStage = typeof FILM_PIPELINE_STAGES[number]
 
-export const FILM_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<FilmPipelineStage, readonly string[]> = {
-  ingest: [],
-  'understand-source': ['source-manifest.json', 'media-info.json'],
-  'build-story-index': ['source-manifest.json', 'media-info.json', 'scenes.json', 'frames.json', 'asr-result.json', 'silence-periods.json', 'vlm-analysis.json', 'timeline-fusion.json'],
-  'write-script': ['source-manifest.json', 'story-index.json', 'asr-result.json', 'vlm-analysis.json'],
-  'plan-clips': ['source-manifest.json', 'story-index.json', 'asr-result.json', 'recap-script.json'],
-  'render-cut': ['source-manifest.json', 'clip-plan.json'],
-  'narrate-output': ['story-index.json', 'asr-result.json', 'clip-plan-validated.json', 'output-timeline-map.json', 'recap-script.json'],
-  'synthesize-voice': ['narration.json', 'output-narration.json'],
-  'mix-audio': ['source-manifest.json', 'output-timeline-map.json', 'narration.json', 'tts-segments.json'],
-  subtitle: ['narration.json'],
-  'render-final': ['audio-mix.json', 'subtitles.json', 'output-timeline-map.json'],
-  'quality-check': ['render-output.json', 'narration.json', 'tts-segments.json', 'output-timeline-map.json'],
-}
+export const FILM_CHECKPOINT_ARTIFACTS_BY_STAGE = {
+  [FILM_STAGE_IDS.ingest]: [],
+  [FILM_STAGE_IDS.understandSource]: [SOURCE_MANIFEST_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.buildStoryIndex]: [SOURCE_MANIFEST_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME, SCENES_ARTIFACT_NAME, FRAMES_ARTIFACT_NAME, ASR_RESULT_ARTIFACT_NAME, SILENCE_PERIODS_ARTIFACT_NAME, VLM_ANALYSIS_ARTIFACT_NAME, TIMELINE_FUSION_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.writeScript]: [SOURCE_MANIFEST_ARTIFACT_NAME, STORY_INDEX_ARTIFACT_NAME, ASR_RESULT_ARTIFACT_NAME, VLM_ANALYSIS_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.planClips]: [SOURCE_MANIFEST_ARTIFACT_NAME, STORY_INDEX_ARTIFACT_NAME, ASR_RESULT_ARTIFACT_NAME, RECAP_SCRIPT_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.renderCut]: [SOURCE_MANIFEST_ARTIFACT_NAME, CLIP_PLAN_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.narrateOutput]: [STORY_INDEX_ARTIFACT_NAME, ASR_RESULT_ARTIFACT_NAME, CLIP_PLAN_VALIDATED_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME, RECAP_SCRIPT_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.synthesizeVoice]: [OUTPUT_NARRATION_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.mixAudio]: [SOURCE_MANIFEST_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME, OUTPUT_NARRATION_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.subtitle]: [OUTPUT_NARRATION_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.renderFinal]: [AUDIO_MIX_ARTIFACT_NAME, SUBTITLES_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME],
+  [FILM_STAGE_IDS.qualityCheck]: [RENDER_OUTPUT_ARTIFACT_NAME, OUTPUT_NARRATION_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME],
+} satisfies Record<FilmPipelineStage, readonly string[]>
 
-export const FILM_PIPELINE_DEFINITION: PipelineDefinition<'film', FilmPipelineStage> = {
+export const FILM_PIPELINE_DEFINITION: PipelineDefinition<typeof PIPELINE_KIND_FILM, FilmPipelineStage> = {
   checkpointArtifactsByStage: FILM_CHECKPOINT_ARTIFACTS_BY_STAGE,
-  defaultRerunStage: 'write-script',
-  kind: 'film',
+  defaultRerunStage: FILM_STAGE_IDS.writeScript,
+  kind: PIPELINE_KIND_FILM,
   stages: FILM_PIPELINE_STAGES,
 }

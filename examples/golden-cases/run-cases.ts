@@ -358,14 +358,9 @@ function llmExpectationWarnings(providerReport: unknown): string[] {
   }
 
   const generateObject = providerReport.summary.llm.byOperation.generateObject
-  const fallback = providerReport.summary.llm.byOperation.generateObjectFallbackText
 
   if (isRecord(generateObject) && typeof generateObject.failed === 'number' && generateObject.failed > 0) {
     warnings.push(`LLM structured generation failed ${generateObject.failed} time(s).`)
-  }
-
-  if (isRecord(fallback) && typeof fallback.succeeded === 'number' && fallback.succeeded > 0) {
-    warnings.push(`LLM fallback text generation succeeded ${fallback.succeeded} time(s).`)
   }
 
   return warnings

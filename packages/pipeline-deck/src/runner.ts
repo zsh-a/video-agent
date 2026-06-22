@@ -14,7 +14,9 @@ import {
 } from './project/index.js'
 import {createDeckFinalRenderProject} from './render/final/index.js'
 
-export type DeckExplainerPipelineMode = 'audio-anchored' | 'script-generated' | 'summarize'
+export const DECK_EXPLAINER_PIPELINE_MODES = ['script-generated', 'summarize', 'audio-anchored'] as const
+
+export type DeckExplainerPipelineMode = (typeof DECK_EXPLAINER_PIPELINE_MODES)[number]
 
 export interface RunDeckExplainerPipelineOptions extends Omit<CreateDeckExplainerProjectOptions, 'mode'> {
   chromiumCommand?: CreateDeckFinalRenderProjectOptions['chromiumCommand']

@@ -1,0 +1,7 @@
+import {HTML_RENDER_OUTPUT_RENDERER, REMOTION_RENDER_OUTPUT_RENDERER} from '@video-agent/runtime'
+
+export const DECK_FINAL_RENDERERS = [REMOTION_RENDER_OUTPUT_RENDERER, HTML_RENDER_OUTPUT_RENDERER] as const
+
+export type DeckFinalRenderer = (typeof DECK_FINAL_RENDERERS)[number]
+
+export const DEFAULT_DECK_FINAL_RENDERER = REMOTION_RENDER_OUTPUT_RENDERER satisfies DeckFinalRenderer

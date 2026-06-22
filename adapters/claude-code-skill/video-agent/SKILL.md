@@ -35,7 +35,9 @@ bun run dev doctor --workspace .video-agent
 
 ```sh
 bun run dev provider-env --json --workspace .video-agent
-bun run dev provider-test --json --workspace .video-agent
+SMOKE_MEDIA=/path/to/sample.wav
+SMOKE_FRAME=/path/to/frame.jpg
+bun run dev provider-test --media "$SMOKE_MEDIA" --frame "$SMOKE_FRAME" --text 'Provider smoke test narration.' --json --workspace .video-agent
 ```
 
 3. Inspect an input media file:

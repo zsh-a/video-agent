@@ -1,5 +1,3 @@
-import type {NarrationSegment} from '@video-agent/ir'
-
 import {runProcess} from '@video-agent/media'
 
 import type {
@@ -7,6 +5,7 @@ import type {
   MediaInput,
   SceneFrameBatch,
   Transcript,
+  TTSInputSegment,
   TTSProvider,
   TTSSegment,
   VLMProvider,
@@ -16,6 +15,7 @@ import type {ProviderExecutionRole} from './errors.js'
 
 import {ProviderExecutionError} from './errors.js'
 import {parseTranscript, parseTtsSegments, parseVlmScenes} from './json-response.js'
+import {SceneFrameBatchesSchema} from './schemas.js'
 import {validateVlmScenesForBatches} from './vlm-validation.js'
 
 export interface CommandProviderOptions {
@@ -41,21 +41,23 @@ export class CommandVLMProvider implements VLMProvider {
   constructor(private readonly options: CommandProviderOptions) {}
 
   async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
+    const batches = SceneFrameBatchesSchema.parse(input)
+
     return validateVlmScenesForBatches(parseVlmScenes(
       await runProviderCommand('vlm', this.options, {
         context,
-        input,
+        input: batches,
         kind: 'vlm',
         version: 1,
       }),
-    ), input)
+    ), batches)
   }
 }
 
 export class CommandTTSProvider implements TTSProvider {
   constructor(private readonly options: CommandProviderOptions) {}
 
-  async synthesize(segments: NarrationSegment[]): Promise<TTSSegment[]> {
+  async synthesize(segments: TTSInputSegment[]): Promise<TTSSegment[]> {
     return parseTtsSegments(
       await runProviderCommand('tts', this.options, {
         kind: 'tts',

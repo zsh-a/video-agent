@@ -1,10 +1,9 @@
 import type {Deck, SlideTiming, TimedDeck} from '@video-agent/ir'
 
-import {copyFile, mkdir} from 'node:fs/promises'
+import {copyFile, mkdir, writeFile} from 'node:fs/promises'
 import {createRequire} from 'node:module'
 import {dirname, resolve} from 'node:path'
 
-import {bunWrite} from '../../bun-runtime.js'
 import {highlightDeckCodeBlocks} from '../code-highlighting.js'
 import type {CodeHighlightMap} from '../components/code-highlight-context.js'
 import {deckCanvasSize} from '../format.js'
@@ -77,9 +76,9 @@ export async function writeDeckHtmlProject(input: WriteDeckHtmlProjectInput): Pr
 
   await mkdir(outputDir, {recursive: true})
   await writeDeckFontAssets(outputDir)
-  await bunWrite(planPath, `${JSON.stringify(plan, null, 2)}\n`)
-  await bunWrite(runtimePath, createDeckRuntimeScript())
-  await bunWrite(entryHtml, createDeckHtml(plan, {
+  await writeFile(planPath, `${JSON.stringify(plan, null, 2)}\n`)
+  await writeFile(runtimePath, createDeckRuntimeScript())
+  await writeFile(entryHtml, createDeckHtml(plan, {
     codeHighlights,
     runtimeHref: './runtime.js',
     stylesheetHref: './styles.css',
@@ -113,7 +112,7 @@ export async function writeDeckHtmlCapturePage(input: WriteDeckHtmlCapturePageIn
   const codeHighlights = await highlightDeckCodeBlocks(plan.deck)
 
   await mkdir(outputDir, {recursive: true})
-  await bunWrite(outputPath, createDeckHtml(plan, {
+  await writeFile(outputPath, createDeckHtml(plan, {
     captureSlideId: input.slideId,
     codeHighlights,
     runtimeHref: input.runtimeHref,

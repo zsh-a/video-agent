@@ -5,7 +5,8 @@ import {dirname, join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
-import {recoverWorkspaceJobs} from '../../../packages/pipeline-film/src/worker.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
+import {recoverFilmWorkspaceJobs} from '../../../packages/pipeline-film/src/worker.js'
 
 describe('workspace worker recovery', () => {
   it('lists recoverable jobs in dry-run mode', async () => {
@@ -14,7 +15,7 @@ describe('workspace worker recovery', () => {
     try {
       await createRecoverableProject(root, 'demo')
 
-      const report = await recoverWorkspaceJobs({
+      const report = await recoverFilmWorkspaceJobs({
         dryRun: true,
         workspaceDir: root,
       })
@@ -39,7 +40,7 @@ describe('workspace worker recovery', () => {
     try {
       await createRecoverableProject(root, 'demo')
 
-      const report = await recoverWorkspaceJobs({workspaceDir: root})
+      const report = await recoverFilmWorkspaceJobs({workspaceDir: root})
 
       expect(report.recovered).to.equal(1)
       expect(report.results[0]?.status).to.equal('recovered')
@@ -56,7 +57,7 @@ describe('workspace worker recovery', () => {
     try {
       await createRecoverableProject(root, 'demo')
 
-      const report = await recoverWorkspaceJobs({
+      const report = await recoverFilmWorkspaceJobs({
         dryRun: true,
         maxAttempts: 1,
         workspaceDir: root,
@@ -85,7 +86,7 @@ describe('workspace worker recovery', () => {
       await createRecoverableProject(root, 'demo-a')
       await createRecoverableProject(root, 'demo-b')
 
-      const report = await recoverWorkspaceJobs({
+      const report = await recoverFilmWorkspaceJobs({
         dryRun: true,
         limit: 1,
         workspaceDir: root,
@@ -111,13 +112,13 @@ describe('workspace worker recovery', () => {
         updatedAt: '2026-01-01T00:00:00.000Z',
       })
 
-      const oldest = await recoverWorkspaceJobs({
+      const oldest = await recoverFilmWorkspaceJobs({
         dryRun: true,
         limit: 1,
         orderBy: 'oldest',
         workspaceDir: root,
       })
-      const byAttempt = await recoverWorkspaceJobs({
+      const byAttempt = await recoverFilmWorkspaceJobs({
         dryRun: true,
         limit: 1,
         orderBy: 'attempt',
@@ -141,7 +142,7 @@ describe('workspace worker recovery', () => {
         updatedAt: new Date().toISOString(),
       })
 
-      const report = await recoverWorkspaceJobs({
+      const report = await recoverFilmWorkspaceJobs({
         dryRun: true,
         runningStaleAfterMs: 60_000,
         statuses: ['running'],
@@ -172,7 +173,7 @@ describe('workspace worker recovery', () => {
       await createRecoverableProject(root, 'demo')
       await rm(join(root, 'projects', 'demo', 'artifacts', 'tts-segments.json'), {force: true})
 
-      const report = await recoverWorkspaceJobs({
+      const report = await recoverFilmWorkspaceJobs({
         dryRun: true,
         workspaceDir: root,
       })
@@ -204,7 +205,7 @@ describe('workspace worker recovery', () => {
       await createRecoverableProject(root, 'demo')
       await writeFile(join(root, 'projects', 'demo', 'artifacts', 'output-timeline-map.json'), '{"version":1,"source":"","outputDuration":1,"clips":[]}\n')
 
-      const report = await recoverWorkspaceJobs({
+      const report = await recoverFilmWorkspaceJobs({
         dryRun: true,
         workspaceDir: root,
       })
@@ -241,6 +242,7 @@ async function createRecoverableProject(root: string, projectId: string, options
   const inputPath = join(root, `${projectId}.mp4`)
   const stageStatus = options.stageStatus ?? 'failed'
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
@@ -302,9 +304,10 @@ async function createRecoverableProject(root: string, projectId: string, options
       renderer: 'ffmpeg',
       version: 1,
     }),
-    writeJson(artifactsDir, 'narration.json', {
+    writeJson(artifactsDir, 'output-narration.json', {
       language: 'zh-CN',
       segments: [],
+      timeline: 'output',
       version: 1,
     }),
     writeJson(artifactsDir, 'tts-segments.json', []),

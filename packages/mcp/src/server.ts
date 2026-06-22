@@ -1,5 +1,5 @@
 import {ExportQualityError, PipelineCheckpointError} from '@video-agent/runtime'
-import {ZodError} from 'zod'
+import {z, ZodError} from 'zod'
 
 import {callVideoAgentMcpTool, parseToolCallParams, VIDEO_AGENT_MCP_TOOLS, type McpTool} from './tools.js'
 
@@ -36,10 +36,23 @@ export interface McpServer {
   tools: McpTool[]
 }
 
+const JsonRpcIdSchema = z.union([z.string(), z.number(), z.null()])
+
+const JsonRpcRequestSchema = z.object({
+  id: JsonRpcIdSchema.optional(),
+  jsonrpc: z.literal('2.0'),
+  method: z.string().min(1),
+  params: z.unknown().optional(),
+}).strict()
+
 export function createVideoAgentMcpServer(options: McpServerOptions = {}): McpServer {
   return {
     async handleMessage(message) {
       const request = parseJsonRpcRequest(message)
+
+      if (request instanceof JsonRpcRequestParseError) {
+        return createJsonRpcProtocolError(null, request)
+      }
 
       if (request.id === undefined || request.method === 'notifications/initialized') {
         return
@@ -52,6 +65,14 @@ export function createVideoAgentMcpServer(options: McpServerOptions = {}): McpSe
       }
     },
     tools: VIDEO_AGENT_MCP_TOOLS,
+  }
+}
+
+export function parseJsonRpcMessageBody(body: string): unknown {
+  try {
+    return JSON.parse(body) as unknown
+  } catch (error) {
+    return new JsonRpcRequestParseError('parse_error', `Invalid JSON-RPC message body: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
@@ -84,20 +105,25 @@ async function handleRequest(request: JsonRpcRequest, options: McpServerOptions)
     }
   }
 
-  throw new Error(`Unsupported MCP method: ${request.method}`)
+  throw new JsonRpcRequestParseError('method_not_found', `Unsupported MCP method: ${request.method}`)
 }
 
-function parseJsonRpcRequest(value: unknown): JsonRpcRequest {
-  if (!isRecord(value) || value.jsonrpc !== '2.0' || typeof value.method !== 'string') {
-    throw new TypeError('Invalid JSON-RPC request.')
+function parseJsonRpcRequest(value: unknown): JsonRpcRequest | JsonRpcRequestParseError {
+  if (value instanceof JsonRpcRequestParseError) {
+    return value
   }
 
-  return {
-    ...(isJsonRpcId(value.id) || value.id === undefined ? {id: value.id} : {id: null}),
-    jsonrpc: '2.0',
-    method: value.method,
-    params: value.params,
+  const result = JsonRpcRequestSchema.safeParse(value)
+
+  if (!result.success) {
+    return new JsonRpcRequestParseError('invalid_request', 'Invalid JSON-RPC request.', result.error.issues.map((issue) => ({
+      code: issue.code,
+      message: issue.message,
+      path: issue.path.map(String),
+    })))
   }
+
+  return result.data
 }
 
 function createJsonRpcResult(id: JsonRpcId, result: unknown): JsonRpcResponse {
@@ -109,6 +135,10 @@ function createJsonRpcResult(id: JsonRpcId, result: unknown): JsonRpcResponse {
 }
 
 function createJsonRpcError(id: JsonRpcId, error: unknown): JsonRpcResponse {
+  if (error instanceof JsonRpcRequestParseError) {
+    return createJsonRpcProtocolError(id, error)
+  }
+
   if (error instanceof PipelineCheckpointError) {
     return {
       error: {
@@ -177,10 +207,26 @@ function createJsonRpcError(id: JsonRpcId, error: unknown): JsonRpcResponse {
   }
 }
 
-function isJsonRpcId(value: unknown): value is JsonRpcId {
-  return value === null || typeof value === 'string' || typeof value === 'number'
+function createJsonRpcProtocolError(id: JsonRpcId, error: JsonRpcRequestParseError): JsonRpcResponse {
+  return {
+    error: {
+      code: error.code,
+      ...(error.issues === undefined ? {} : {data: {issues: error.issues}}),
+      message: error.message,
+    },
+    id,
+    jsonrpc: '2.0',
+  }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+class JsonRpcRequestParseError extends Error {
+  readonly code: number
+  readonly issues: Array<{code: string; message: string; path: string[]}> | undefined
+
+  constructor(kind: 'invalid_request' | 'method_not_found' | 'parse_error', message: string, issues?: Array<{code: string; message: string; path: string[]}>) {
+    super(message)
+    this.name = 'JsonRpcRequestParseError'
+    this.code = kind === 'parse_error' ? -32_700 : kind === 'invalid_request' ? -32_600 : -32_601
+    this.issues = issues
+  }
 }

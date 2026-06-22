@@ -1,5 +1,7 @@
 import type {QualityIssue} from './timeline.js'
 
+import {QUALITY_WARNING_SEVERITY, countQualityIssues} from './issues.js'
+
 export interface AudioLoudnessInput {
   maxVolumeDb?: number
   meanVolumeDb?: number
@@ -18,12 +20,11 @@ export function checkAudioLoudness(input: AudioLoudnessInput): AudioLoudnessQual
   const issues = [...checkProbeAvailability(input), ...checkMeanVolume(input.meanVolumeDb), ...checkMaxVolume(input.maxVolumeDb)]
 
   return {
-    errors: issues.filter((issue) => issue.severity === 'error').length,
+    ...countQualityIssues(issues),
     issues,
     ...(input.maxVolumeDb === undefined ? {} : {maxVolumeDb: input.maxVolumeDb}),
     ...(input.meanVolumeDb === undefined ? {} : {meanVolumeDb: input.meanVolumeDb}),
     probed: true,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -32,7 +33,7 @@ export function createAudioLoudnessProbeFailure(message: string): AudioLoudnessQ
     {
       code: 'audio.loudness.probe_failed',
       message,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 
@@ -53,7 +54,7 @@ function checkProbeAvailability(input: AudioLoudnessInput): QualityIssue[] {
     {
       code: 'audio.loudness.unavailable',
       message: 'Audio loudness could not be read from ffmpeg volumedetect output.',
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 }
@@ -68,7 +69,7 @@ function checkMeanVolume(meanVolumeDb: number | undefined): QualityIssue[] {
       {
         code: 'audio.loudness.quiet',
         message: `Audio mean volume ${meanVolumeDb} dB is very quiet.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       },
     ]
   }
@@ -78,7 +79,7 @@ function checkMeanVolume(meanVolumeDb: number | undefined): QualityIssue[] {
       {
         code: 'audio.loudness.loud',
         message: `Audio mean volume ${meanVolumeDb} dB is very loud.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       },
     ]
   }
@@ -95,7 +96,7 @@ function checkMaxVolume(maxVolumeDb: number | undefined): QualityIssue[] {
     {
       code: 'audio.loudness.clipping_risk',
       message: `Audio max volume ${maxVolumeDb} dB is close to clipping.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 }

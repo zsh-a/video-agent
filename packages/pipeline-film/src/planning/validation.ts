@@ -56,8 +56,8 @@ export function validateGeneratedRecapScript(recapScript: RecapScript, storyInde
       }
     }
 
-    if (segment.suggestedDuration <= 0) {
-      throw new Error(`Recap script segment ${segment.id} must have a positive suggestedDuration.`)
+    if (!Number.isFinite(segment.suggestedDuration) || segment.suggestedDuration <= 0) {
+      throw new Error(`Recap script segment ${segment.id} must have a positive finite suggestedDuration; no runtime duration repair fallback is allowed.`)
     }
 
     if (segment.pauseAfterMs > 2000) {
@@ -92,7 +92,7 @@ function validateRecapScriptDurations(recapScript: RecapScript, targetDuration: 
       suggestedDuration,
     }
   })
-  const currentDuration = roundSeconds(segments.reduce((total, segment) => total + Math.max(0, segment.suggestedDuration), 0))
+  const currentDuration = roundSeconds(segments.reduce((total, segment) => total + segment.suggestedDuration, 0))
   const expectedDuration = roundSeconds(targetDuration)
 
   if (Math.abs(currentDuration - expectedDuration) > 0.001) {

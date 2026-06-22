@@ -2,12 +2,12 @@ import {SourceManifestSchema} from '@video-agent/ir'
 import {probeMedia} from '@video-agent/media'
 import {resolve} from 'node:path'
 
-import {assertFileExists, createProjectWorkspace, refreshArtifactManifest} from '@video-agent/runtime'
+import {MEDIA_INFO_ARTIFACT_NAME, SOURCE_MANIFEST_ARTIFACT_NAME, createProjectAgentRuntime, createProjectWorkspace, refreshArtifactManifest} from '@video-agent/runtime'
 import type {CreateFilmIngestProjectOptions, CreateFilmIngestProjectResult} from './types.js'
 import {createSourceManifest} from '../planning/source.js'
-import {completeFilmStage, createFilmJobStore, failFilmStage, startFilmStage} from '../shared/stage-runtime.js'
-import {hashFile} from '../shared/utils.js'
-import {FILM_PIPELINE_DEFINITION, FILM_PIPELINE_STAGES} from '../pipeline.js'
+import {createFilmJobStore} from '../shared/stage-runtime.js'
+import {assertFileExists, hashFile} from '../shared/utils.js'
+import {FILM_PIPELINE_DEFINITION, FILM_PIPELINE_STAGES, FILM_STAGE_IDS} from '../pipeline.js'
 
 export async function createFilmIngestProject(options: CreateFilmIngestProjectOptions): Promise<CreateFilmIngestProjectResult> {
   const inputPath = resolve(options.inputPath)
@@ -26,7 +26,13 @@ export async function createFilmIngestProject(options: CreateFilmIngestProjectOp
     projectId: workspace.projectId,
     stages: FILM_PIPELINE_STAGES,
   })
-  await startFilmStage(jobStore, workspace, 'ingest')
+  const agent = createProjectAgentRuntime({
+    jobStore,
+    workspace,
+  })
+
+  await agent.startRun('Film stage ingest started')
+  await agent.startStage(FILM_STAGE_IDS.ingest)
 
   try {
     const [mediaInfo, sourceHash] = await Promise.all([
@@ -35,11 +41,12 @@ export async function createFilmIngestProject(options: CreateFilmIngestProjectOp
     ])
     const sourceManifest = SourceManifestSchema.parse(createSourceManifest(mediaInfo, sourceHash))
     const artifacts = {
-      mediaInfo: await workspace.store.writeJson('media-info.json', mediaInfo),
-      sourceManifest: await workspace.store.writeJson('source-manifest.json', sourceManifest),
+      mediaInfo: await workspace.store.writeJson(MEDIA_INFO_ARTIFACT_NAME, mediaInfo),
+      sourceManifest: await workspace.store.writeJson(SOURCE_MANIFEST_ARTIFACT_NAME, sourceManifest),
     }
 
-    await completeFilmStage(jobStore, workspace, 'ingest')
+    await agent.completeStage(FILM_STAGE_IDS.ingest)
+    await agent.completeRun('Film stage ingest complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -50,7 +57,8 @@ export async function createFilmIngestProject(options: CreateFilmIngestProjectOp
       status: 'ingested',
     }
   } catch (error) {
-    await failFilmStage(jobStore, workspace, 'ingest', error)
+    await agent.failStage(FILM_STAGE_IDS.ingest, error)
+    await agent.failRun(error)
     throw error
   }
 }

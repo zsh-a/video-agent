@@ -25,7 +25,7 @@ export function createDeckTimingDriftReport(input: {
       throw new Error(`Deck timing drift report is missing TTS output for slide "${segment.slideId}".`)
     }
 
-    const plannedSeconds = segment.estimatedDuration ?? 0
+    const plannedSeconds = requirePlannedSeconds(segment, index)
     const ttsSeconds = tts.duration
     const driftRatio = plannedSeconds <= 0 ? Number.POSITIVE_INFINITY : ttsSeconds / plannedSeconds
     const issueCodes: string[] = []
@@ -63,6 +63,18 @@ export function createDeckTimingDriftReport(input: {
     totalDuration,
     version: 1,
   })
+}
+
+function requirePlannedSeconds(segment: SpeakerScript['segments'][number], index: number): number {
+  if (segment.estimatedDuration === undefined) {
+    throw new Error(`Deck timing drift report requires LLM-authored estimatedDuration for segment ${index + 1}; no zero-duration drift fallback is allowed.`)
+  }
+
+  if (!Number.isFinite(segment.estimatedDuration) || segment.estimatedDuration <= 0) {
+    throw new Error(`Deck timing drift report requires positive estimatedDuration for segment ${index + 1}; no zero-duration drift fallback is allowed.`)
+  }
+
+  return segment.estimatedDuration
 }
 
 export function assertDeckTimingDrift(report: DeckTimingDriftReport): void {

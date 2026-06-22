@@ -1,5 +1,5 @@
 import {expect} from '#test/expect'
-import {readJson} from '#test/fs'
+import {readJson, writeText} from '#test/fs'
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -22,14 +22,39 @@ describe('workspace', () => {
         workspaceDir: root,
       })
       const artifactPath = await workspace.store.writeJson('example.json', {ok: true})
-      const artifact = await workspace.store.readJson<{ok: boolean}>('example.json')
+      const artifact = await workspace.store.readJson('example.json')
       const manifest = await readJson<{artifacts: Array<{name: string; sha256: string}>}>(join(workspace.artifactsDir, 'artifact-manifest.json'))
 
       expect(workspace.projectId).to.equal('demo')
       expect(artifactPath).to.contain('example.json')
-      expect(artifact.ok).to.equal(true)
+      expect(artifact).to.deep.equal({ok: true})
       expect(manifest.artifacts[0].name).to.equal('example.json')
       expect(manifest.artifacts[0].sha256).to.match(/^[a-f0-9]{64}$/)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects malformed artifact JSON through the workspace store boundary', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-test-'))
+
+    try {
+      const workspace = await createProjectWorkspace({
+        projectId: 'demo',
+        workspaceDir: root,
+      })
+      let error: unknown
+
+      await writeText(workspace.store.resolve('bad.json'), 'not json\n')
+
+      try {
+        await workspace.store.readJson('bad.json')
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Project artifact "bad.json" is invalid JSON')
+      expect(String(error)).to.include('no artifact store JSON fallback is allowed')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

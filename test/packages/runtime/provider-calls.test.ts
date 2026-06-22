@@ -1,11 +1,11 @@
 import {expect} from '#test/expect'
 import {readJsonLines} from '#test/fs'
-import {attachProviderMetadata, ProviderExecutionError, type ProviderSet} from '@video-agent/providers'
+import {attachProviderMetadata, ProviderExecutionError, type ProviderSet, type ScriptProvider} from '@video-agent/providers'
 import {mkdtemp, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {createJsonlProviderCallRecorder, instrumentProviders} from '../../../packages/runtime/src/provider/calls.js'
+import {createJsonlProviderCallRecorder, instrumentProviders, instrumentScriptProvider} from '../../../packages/runtime/src/provider/calls.js'
 
 describe('provider call recorder', () => {
   it('records provider request metadata on successful calls', async () => {
@@ -180,26 +180,84 @@ describe('provider call recorder', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('records script provider calls separately from media provider sets', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-calls-'))
+    const path = join(root, 'provider-calls.jsonl')
+    const provider = instrumentScriptProvider(createScriptProvider(), createJsonlProviderCallRecorder(path))
+
+    try {
+      await provider.createStoryIndex({
+        asrResult: {
+          language: 'en',
+          segments: [],
+          text: '',
+          timestampConfidence: 'exact',
+          version: 1,
+        },
+        language: 'en',
+        sourceManifest: {
+          audioTracks: 1,
+          duration: 10,
+          orientation: 'landscape',
+          sourceHash: 'hash',
+          sourcePath: '/tmp/input.mp4',
+          version: 1,
+        },
+        timelineFusion: {
+          items: [],
+          source: 'timeline-fusion',
+          version: 1,
+        },
+        vlmAnalysis: {
+          scenes: [],
+          source: 'vlm',
+          version: 1,
+        },
+      })
+
+      const [call] = await readJsonLines<Record<string, unknown>>(path)
+
+      expect(call.role).to.equal('script')
+      expect(call.provider).to.equal('script')
+      expect(call.operation).to.equal('createStoryIndex')
+      expect(call.status).to.equal('succeeded')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 function createProviderSet(providers: Pick<ProviderSet, 'asr' | 'tts' | 'vlm'>): ProviderSet {
+  return providers
+}
+
+function createScriptProvider(): ScriptProvider {
   return {
-    ...providers,
-    script: {
-      async createNarration() {
-        throw new Error('Script provider is not used by this test.')
-      },
-      async createRecapScript() {
-        throw new Error('Script provider is not used by this test.')
-      },
-      async createStoryIndex() {
-        throw new Error('Script provider is not used by this test.')
-      },
+    async createRecapScript() {
+      throw new Error('Recap script is not used by this test.')
     },
-    storyboard: {
-      async createStoryboard() {
-        throw new Error('Storyboard provider is not used by this test.')
-      },
+    async createStoryIndex() {
+      return {
+        characterIndex: {
+          characters: [],
+          source: 'script',
+          version: 1,
+        },
+        narrativeBeats: {
+          beats: [],
+          source: 'script',
+          version: 1,
+        },
+        storyIndex: {
+          beats: [],
+          characters: [],
+          language: 'en',
+          source: 'script',
+          sourceDuration: 10,
+          version: 1,
+        },
+      }
     },
   }
 }

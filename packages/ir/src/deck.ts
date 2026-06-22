@@ -1,25 +1,46 @@
 import {z} from 'zod'
 
+import {QualityIssueSeveritySchema} from './quality.js'
 import {EvidenceSchema} from './storyboard.js'
 
-export const DeckFormatSchema = z.enum(['landscape_1920x1080', 'portrait_1080x1920', 'square_1080x1080'])
+export const TIMED_DECK_ARTIFACT_NAME = 'timed-deck.json' as const
 
-export const DeckInputModeSchema = z.enum(['script-generated', 'audio-anchored'])
+export const DECK_HTML_CAPTURE_BACKENDS = ['chromium', 'playwright'] as const
 
-export const DeckContentDensitySchema = z.enum(['concise', 'balanced', 'detailed'])
+export const DeckHtmlCaptureBackendSchema = z.enum(DECK_HTML_CAPTURE_BACKENDS)
 
-export const DeckThemeSchema = z.enum([
-  'auto',
+export type DeckHtmlCaptureBackend = (typeof DECK_HTML_CAPTURE_BACKENDS)[number]
+
+export const DEFAULT_DECK_HTML_CAPTURE_BACKEND = 'playwright' satisfies DeckHtmlCaptureBackend
+
+export const DECK_FORMATS = ['landscape_1920x1080', 'portrait_1080x1920', 'square_1080x1080'] as const
+
+export const DEFAULT_DECK_FORMAT = 'portrait_1080x1920' satisfies (typeof DECK_FORMATS)[number]
+
+export const DECK_INPUT_MODES = ['script-generated', 'audio-anchored'] as const
+
+export const DECK_CONTENT_DENSITIES = ['concise', 'balanced', 'detailed'] as const
+
+export const DEFAULT_DECK_CONTENT_DENSITY = 'balanced' satisfies (typeof DECK_CONTENT_DENSITIES)[number]
+
+export const DEFAULT_DECK_LANGUAGE = 'auto' as const
+
+export const DECK_PRESET_THEMES = [
   'elegant-dark',
   'clean-white',
   'finance-terminal',
   'tech-gradient',
   'minimal-editorial',
   'warm-paper',
-  'custom',
-])
+] as const
 
-export const DeckMotionPresetSchema = z.enum([
+export const DECK_THEMES = [
+  'auto',
+  ...DECK_PRESET_THEMES,
+  'custom',
+] as const
+
+export const DECK_BASE_MOTION_PRESETS = [
   'fade-in',
   'slide-up',
   'soft-scale',
@@ -33,22 +54,22 @@ export const DeckMotionPresetSchema = z.enum([
   'wipe',
   'zoom-focus',
   'cinematic-rise',
+] as const
+
+export const DECK_ADVANCED_MOTION_PRESETS = [
   'rotate',
   'spin',
   'spring',
   'bounce',
   'typewriter',
   'parallax',
-])
+] as const
 
-export const DeckTransitionTypeSchema = z.enum(['crossfade', 'fade', 'slide-left', 'slide-up'])
+export const DECK_MOTION_PRESETS = [...DECK_BASE_MOTION_PRESETS, ...DECK_ADVANCED_MOTION_PRESETS] as const
 
-export const DeckTransitionSchema = z.object({
-  duration: z.number().finite().positive(),
-  type: DeckTransitionTypeSchema,
-})
+export const DECK_TRANSITION_TYPES = ['crossfade', 'fade', 'slide-left', 'slide-up'] as const
 
-export const DeckSlideTypeSchema = z.enum([
+export const DECK_SLIDE_TYPES = [
   'hero',
   'section',
   'one-big-idea',
@@ -62,7 +83,45 @@ export const DeckSlideTypeSchema = z.enum([
   'code',
   'summary',
   'cta',
-])
+] as const
+
+export const DOCUMENT_SOURCE_TYPES = ['audio', 'html', 'markdown', 'pdf', 'text'] as const
+
+export const TEXT_DOCUMENT_SOURCE_TYPES = ['html', 'markdown', 'pdf', 'text'] as const
+
+export const CONTENT_BLOCK_TYPES = ['claim', 'context', 'data', 'example', 'quote', 'recommendation', 'summary'] as const
+
+export const DECK_CLAIM_TYPES = ['claim', 'data', 'recommendation', 'summary'] as const
+
+export const DECK_SOURCE_SECTION_KINDS = ['frontmatter', 'heading', 'paragraph', 'list', 'table', 'code'] as const
+
+export const DECK_COHERENCE_REVIEW_SLIDE_OUTLINE_STAGE = 'slide-outline' as const
+export const DECK_COHERENCE_REVIEW_SLIDE_PLAN_STAGE = 'slide-plan' as const
+export const DECK_COHERENCE_REVIEW_SCRIPT_SEMANTICS_STAGE = 'script-semantics' as const
+export const DECK_COHERENCE_REVIEW_STAGES = [
+  DECK_COHERENCE_REVIEW_SLIDE_OUTLINE_STAGE,
+  DECK_COHERENCE_REVIEW_SLIDE_PLAN_STAGE,
+  DECK_COHERENCE_REVIEW_SCRIPT_SEMANTICS_STAGE,
+] as const
+
+export const DeckFormatSchema = z.enum(DECK_FORMATS)
+
+export const DeckInputModeSchema = z.enum(DECK_INPUT_MODES)
+
+export const DeckContentDensitySchema = z.enum(DECK_CONTENT_DENSITIES)
+
+export const DeckThemeSchema = z.enum(DECK_THEMES)
+
+export const DeckMotionPresetSchema = z.enum(DECK_MOTION_PRESETS)
+
+export const DeckTransitionTypeSchema = z.enum(DECK_TRANSITION_TYPES)
+
+export const DeckTransitionSchema = z.object({
+  duration: z.number().finite().positive(),
+  type: DeckTransitionTypeSchema,
+})
+
+export const DeckSlideTypeSchema = z.enum(DECK_SLIDE_TYPES)
 
 export const DeckSourceRangeSchema = z.tuple([
   z.number().finite().nonnegative(),
@@ -75,7 +134,7 @@ export const DocumentSourceSchema = z.object({
   author: z.string().optional(),
   language: z.string().min(1),
   path: z.string().min(1).optional(),
-  sourceType: z.enum(['audio', 'html', 'markdown', 'pdf', 'text']),
+  sourceType: z.enum(DOCUMENT_SOURCE_TYPES),
   title: z.string().optional(),
   url: z.string().url().optional(),
 })
@@ -85,7 +144,7 @@ export const ContentBlockSchema = z.object({
   id: z.string().min(1),
   sourceRange: DeckSourceRangeSchema,
   text: z.string().min(1),
-  type: z.enum(['claim', 'context', 'data', 'example', 'quote', 'recommendation', 'summary']),
+  type: z.enum(CONTENT_BLOCK_TYPES),
 })
 
 export const DocumentSchema = z.object({
@@ -100,7 +159,7 @@ export const ContentBlocksSchema = z.object({
   version: z.literal(1),
 })
 
-export const DeckSourceSectionKindSchema = z.enum(['frontmatter', 'heading', 'paragraph', 'list', 'table', 'code'])
+export const DeckSourceSectionKindSchema = z.enum(DECK_SOURCE_SECTION_KINDS)
 
 export const DeckSourceSectionSchema = z.object({
   headingPath: z.array(z.string().min(1)),
@@ -130,7 +189,7 @@ export const DeckContentAnalysisSchema = z.object({
       confidence: z.number().min(0).max(1),
       sourceQuoteText: z.string().min(1),
       text: z.string().min(1),
-      type: z.enum(['claim', 'data', 'recommendation', 'summary']),
+      type: z.enum(DECK_CLAIM_TYPES),
     })).min(1),
     mustCover: z.boolean(),
     role: z.string().min(1),
@@ -221,9 +280,9 @@ export const DeckCoherenceReportSchema = z.object({
     code: z.string().min(1),
     message: z.string().min(1),
     path: z.string().min(1).optional(),
-    severity: z.enum(['error', 'warning']),
+    severity: QualityIssueSeveritySchema,
     slideId: z.string().min(1).optional(),
-    stage: z.enum(['slide-outline', 'slide-plan', 'script-semantics']),
+    stage: z.enum(DECK_COHERENCE_REVIEW_STAGES),
   })),
   reviewer: z.literal('llm'),
   summary: z.object({
@@ -257,7 +316,7 @@ export const ClaimSchema = z.object({
   evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
   text: z.string().min(1),
-  type: z.enum(['claim', 'data', 'recommendation', 'summary']),
+  type: z.enum(DECK_CLAIM_TYPES),
 })
 
 export const ClaimsSchema = z.object({
@@ -398,8 +457,8 @@ export const SlideTimingSchema = z.object({
   end: z.number().finite().nonnegative(),
   slideId: z.string().min(1),
   start: z.number().finite().nonnegative(),
-}).refine((timing) => timing.end >= timing.start, {
-  message: 'Slide timing end must be greater than or equal to start.',
+}).refine((timing) => timing.end > timing.start, {
+  message: 'Slide timing end must be greater than start.',
   path: ['end'],
 })
 
@@ -446,7 +505,7 @@ export const TimedDeckSchema = z.object({
 export const DeckQualityIssueSchema = z.object({
   code: z.string().min(1),
   message: z.string().min(1),
-  severity: z.enum(['error', 'warning']),
+  severity: QualityIssueSeveritySchema,
   slideId: z.string().min(1).optional(),
 })
 
@@ -482,7 +541,7 @@ export const DeckQualityReportSchema = z.object({
     estimatedRenderSeconds: z.number().finite().nonnegative(),
     fps: z.number().finite().positive(),
   }),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   summary: z.object({
     errors: z.number().int().nonnegative(),
     slides: z.number().int().nonnegative(),
@@ -538,6 +597,7 @@ export type DeckTransitionType = z.infer<typeof DeckTransitionTypeSchema>
 export type DeckVisual = z.infer<typeof DeckVisualSchema>
 export type Document = z.infer<typeof DocumentSchema>
 export type DocumentSource = z.infer<typeof DocumentSourceSchema>
+export type DocumentSourceType = (typeof DOCUMENT_SOURCE_TYPES)[number]
 export type Outline = z.infer<typeof OutlineSchema>
 export type OutlineSection = z.infer<typeof OutlineSectionSchema>
 export type Slide = z.infer<typeof SlideSchema>
@@ -546,4 +606,5 @@ export type SpeakerScript = z.infer<typeof SpeakerScriptSchema>
 export type SpeakerScriptSegment = z.infer<typeof SpeakerScriptSegmentSchema>
 export type SourceQuote = z.infer<typeof SourceQuoteSchema>
 export type SourceQuotes = z.infer<typeof SourceQuotesSchema>
+export type TextDocumentSourceType = (typeof TEXT_DOCUMENT_SOURCE_TYPES)[number]
 export type TimedDeck = z.infer<typeof TimedDeckSchema>

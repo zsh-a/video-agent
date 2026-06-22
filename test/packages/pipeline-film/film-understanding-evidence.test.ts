@@ -3,7 +3,7 @@ import {expect} from '#test/expect'
 import type {ASRResult, FilmScenes, LongVideoAnalysisFrames, SilencePeriods, SourceManifest, VLMAnalysis} from '../../../packages/ir/src/index.js'
 import type {ProviderSet, SceneFrameBatch, Transcript} from '../../../packages/providers/src/index.js'
 
-import {createFilmAsrResultFromTranscript, createFilmScenesFromEvidence, createFilmSilencePeriods, createFilmVlmAnalysis, createTimelineFusion} from '../../../packages/pipeline-film/src/understanding/evidence.js'
+import {createFilmAsrResultFromTranscript, createFilmFrameManifest, createFilmScenesFromEvidence, createFilmSilencePeriods, createFilmVlmAnalysis, createTimelineFusion} from '../../../packages/pipeline-film/src/understanding/evidence.js'
 
 const sourceManifest: SourceManifest = {
   audioTracks: 1,
@@ -46,6 +46,14 @@ function filmScenes(): FilmScenes {
     scenes: [
       {id: 'scene-001', sourceRange: [0, 1]},
     ],
+    source: sourceManifest.sourcePath,
+    version: 1,
+  }
+}
+
+function emptyFilmScenes(): FilmScenes {
+  return {
+    scenes: [],
     source: sourceManifest.sourcePath,
     version: 1,
   }
@@ -110,7 +118,7 @@ describe('film understanding evidence', () => {
     expect(() => createFilmAsrResultFromTranscript(transcript, sourceManifest)).to.throw('explicit timestampConfidence')
   })
 
-  it('preserves explicit provider ASR timestamp confidence on every segment', () => {
+  it('copies exact provider ASR timestamp confidence to every segment', () => {
     const result = createFilmAsrResultFromTranscript({
       language: 'en-US',
       segments: [
@@ -121,16 +129,16 @@ describe('film understanding evidence', () => {
         },
       ],
       text: 'A timed transcript segment.',
-      timestampConfidence: 'chunked',
+      timestampConfidence: 'exact',
     }, sourceManifest)
 
-    expect(result.timestampConfidence).to.equal('chunked')
+    expect(result.timestampConfidence).to.equal('exact')
     expect(result.segments[0]).to.deep.include({
       end: 2,
       id: 'asr-0001',
       start: 0,
       text: 'A timed transcript segment.',
-      timestampConfidence: 'chunked',
+      timestampConfidence: 'exact',
     })
   })
 
@@ -303,6 +311,69 @@ describe('film understanding evidence', () => {
     }), silencePeriods(), [], 4)).to.throw('no transcript-wide fallback is allowed')
   })
 
+  it('rejects zero-duration source manifests during scene planning instead of creating synthetic ranges', () => {
+    expect(() => createFilmScenesFromEvidence({
+      ...sourceManifest,
+      duration: 0,
+    }, asrResult(), silencePeriods(), [], 4)).to.throw('no zero-duration Film source fallback is allowed')
+  })
+
+  it('rejects invalid scene limits instead of defaulting or clamping maxScenes', () => {
+    expect(() => createFilmScenesFromEvidence(sourceManifest, asrResult(), silencePeriods(), [], Number.NaN))
+      .to.throw('no scene-limit default or clamp fallback is allowed')
+
+    expect(() => createFilmScenesFromEvidence(sourceManifest, asrResult(), silencePeriods(), [], 0))
+      .to.throw('no scene-limit default or clamp fallback is allowed')
+
+    expect(() => createFilmScenesFromEvidence(sourceManifest, asrResult(), silencePeriods(), [], 1.5))
+      .to.throw('no scene-limit default or clamp fallback is allowed')
+  })
+
+  it('rejects out-of-range visual scene boundaries instead of clipping them to source duration', () => {
+    expect(() => createFilmScenesFromEvidence(sourceManifest, asrResult(), silencePeriods(), [12], 4))
+      .to.throw('no scene-boundary clipping fallback is allowed')
+
+    expect(() => createFilmScenesFromEvidence(sourceManifest, asrResult(), silencePeriods(), [-0.1], 4))
+      .to.throw('no scene-boundary clipping fallback is allowed')
+  })
+
+  it('rejects out-of-range silence boundaries instead of clipping them to source duration', () => {
+    expect(() => createFilmScenesFromEvidence(sourceManifest, asrResult(), {
+      periods: [{
+        end: 11,
+        id: 'silence-001',
+        reason: 'detected',
+        start: 9,
+      }],
+      source: sourceManifest.sourcePath,
+      version: 1,
+    }, [], 4)).to.throw('no scene-boundary clipping fallback is allowed')
+  })
+
+  it('rejects empty scene artifacts before writing a frame manifest instead of using sampleFps fallback', async () => {
+    let error: unknown
+
+    try {
+      await createFilmFrameManifest('/tmp/video-agent-empty-film-frames', sourceManifest, emptyFilmScenes())
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('no empty frame manifest or sampleFps fallback is allowed')
+  })
+
+  it('rejects empty scene artifacts before VLM analysis instead of returning an empty analysis', async () => {
+    let error: unknown
+
+    try {
+      await createFilmVlmAnalysis(sourceManifest, emptyFilmScenes(), analysisFrames(), vlmProvider({}))
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('no empty VLM analysis fallback is allowed')
+  })
+
   it('rejects invalid ASR segments during silence detection instead of silently filtering them', () => {
     expect(() => createFilmSilencePeriods(sourceManifest, asrResult({
       segments: [
@@ -326,5 +397,12 @@ describe('film understanding evidence', () => {
       reason: 'detected',
       start: 0,
     }])
+  })
+
+  it('rejects zero-duration source manifests during silence detection instead of returning synthetic silence', () => {
+    expect(() => createFilmSilencePeriods({
+      ...sourceManifest,
+      duration: 0,
+    }, asrResult())).to.throw('no zero-duration Film source fallback is allowed')
   })
 })

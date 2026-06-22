@@ -12,11 +12,11 @@ const SEGMENT_WARNING_ESTIMATE_TO_PLAN_RATIO = 1.75
 const ABSOLUTE_SEGMENT_WARNING_GRACE_SECONDS = 4
 
 export function createDeckScriptTimingReport(speakerScript: SpeakerScript): DeckScriptTimingReport {
-  const segments = speakerScript.segments.map((segment) => {
-    const plannedSeconds = segment.estimatedDuration ?? 0
+  const segments = speakerScript.segments.map((segment, index) => {
+    const plannedSeconds = requirePlannedSeconds(segment, index)
     const words = countWords(segment.text)
     const textCharacters = [...segment.text].length
-    const estimatedSpeechSeconds = estimateSpeechSeconds(segment.text, speakerScript.language)
+    const estimatedSpeechSeconds = estimateSpeechSeconds(segment.text, speakerScript.language, index)
     const issueCodes: string[] = []
 
     if (
@@ -65,12 +65,36 @@ export function assertDeckScriptTiming(report: DeckScriptTimingReport): void {
   throw new Error(`Deck speakerNote timing preflight found estimated total speakerNote duration ${report.estimatedSpeechDuration}s for planned ${report.plannedDuration}s. Rewrite narration detail or deck durations before TTS.`)
 }
 
-function estimateSpeechSeconds(text: string, language: string): number {
-  if (isCjkLanguage(language) || containsCjk(text)) {
-    return Math.max(1, countCjkAwareCharacters(text) / CJK_CHARACTERS_PER_SECOND)
+function requirePlannedSeconds(segment: SpeakerScript['segments'][number], index: number): number {
+  if (segment.estimatedDuration === undefined) {
+    throw new Error(`Deck script timing report requires LLM-authored estimatedDuration for segment ${index + 1}; no zero-duration timing report fallback is allowed.`)
   }
 
-  return Math.max(1, countWords(text) / ENGLISH_WORDS_PER_SECOND)
+  if (!Number.isFinite(segment.estimatedDuration) || segment.estimatedDuration <= 0) {
+    throw new Error(`Deck script timing report requires positive estimatedDuration for segment ${index + 1}; no zero-duration timing report fallback is allowed.`)
+  }
+
+  return segment.estimatedDuration
+}
+
+function estimateSpeechSeconds(text: string, language: string, index: number): number {
+  if (isCjkLanguage(language) || containsCjk(text)) {
+    const characters = countCjkAwareCharacters(text)
+
+    if (characters === 0) {
+      throw new Error(`Deck script timing report segment ${index + 1} requires non-empty speech text; no minimum speech-duration fallback is allowed.`)
+    }
+
+    return characters / CJK_CHARACTERS_PER_SECOND
+  }
+
+  const words = countWords(text)
+
+  if (words === 0) {
+    throw new Error(`Deck script timing report segment ${index + 1} requires non-empty speech text; no minimum speech-duration fallback is allowed.`)
+  }
+
+  return words / ENGLISH_WORDS_PER_SECOND
 }
 
 function countWords(text: string): number {

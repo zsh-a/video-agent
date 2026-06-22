@@ -91,6 +91,19 @@ describe('core planning helpers', () => {
     }, 12.5)).to.throw('no segment clipping or filtering is allowed')
   })
 
+  it('rejects transcript scene boundary planning without positive media duration instead of using transcript timestamps as duration', () => {
+    expect(() => createSceneBoundariesFromTranscript({
+      segments: [
+        {
+          end: 5,
+          start: 0,
+          text: 'Timed transcript exists.',
+        },
+      ],
+      text: 'Timed transcript exists.',
+    }, 0)).to.throw('no transcript timestamp duration fallback is allowed')
+  })
+
   it('rejects storyboard scenes without explicit source ranges instead of deriving ranges by position', () => {
     const storyboard = {
       language: 'zh-CN',
@@ -160,6 +173,72 @@ describe('core planning helpers', () => {
     expect(clipPlan.clips[1].reason).to.equal(undefined)
   })
 
+  it('rejects timeline planning without probed video fps instead of defaulting to 30fps', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 4,
+          evidence: [],
+          id: 'scene-1',
+          sourceRange: [0, 4] as [number, number],
+          start: 0,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+    const missingFpsMediaInfo = {
+      duration: 12.5,
+      inputPath: '/tmp/no-fps.mp4',
+      probedAt: '2026-06-14T00:00:00.000Z',
+      streams: [
+        {
+          index: 0,
+          type: 'video' as const,
+        },
+      ],
+      version: 1 as const,
+    }
+    const clipPlan = createClipPlan(storyboard, missingFpsMediaInfo)
+
+    expect(() => createTimelineFromClipPlan(missingFpsMediaInfo, clipPlan)).to.throw('no 30fps renderer fallback is allowed')
+  })
+
+  it('rejects timeline planning without a video stream instead of defaulting to 30fps', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 4,
+          evidence: [],
+          id: 'scene-1',
+          sourceRange: [0, 4] as [number, number],
+          start: 0,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+    const audioOnlyMediaInfo = {
+      duration: 12.5,
+      inputPath: '/tmp/audio-only.wav',
+      probedAt: '2026-06-14T00:00:00.000Z',
+      streams: [
+        {
+          index: 0,
+          type: 'audio' as const,
+        },
+      ],
+      version: 1 as const,
+    }
+    const clipPlan = createClipPlan(storyboard, audioOnlyMediaInfo)
+
+    expect(() => createTimelineFromClipPlan(audioOnlyMediaInfo, clipPlan)).to.throw('positive video stream fps')
+  })
+
   it('rejects storyboard source ranges outside media duration instead of clipping them', () => {
     const storyboard = {
       language: 'zh-CN',
@@ -178,6 +257,57 @@ describe('core planning helpers', () => {
     }
 
     expect(() => createClipPlan(storyboard, mediaInfo)).to.throw('no runtime sourceRange clipping is allowed')
+  })
+
+  it('rejects clip planning without media or stream duration', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 1,
+          evidence: [],
+          id: 'scene-1',
+          sourceRange: [0, 1] as [number, number],
+          start: 0,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+
+    expect(() => createClipPlan(storyboard, {
+      inputPath: '/tmp/no-duration.mp4',
+      probedAt: '2026-06-14T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    })).to.throw('no zero-duration clip-plan fallback is allowed')
+  })
+
+  it('rejects explicit zero media duration instead of falling back to stream duration for clip planning', () => {
+    const storyboard = {
+      language: 'zh-CN',
+      scenes: [
+        {
+          duration: 1,
+          evidence: [],
+          id: 'scene-1',
+          sourceRange: [0, 1] as [number, number],
+          start: 0,
+          visualStyle: 'documentary',
+        },
+      ],
+      targetPlatform: 'generic' as const,
+      version: 1 as const,
+    }
+
+    expect(() => createClipPlan(storyboard, {
+      duration: 0,
+      inputPath: '/tmp/zero-duration.mp4',
+      probedAt: '2026-06-14T00:00:00.000Z',
+      streams: [{duration: 12, fps: 24, index: 0, type: 'video'}],
+      version: 1,
+    })).to.throw('positive media duration')
   })
 
   it('uses explicit source ranges even when storyboard scene starts overlap', () => {

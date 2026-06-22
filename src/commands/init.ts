@@ -1,11 +1,12 @@
 import {Command, Flags} from '@oclif/core'
 import {checkRuntimeHealth, initializeWorkspace} from '@video-agent/runtime'
 
+import {workspaceFlag} from '../utils/cli-flags.js'
 export default class Init extends Command {
   static description = 'Initialize a video-agent workspace and check local media tools'
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

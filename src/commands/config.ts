@@ -1,23 +1,29 @@
 import {cancel, intro, isCancel, outro, select, text} from '@clack/prompts'
 import {Command, Flags} from '@oclif/core'
 import {BUILTIN_PROVIDER_NAMES, PROVIDER_PROFILE_NAMES, type ProviderName, type ProviderProfileName} from '@video-agent/providers'
-import {type AgentConfig, type ConfigUpdate, type JobStoreKind, readConfig, readProviderEnvironment, writeConfig} from '@video-agent/runtime'
+import {JOB_STORE_KINDS, type AgentConfig, type ConfigUpdate, type JobStoreKind, readConfig, readProviderEnvironment, writeConfig} from '@video-agent/runtime'
+
+import {normalizeNonNegativeIntegerFlag, parseOptionalEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
 
 const PROVIDER_CONFIG_OPTIONS = [...BUILTIN_PROVIDER_NAMES]
+const JOB_STORE_PROMPT_OPTIONS = [
+  {hint: 'portable project-local JSON job files', label: JOB_STORE_KINDS[0], value: JOB_STORE_KINDS[0]},
+  {hint: 'workspace SQLite database through Bun SQLite', label: JOB_STORE_KINDS[1], value: JOB_STORE_KINDS[1]},
+] as const
 
 export default class Config extends Command {
   static description = 'Read or update video-agent provider configuration'
   static flags = {
     asr: Flags.string({description: 'ASR provider', options: PROVIDER_CONFIG_OPTIONS}),
     interactive: Flags.boolean({char: 'i', description: 'Prompt for provider, persistence, and retry settings'}),
-    'job-store': Flags.string({description: 'Job state backend', options: ['json', 'sqlite']}),
+    'job-store': Flags.string({description: 'Job state backend', options: [...JOB_STORE_KINDS]}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'max-stage-retries': Flags.integer({description: 'Retries per pipeline stage before failing'}),
     'provider-profile': Flags.string({description: 'Apply a hosted provider profile', options: [...PROVIDER_PROFILE_NAMES]}),
     'retry-backoff-ms': Flags.integer({description: 'Delay between stage retry attempts'}),
     tts: Flags.string({description: 'TTS provider', options: PROVIDER_CONFIG_OPTIONS}),
     vlm: Flags.string({description: 'VLM provider', options: PROVIDER_CONFIG_OPTIONS}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -31,13 +37,13 @@ export default class Config extends Command {
     const update = flags.interactive
       ? await promptForConfig(await readConfig(flags.workspace))
       : {
-          asr: flags.asr,
-          jobStore: flags['job-store'] as JobStoreKind | undefined,
-          maxStageRetries: flags['max-stage-retries'],
-          providerProfile: flags['provider-profile'] as ProviderProfileName | undefined,
-          retryBackoffMs: flags['retry-backoff-ms'],
-          tts: flags.tts,
-          vlm: flags.vlm,
+          asr: parseOptionalEnumFlag<ProviderName>(flags.asr, BUILTIN_PROVIDER_NAMES, '--asr'),
+          jobStore: parseOptionalEnumFlag<JobStoreKind>(flags['job-store'], JOB_STORE_KINDS, '--job-store'),
+          maxStageRetries: normalizeNonNegativeIntegerFlag(flags['max-stage-retries'], '--max-stage-retries'),
+          providerProfile: parseOptionalEnumFlag<ProviderProfileName>(flags['provider-profile'], PROVIDER_PROFILE_NAMES, '--provider-profile'),
+          retryBackoffMs: normalizeNonNegativeIntegerFlag(flags['retry-backoff-ms'], '--retry-backoff-ms'),
+          tts: parseOptionalEnumFlag<ProviderName>(flags.tts, BUILTIN_PROVIDER_NAMES, '--tts'),
+          vlm: parseOptionalEnumFlag<ProviderName>(flags.vlm, BUILTIN_PROVIDER_NAMES, '--vlm'),
         }
     const result = hasUpdate
       ? await writeConfig(flags.workspace, update)
@@ -100,10 +106,10 @@ async function promptForConfig(current: AgentConfig): Promise<ConfigUpdate> {
   return update
 }
 
-async function promptProviderChoice(label: string, current: string): Promise<ProviderName> {
+async function promptProviderChoice(label: string, current: ProviderName): Promise<ProviderName> {
   return readPromptValue(
     await select<ProviderName>({
-      initialValue: normalizeProviderKind(current),
+      initialValue: current,
       message: label,
       options: [
         {hint: 'fixed-output local development provider for media roles', label: 'mock', value: 'mock'},
@@ -119,10 +125,7 @@ async function promptJobStoreChoice(current: JobStoreKind): Promise<JobStoreKind
     await select<JobStoreKind>({
       initialValue: current,
       message: 'Job store',
-      options: [
-        {hint: 'portable project-local JSON job files', label: 'json', value: 'json'},
-        {hint: 'workspace SQLite database through Bun SQLite', label: 'sqlite', value: 'sqlite'},
-      ],
+      options: [...JOB_STORE_PROMPT_OPTIONS],
     }),
   )
 }
@@ -138,7 +141,7 @@ async function promptNonNegativeInteger(label: string, current: number): Promise
     }),
   )
 
-  return parseNonNegativeInteger(value) ?? current
+  return requireNonNegativeIntegerPromptValue(value, label)
 }
 
 function readPromptValue<T>(value: symbol | T): T {
@@ -150,14 +153,6 @@ function readPromptValue<T>(value: symbol | T): T {
   return value
 }
 
-function normalizeProviderKind(value: string): ProviderName {
-  if (value === 'command' || value === 'llm' || value === 'mock') {
-    return value
-  }
-
-  return 'mock'
-}
-
 function parseNonNegativeInteger(value: string | undefined): number | undefined {
   if (value === undefined) {
     return undefined
@@ -166,6 +161,16 @@ function parseNonNegativeInteger(value: string | undefined): number | undefined 
   const parsed = Number(value.trim())
 
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined
+}
+
+function requireNonNegativeIntegerPromptValue(value: string | undefined, label: string): number {
+  const parsed = parseNonNegativeInteger(value)
+
+  if (parsed === undefined) {
+    throw new TypeError(`${label} must be a non-negative integer; no interactive config fallback to the previous value is allowed.`)
+  }
+
+  return parsed
 }
 
 function summarizeProviderEnvironment(report: Awaited<ReturnType<typeof readProviderEnvironment>>): string {

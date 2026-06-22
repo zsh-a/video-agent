@@ -36,6 +36,38 @@ describe('storyboard quality', () => {
       'storyboard.scene.source_range.duration_mismatch:error',
     ])
   })
+
+  it('reports zero-length Storyboard ranges as invalid', () => {
+    const storyboard = createStoryboard({
+      scenes: [
+        {
+          duration: 1,
+          evidence: [],
+          id: 'scene-1',
+          sourceRange: [1, 1] as [number, number],
+          start: 1,
+          visualStyle: 'documentary',
+        },
+      ],
+    })
+
+    expect(checkStoryboardConsistency(storyboard, createMediaInfo()).map((issue) => issue.code)).to.include.members([
+      'storyboard.scene.source_range.invalid',
+    ])
+  })
+
+  it('reports missing media duration instead of using zero-duration bounds', () => {
+    const issues = checkStoryboardConsistency(createStoryboard(), {
+      inputPath: '/tmp/input.mp4',
+      probedAt: '2026-06-15T00:00:00.000Z',
+      streams: [],
+      version: 1,
+    })
+
+    expect(issues.map((issue) => issue.code)).to.deep.equal([
+      'storyboard.media.duration_missing',
+    ])
+  })
 })
 
 function createMediaInfo() {

@@ -1,6 +1,7 @@
 export * from './audio-loudness.js'
 export * from './clip-plan.js'
 export * from './explainer.js'
+export * from './issues.js'
 export * from './narration.js'
 export * from './rendered-media.js'
 export * from './storyboard.js'

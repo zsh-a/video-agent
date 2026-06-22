@@ -14,7 +14,7 @@ interface ProviderResponseEnvelope {
 }
 
 export function parseTranscript(value: unknown): Transcript {
-  const envelope = parseProviderResponseEnvelope(value)
+  const envelope = parseProviderResponseEnvelope(value, 'asr')
 
   value = envelope.data
 
@@ -28,7 +28,7 @@ export function parseTranscript(value: unknown): Transcript {
 }
 
 export function parseVlmScenes(value: unknown): VLMScene[] {
-  const envelope = parseProviderResponseEnvelope(value)
+  const envelope = parseProviderResponseEnvelope(value, 'vlm')
 
   value = envelope.data
 
@@ -42,7 +42,7 @@ export function parseVlmScenes(value: unknown): VLMScene[] {
 }
 
 export function parseTtsSegments(value: unknown): TTSSegment[] {
-  const envelope = parseProviderResponseEnvelope(value)
+  const envelope = parseProviderResponseEnvelope(value, 'tts')
 
   value = envelope.data
 
@@ -55,14 +55,22 @@ export function parseTtsSegments(value: unknown): TTSSegment[] {
   return attachProviderMetadata(segments.data, envelope.metadata)
 }
 
-function parseProviderResponseEnvelope(value: unknown): ProviderResponseEnvelope {
+function parseProviderResponseEnvelope(value: unknown, role: 'asr' | 'tts' | 'vlm'): ProviderResponseEnvelope {
   if (!isRecord(value) || !('data' in value)) {
     return {data: value}
   }
 
+  let metadata: ProviderResponseMetadata | undefined
+
+  try {
+    metadata = parseProviderResponseMetadata(value.metadata)
+  } catch (error) {
+    throw createProviderMetadataValidationError(role, error)
+  }
+
   return {
     data: value.data,
-    ...(value.metadata === undefined ? {} : {metadata: parseProviderResponseMetadata(value.metadata)}),
+    ...(metadata === undefined ? {} : {metadata}),
   }
 }
 
@@ -76,4 +84,12 @@ function createProviderValidationError(role: 'asr' | 'tts' | 'vlm', message: str
     message: issue.message,
     path: issue.path.map(String),
   })))
+}
+
+function createProviderMetadataValidationError(role: 'asr' | 'tts' | 'vlm', error: unknown): ProviderResponseValidationError {
+  return new ProviderResponseValidationError(role, `${role.toUpperCase()} provider returned invalid response metadata.`, [{
+    code: 'invalid_metadata',
+    message: error instanceof Error ? error.message : String(error),
+    path: ['metadata'],
+  }])
 }

@@ -1,6 +1,8 @@
 import type {ModelMessage} from 'ai'
 import type {z} from 'zod'
 
+import {CALL_RESULT_STATUSES, type CallResultStatus} from '@video-agent/ir'
+
 export type LLMMessageRole = 'assistant' | 'system' | 'user'
 
 export type LLMMessage = ModelMessage
@@ -66,8 +68,11 @@ export interface LLMUsage {
   totalTokens?: number
 }
 
-export type LLMTraceOperation = 'generateObject' | 'generateObjectFallbackText' | 'generateObjectJsonText' | 'generateText' | 'streamText'
-export type LLMTraceStatus = 'failed' | 'succeeded'
+export const LLM_TRACE_OPERATIONS = ['generateObject', 'generateText', 'streamText'] as const
+export const LLM_TRACE_STATUSES = CALL_RESULT_STATUSES
+
+export type LLMTraceOperation = (typeof LLM_TRACE_OPERATIONS)[number]
+export type LLMTraceStatus = CallResultStatus
 
 export interface LLMTraceRecord {
   completedAt: string

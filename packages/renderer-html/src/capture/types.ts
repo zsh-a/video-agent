@@ -1,4 +1,4 @@
-import type {TimedDeck} from '@video-agent/ir'
+import type {DeckHtmlCaptureBackend, TimedDeck} from '@video-agent/ir'
 
 export interface DeckHtmlFrame {
   duration: number
@@ -22,9 +22,6 @@ export interface DeckHtmlKeyframe {
   time: number
 }
 
-export type DeckHtmlKeyframeCaptureBackend = 'chromium' | 'playwright'
-export type DeckHtmlFrameSequenceCaptureBackend = 'chromium' | 'playwright'
-
 export interface CaptureDeckHtmlFramesOptions {
   chromiumCommand?: string[]
   outputDir: string
@@ -43,12 +40,12 @@ export interface CaptureDeckHtmlFramesResult {
 }
 
 export interface CaptureDeckHtmlFrameSequenceOptions {
-  backend?: DeckHtmlFrameSequenceCaptureBackend
+  backend?: DeckHtmlCaptureBackend
   chromiumCommand?: string[]
   concurrency?: number
   frameEnd?: number
   frameStart?: number
-  fps?: number
+  fps: number
   outputDir: string
   playwrightCommand?: string[]
   projectDir: string
@@ -57,7 +54,7 @@ export interface CaptureDeckHtmlFrameSequenceOptions {
 }
 
 export interface CaptureDeckHtmlFrameSequenceResult {
-  backend: DeckHtmlFrameSequenceCaptureBackend
+  backend: DeckHtmlCaptureBackend
   capturedFrames: number
   command: string[]
   concurrency: number
@@ -76,10 +73,10 @@ export interface CaptureDeckHtmlFrameSequenceResult {
 }
 
 export interface CaptureDeckHtmlKeyframesOptions {
-  backend?: DeckHtmlKeyframeCaptureBackend
+  backend?: DeckHtmlCaptureBackend
   chromiumCommand?: string[]
   concurrency?: number
-  fps?: number
+  fps: number
   outputDir: string
   playwrightCommand?: string[]
   projectDir: string
@@ -87,7 +84,7 @@ export interface CaptureDeckHtmlKeyframesOptions {
 }
 
 export interface CaptureDeckHtmlKeyframesResult {
-  backend: DeckHtmlKeyframeCaptureBackend
+  backend: DeckHtmlCaptureBackend
   capturedFrames: number
   command: string[]
   concurrency: number

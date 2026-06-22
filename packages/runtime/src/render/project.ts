@@ -1,15 +1,18 @@
 import type {AudioLoudnessQualityResult, RenderedMediaQualityResult, SubtitleQualityResult, VisualSmokeQualityResult} from '@video-agent/quality'
+import type {MissingVoiceoverReason, VoiceoverAlignment, VoiceoverPlanSegmentStatus} from './voiceover-plan.js'
 
 import {TimelineSchema} from '@video-agent/ir'
 import {renderTimelineWithFfmpeg} from '@video-agent/renderer-ffmpeg'
 import {resolve} from 'node:path'
 
 import {createDisabledAudioPlan, readAudioPlanIfAvailable} from './audio-plan.js'
+import {RENDER_OUTPUT_ARTIFACT_NAME, TIMELINE_ARTIFACT_NAME, VOICEOVER_PLAN_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
+import {FFMPEG_RENDER_OUTPUT_RENDERER, type FfmpegRenderOutputRenderer} from './output-renderers.js'
 import {inspectRenderedAudio, inspectRenderedOutput, inspectRenderedVisual} from './quality.js'
 import {inspectSubtitleFile, writeSubtitlesIfAvailable} from './subtitles.js'
 import {createProjectWorkspace} from '../shared/workspace.js'
 
-export type ProjectRenderer = 'ffmpeg'
+export type ProjectRenderer = FfmpegRenderOutputRenderer
 
 export interface RenderProjectOptions {
   audio?: boolean
@@ -36,7 +39,7 @@ export interface FfmpegProjectRenderResult {
   outputQuality: RenderedMediaQualityResult
   projectDir: string
   projectId: string
-  renderer: 'ffmpeg'
+  renderer: FfmpegRenderOutputRenderer
   subtitlePath?: string
   subtitleQuality?: SubtitleQualityResult
   visualQuality?: VisualSmokeQualityResult
@@ -59,22 +62,20 @@ export interface VoiceoverPlanArtifact {
 
 export interface VoiceoverPlanSegment {
   alignment: VoiceoverAlignment
-  duration?: number
+  duration: number
   index: number
-  narrationId?: string
-  path?: string
+  narrationId: string
+  path: string
   resolvedPath?: string
   start: number
-  status: 'available' | 'invalid-path' | 'missing'
+  status: VoiceoverPlanSegmentStatus
 }
-
-export type VoiceoverAlignment = 'explicit-start' | 'narration-id' | 'narration-index' | 'sequential'
 
 export interface MissingVoiceoverDiagnostic {
   index: number
-  narrationId?: string
-  path?: string
-  reason: 'invalid-path' | 'missing'
+  narrationId: string
+  path: string
+  reason: MissingVoiceoverReason
   resolvedPath?: string
 }
 
@@ -98,11 +99,11 @@ export async function inspectFfmpegAudio(projectId: string, options: RenderProje
 }
 
 async function renderProjectWithFfmpeg(workspace: Awaited<ReturnType<typeof createProjectWorkspace>>, options: RenderProjectOptions): Promise<FfmpegProjectRenderResult> {
-  const timeline = TimelineSchema.parse(await workspace.store.readJson('timeline.json'))
+  const timeline = TimelineSchema.parse(await workspace.store.readJson(TIMELINE_ARTIFACT_NAME))
   const subtitlePath = options.subtitles === false ? undefined : await writeSubtitlesIfAvailable(workspace)
   const subtitleQuality = subtitlePath === undefined ? undefined : await inspectSubtitleFile(subtitlePath, workspace, timeline.duration)
   const audioPlan = options.audio === false ? createDisabledAudioPlan() : await readAudioPlanIfAvailable(workspace, options)
-  const voiceoverPlanPath = await workspace.store.writeJson('voiceover-plan.json', audioPlan.diagnostics.plan)
+  const voiceoverPlanPath = await workspace.store.writeJson(VOICEOVER_PLAN_ARTIFACT_NAME, audioPlan.diagnostics.plan)
   const outputPath = options.output === undefined ? resolve(workspace.rendersDir, 'final.mp4') : resolve(options.output)
   const result = await renderTimelineWithFfmpeg(timeline, {
     audio: audioPlan.audio,
@@ -115,7 +116,7 @@ async function renderProjectWithFfmpeg(workspace: Awaited<ReturnType<typeof crea
   })
   const audioQuality = outputQuality.audioStreams > 0 ? await inspectRenderedAudio(result.outputPath) : undefined
   const visualQuality = outputQuality.videoStreams > 0 ? await inspectRenderedVisual(result.outputPath, workspace.rendersDir, outputQuality.duration) : undefined
-  const artifactPath = await workspace.store.writeJson('render-output.json', {
+  const artifactPath = await workspace.store.writeJson(RENDER_OUTPUT_ARTIFACT_NAME, {
     audio: audioPlan.audio,
     audioDiagnostics: audioPlan.diagnostics,
     audioInputs: result.audioInputs,
@@ -123,7 +124,7 @@ async function renderProjectWithFfmpeg(workspace: Awaited<ReturnType<typeof crea
     completedAt: new Date().toISOString(),
     outputPath: result.outputPath,
     outputQuality,
-    renderer: 'ffmpeg',
+    renderer: FFMPEG_RENDER_OUTPUT_RENDERER,
     source: result.source,
     subtitlePath,
     subtitleQuality,
@@ -141,7 +142,7 @@ async function renderProjectWithFfmpeg(workspace: Awaited<ReturnType<typeof crea
     outputQuality,
     projectDir: workspace.projectDir,
     projectId: workspace.projectId,
-    renderer: 'ffmpeg',
+    renderer: FFMPEG_RENDER_OUTPUT_RENDERER,
     ...(subtitlePath === undefined ? {} : {subtitlePath}),
     ...(subtitleQuality === undefined ? {} : {subtitleQuality}),
     ...(visualQuality === undefined ? {} : {visualQuality}),

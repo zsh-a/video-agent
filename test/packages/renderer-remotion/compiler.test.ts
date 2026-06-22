@@ -4,9 +4,85 @@ import {mkdir, mkdtemp, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {renderRemotionDeckProject, writeRemotionDeckProject} from '../../../packages/renderer-remotion/src/index.js'
+import {createRemotionDeckCompositionSpec, normalizeRemotionJpegQuality, renderRemotionDeckProject, writeRemotionDeckProject} from '../../../packages/renderer-remotion/src/index.js'
 
 describe('remotion deck compiler', () => {
+  it('rejects invalid render jpeg quality instead of clamping or defaulting it', () => {
+    expect(normalizeRemotionJpegQuality(undefined)).to.equal(85)
+    expect(normalizeRemotionJpegQuality(0)).to.equal(0)
+    expect(normalizeRemotionJpegQuality(100)).to.equal(100)
+    expect(() => normalizeRemotionJpegQuality(Number.NaN)).to.throw('Remotion Deck jpegQuality must be an integer between 0 and 100; no render option clamp or coercion is allowed. Received: NaN')
+    expect(() => normalizeRemotionJpegQuality(100.5)).to.throw('Remotion Deck jpegQuality must be an integer between 0 and 100; no render option clamp or coercion is allowed. Received: 100.5')
+    expect(() => normalizeRemotionJpegQuality(-1)).to.throw('Remotion Deck jpegQuality must be an integer between 0 and 100; no render option clamp or coercion is allowed. Received: -1')
+    expect(() => normalizeRemotionJpegQuality(101)).to.throw('Remotion Deck jpegQuality must be an integer between 0 and 100; no render option clamp or coercion is allowed. Received: 101')
+  })
+
+  it('rejects empty slide timings instead of creating a minimum-duration composition', () => {
+    expect(() => createRemotionDeckCompositionSpec({
+      compositionId: 'DeckExplainer',
+      fps: 30,
+      height: 1920,
+      timedDeck: {
+        deck: {
+          format: 'portrait_1080x1920',
+          inputMode: 'script-generated',
+          language: 'en',
+          slides: [],
+          theme: 'elegant-dark',
+          title: 'Deck',
+          version: 1,
+        },
+        timings: [],
+        version: 1,
+      },
+      width: 1080,
+    })).to.throw('no minimum-duration render fallback is allowed')
+  })
+
+  it('rejects invalid composition fps and duration instead of coercing renderer timing', () => {
+    const timedDeck = {
+      deck: {
+        format: 'portrait_1080x1920' as const,
+        inputMode: 'script-generated' as const,
+        language: 'en',
+        slides: [
+          {
+            blockIds: [],
+            evidence: [],
+            motion: 'slide-up' as const,
+            points: [],
+            slideId: 'slide-001',
+            title: 'Timing',
+            type: 'hero' as const,
+          },
+        ],
+        theme: 'elegant-dark' as const,
+        title: 'Deck',
+        version: 1 as const,
+      },
+      timings: [{end: 2, slideId: 'slide-001', start: 0}],
+      version: 1 as const,
+    }
+
+    expect(() => createRemotionDeckCompositionSpec({
+      compositionId: 'DeckExplainer',
+      fps: 29.97,
+      height: 1920,
+      timedDeck,
+      width: 1080,
+    })).to.throw('Remotion Deck renderer fps must be a positive integer; no renderer fps fallback or coercion is allowed. Received: 29.97')
+    expect(() => createRemotionDeckCompositionSpec({
+      compositionId: 'DeckExplainer',
+      fps: 30,
+      height: 1920,
+      timedDeck: {
+        ...timedDeck,
+        timings: [{end: 0, slideId: 'slide-001', start: 0}],
+      },
+      width: 1080,
+    })).to.throw('Remotion Deck composition requires a positive final slide timing end; no minimum-duration render fallback is allowed.')
+  })
+
   it('rejects missing MotionIR instead of creating a static renderer fallback', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-remotion-missing-motion-'))
 

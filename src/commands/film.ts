@@ -2,6 +2,8 @@ import {Args, Command, Flags} from '@oclif/core'
 import {runFilmRecapPipeline} from '@video-agent/pipeline-film'
 import {resolve} from 'node:path'
 
+import {normalizePositiveIntegerFlag, parseDurationSeconds, workspaceFlag} from '../utils/cli-flags.js'
+
 export default class Film extends Command {
   static args = {
     input: Args.string({description: 'Input video file for the Film Recap pipeline', required: true}),
@@ -15,7 +17,7 @@ export default class Film extends Command {
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
     target: Flags.string({description: 'Target duration hint for later clip planning'}),
     trace: Flags.boolean({description: 'Write full LLM request/response traces to project artifacts'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -25,7 +27,7 @@ export default class Film extends Command {
     try {
       output = await runFilmRecapPipeline({
         inputPath: resolve(args.input),
-        maxScenes: flags['max-scenes'],
+        maxScenes: normalizePositiveIntegerFlag(flags['max-scenes'], '--max-scenes'),
         projectId: flags['project-id'],
         targetDurationSeconds: flags.target === undefined ? undefined : parseDurationSeconds(flags.target),
         trace: flags.trace,
@@ -65,46 +67,4 @@ function formatDimensions(width: number | undefined, height: number | undefined)
   }
 
   return `${width}x${height}`
-}
-
-function parseDurationSeconds(value: string): number {
-  const trimmed = value.trim()
-  const unitMatch = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/i.exec(trimmed)
-
-  if (unitMatch !== null) {
-    const amount = Number(unitMatch[1])
-    const unit = unitMatch[2]?.toLowerCase() ?? 's'
-
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error(`Invalid duration: ${value}`)
-    }
-
-    if (unit === 'ms') {
-      return amount / 1000
-    }
-
-    if (unit === 'm') {
-      return amount * 60
-    }
-
-    if (unit === 'h') {
-      return amount * 3600
-    }
-
-    return amount
-  }
-
-  const parts = trimmed.split(':').map(Number)
-
-  if (parts.length >= 2 && parts.length <= 3 && parts.every((part) => Number.isFinite(part) && part >= 0)) {
-    const seconds = parts.length === 2
-      ? parts[0] * 60 + parts[1]
-      : parts[0] * 3600 + parts[1] * 60 + parts[2]
-
-    if (seconds > 0) {
-      return seconds
-    }
-  }
-
-  throw new Error(`Invalid duration: ${value}`)
 }

@@ -2,6 +2,8 @@ import type {DeckTimingDriftReport, LongVideoSelectedMoments, MediaInfo, Narrati
 import type {Transcript, TTSSegment} from '@video-agent/providers'
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
+import {CLAIMS_ARTIFACT_NAME, CONTENT_ANALYSIS_ARTIFACT_NAME, CONTENT_BLOCKS_ARTIFACT_NAME, DECK_ARTIFACT_NAME, DECK_BRIEF_ARTIFACT_NAME, DECK_COHERENCE_REPORT_ARTIFACT_NAME, DECK_COVERAGE_REPORT_ARTIFACT_NAME, DECK_TIMING_REPORT_ARTIFACT_NAME, DECK_VOICEOVER_ARTIFACT_NAME, DOCUMENT_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME, NARRATION_ARTIFACT_NAME, OUTLINE_ARTIFACT_NAME, QUALITY_REPORT_ARTIFACT_NAME, SCRIPT_TIMING_REPORT_ARTIFACT_NAME, SELECTED_MOMENTS_ARTIFACT_NAME, SLIDE_OUTLINE_ARTIFACT_NAME, SOURCE_MAP_ARTIFACT_NAME, SOURCE_QUOTES_ARTIFACT_NAME, SPEAKER_SCRIPT_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME, TIMELINE_ARTIFACT_NAME, TRANSCRIPT_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME} from '@video-agent/runtime'
+
 import type {TextDeckProjectPlan} from '../planning/index.js'
 import type {DeckVoiceover} from './voiceover-types.js'
 
@@ -58,27 +60,27 @@ export async function writeDeckTextPlanArtifacts(
   llmTracePath: string | undefined,
 ): Promise<DeckTextPlanArtifacts> {
   return {
-    sourceMap: await workspace.store.writeJson('source-map.json', plan.sourceMap),
-    contentAnalysis: await workspace.store.writeJson('content-analysis.json', plan.contentAnalysis),
-    deckBrief: await workspace.store.writeJson('deck-brief.json', plan.deckBrief),
-    slideOutline: await workspace.store.writeJson('slide-outline.json', plan.slideOutline),
-    coherenceReport: await workspace.store.writeJson('deck-coherence-report.json', plan.coherenceReport),
-    coverageReport: await workspace.store.writeJson('deck-coverage-report.json', plan.coverageReport),
-    document: await workspace.store.writeJson('document.json', plan.document),
-    contentBlocks: await workspace.store.writeJson('content-blocks.json', plan.contentBlocks),
-    claims: await workspace.store.writeJson('claims.json', plan.claims),
-    sourceQuotes: await workspace.store.writeJson('source-quotes.json', plan.sourceQuotes),
-    outline: await workspace.store.writeJson('outline.json', plan.outline),
-    deck: await workspace.store.writeJson('deck.json', plan.deck),
-    speakerScript: await workspace.store.writeJson('speaker-script.json', plan.speakerScript),
-    scriptTimingReport: await workspace.store.writeJson('script-timing-report.json', plan.scriptTimingReport),
-    timedDeck: await workspace.store.writeJson('timed-deck.json', plan.timedDeck),
-    mediaInfo: await workspace.store.writeJson('media-info.json', plan.mediaInfo),
-    selectedMoments: await workspace.store.writeJson('selected-moments.json', plan.selectedMoments),
-    storyboard: await workspace.store.writeJson('storyboard.json', plan.storyboard),
-    timeline: await workspace.store.writeJson('timeline.json', plan.timeline),
-    narration: await workspace.store.writeJson('narration.json', plan.narration),
-    qualityReport: await workspace.store.writeJson('quality-report.json', plan.qualityReport),
+    sourceMap: await workspace.store.writeJson(SOURCE_MAP_ARTIFACT_NAME, plan.sourceMap),
+    contentAnalysis: await workspace.store.writeJson(CONTENT_ANALYSIS_ARTIFACT_NAME, plan.contentAnalysis),
+    deckBrief: await workspace.store.writeJson(DECK_BRIEF_ARTIFACT_NAME, plan.deckBrief),
+    slideOutline: await workspace.store.writeJson(SLIDE_OUTLINE_ARTIFACT_NAME, plan.slideOutline),
+    coherenceReport: await workspace.store.writeJson(DECK_COHERENCE_REPORT_ARTIFACT_NAME, plan.coherenceReport),
+    coverageReport: await workspace.store.writeJson(DECK_COVERAGE_REPORT_ARTIFACT_NAME, plan.coverageReport),
+    document: await workspace.store.writeJson(DOCUMENT_ARTIFACT_NAME, plan.document),
+    contentBlocks: await workspace.store.writeJson(CONTENT_BLOCKS_ARTIFACT_NAME, plan.contentBlocks),
+    claims: await workspace.store.writeJson(CLAIMS_ARTIFACT_NAME, plan.claims),
+    sourceQuotes: await workspace.store.writeJson(SOURCE_QUOTES_ARTIFACT_NAME, plan.sourceQuotes),
+    outline: await workspace.store.writeJson(OUTLINE_ARTIFACT_NAME, plan.outline),
+    deck: await workspace.store.writeJson(DECK_ARTIFACT_NAME, plan.deck),
+    speakerScript: await workspace.store.writeJson(SPEAKER_SCRIPT_ARTIFACT_NAME, plan.speakerScript),
+    scriptTimingReport: await workspace.store.writeJson(SCRIPT_TIMING_REPORT_ARTIFACT_NAME, plan.scriptTimingReport),
+    timedDeck: await workspace.store.writeJson(TIMED_DECK_ARTIFACT_NAME, plan.timedDeck),
+    mediaInfo: await workspace.store.writeJson(MEDIA_INFO_ARTIFACT_NAME, plan.mediaInfo),
+    selectedMoments: await workspace.store.writeJson(SELECTED_MOMENTS_ARTIFACT_NAME, plan.selectedMoments),
+    storyboard: await workspace.store.writeJson(STORYBOARD_ARTIFACT_NAME, plan.storyboard),
+    timeline: await workspace.store.writeJson(TIMELINE_ARTIFACT_NAME, plan.timeline),
+    narration: await workspace.store.writeJson(NARRATION_ARTIFACT_NAME, plan.narration),
+    qualityReport: await workspace.store.writeJson(QUALITY_REPORT_ARTIFACT_NAME, plan.qualityReport),
     ...(llmTracePath === undefined ? {} : {llmTrace: llmTracePath}),
   }
 }
@@ -90,7 +92,7 @@ export async function writeDeckAudioSummaryPlanArtifacts(
   llmTracePath: string | undefined,
 ): Promise<DeckAudioSummaryPlanArtifacts> {
   return {
-    transcript: await workspace.store.writeJson('transcript.json', transcript),
+    transcript: await workspace.store.writeJson(TRANSCRIPT_ARTIFACT_NAME, transcript),
     ...await writeDeckTextPlanArtifacts(workspace, plan, llmTracePath),
   }
 }
@@ -103,8 +105,8 @@ export async function writeDeckAudioAnchoredPlanArtifacts(
   llmTracePath: string | undefined,
 ): Promise<DeckAudioAnchoredPlanArtifacts> {
   return {
-    transcript: await workspace.store.writeJson('transcript.json', transcript),
-    deckVoiceover: await workspace.store.writeJson('deck-voiceover.json', deckVoiceover),
+    transcript: await workspace.store.writeJson(TRANSCRIPT_ARTIFACT_NAME, transcript),
+    deckVoiceover: await workspace.store.writeJson(DECK_VOICEOVER_ARTIFACT_NAME, deckVoiceover),
     ...await writeDeckTextPlanArtifacts(workspace, plan, llmTracePath),
   }
 }
@@ -123,16 +125,16 @@ export async function writeDeckVoiceoverProjectArtifacts(workspace: ProjectWorks
   ttsSegments: TTSSegment[]
 }): Promise<DeckVoiceoverProjectArtifacts> {
   return {
-    ttsSegments: await workspace.store.writeJson('tts-segments.json', input.ttsSegments),
-    deckVoiceover: await workspace.store.writeJson('deck-voiceover.json', input.deckVoiceover),
-    timingDriftReport: await workspace.store.writeJson('deck-timing-report.json', input.timingDriftReport),
-    timedDeck: await workspace.store.writeJson('timed-deck.json', input.timedDeck),
-    mediaInfo: await workspace.store.writeJson('media-info.json', input.mediaInfo),
-    selectedMoments: await workspace.store.writeJson('selected-moments.json', input.selectedMoments),
-    storyboard: await workspace.store.writeJson('storyboard.json', input.storyboard),
-    timeline: await workspace.store.writeJson('timeline.json', input.timeline),
-    narration: await workspace.store.writeJson('narration.json', input.narration),
-    qualityReport: await workspace.store.writeJson('quality-report.json', input.qualityReport),
+    ttsSegments: await workspace.store.writeJson(TTS_SEGMENTS_ARTIFACT_NAME, input.ttsSegments),
+    deckVoiceover: await workspace.store.writeJson(DECK_VOICEOVER_ARTIFACT_NAME, input.deckVoiceover),
+    timingDriftReport: await workspace.store.writeJson(DECK_TIMING_REPORT_ARTIFACT_NAME, input.timingDriftReport),
+    timedDeck: await workspace.store.writeJson(TIMED_DECK_ARTIFACT_NAME, input.timedDeck),
+    mediaInfo: await workspace.store.writeJson(MEDIA_INFO_ARTIFACT_NAME, input.mediaInfo),
+    selectedMoments: await workspace.store.writeJson(SELECTED_MOMENTS_ARTIFACT_NAME, input.selectedMoments),
+    storyboard: await workspace.store.writeJson(STORYBOARD_ARTIFACT_NAME, input.storyboard),
+    timeline: await workspace.store.writeJson(TIMELINE_ARTIFACT_NAME, input.timeline),
+    narration: await workspace.store.writeJson(NARRATION_ARTIFACT_NAME, input.narration),
+    qualityReport: await workspace.store.writeJson(QUALITY_REPORT_ARTIFACT_NAME, input.qualityReport),
     ...(input.llmTracePath === undefined ? {} : {llmTrace: input.llmTracePath}),
   }
 }

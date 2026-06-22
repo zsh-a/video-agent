@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {BUILTIN_PROVIDER_NAMES, getProviderEnvironmentDefinitions, isProviderName, PROVIDER_ROLES, providerEnvName} from '../../../packages/providers/src/index.js'
+import {BUILTIN_PROVIDER_NAMES, getProviderEnvironmentDefinitions, isProviderName, PROVIDER_ROLES, providerEnvName, type ProviderName} from '../../../packages/providers/src/index.js'
 
 describe('provider descriptors', () => {
   it('defines stable built-in provider names and role ordering', () => {
@@ -26,6 +26,10 @@ describe('provider descriptors', () => {
 
   it('describes llm provider as using shared LLM config', () => {
     expect(getProviderEnvironmentDefinitions('tts', 'llm')).to.deep.equal([])
+  })
+
+  it('rejects unknown provider environment lookups instead of returning empty requirements', () => {
+    expect(() => getProviderEnvironmentDefinitions('vlm', 'http' as ProviderName)).to.throw('Unsupported vlm provider: http')
   })
 
   it('builds provider env names consistently', () => {

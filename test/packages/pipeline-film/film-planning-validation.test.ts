@@ -169,6 +169,23 @@ describe('film planning validation', () => {
       .to.throw('segment suggestedDuration values sum')
   })
 
+  it('rejects non-finite recap script segment durations instead of repairing them from source ranges', () => {
+    const invalidScript = recapScript({
+      segments: [
+        {
+          ...recapScript().segments[0]!,
+          suggestedDuration: Number.NaN,
+        },
+      ],
+      totalEstimatedDuration: 2,
+    })
+
+    expect(() => validateGeneratedRecapScript(invalidScript, storyIndex, sourceManifest, undefined))
+      .to.throw('positive finite suggestedDuration')
+    expect(() => createFilmClipPlan(sourceManifest, storyIndex, 2, invalidScript))
+      .to.throw('positive finite suggestedDuration')
+  })
+
   it('rejects target-duration mismatch instead of scaling LLM script durations locally', () => {
     expect(() => validateGeneratedRecapScript(recapScript(), storyIndex, sourceManifest, 4))
       .to.throw('Rewrite LLM recap script output instead of scaling locally')

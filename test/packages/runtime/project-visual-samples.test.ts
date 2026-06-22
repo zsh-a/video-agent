@@ -50,12 +50,19 @@ describe('project visual samples', () => {
       await writeText(
         join(artifactsDir, 'render-output.json'),
         `${JSON.stringify({
+          renderer: 'ffmpeg',
+          version: 1,
           visualQuality: {
-            frameSample: {
-              ok: true,
-              path: '/tmp/outside.jpg',
-              timestamp: 0,
-            },
+            errors: 0,
+            frameSamples: [
+              {
+                capturedAt: '2026-01-01T00:00:00.000Z',
+                ok: true,
+                path: '/tmp/outside.jpg',
+                timestamp: 0,
+              },
+            ],
+            warnings: 0,
           },
         })}\n`,
       )
@@ -65,6 +72,59 @@ describe('project visual samples', () => {
       expect(result.samples).to.have.length(1)
       expect(result.samples[0]?.exists).to.equal(false)
       expect(result.samples[0]?.error).to.contain('outside the project directory')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects malformed visual samples instead of silently filtering them', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-visual-samples-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(
+        join(artifactsDir, 'render-output.json'),
+        `${JSON.stringify({
+          renderer: 'ffmpeg',
+          version: 1,
+          visualQuality: {
+            errors: 0,
+            frameSamples: [
+              {
+                capturedAt: '2026-01-01T00:00:00.000Z',
+                ok: true,
+                path: 'renders/frame.jpg',
+                timestamp: -1,
+              },
+            ],
+            warnings: 0,
+          },
+        })}\n`,
+      )
+
+      await readProjectVisualSamples('demo', {workspaceDir: root})
+      throw new Error('Expected malformed visual frame sample to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('timestamp')
+      expect(String(error)).to.include('visualQuality')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('returns an empty sample list when render-output JSON is malformed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-visual-samples-malformed-json-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'render-output.json'), 'not json\n')
+
+      const result = await readProjectVisualSamples('demo', {workspaceDir: root})
+
+      expect(result.samples).to.deep.equal([])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -82,9 +142,13 @@ async function createVisualSampleProject(root: string, projectId: string): Promi
   await writeText(
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
+      renderer: 'ffmpeg',
+      version: 1,
       visualQuality: {
+        errors: 0,
         frameSamples: [
           {
+            capturedAt: '2026-01-01T00:00:00.000Z',
             ok: true,
             path: join(rendersDir, 'final-frame-first.jpg'),
             sha256: 'first-hash',
@@ -92,11 +156,13 @@ async function createVisualSampleProject(root: string, projectId: string): Promi
             timestamp: 0,
           },
           {
+            capturedAt: '2026-01-01T00:00:01.000Z',
             ok: false,
             path: join(rendersDir, 'missing.jpg'),
             timestamp: 1,
           },
         ],
+        warnings: 0,
       },
     })}\n`,
   )

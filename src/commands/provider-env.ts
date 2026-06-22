@@ -1,8 +1,7 @@
 import {Command, Flags} from '@oclif/core'
-import {createProviderEnvironmentShellTemplate, readProviderEnvironment} from '@video-agent/runtime'
+import {createProviderEnvironmentShellTemplate, parseEnvAssignments, readProviderEnvironment} from '@video-agent/runtime'
 
-import {parseEnvFlags} from '../utils/env-flags.js'
-
+import {workspaceFlag} from '../utils/cli-flags.js'
 export default class ProviderEnv extends Command {
   static description = 'Show provider environment variables required by the current config'
   static flags = {
@@ -13,12 +12,12 @@ export default class ProviderEnv extends Command {
     'include-optional': Flags.boolean({description: 'Include optional provider variables as active exports in --shell-template output'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'shell-template': Flags.boolean({description: 'Print a shell export template for the current provider config'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(ProviderEnv)
-    const report = await readProviderEnvironment(flags.workspace, flags.env === undefined ? undefined : parseEnvFlags(flags.env))
+    const report = await readProviderEnvironment(flags.workspace, flags.env === undefined ? undefined : parseEnvAssignments(flags.env, '--env value'))
 
     if (flags.json) {
       this.log(JSON.stringify(report, null, 2))

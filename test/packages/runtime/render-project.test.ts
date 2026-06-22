@@ -78,7 +78,6 @@ describe('render project', () => {
           blackDuration: number
           blackRatio?: number
           errors: number
-          frameSample?: {ok: boolean; path?: string; sha256?: string; size?: number; timestamp: number}
           frameSamples?: Array<{ok: boolean; path?: string; sha256?: string; size?: number; timestamp: number}>
           probed: boolean
           warnings: number
@@ -103,14 +102,16 @@ describe('render project', () => {
         warnings: 0,
       })
       expect(renderOutput.visualQuality?.blackDuration).to.be.a('number')
-      expect(renderOutput.visualQuality?.frameSample).to.include({
+      const firstFrameSample = renderOutput.visualQuality?.frameSamples?.[0]
+
+      expect(firstFrameSample).to.include({
         ok: true,
         timestamp: 0,
       })
-      expect(renderOutput.visualQuality?.frameSample?.path).to.be.a('string')
-      expect(renderOutput.visualQuality?.frameSample?.sha256).to.match(/^[a-f0-9]{64}$/)
-      expect(renderOutput.visualQuality?.frameSample?.size).to.be.greaterThan(0)
-      expect((await stat(renderOutput.visualQuality?.frameSample?.path ?? '')).size).to.equal(renderOutput.visualQuality?.frameSample?.size)
+      expect(firstFrameSample?.path).to.be.a('string')
+      expect(firstFrameSample?.sha256).to.match(/^[a-f0-9]{64}$/)
+      expect(firstFrameSample?.size).to.be.greaterThan(0)
+      expect((await stat(firstFrameSample?.path ?? '')).size).to.equal(firstFrameSample?.size)
       await expectFrameSamples(renderOutput.visualQuality?.frameSamples)
 
       expect(renderOutput.subtitleQuality).to.deep.equal({
@@ -173,6 +174,60 @@ describe('render project', () => {
     }
   })
 
+  it('rejects TTS segment artifacts that omit required provider fields', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
+
+    try {
+      await createRenderableProject(root, 'demo')
+      await mkdir(join(root, 'projects', 'demo', 'tts'), {recursive: true})
+      await writeFile(join(root, 'projects', 'demo', 'tts', 'schema-invalid.wav'), 'audio')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'tts-segments.json'),
+        `${JSON.stringify([
+          {
+            path: 'tts/schema-invalid.wav',
+          },
+        ])}\n`,
+      )
+
+      await inspectFfmpegAudio('demo', {workspaceDir: root})
+      expect.fail('Expected schema-invalid TTS segment to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('duration')
+      expect(String(error)).to.include('narrationId')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects voiceover narration alignment by array index when narrationId does not match', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
+
+    try {
+      await createRenderableProject(root, 'demo')
+      await mkdir(join(root, 'projects', 'demo', 'tts'), {recursive: true})
+      await writeFile(join(root, 'projects', 'demo', 'tts', 'unknown-narration.wav'), 'audio')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'tts-segments.json'),
+        `${JSON.stringify([
+          {
+            duration: 1,
+            narrationId: 'unknown-narration',
+            path: 'tts/unknown-narration.wav',
+          },
+        ])}\n`,
+      )
+
+      await inspectFfmpegAudio('demo', {workspaceDir: root})
+      expect.fail('Expected voiceover segment with unknown narrationId to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('unknown-narration')
+      expect(String(error)).to.include('no segment-index timing fallback is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('stitches multiple TTS chunks for the same narration segment sequentially', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-render-project-'))
 
@@ -230,6 +285,7 @@ describe('render project', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
 })
 
 async function createRenderableProject(root: string, projectId: string, options: {visualStyle?: string} = {}): Promise<void> {

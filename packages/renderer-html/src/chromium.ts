@@ -11,12 +11,13 @@ import type {
 } from './capture/types.js'
 
 import {runProcess} from '@video-agent/media'
+import {DEFAULT_DECK_HTML_CAPTURE_BACKEND} from '@video-agent/ir'
 import {deckCanvasSize, writeDeckHtmlCapturePage} from '@video-agent/renderer-deck'
 import {mkdir, stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
 import {buildChromiumScreenshotArgs, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from './capture/planning.js'
-import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange, runConcurrent} from './capture/utils.js'
+import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange, requireCaptureFps, runConcurrent} from './capture/utils.js'
 import {captureDeckHtmlFrameSequenceWithPlaywright, captureDeckHtmlKeyframesWithPlaywright} from './capture/playwright.js'
 
 export {buildChromiumScreenshotArgs, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime, selectDeckHtmlKeyframes} from './capture/planning.js'
@@ -29,10 +30,8 @@ export type {
   CaptureDeckHtmlKeyframesOptions,
   CaptureDeckHtmlKeyframesResult,
   DeckHtmlFrame,
-  DeckHtmlFrameSequenceCaptureBackend,
   DeckHtmlFrameSequenceFrame,
   DeckHtmlKeyframe,
-  DeckHtmlKeyframeCaptureBackend,
   PlaywrightFrameSequenceCaptureManifest,
   PlaywrightKeyframeCaptureManifest,
 } from './capture/types.js'
@@ -62,7 +61,11 @@ export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOption
     }
 
     const start = timing.start
-    const duration = Math.max(0.1, timing.end - timing.start)
+    const duration = timing.end - timing.start
+
+    if (!Number.isFinite(start) || !Number.isFinite(timing.end) || duration <= 0) {
+      throw new Error(`Deck HTML frame capture requires a positive timing duration for slide "${slide.slideId}"; no preview-duration fallback is allowed.`)
+    }
 
     return {
       duration,
@@ -94,7 +97,7 @@ export async function captureDeckHtmlFrames(options: CaptureDeckHtmlFramesOption
 }
 
 export async function captureDeckHtmlFrameSequence(options: CaptureDeckHtmlFrameSequenceOptions): Promise<CaptureDeckHtmlFrameSequenceResult> {
-  const backend = options.backend ?? 'playwright'
+  const backend = options.backend ?? DEFAULT_DECK_HTML_CAPTURE_BACKEND
 
   if (backend === 'playwright') {
     return captureDeckHtmlFrameSequenceWithPlaywright(options)
@@ -105,7 +108,7 @@ export async function captureDeckHtmlFrameSequence(options: CaptureDeckHtmlFrame
   const captureDir = resolve(projectDir, 'capture-sequence')
   const command = resolveChromiumCommand(options.chromiumCommand)
   const viewport = deckCanvasSize(options.timedDeck.deck.format)
-  const fps = options.fps ?? 30
+  const fps = requireCaptureFps(options.fps)
   const concurrency = normalizeCaptureConcurrency(options.concurrency)
   const frames = createDeckHtmlFrameSequence({
     fps,
@@ -161,7 +164,7 @@ export async function captureDeckHtmlFrameSequence(options: CaptureDeckHtmlFrame
 }
 
 export async function captureDeckHtmlKeyframes(options: CaptureDeckHtmlKeyframesOptions): Promise<CaptureDeckHtmlKeyframesResult> {
-  const backend = options.backend ?? 'playwright'
+  const backend = options.backend ?? DEFAULT_DECK_HTML_CAPTURE_BACKEND
 
   if (backend === 'playwright') {
     return captureDeckHtmlKeyframesWithPlaywright(options)
@@ -172,7 +175,7 @@ export async function captureDeckHtmlKeyframes(options: CaptureDeckHtmlKeyframes
   const captureDir = resolve(projectDir, 'capture-keyframes')
   const command = resolveChromiumCommand(options.chromiumCommand)
   const viewport = deckCanvasSize(options.timedDeck.deck.format)
-  const fps = options.fps ?? 30
+  const fps = requireCaptureFps(options.fps)
   const concurrency = normalizeCaptureConcurrency(options.concurrency)
   const frames = createDeckHtmlKeyframes({
     fps,

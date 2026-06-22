@@ -1,5 +1,6 @@
 import type {ReactElement} from 'react'
 
+import {PROJECT_EVENT_KIND_PROVIDER} from '@video-agent/runtime'
 import {Box, Text} from 'ink'
 import {createElement as h} from 'react'
 
@@ -24,7 +25,7 @@ export function DashboardView({snapshot}: {snapshot?: TuiSnapshot}): ReactElemen
 
   const artifacts = snapshot?.artifacts ?? []
   const events = snapshot?.events ?? []
-  const providerEvents = events.filter((event) => event.kind === 'provider')
+  const providerEvents = events.filter((event) => event.kind === PROJECT_EVENT_KIND_PROVIDER)
   const latestEvent = events.at(-1)
   const currentAgentRun = selected.agent?.currentRun
   const agentSteps = currentAgentRun?.steps ?? []
@@ -66,11 +67,11 @@ export function DashboardView({snapshot}: {snapshot?: TuiSnapshot}): ReactElemen
     h(SectionHeading, null, 'Providers'),
     providerEvents.length === 0 ? h(EmptyTable, {message: 'none'}) : Table<DashboardEvent>({
       columns: [
-        {header: '', key: 'mark', render: (event) => event.kind === 'provider' ? providerSymbol(event.event.status) : symbols.info, width: 2},
-        {header: 'Role', key: 'role', render: (event) => event.kind === 'provider' ? `${event.event.role}/${event.event.provider}` : 'pipeline', width: 18},
-        {header: 'Op', key: 'operation', render: (event) => event.kind === 'provider' ? event.event.operation : event.event.type, width: 16},
-        {header: 'Status', key: 'status', render: (event) => event.kind === 'provider' ? event.event.status : event.event.type, width: 10, color: (event) => event.kind === 'provider' ? statusColor(event.event.status) : undefined},
-        {align: 'right', header: 'Time', key: 'duration', render: (event) => event.kind === 'provider' ? `${event.event.durationMs}ms` : '', width: 8},
+        {header: '', key: 'mark', render: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? providerSymbol(event.event.status) : symbols.info, width: 2},
+        {header: 'Role', key: 'role', render: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? `${event.event.role}/${event.event.provider}` : 'pipeline', width: 18},
+        {header: 'Op', key: 'operation', render: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? event.event.operation : event.event.type, width: 16},
+        {header: 'Status', key: 'status', render: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? event.event.status : event.event.type, width: 10, color: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? statusColor(event.event.status) : undefined},
+        {align: 'right', header: 'Time', key: 'duration', render: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? `${event.event.durationMs}ms` : '', width: 8},
       ],
       data: providerEvents,
       header: false,

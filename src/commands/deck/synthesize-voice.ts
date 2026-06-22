@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {createDeckVoiceoverProject} from '@video-agent/pipeline-deck'
 
+import {workspaceFlag} from '../../utils/cli-flags.js'
 export default class DeckSynthesizeVoice extends Command {
   static args = {
     projectId: Args.string({description: 'Deck Explainer project id with speaker-script.json', required: true}),
@@ -10,7 +11,7 @@ export default class DeckSynthesizeVoice extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

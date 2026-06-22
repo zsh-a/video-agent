@@ -1,4 +1,4 @@
-import type {Claims, ContentBlock, Deck, DeckBrief, DeckCoherenceReport, DeckContentAnalysis, DeckContentDensity, DeckCoverageReport, DeckFormat, DeckScriptTimingReport, DeckSlideOutline, DeckSlideType, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
+import type {Claims, ContentBlock, Deck, DeckBrief, DeckCoherenceReport, DeckContentAnalysis, DeckContentDensity, DeckCoverageReport, DeckFormat, DeckScriptTimingReport, DeckSlideOutline, DeckSlideType, DeckSourceMap, Document, DocumentSourceType, LongVideoSelectedMoments, MediaInfo, Narration, Outline, SourceQuotes, SpeakerScript, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
 import type {TranscriptSegment} from '@video-agent/providers'
 
@@ -46,7 +46,7 @@ export interface TextDeckProjectPlanOptions {
   slideCountMax?: number
   slideCountTarget?: number
   slideOutline?: DeckSlideOutline
-  sourceType?: Document['source']['sourceType']
+  sourceType?: DocumentSourceType
   sourceMap?: DeckSourceMap
   theme?: string
   title?: string

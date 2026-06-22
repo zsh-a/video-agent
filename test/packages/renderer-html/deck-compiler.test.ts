@@ -4,11 +4,31 @@ import {mkdtemp, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {buildChromiumScreenshotArgs, captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
+import {buildChromiumScreenshotArgs, captureDeckHtmlFrames, captureDeckHtmlFrameSequence, captureDeckHtmlKeyframes, createDeckHtmlFrameSequence, createDeckHtmlKeyframes, deckFramePreviewTime} from '../../../packages/renderer-html/src/chromium.js'
 import {writeDeckHtmlProject} from '../../../packages/renderer-deck/src/deck/compiler/index.js'
 import {deckTemplateManifestForLLM, validateSlideAgainstTemplateManifest} from '../../../packages/renderer-deck/src/deck/templates/manifest.js'
 
 describe('html deck compiler', () => {
+  it('rejects empty slide timings instead of planning a single fallback frame', () => {
+    expect(() => createDeckHtmlFrameSequence({
+      fps: 30,
+      outputDir: '/tmp/deck-frames',
+      timedDeck: {
+        deck: {
+          format: 'portrait_1080x1920',
+          inputMode: 'script-generated',
+          language: 'en',
+          slides: [],
+          theme: 'elegant-dark',
+          title: 'Deck',
+          version: 1,
+        },
+        timings: [],
+        version: 1,
+      },
+    })).to.throw('no single-frame capture fallback is allowed')
+  })
+
   it('exposes a template manifest for LLM slide-type selection', () => {
     const threePoints = deckTemplateManifestForLLM.templates.find((template) => template.type === 'three-points')
     const process = deckTemplateManifestForLLM.templates.find((template) => template.type === 'process')
@@ -260,7 +280,110 @@ describe('html deck compiler', () => {
         timings: [],
         version: 1,
       },
-    })).to.throw('could not resolve a slide timing')
+    })).to.throw('no single-frame capture fallback is allowed')
+  })
+
+  it('rejects frame sequence capture without explicit fps instead of defaulting to 30fps', async () => {
+    let error: unknown
+
+    try {
+      await captureDeckHtmlFrameSequence({
+        backend: 'chromium',
+        chromiumCommand: ['chromium'],
+        outputDir: '/tmp/video-agent-renderer-html-no-fps-frames',
+        projectDir: '/tmp/video-agent-renderer-html-no-fps-project',
+        timedDeck: createSingleSlideTimedDeck(),
+      } as unknown as Parameters<typeof captureDeckHtmlFrameSequence>[0])
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('no renderer-level 30fps fallback is allowed')
+  })
+
+  it('rejects invalid frame sequence fps instead of coercing it', () => {
+    expect(() => createDeckHtmlFrameSequence({
+      fps: 1.5,
+      outputDir: '/tmp/video-agent-renderer-html-invalid-fps-frames',
+      timedDeck: createSingleSlideTimedDeck(),
+    })).to.throw('Deck HTML frame sequence requires a positive integer fps; no fps coercion fallback is allowed. Received: 1.5')
+  })
+
+  it('rejects invalid frame capture concurrency and ranges instead of coercing them', async () => {
+    let concurrencyError: unknown
+    let rangeError: unknown
+
+    try {
+      await captureDeckHtmlFrameSequence({
+        backend: 'chromium',
+        chromiumCommand: ['chromium'],
+        concurrency: 0,
+        fps: 10,
+        outputDir: '/tmp/video-agent-renderer-html-invalid-concurrency-frames',
+        projectDir: '/tmp/video-agent-renderer-html-invalid-concurrency-project',
+        timedDeck: createSingleSlideTimedDeck(),
+      })
+    } catch (caught) {
+      concurrencyError = caught
+    }
+
+    try {
+      await captureDeckHtmlFrameSequence({
+        backend: 'chromium',
+        chromiumCommand: ['chromium'],
+        frameEnd: 99,
+        frameStart: 2,
+        fps: 10,
+        outputDir: '/tmp/video-agent-renderer-html-invalid-range-frames',
+        projectDir: '/tmp/video-agent-renderer-html-invalid-range-project',
+        timedDeck: createSingleSlideTimedDeck(),
+      })
+    } catch (caught) {
+      rangeError = caught
+    }
+
+    expect(String(concurrencyError)).to.include('Deck HTML capture concurrency must be a positive integer; no runtime integer coercion fallback is allowed. Received: 0')
+    expect(String(rangeError)).to.include('Frame range end (99) must be less than or equal to frame count (4).')
+  })
+
+  it('rejects static frame capture without positive slide timing instead of using a preview-duration fallback', async () => {
+    let error: unknown
+
+    try {
+      await captureDeckHtmlFrames({
+        chromiumCommand: ['chromium'],
+        outputDir: '/tmp/video-agent-renderer-html-invalid-static-frames',
+        projectDir: '/tmp/video-agent-renderer-html-invalid-static-project',
+        timedDeck: {
+          ...createSingleSlideTimedDeck(),
+          timings: [
+            {end: 0, slideId: 'slide-001', start: 0},
+          ],
+        },
+      })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('Deck HTML frame capture requires a positive timing duration for slide "slide-001"; no preview-duration fallback is allowed.')
+  })
+
+  it('rejects keyframe capture without explicit fps instead of defaulting to 30fps', async () => {
+    let error: unknown
+
+    try {
+      await captureDeckHtmlKeyframes({
+        backend: 'playwright',
+        outputDir: '/tmp/video-agent-renderer-html-no-fps-keyframes',
+        playwrightCommand: ['bun', '/tmp/missing-playwright.ts'],
+        projectDir: '/tmp/video-agent-renderer-html-no-fps-project',
+        timedDeck: createSingleSlideTimedDeck(),
+      } as unknown as Parameters<typeof captureDeckHtmlKeyframes>[0])
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('no renderer-level 30fps fallback is allowed')
   })
 
   it('rejects incomplete comparison slides instead of rendering placeholder or empty comparison content', async () => {
@@ -695,6 +818,36 @@ describe('html deck compiler', () => {
     }
   })
 })
+
+function createSingleSlideTimedDeck() {
+  return {
+    deck: {
+      format: 'portrait_1080x1920' as const,
+      inputMode: 'script-generated' as const,
+      language: 'zh-CN',
+      slides: [
+        {
+          blockIds: [],
+          evidence: [],
+          motion: 'fade-in' as const,
+          points: [],
+          slideId: 'slide-001',
+          speakerNote: 'One',
+          title: 'One',
+          type: 'hero' as const,
+          visual: {assetRefs: [], kind: 'title-card' as const},
+        },
+      ],
+      theme: 'elegant-dark' as const,
+      title: 'Deck',
+      version: 1 as const,
+    },
+    timings: [
+      {end: 0.4, slideId: 'slide-001', start: 0},
+    ],
+    version: 1 as const,
+  }
+}
 
 async function fileSize(path: string): Promise<number> {
   return (await stat(path)).size

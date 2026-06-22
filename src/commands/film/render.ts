@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {createFilmFinalRenderProject} from '@video-agent/pipeline-film'
 
+import {workspaceFlag} from '../../utils/cli-flags.js'
 export default class FilmRender extends Command {
   static args = {
     projectId: Args.string({description: 'Film Recap project id with edited source, audio mix, and subtitles', required: true}),
@@ -10,7 +11,7 @@ export default class FilmRender extends Command {
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

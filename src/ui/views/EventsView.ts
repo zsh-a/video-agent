@@ -1,5 +1,6 @@
 import type {ReactElement} from 'react'
 
+import {PROJECT_EVENT_KIND_PROVIDER} from '@video-agent/runtime'
 import {Fragment, createElement as h} from 'react'
 
 import type {TuiSnapshot} from '../model.js'
@@ -20,7 +21,7 @@ export function EventsView({snapshot}: {snapshot?: TuiSnapshot}): ReactElement {
       columns: [
         {header: 'Kind', key: 'kind', render: (event) => event.kind, width: 9},
         {header: 'Time', key: 'time', render: (event) => event.time, width: 24},
-        {header: 'Event', key: 'event', render: formatEvent, width: 58, color: (event) => event.kind === 'provider' ? statusColor(event.event.status) : undefined},
+        {header: 'Event', key: 'event', render: formatEvent, width: 58, color: (event) => event.kind === PROJECT_EVENT_KIND_PROVIDER ? statusColor(event.event.status) : undefined},
       ],
       data: events,
       maxRows: 14,

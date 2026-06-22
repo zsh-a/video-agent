@@ -1,8 +1,10 @@
-import {createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject} from '@video-agent/pipeline-deck'
-import {FILM_PIPELINE_STAGES, rerunProject} from '@video-agent/pipeline-film'
-import {exportProject, inspectFfmpegAudio, listProjectArtifacts, readProjectArtifact, readProjectEvents, readProjectProviderReport, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, readVideoAgentGuidedActions, renderProject, verifyProjectArtifacts} from '@video-agent/runtime'
+import {PIPELINE_EVENT_TYPES} from '@video-agent/core'
+import {DECK_HTML_CAPTURE_BACKENDS} from '@video-agent/ir'
+import {DECK_FINAL_RENDERERS, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject} from '@video-agent/pipeline-deck'
+import {FILM_PIPELINE_STAGES, rerunFilmProject} from '@video-agent/pipeline-film'
+import {DECK_RENDERER_BACKENDS, EXPORT_FORMATS, PROJECT_EVENT_KINDS, PROVIDER_CALL_ROLES, PROVIDER_CALL_STATUSES, exportProject, inspectFfmpegAudio, listProjectArtifacts, readProjectArtifact, readProjectEvents, readProjectProviderReport, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, readVideoAgentGuidedActions, renderProject, verifyProjectArtifacts} from '@video-agent/runtime'
 
-import {parseOptionalBoolean, parseOptionalEnum, parseOptionalInteger, parseOptionalNumber, readBooleanField, readCommandPrefix, readJsonBody, readNumberField, readStringArrayField, readStringField} from './request.js'
+import {parseOptionalBoolean, parseOptionalEnum, parseOptionalNonNegativeInteger, parseOptionalNumber, parseRequiredEnum, readBooleanField, readCommandPrefix, readJsonBody, readNonNegativeIntegerField, readNumberField, readPositiveIntegerField, readStringArrayField, readStringField} from './request.js'
 import {jsonResponse, methodNotAllowed, projectFileResponse} from './response.js'
 
 interface ProjectRouteContext {
@@ -60,7 +62,7 @@ async function routeProjectRerun({projectId, request, workspaceDir}: ProjectRout
   const body = await readJsonBody(request)
 
   return jsonResponse(
-    await rerunProject(projectId, {
+    await rerunFilmProject(projectId, {
       fromStage: parseOptionalEnum(readStringField(body, 'fromStage'), FILM_PIPELINE_STAGES),
       workspaceDir,
     }),
@@ -103,18 +105,18 @@ async function routeDeckRender({projectId, request, workspaceDir}: ProjectRouteC
       chromiumCommand: readStringArrayField(body, 'chromiumCommand'),
       finalize: readBooleanField(body, 'finalize'),
       finalizeOnly: readBooleanField(body, 'finalizeOnly'),
-      frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), ['chromium', 'playwright']),
-      frameConcurrency: readNumberField(body, 'frameConcurrency'),
-      frameEnd: readNumberField(body, 'frameEnd'),
-      frameStart: readNumberField(body, 'frameStart'),
+      frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), DECK_HTML_CAPTURE_BACKENDS),
+      frameConcurrency: readPositiveIntegerField(body, 'frameConcurrency'),
+      frameEnd: readPositiveIntegerField(body, 'frameEnd'),
+      frameStart: readPositiveIntegerField(body, 'frameStart'),
       htmlOutput: readStringField(body, 'htmlOutput') ?? undefined,
       htmlRender: readBooleanField(body, 'htmlRender'),
       htmlRenderCommand: readStringArrayField(body, 'htmlRenderCommand'),
       htmlValidate: readBooleanField(body, 'htmlValidate'),
-      keyframeCaptureBackend: parseOptionalEnum(readStringField(body, 'keyframeCaptureBackend'), ['chromium', 'playwright']),
+      keyframeCaptureBackend: parseOptionalEnum(readStringField(body, 'keyframeCaptureBackend'), DECK_HTML_CAPTURE_BACKENDS),
       playwrightCommand: readStringArrayField(body, 'playwrightCommand'),
       projectId,
-      renderer: parseOptionalEnum(readStringField(body, 'renderer'), ['remotion', 'html']),
+      renderer: parseOptionalEnum(readStringField(body, 'renderer'), DECK_FINAL_RENDERERS),
       workspaceDir,
     }),
   )
@@ -129,8 +131,8 @@ async function routeDeckShards({projectId, request, workspaceDir}: ProjectRouteC
 
   return jsonResponse(
     await createDeckFrameShardPlanProject({
-      frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), ['chromium', 'playwright']),
-      frameShardSize: readNumberField(body, 'frameShardSize'),
+      frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), DECK_HTML_CAPTURE_BACKENDS),
+      frameShardSize: readPositiveIntegerField(body, 'frameShardSize'),
       projectId,
       workspaceDir,
     }),
@@ -147,14 +149,14 @@ async function routeDeckShardBatch({projectId, request, workspaceDir}: ProjectRo
   return jsonResponse(
     await createDeckFrameShardBatchProject({
       chromiumCommand: readStringArrayField(body, 'chromiumCommand'),
-      frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), ['chromium', 'playwright']),
-      frameConcurrency: readNumberField(body, 'frameConcurrency'),
-      frameShardSize: readNumberField(body, 'frameShardSize'),
+      frameCaptureBackend: parseOptionalEnum(readStringField(body, 'frameCaptureBackend'), DECK_HTML_CAPTURE_BACKENDS),
+      frameConcurrency: readPositiveIntegerField(body, 'frameConcurrency'),
+      frameShardSize: readPositiveIntegerField(body, 'frameShardSize'),
       playwrightCommand: readStringArrayField(body, 'playwrightCommand'),
       projectId,
-      shardConcurrency: readNumberField(body, 'shardConcurrency'),
-      shardRetryDelayMs: readNumberField(body, 'shardRetryDelayMs'),
-      shardRetries: readNumberField(body, 'shardRetries'),
+      shardConcurrency: readPositiveIntegerField(body, 'shardConcurrency'),
+      shardRetryDelayMs: readNonNegativeIntegerField(body, 'shardRetryDelayMs'),
+      shardRetries: readNonNegativeIntegerField(body, 'shardRetries'),
       workspaceDir,
     }),
   )
@@ -169,9 +171,9 @@ async function routeDeckBackend({projectId, request, workspaceDir}: ProjectRoute
 
   return jsonResponse(
     await createDeckRendererBackendProject({
-      backend: parseOptionalEnum(readStringField(body, 'backend'), ['motion-canvas', 'remotion']) ?? 'remotion',
+      backend: parseRequiredEnum(readStringField(body, 'backend'), 'backend', DECK_RENDERER_BACKENDS),
       compositionId: readStringField(body, 'compositionId') ?? undefined,
-      fps: readNumberField(body, 'fps'),
+      fps: readPositiveIntegerField(body, 'fps'),
       outputDir: readStringField(body, 'outputDir') ?? undefined,
       projectId,
       workspaceDir,
@@ -185,13 +187,12 @@ async function routeDeckBackendRender({projectId, request, workspaceDir}: Projec
   }
 
   const body = await readJsonBody(request)
-  parseOptionalEnum(readStringField(body, 'backend'), ['remotion'])
 
   return jsonResponse(
     await createDeckRemotionRenderProject({
       command: readStringArrayField(body, 'command'),
       compositionId: readStringField(body, 'compositionId') ?? undefined,
-      fps: readNumberField(body, 'fps'),
+      fps: readPositiveIntegerField(body, 'fps'),
       outputDir: readStringField(body, 'outputDir') ?? undefined,
       outputPath: readStringField(body, 'outputPath') ?? undefined,
       projectId,
@@ -243,7 +244,7 @@ async function routeProjectExport({projectId, request, workspaceDir}: ProjectRou
   return jsonResponse(
     await exportProject({
       cleanOutput: readBooleanField(body, 'cleanOutput'),
-      format: parseOptionalEnum(readStringField(body, 'format'), ['video', 'bundle']),
+      format: parseRequiredEnum(readStringField(body, 'format'), 'format', [...EXPORT_FORMATS]),
       outputPath: readStringField(body, 'outputPath') ?? undefined,
       projectId,
       requireQuality: readBooleanField(body, 'requireQuality'),
@@ -322,12 +323,12 @@ async function routeProjectEvents({projectId, request, url, workspaceDir}: Proje
 
   return jsonResponse(
     await readProjectEvents(projectId, {
-      kind: parseOptionalEnum(url.searchParams.get('kind'), ['pipeline', 'provider']),
-      limit: parseOptionalInteger(url.searchParams.get('limit')),
+      kind: parseOptionalEnum(url.searchParams.get('kind'), [...PROJECT_EVENT_KINDS]),
+      limit: parseOptionalNonNegativeInteger(url.searchParams.get('limit')),
       pipelineStage: url.searchParams.get('stage') ?? undefined,
-      pipelineType: parseOptionalEnum(url.searchParams.get('type'), ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start']),
-      providerRole: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'script', 'tts', 'vlm']),
-      providerStatus: parseOptionalEnum(url.searchParams.get('status'), ['failed', 'succeeded']),
+      pipelineType: parseOptionalEnum(url.searchParams.get('type'), [...PIPELINE_EVENT_TYPES]),
+      providerRole: parseOptionalEnum(url.searchParams.get('role'), [...PROVIDER_CALL_ROLES]),
+      providerStatus: parseOptionalEnum(url.searchParams.get('status'), [...PROVIDER_CALL_STATUSES]),
       workspaceDir,
     }),
   )
@@ -340,8 +341,8 @@ async function routeProjectProviderReport({projectId, request, url, workspaceDir
 
   return jsonResponse(
     await readProjectProviderReport(projectId, {
-      role: parseOptionalEnum(url.searchParams.get('role'), ['asr', 'script', 'tts', 'vlm']),
-      status: parseOptionalEnum(url.searchParams.get('status'), ['failed', 'succeeded']),
+      role: parseOptionalEnum(url.searchParams.get('role'), [...PROVIDER_CALL_ROLES]),
+      status: parseOptionalEnum(url.searchParams.get('status'), [...PROVIDER_CALL_STATUSES]),
       workspaceDir,
     }),
   )
@@ -363,7 +364,7 @@ async function routeProjectActions({projectId, request, url, workspaceDir}: Proj
   }
 
   return jsonResponse(await readVideoAgentGuidedActions({
-    artifactLimit: parseOptionalInteger(url.searchParams.get('artifactLimit')),
+    artifactLimit: parseOptionalNonNegativeInteger(url.searchParams.get('artifactLimit')),
     commandPrefix: readCommandPrefix(url.searchParams),
     projectId,
     workspaceDir,

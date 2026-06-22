@@ -18,11 +18,22 @@ const promptTokensKey = 'prompt_tokens'
 const totalTokensKey = 'total_tokens'
 
 describe('provider smoke test', () => {
-  it('runs all mock providers by default', async () => {
+  it('runs all mock providers for the default roles', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
+    const audioPath = join(root, 'sample.wav')
+    const framePath = join(root, 'sample.jpg')
 
     try {
-      const report = await runProviderSmokeTest({workspaceDir: root})
+      await writeBytes(audioPath, Buffer.from('fake-audio'))
+      await writeBytes(framePath, Buffer.from('fake-jpeg'))
+      await writeConfig(root, {})
+
+      const report = await runProviderSmokeTest({
+        framePath,
+        mediaPath: audioPath,
+        text: 'Provider smoke test narration.',
+        workspaceDir: root,
+      })
 
       expect(report.ok).to.equal(true)
       expect(report.summary).to.deep.equal({
@@ -46,11 +57,42 @@ describe('provider smoke test', () => {
     }
   })
 
+  it('reports missing role inputs without calling providers', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
+
+    try {
+      await writeConfig(root, {})
+
+      const report = await runProviderSmokeTest({
+        roles: ['asr'],
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(false)
+      expect(report.results).to.have.length(1)
+      expect(report.results[0]).to.deep.include({
+        provider: 'mock',
+        role: 'asr',
+        status: 'failed',
+      })
+      expect(report.results[0]?.error).to.deep.include({
+        message: 'ASR provider smoke test requires mediaPath.',
+        name: 'ProviderSmokeTestInputError',
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('runs the documented command adapter recipe', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
     const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+    const audioPath = join(root, 'command-sample.wav')
+    const framePath = join(root, 'command-sample.jpg')
 
     try {
+      await writeBytes(audioPath, Buffer.from('fake-audio'))
+      await writeBytes(framePath, Buffer.from('fake-jpeg'))
       await writeConfig(root, {
         asr: 'command',
         tts: 'command',
@@ -63,6 +105,9 @@ describe('provider smoke test', () => {
           VIDEO_AGENT_TTS_COMMAND: command,
           VIDEO_AGENT_VLM_COMMAND: command,
         },
+        framePath,
+        mediaPath: audioPath,
+        text: 'Provider smoke test narration.',
         workspaceDir: root,
       })
 
@@ -98,6 +143,7 @@ describe('provider smoke test', () => {
         framePath,
         llmClient: createSmokeTestLLMClient(),
         mediaPath: audioPath,
+        text: 'Provider smoke test narration.',
         workspaceDir: root,
       })
 
@@ -140,6 +186,7 @@ describe('provider smoke test', () => {
             },
           ],
           text: '这是中文转写。',
+          timestampConfidence: 'exact',
         })
         const usage = {
           [completionTokensKey]: 4,
@@ -257,14 +304,17 @@ describe('provider smoke test', () => {
 
   it('reports provider response validation issues without throwing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-smoke-'))
+    const audioPath = join(root, 'sample.wav')
 
     try {
+      await writeBytes(audioPath, Buffer.from('fake-audio'))
       await writeConfig(root, {asr: 'command'})
 
       const report = await runProviderSmokeTest({
         env: {
           VIDEO_AGENT_ASR_COMMAND: JSON.stringify(['sh', '-c', String.raw`cat >/dev/null; printf "%s\n" "$1"`, 'provider-json', '{"text":"bad","segments":[{"start":2,"end":1,"text":"bad"}]}']),
         },
+        mediaPath: audioPath,
         roles: ['asr'],
         workspaceDir: root,
       })

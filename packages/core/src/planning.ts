@@ -44,7 +44,7 @@ export function createSceneBoundariesFromTranscript(transcript: TranscriptInsigh
 }
 
 export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): ClipPlan {
-  const sourceDuration = inferMediaDuration(mediaInfo)
+  const sourceDuration = resolveClipPlanSourceDuration(mediaInfo)
   let duration = 0
   const clips: ClipPlan['clips'] = storyboard.scenes.map((scene, index) => {
     const {sourceRange} = scene
@@ -83,10 +83,15 @@ export function createClipPlan(storyboard: Storyboard, mediaInfo: MediaInfo): Cl
 
 export function createTimelineFromClipPlan(mediaInfo: MediaInfo, clipPlan: ClipPlan): Timeline {
   const videoStream = mediaInfo.streams.find((stream) => stream.type === 'video')
+  const fps = videoStream?.fps
+
+  if (fps === undefined || !Number.isFinite(fps) || fps <= 0) {
+    throw new Error('Timeline planning requires a positive video stream fps from probing; no 30fps renderer fallback is allowed.')
+  }
 
   return {
     duration: clipPlan.duration,
-    fps: videoStream?.fps ?? 30,
+    fps,
     items: clipPlan.clips.map((clip, index) => ({
       duration: clip.duration,
       id: `video-${index + 1}`,
@@ -100,27 +105,30 @@ export function createTimelineFromClipPlan(mediaInfo: MediaInfo, clipPlan: ClipP
 }
 
 function requireSceneBoundaryDuration(transcript: TranscriptInsight | undefined, mediaDuration: number): number {
-  if (mediaDuration > 0) {
+  if (Number.isFinite(mediaDuration) && mediaDuration > 0) {
     return mediaDuration
   }
 
-  const segmentEnd = Math.max(0, ...(transcript?.segments ?? []).map((segment) => segment.end))
-
-  if (segmentEnd <= 0) {
-    throw new Error('Scene boundary planning requires media duration or timed transcript segments.')
-  }
-
-  return segmentEnd
+  throw new Error('Scene boundary planning requires a positive media duration from probing; no transcript timestamp duration fallback is allowed.')
 }
 
-function inferMediaDuration(mediaInfo: MediaInfo): number {
+function resolveClipPlanSourceDuration(mediaInfo: MediaInfo): number {
   if (mediaInfo.duration !== undefined) {
-    return mediaInfo.duration
+    if (Number.isFinite(mediaInfo.duration) && mediaInfo.duration > 0) {
+      return mediaInfo.duration
+    }
+
+    throw new Error('Clip planning requires a positive media duration; no zero-duration clip-plan fallback is allowed.')
   }
 
   const streamDurations = mediaInfo.streams
     .map((stream) => stream.duration)
     .filter((duration): duration is number => duration !== undefined)
+  const streamDuration = streamDurations.length === 0 ? undefined : Math.max(...streamDurations)
 
-  return streamDurations.length === 0 ? 0 : Math.max(...streamDurations)
+  if (streamDuration !== undefined && Number.isFinite(streamDuration) && streamDuration > 0) {
+    return streamDuration
+  }
+
+  throw new Error('Clip planning requires media or stream duration from probing; no zero-duration clip-plan fallback is allowed.')
 }

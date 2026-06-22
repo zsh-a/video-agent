@@ -1,6 +1,6 @@
-import type {LLMClientConfig} from '@video-agent/llm'
+import {DEFAULT_LLM_API_KEY_ENV, OPENAI_COMPATIBLE_LLM_PROVIDER, type LLMClientConfig} from '@video-agent/llm'
 
-import type {ProviderRole} from './descriptors.js'
+import type {ProviderName, ProviderRole} from './descriptors.js'
 
 export const PROVIDER_PROFILE_NAMES = ['mimo'] as const
 
@@ -12,9 +12,9 @@ export interface ProviderProfile {
   models: ProviderProfileModel[]
   name: ProviderProfileName
   providers: {
-    asr: string
-    tts: string
-    vlm: string
+    asr: ProviderName
+    tts: ProviderName
+    vlm: ProviderName
   }
   providerSettings: ProviderSettings
 }
@@ -56,12 +56,11 @@ export const MIMO_PROVIDER_MODELS: ProviderProfileModel[] = [
 export const MIMO_PROVIDER_PROFILE: ProviderProfile = {
   description: 'Mimo hosted provider profile using the shared OpenAI-compatible endpoint.',
   llm: {
-    apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
+    apiKeyEnv: DEFAULT_LLM_API_KEY_ENV,
     baseURL: MIMO_PROVIDER_BASE_URL,
     model: MIMO_PROVIDER_MODEL_IDS.llm,
     name: 'mimo',
-    provider: 'openai-compatible',
-    supportsStructuredOutputs: false,
+    provider: OPENAI_COMPATIBLE_LLM_PROVIDER,
   },
   models: MIMO_PROVIDER_MODELS,
   name: 'mimo',

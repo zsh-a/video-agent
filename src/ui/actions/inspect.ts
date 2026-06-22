@@ -1,10 +1,14 @@
 import type {RunTuiActionOptions, TuiActionResult} from './types.js'
 
-import {inspectFfmpegAudio, listProjects, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
+import {inspectFfmpegAudio, listProjects, readMostRecentProjectId, readProjectArtifact, readProjectEvents, readProjectQuality, readProjectQualityDetails, readProjectStatus, readProjectVisualSamples, resolveProviderSmokeTestRoles, runProviderSmokeTest, verifyProjectArtifacts} from '@video-agent/runtime'
 
-import {readMostRecentProjectId, resolveProviderSmokeTestRoles} from './resolvers.js'
+import {isTuiInspectAction} from '../model.js'
 
 export async function runTuiInspectAction(options: RunTuiActionOptions): Promise<TuiActionResult | undefined> {
+  if (!isTuiInspectAction(options.action)) {
+    return undefined
+  }
+
   if (options.action === 'artifact') {
     if (options.artifactName === undefined) {
       throw new Error('Pass --artifact <name> when using --action artifact.')

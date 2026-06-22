@@ -1,11 +1,12 @@
 import {Command, Flags} from '@oclif/core'
 import {listProjects} from '@video-agent/runtime'
 
+import {workspaceFlag} from '../utils/cli-flags.js'
 export default class Projects extends Command {
   static description = 'List projects in a workspace'
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -23,7 +24,7 @@ export default class Projects extends Command {
     }
 
     for (const project of projects) {
-      this.log(`${project.projectId}\t${project.status ?? 'unknown'}\t${project.updatedAt ?? '-'}`)
+      this.log(`${project.projectId}\t${project.status}\t${project.updatedAt}`)
     }
   }
 }

@@ -6,9 +6,25 @@ import {TranscriptSchema, VlmScenesSchema} from '@video-agent/providers'
 import {mkdir} from 'node:fs/promises'
 import {join, resolve} from 'node:path'
 
-import {clamp, rangesOverlap, roundSeconds, uniqueStrings} from '../shared/utils.js'
+import {rangesOverlap, roundSeconds, uniqueStrings} from '../shared/utils.js'
+
+export const DEFAULT_FILM_MAX_SCENES = 12
+
+function requirePositiveFilmSourceDuration(sourceManifest: SourceManifest, context: string): number {
+  if (Number.isFinite(sourceManifest.duration) && sourceManifest.duration > 0) {
+    return sourceManifest.duration
+  }
+
+  throw new Error(`${context} requires a positive sourceManifest.duration; no zero-duration Film source fallback is allowed.`)
+}
 
 export async function createFilmFrameManifest(framesDir: string, sourceManifest: SourceManifest, scenes: FilmScenes): Promise<LongVideoAnalysisFrames> {
+  const sourceDuration = requirePositiveFilmSourceDuration(sourceManifest, 'Film Recap frame manifest')
+
+  if (scenes.scenes.length === 0) {
+    throw new Error('Film Recap frame manifest requires at least one scene; no empty frame manifest or sampleFps fallback is allowed.')
+  }
+
   await mkdir(framesDir, {recursive: true})
 
   const frames = await Promise.all(scenes.scenes.map(async (scene, index) => {
@@ -27,13 +43,15 @@ export async function createFilmFrameManifest(framesDir: string, sourceManifest:
     frameCount: frames.length,
     framePattern: join(framesDir, 'film-scene-%03d.jpg'),
     frames,
-    sampleFps: sourceManifest.duration > 0 && frames.length > 0 ? frames.length / sourceManifest.duration : 1,
+    sampleFps: frames.length / sourceDuration,
     source: sourceManifest.sourcePath,
     version: 1,
   }
 }
 
 export async function createFilmAsrResult(audioDir: string, sourceManifest: SourceManifest, providers: ProviderSet): Promise<ASRResult> {
+  const sourceDuration = requirePositiveFilmSourceDuration(sourceManifest, 'Film Recap ASR')
+
   if (sourceManifest.audioTracks === 0) {
     throw new Error('Film Recap production ASR requires the source video to contain an audio track.')
   }
@@ -45,7 +63,7 @@ export async function createFilmAsrResult(audioDir: string, sourceManifest: Sour
   await extractAudio(sourceManifest.sourcePath, audioPath)
 
   const transcript = TranscriptSchema.parse(await providers.asr.transcribe({
-    duration: sourceManifest.duration,
+    duration: sourceDuration,
     path: audioPath,
   }))
 
@@ -53,20 +71,24 @@ export async function createFilmAsrResult(audioDir: string, sourceManifest: Sour
 }
 
 export function createFilmScenesFromEvidence(sourceManifest: SourceManifest, asrResult: ASRResult, silencePeriods: SilencePeriods, visualSceneChanges: number[], maxScenes: number): FilmScenes {
+  const sourceDuration = requirePositiveFilmSourceDuration(sourceManifest, 'Film Recap production scene planning')
+  const sceneLimit = requireFilmSceneLimit(maxScenes)
+
   requireTimedAsrSegments(asrResult, 'Film Recap production scene planning', {
     allowEmpty: false,
   })
 
-  const ranges = limitSceneRanges(createSceneRangesFromBoundaries(sourceManifest.duration, [
+  const sceneBoundaries = [
     0,
-    ...visualSceneChanges,
-    ...silencePeriods.periods.flatMap((period) => silencePeriodBoundary(period, sourceManifest.duration)),
-    sourceManifest.duration,
-  ]), normalizeFilmSceneLimit(maxScenes))
+    ...visualSceneChanges.map((boundary, index) => requireSceneBoundary(boundary, sourceDuration, `visual scene change ${index + 1}`)),
+    ...silencePeriods.periods.flatMap((period, index) => silencePeriodBoundary(period, sourceDuration, index)),
+    sourceDuration,
+  ]
+  const ranges = limitSceneRanges(createSceneRangesFromBoundaries(sourceDuration, sceneBoundaries), sceneLimit)
   const scenes = ranges.map((range, index) => ({
     id: `scene-${String(index + 1).padStart(3, '0')}`,
     sourceRange: range,
-  })).filter((scene) => scene.sourceRange[1] > scene.sourceRange[0])
+  }))
 
   if (scenes.length === 0) {
     throw new Error('Film Recap production scene planning produced no evidence-backed scenes.')
@@ -80,6 +102,8 @@ export function createFilmScenesFromEvidence(sourceManifest: SourceManifest, asr
 }
 
 export function createFilmSilencePeriods(sourceManifest: SourceManifest, asrResult: ASRResult): SilencePeriods {
+  const sourceDuration = requirePositiveFilmSourceDuration(sourceManifest, 'Film Recap production silence detection')
+
   if (sourceManifest.audioTracks === 0) {
     throw new Error('Film Recap production silence detection requires the source video to contain an audio track.')
   }
@@ -103,9 +127,9 @@ export function createFilmSilencePeriods(sourceManifest: SourceManifest, asrResu
     cursor = Math.max(cursor, segment.end)
   }
 
-  if (cursor < sourceManifest.duration) {
+  if (cursor < sourceDuration) {
     periods.push({
-      end: roundSeconds(sourceManifest.duration),
+      end: roundSeconds(sourceDuration),
       id: `silence-${String(periods.length + 1).padStart(3, '0')}`,
       reason: 'detected',
       start: roundSeconds(cursor),
@@ -120,12 +144,10 @@ export function createFilmSilencePeriods(sourceManifest: SourceManifest, asrResu
 }
 
 export async function createFilmVlmAnalysis(sourceManifest: SourceManifest, scenes: FilmScenes, frames: LongVideoAnalysisFrames, providers: ProviderSet): Promise<VLMAnalysis> {
+  requirePositiveFilmSourceDuration(sourceManifest, 'Film Recap VLM analysis')
+
   if (scenes.scenes.length === 0) {
-    return {
-      scenes: [],
-      source: sourceManifest.sourcePath,
-      version: 1,
-    }
+    throw new Error('Film Recap VLM analysis requires at least one scene; no empty VLM analysis fallback is allowed.')
   }
 
   const batches = createFilmSceneFrameBatches(scenes, frames)
@@ -235,12 +257,13 @@ export function createFilmAsrResultFromTranscript(transcript: Transcript, source
 }
 
 function createSceneRangesFromBoundaries(sourceDuration: number, rawBoundaries: number[]): Array<[number, number]> {
-  const safeDuration = Math.max(sourceDuration, 0.001)
-  const boundaries = uniqueRoundedSeconds(rawBoundaries
-    .map((value) => clamp(value, 0, safeDuration))
-    .filter((value) => value >= 0 && value <= safeDuration))
+  if (!Number.isFinite(sourceDuration) || sourceDuration <= 0) {
+    throw new Error('Film Recap scene range planning requires a positive source duration; no synthetic minimum scene duration fallback is allowed.')
+  }
+
+  const boundaries = uniqueRoundedSeconds(rawBoundaries.map((value, index) => requireSceneBoundary(value, sourceDuration, `scene boundary ${index + 1}`)))
     .sort((left, right) => left - right)
-  const completeBoundaries = ensureBoundaryEdges(boundaries, safeDuration)
+  const completeBoundaries = ensureBoundaryEdges(boundaries, sourceDuration)
   const ranges: Array<[number, number]> = []
 
   for (let index = 0; index < completeBoundaries.length - 1; index += 1) {
@@ -252,10 +275,18 @@ function createSceneRangesFromBoundaries(sourceDuration: number, rawBoundaries: 
     }
   }
 
-  return ranges.length === 0 ? [[0, safeDuration]] : ranges
+  if (ranges.length === 0) {
+    throw new Error('Film Recap scene range planning produced no positive ranges; no synthetic minimum scene duration fallback is allowed.')
+  }
+
+  return ranges
 }
 
-function silencePeriodBoundary(period: SilencePeriods['periods'][number], sourceDuration: number): number[] {
+function silencePeriodBoundary(period: SilencePeriods['periods'][number], sourceDuration: number, index: number): number[] {
+  if (!Number.isFinite(period.start) || !Number.isFinite(period.end) || period.start < 0 || period.end > sourceDuration || period.end < period.start) {
+    throw new Error(`Film Recap silence period ${index + 1} must stay within source duration; no scene-boundary clipping fallback is allowed.`)
+  }
+
   const duration = period.end - period.start
 
   if (duration < 0.25 || period.start <= 0 || period.end >= sourceDuration) {
@@ -267,7 +298,7 @@ function silencePeriodBoundary(period: SilencePeriods['periods'][number], source
 
 function limitSceneRanges(ranges: Array<[number, number]>, maxScenes: number): Array<[number, number]> {
   const limited = [...ranges]
-  const target = Math.max(1, Math.floor(Number.isFinite(maxScenes) ? maxScenes : limited.length))
+  const target = maxScenes
 
   while (limited.length > target) {
     const mergeIndex = findShortestAdjacentSceneMerge(limited)
@@ -309,10 +340,6 @@ function uniqueRoundedSeconds(values: number[]): number[] {
 }
 
 function requireTimedAsrSegments(asrResult: ASRResult, context: string, options: {allowEmpty: boolean}): ASRResult['segments'] {
-  if (asrResult.timestampConfidence === 'untimed') {
-    throw new Error(`${context} requires timed ASR segments; no untimed ASR fallback is allowed.`)
-  }
-
   if (!options.allowEmpty && asrResult.segments.length === 0) {
     throw new Error(`${context} requires non-empty timed ASR segments; no transcript-wide fallback is allowed.`)
   }
@@ -326,10 +353,20 @@ function requireTimedAsrSegments(asrResult: ASRResult, context: string, options:
   return [...asrResult.segments].sort((left, right) => left.start - right.start || left.end - right.end)
 }
 
-function normalizeFilmSceneLimit(maxScenes: number): number {
-  const requested = Number.isFinite(maxScenes) ? Math.floor(maxScenes) : 12
+function requireSceneBoundary(value: number, sourceDuration: number, label: string): number {
+  if (!Number.isFinite(value) || value < 0 || value > sourceDuration) {
+    throw new Error(`Film Recap ${label} must stay within source duration; no scene-boundary clipping fallback is allowed.`)
+  }
 
-  return Math.max(1, requested)
+  return value
+}
+
+function requireFilmSceneLimit(maxScenes: number): number {
+  if (!Number.isInteger(maxScenes) || maxScenes <= 0) {
+    throw new Error(`Film Recap scene planning requires a positive integer maxScenes; no scene-limit default or clamp fallback is allowed. Received: ${String(maxScenes)}`)
+  }
+
+  return maxScenes
 }
 
 function validateFilmVlmScenes(batches: SceneFrameBatch[], providerScenes: VLMScene[]): VLMScene[] {

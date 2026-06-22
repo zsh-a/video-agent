@@ -6,21 +6,23 @@ import {NarrationSchema} from '@video-agent/ir'
 import {probeMedia, runFfmpeg} from '@video-agent/media'
 import {checkRenderedMedia, checkSrtSubtitles, createRenderedMediaProbeFailure} from '@video-agent/quality'
 import {narrationToSrt, narrationToSrtCues} from '@video-agent/renderer-ffmpeg'
-import {bunFile, bunWrite} from '@video-agent/runtime'
+import {NARRATION_ARTIFACT_NAME, SUBTITLES_ARTIFACT_NAME} from '@video-agent/runtime'
+import {readFile, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
 import {toProjectPath} from '../../project/paths.js'
+import {requireTimedDeckDuration} from '../../shared/utils.js'
 
 export async function writeDeckSubtitles(workspace: ProjectWorkspace, timedDeck: TimedDeck): Promise<{
   outputPath: string
   quality: SubtitleQualityResult
 }> {
-  const narration = NarrationSchema.parse(await workspace.store.readJson('narration.json'))
+  const narration = NarrationSchema.parse(await workspace.store.readJson(NARRATION_ARTIFACT_NAME))
   const outputPath = resolve(workspace.rendersDir, 'subtitles.srt')
   const cues = narrationToSrtCues(narration)
 
-  await bunWrite(outputPath, narrationToSrt(narration))
-  await workspace.store.writeJson('subtitles.json', {
+  await writeFile(outputPath, narrationToSrt(narration))
+  await workspace.store.writeJson(SUBTITLES_ARTIFACT_NAME, {
     cues: cues.length,
     format: 'srt' as const,
     generatedAt: new Date().toISOString(),
@@ -30,8 +32,8 @@ export async function writeDeckSubtitles(workspace: ProjectWorkspace, timedDeck:
 
   return {
     outputPath,
-    quality: checkSrtSubtitles(await bunFile(outputPath).text(), {
-      maxEnd: timedDeck.timings.at(-1)?.end ?? 0,
+    quality: checkSrtSubtitles(await readFile(outputPath, 'utf8'), {
+      maxEnd: requireTimedDeckDuration(timedDeck, 'Deck subtitles'),
     }),
   }
 }

@@ -1,12 +1,14 @@
-import type {Claim, Claims, ContentBlock, Deck, DeckSourceMap, Document, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, Timeline} from '@video-agent/ir'
+import type {Claim, Claims, ContentBlock, Deck, DeckSourceMap, Document, DocumentSourceType, LongVideoSelectedMoments, MediaInfo, Narration, Outline, Slide, SlideTiming, SourceQuote, SourceQuotes, SpeakerScript, Storyboard, Timeline} from '@video-agent/ir'
 
-import {ClaimsSchema, ContentBlocksSchema, DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckSchema, DeckSlideOutlineSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
+import {ClaimsSchema, ContentBlocksSchema, DEFAULT_DECK_FORMAT, DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckSchema, DeckSlideOutlineSchema, DocumentSchema, NarrationSchema, OutlineSchema, SourceQuotesSchema, SpeakerScriptSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
+import {countQualityIssues} from '@video-agent/quality'
+import {CONTENT_ANALYSIS_ARTIFACT_NAME, DECK_BRIEF_ARTIFACT_NAME, DECK_COHERENCE_REPORT_ARTIFACT_NAME, SLIDE_OUTLINE_ARTIFACT_NAME} from '@video-agent/runtime'
 
 import {normalizeLLMTextDeckSlides, type LLMTextDeckPlan, type NormalizedLLMTextDeckSlide} from './llm-plan.js'
 import {deckSlideText} from './slide-content.js'
 import type {TextDeckProjectPlan, TextDeckProjectPlanOptions} from './types.js'
 import {assertNoGeneratedTextControlSyntax, cleanGeneratedText, createTextMediaInfo, createTimedDeck, resolveTheme} from './utils.js'
-import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report.js'
+import {createTextQualityIssues} from '../quality/report.js'
 import {createDeckNarrationFromTimings, createDeckStoryboard, createSlideTimingsFromSpeakerScript, createTextTimeline} from './timing.js'
 import {createDeckCoverageReport, assertDeckCoverage} from '../quality/coverage.js'
 import {assertDeckScriptTiming, createDeckScriptTimingReport} from '../quality/script-timing.js'
@@ -19,10 +21,10 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
   const slides = normalizeSlideDurations(normalizeLLMTextDeckSlides(rawPlan), options.durationTargetSeconds)
   const sourceType = requireDeckSourceType(options.sourceType)
   const sourceMap = requireDeckSourceMap(options.sourceMap)
-  const contentAnalysis = DeckContentAnalysisSchema.parse(requireStagedArtifact(options.contentAnalysis, 'content-analysis.json'))
-  const deckBrief = DeckBriefSchema.parse(requireStagedArtifact(options.deckBrief, 'deck-brief.json'))
-  const slideOutline = DeckSlideOutlineSchema.parse(requireStagedArtifact(options.slideOutline, 'slide-outline.json'))
-  const coherenceReport = DeckCoherenceReportSchema.parse(requireStagedArtifact(options.coherenceReport, 'deck-coherence-report.json'))
+  const contentAnalysis = DeckContentAnalysisSchema.parse(requireStagedArtifact(options.contentAnalysis, CONTENT_ANALYSIS_ARTIFACT_NAME))
+  const deckBrief = DeckBriefSchema.parse(requireStagedArtifact(options.deckBrief, DECK_BRIEF_ARTIFACT_NAME))
+  const slideOutline = DeckSlideOutlineSchema.parse(requireStagedArtifact(options.slideOutline, SLIDE_OUTLINE_ARTIFACT_NAME))
+  const coherenceReport = DeckCoherenceReportSchema.parse(requireStagedArtifact(options.coherenceReport, DECK_COHERENCE_REPORT_ARTIFACT_NAME))
   const preDeckCoverageReport = createDeckCoverageReport({
     analysis: contentAnalysis,
     brief: deckBrief,
@@ -58,7 +60,7 @@ export function createTextDeckProjectPlanFromLLM(inputPath: string, sourceText: 
   })
   const resolvedTheme = resolveTheme(rawPlan.theme, options.theme)
   const deck = DeckSchema.parse({
-    format: options.deckFormat ?? 'portrait_1080x1920',
+    format: options.deckFormat ?? DEFAULT_DECK_FORMAT,
     inputMode: 'script-generated',
     language: planLanguage,
     slides: deckSlides,
@@ -207,7 +209,7 @@ function createLLMTextDocument(
   language: string,
   title: string,
   summary: string,
-  sourceType: Document['source']['sourceType'],
+  sourceType: DocumentSourceType,
 ): Document {
   return {
     blocks: deck.slides.map((slide, index): ContentBlock => {
@@ -232,7 +234,7 @@ function createLLMTextDocument(
   }
 }
 
-function requireDeckSourceType(sourceType: Document['source']['sourceType'] | undefined): Document['source']['sourceType'] {
+function requireDeckSourceType(sourceType: DocumentSourceType | undefined): DocumentSourceType {
   if (sourceType === undefined) {
     throw new Error('Deck plan artifact generation requires an explicit sourceType; no artifact-time sourceType fallback is allowed.')
   }
@@ -241,7 +243,7 @@ function requireDeckSourceType(sourceType: Document['source']['sourceType'] | un
 }
 
 function createLLMSlideEvidence(
-  sourceType: Document['source']['sourceType'],
+  sourceType: DocumentSourceType,
   slideId: string,
   slide: NormalizedLLMTextDeckSlide,
 ): Slide['evidence'] {
@@ -466,7 +468,7 @@ export function createTextPlanQualityReport(input: {
     checkedAt: new Date().toISOString(),
     issues,
     narrationSegments: input.narration.segments.length,
-    summary: summarizeQualityIssues(issues),
+    summary: countQualityIssues(issues),
     ttsSegments: 0,
     version: 1,
   }

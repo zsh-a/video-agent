@@ -3,25 +3,27 @@ import type {VisualSmokeQualityResult} from '@video-agent/quality'
 import type {CaptureDeckHtmlFrameSequenceResult, CaptureDeckHtmlKeyframesResult} from '@video-agent/renderer-html'
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
+import {TIMED_DECK_ARTIFACT_NAME} from '@video-agent/ir'
 import {runFfmpeg} from '@video-agent/media'
 import {checkVisualSmoke} from '@video-agent/quality'
 import {deckCanvasSize} from '@video-agent/renderer-deck'
 import {selectDeckHtmlKeyframes} from '@video-agent/renderer-html'
+import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, DECK_KEYFRAME_CAPTURE_MODE_BROWSER, DECK_KEYFRAME_CAPTURE_MODE_FINAL_VIDEO, DECK_KEYFRAME_CAPTURE_MODE_FRAME_SEQUENCE} from '@video-agent/runtime'
 import {createHash} from 'node:crypto'
-import {mkdir, rm} from 'node:fs/promises'
+import {mkdir, readFile, rm} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {bunFile} from '@video-agent/runtime'
 import {DEFAULT_DECK_REVIEW_FRAME_CONCURRENCY, DECK_REVIEW_FRAME_RENDERER, toVisualFrameSample, type DeckKeyframeArtifact, type DeckKeyframeSample, type DeckKeyframeTarget} from './review.js'
 import {toProjectPath} from '../project/paths.js'
-import {roundSeconds} from '../shared/utils.js'
+import {requireSlideTimingDuration, requireTimedDeckDuration, roundSeconds} from '../shared/utils.js'
 
 export async function createDeckFinalVideoKeyframeQuality(workspace: ProjectWorkspace, timedDeck: TimedDeck, outputPath: string, fps: number): Promise<{
   artifact: DeckKeyframeArtifact
   visualQuality: VisualSmokeQualityResult
 }> {
+  const normalizedFps = requireDeckFinalVideoKeyframeFps(fps)
   const outputDir = resolve(workspace.rendersDir, 'deck-keyframes')
-  const targets = createDeckFinalVideoKeyframeTargets(timedDeck, outputDir, fps)
+  const targets = createDeckFinalVideoKeyframeTargets(timedDeck, outputDir, normalizedFps)
 
   await rm(outputDir, {force: true, recursive: true})
   await mkdir(outputDir, {recursive: true})
@@ -30,7 +32,7 @@ export async function createDeckFinalVideoKeyframeQuality(workspace: ProjectWork
     extractDeckFinalVideoKeyframe(workspace.projectDir, outputPath, target),
   )
 
-  const duration = timedDeck.timings.at(-1)?.end ?? 0
+  const duration = requireTimedDeckDuration(timedDeck, 'Deck final-video keyframe quality')
   const visualQuality = checkVisualSmoke({
     blackDuration: 0,
     blackSegments: [],
@@ -40,13 +42,13 @@ export async function createDeckFinalVideoKeyframeQuality(workspace: ProjectWork
 
   return {
     artifact: {
-      captureMode: 'final-video',
+      captureMode: DECK_KEYFRAME_CAPTURE_MODE_FINAL_VIDEO,
       duration,
-      fps,
+      fps: normalizedFps,
       generatedAt: new Date().toISOString(),
       renderer: DECK_REVIEW_FRAME_RENDERER,
       samples,
-      source: 'timed-deck.json',
+      source: TIMED_DECK_ARTIFACT_NAME,
       version: 1,
       viewport: deckCanvasSize(timedDeck.deck.format),
     },
@@ -58,7 +60,7 @@ export async function createDeckKeyframeQuality(workspace: ProjectWorkspace, fra
   artifact: DeckKeyframeArtifact
   visualQuality: VisualSmokeQualityResult
 }> {
-  const captureMode = browserKeyframes === undefined ? 'frame-sequence' : 'browser-keyframes'
+  const captureMode = browserKeyframes === undefined ? DECK_KEYFRAME_CAPTURE_MODE_FRAME_SEQUENCE : DECK_KEYFRAME_CAPTURE_MODE_BROWSER
   const targets = browserKeyframes?.frames ?? selectDeckHtmlKeyframes(frameCapture.frames)
   const samples = await Promise.all(targets.map((target) => readDeckKeyframeSample(workspace.projectDir, target)))
   const visualQuality = checkVisualSmoke({
@@ -76,7 +78,7 @@ export async function createDeckKeyframeQuality(workspace: ProjectWorkspace, fra
       generatedAt: new Date().toISOString(),
       renderer: browserKeyframes?.backend ?? frameCapture.backend,
       samples,
-      source: 'deck-frame-manifest.json',
+      source: DECK_FRAME_MANIFEST_ARTIFACT_NAME,
       version: 1,
       viewport: browserKeyframes?.viewport ?? frameCapture.viewport,
     },
@@ -86,18 +88,25 @@ export async function createDeckKeyframeQuality(workspace: ProjectWorkspace, fra
 
 function createDeckFinalVideoKeyframeTargets(timedDeck: TimedDeck, outputDir: string, fps: number): DeckKeyframeTarget[] {
   return timedDeck.timings.map((timing, index) => {
-    const start = Math.max(0, timing.start)
-    const end = Math.max(start, timing.end)
-    const time = roundSeconds(start + ((end - start) / 2))
+    const duration = requireSlideTimingDuration(timing, 'Deck final-video keyframe quality')
+    const time = roundSeconds(timing.start + (duration / 2))
 
     return {
-      frame: Math.max(1, Math.round(time * fps) + 1),
+      frame: Math.round(time * fps) + 1,
       label: 'slide-mid',
       path: resolve(outputDir, `keyframe-${String(index + 1).padStart(6, '0')}.jpg`),
       slideId: timing.slideId,
       time,
     }
   })
+}
+
+function requireDeckFinalVideoKeyframeFps(fps: number): number {
+  if (!Number.isInteger(fps) || fps <= 0) {
+    throw new Error(`Deck final-video keyframe quality fps must be a positive integer; no runtime integer coercion fallback is allowed. Received: ${String(fps)}`)
+  }
+
+  return fps
 }
 
 async function extractDeckFinalVideoKeyframe(projectDir: string, videoPath: string, target: DeckKeyframeTarget): Promise<DeckKeyframeSample> {
@@ -129,7 +138,7 @@ async function extractDeckFinalVideoKeyframe(projectDir: string, videoPath: stri
 
 async function mapWithConcurrency<Input, Output>(items: Input[], concurrency: number, iteratee: (item: Input, index: number) => Promise<Output>): Promise<Output[]> {
   const results: Output[] = new Array(items.length)
-  const workerCount = Math.min(items.length, Math.max(1, Math.floor(concurrency)))
+  const workerCount = Math.min(items.length, requirePositiveInteger(concurrency, 'Deck keyframe concurrency'))
   let nextIndex = 0
 
   async function runNext(): Promise<void> {
@@ -150,9 +159,17 @@ async function mapWithConcurrency<Input, Output>(items: Input[], concurrency: nu
   return results
 }
 
+function requirePositiveInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer; no runtime integer coercion fallback is allowed. Received: ${String(value)}`)
+  }
+
+  return value
+}
+
 async function readDeckKeyframeSample(projectDir: string, target: DeckKeyframeTarget): Promise<DeckKeyframeSample> {
   try {
-    const content = await bunFile(target.path).bytes()
+    const content = await readFile(target.path)
 
     return {
       ...target,

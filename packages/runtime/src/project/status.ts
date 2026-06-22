@@ -1,12 +1,14 @@
 import {resolve} from 'node:path'
 
 import {readConfig} from '../shared/config.js'
+import {JsonLineReadError} from '../shared/file-io.js'
 import {createConfiguredJobStore} from '../shared/job-store.js'
 import {readProjectAgentStatus} from './agent-status.js'
 import {listProjectArtifactNames} from './artifact-list.js'
 import {readProjectRuntimeSummary} from './runtime-summary.js'
 import type {ProjectStatus} from './status-types.js'
 
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
 export type {
   ProjectRuntimeSummary,
   ProjectStatus,
@@ -15,7 +17,7 @@ export type {
   RenderSummary,
 } from './status-types.js'
 
-export async function readProjectStatus(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectStatus> {
+export async function readProjectStatus(projectId: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ProjectStatus> {
   const resolvedWorkspaceDir = resolve(workspaceDir)
   const projectDir = resolve(resolvedWorkspaceDir, 'projects', projectId)
   const artifactsDir = resolve(projectDir, 'artifacts')
@@ -27,7 +29,7 @@ export async function readProjectStatus(projectId: string, workspaceDir = '.vide
     workspaceDir: resolvedWorkspaceDir,
   }).read()
   const [agent, artifacts, summary] = await Promise.all([
-    readProjectAgentStatus(projectId, resolvedWorkspaceDir),
+    readStatusAgentStatus(projectId, resolvedWorkspaceDir),
     listProjectArtifactNames(artifactsDir),
     readProjectRuntimeSummary(artifactsDir),
   ])
@@ -39,5 +41,17 @@ export async function readProjectStatus(projectId: string, workspaceDir = '.vide
     projectDir,
     projectId,
     summary,
+  }
+}
+
+async function readStatusAgentStatus(projectId: string, workspaceDir: string) {
+  try {
+    return await readProjectAgentStatus(projectId, workspaceDir)
+  } catch (error) {
+    if (error instanceof JsonLineReadError) {
+      return {runs: []}
+    }
+
+    throw error
   }
 }

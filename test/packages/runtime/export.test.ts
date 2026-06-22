@@ -6,6 +6,7 @@ import {join} from 'node:path'
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
 import {exportProject, ExportQualityError} from '../../../packages/runtime/src/render/export.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('export project', () => {
   it('exports a rendered video file', async () => {
@@ -16,6 +17,7 @@ describe('export project', () => {
 
       const outputPath = join(root, 'out.mp4')
       const result = await exportProject({
+        format: 'video',
         outputPath,
         projectId: 'demo',
         workspaceDir: root,
@@ -40,6 +42,7 @@ describe('export project', () => {
 
       const outputPath = join(root, 'out-bundle')
       const result = await exportProject({
+        format: 'bundle',
         outputPath,
         projectId: 'demo',
         workspaceDir: root,
@@ -74,6 +77,151 @@ describe('export project', () => {
       expect(result.cleanOutput).to.equal(true)
       expect(await readFile(join(outputPath, 'notes.txt'), 'utf8')).to.equal('bundle')
       expect(await exists(join(outputPath, 'stale.txt'))).to.equal(false)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('requires an explicit export format instead of inferring from render output', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      await createRenderedProject(root, 'demo')
+      let error: unknown
+
+      try {
+        await exportProject({
+          outputPath: join(root, 'out.mp4'),
+          projectId: 'demo',
+          workspaceDir: root,
+        } as Parameters<typeof exportProject>[0])
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Export format is required')
+      expect(String(error)).to.include('No render-output format inference is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('requires render-output.json outputPath for video export instead of using renders/final.mp4 fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      await createRenderedProject(root, 'demo')
+      await rm(join(root, 'projects', 'demo', 'artifacts', 'render-output.json'))
+
+      let error: unknown
+
+      try {
+        await exportProject({
+          format: 'video',
+          outputPath: join(root, 'out.mp4'),
+          projectId: 'demo',
+          workspaceDir: root,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Video export requires render-output.json with a non-empty outputPath')
+      expect(String(error)).to.include('no renders/final.mp4 path fallback is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects render-output.json without outputPath for video export', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      await createRenderedProject(root, 'demo')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'render-output.json'),
+        `${JSON.stringify({
+          renderer: 'ffmpeg',
+          version: 1,
+        })}\n`,
+      )
+
+      let error: unknown
+
+      try {
+        await exportProject({
+          format: 'video',
+          outputPath: join(root, 'out.mp4'),
+          projectId: 'demo',
+          workspaceDir: root,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Video export requires render-output.json with a non-empty outputPath')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects schema-invalid render-output.json instead of exporting by outputPath alone', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      await createRenderedProject(root, 'demo')
+      await writeFile(
+        join(root, 'projects', 'demo', 'artifacts', 'render-output.json'),
+        `${JSON.stringify({
+          audioInputs: -1,
+          outputPath: 'renders/final.mp4',
+          renderer: 'ffmpeg',
+          version: 1,
+        })}\n`,
+      )
+
+      let error: unknown
+
+      try {
+        await exportProject({
+          format: 'video',
+          outputPath: join(root, 'out.mp4'),
+          projectId: 'demo',
+          workspaceDir: root,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Video export requires schema-valid render-output.json')
+      expect(String(error)).to.include('no render-output shape inference is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects malformed render-output JSON instead of exporting by fallback paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-export-'))
+
+    try {
+      await createRenderedProject(root, 'demo')
+      await writeFile(join(root, 'projects', 'demo', 'artifacts', 'render-output.json'), 'not json\n')
+
+      let error: unknown
+
+      try {
+        await exportProject({
+          format: 'video',
+          outputPath: join(root, 'out.mp4'),
+          projectId: 'demo',
+          workspaceDir: root,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('Video export requires valid JSON in render-output.json')
+      expect(String(error)).to.include('no render-output shape inference is allowed')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -152,6 +300,7 @@ describe('export project', () => {
 
       try {
         await exportProject({
+          format: 'video',
           outputPath: join(root, 'out.mp4'),
           projectId: 'demo',
           requireQuality: true,
@@ -177,6 +326,7 @@ describe('export project', () => {
 
       const outputPath = join(root, 'out.mp4')
       const result = await exportProject({
+        format: 'video',
         outputPath,
         projectId: 'demo',
         requireQuality: true,
@@ -215,6 +365,7 @@ async function createRenderedProject(root: string, projectId: string): Promise<v
   const artifactsDir = join(projectDir, 'artifacts')
   const renderDir = join(projectDir, 'renders')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await mkdir(renderDir, {recursive: true})
   await writeFile(join(renderDir, 'final.mp4'), 'video')
@@ -238,6 +389,7 @@ async function createRenderedProject(root: string, projectId: string): Promise<v
 async function createBundleProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
 
+  await writeConfig(root, {})
   await mkdir(projectDir, {recursive: true})
   await writeFile(join(projectDir, 'notes.txt'), 'bundle')
 }

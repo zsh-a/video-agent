@@ -2,6 +2,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {createFilmIngestProject} from '@video-agent/pipeline-film'
 import {resolve} from 'node:path'
 
+import {workspaceFlag} from '../../utils/cli-flags.js'
 export default class FilmIngest extends Command {
   static args = {
     input: Args.string({description: 'Input video file for the Film Recap pipeline', required: true}),
@@ -12,7 +13,7 @@ export default class FilmIngest extends Command {
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
     'project-id': Flags.string({description: 'Project id to use for the workspace'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

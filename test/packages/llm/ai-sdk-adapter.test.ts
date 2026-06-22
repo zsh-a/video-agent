@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
-import {APICallError, type LanguageModel, simulateReadableStream} from 'ai'
+import {APICallError, simulateReadableStream} from 'ai'
+import {MockLanguageModelV3} from 'ai/test'
 import {z} from 'zod'
 
 import {AISDKLLMClient, createObjectPromptRequest} from '../../../packages/llm/src/index.js'
@@ -15,11 +16,7 @@ describe('AI SDK LLM adapter', () => {
           },
         ],
         finishReason: 'stop',
-        usage: {
-          inputTokens: 3,
-          outputTokens: 4,
-          totalTokens: 7,
-        },
+        usage: testUsage(3, 4),
         warnings: [],
       },
     })
@@ -47,11 +44,7 @@ describe('AI SDK LLM adapter', () => {
           },
         ],
         finishReason: 'stop',
-        usage: {
-          inputTokens: 5,
-          outputTokens: 8,
-          totalTokens: 13,
-        },
+        usage: testUsage(5, 8),
         warnings: [],
       },
     })
@@ -95,11 +88,7 @@ describe('AI SDK LLM adapter', () => {
           },
         ],
         finishReason: 'stop',
-        usage: {
-          inputTokens: 5,
-          outputTokens: 3,
-          totalTokens: 8,
-        },
+        usage: testUsage(5, 3),
         warnings: [],
       },
     })
@@ -158,11 +147,7 @@ describe('AI SDK LLM adapter', () => {
             },
           ],
           finishReason: 'stop',
-          usage: {
-            inputTokens: 21,
-            outputTokens: 2,
-            totalTokens: 23,
-          },
+          usage: testUsage(21, 2),
           warnings: [],
         }
       },
@@ -194,178 +179,51 @@ describe('AI SDK LLM adapter', () => {
     expect(result.usage?.totalTokens).to.equal(23)
   })
 
-  it('falls back to text JSON when structured object generation returns no object', async () => {
+  it('rejects structured object generation that returns no object', async () => {
     let calls = 0
-    const model = createMockLanguageModel({
-      async generateResult() {
-        calls += 1
-
-        return calls === 1
-          ? {
-              content: [],
-              finishReason: 'stop',
-              usage: {
-                inputTokens: 1,
-                outputTokens: 0,
-                totalTokens: 1,
-              },
-              warnings: [],
-            }
-          : {
-              content: [
-                {
-                  text: '{"ok":true}',
-                  type: 'text',
-                },
-              ],
-              finishReason: 'stop',
-              usage: {
-                inputTokens: 4,
-                outputTokens: 3,
-                totalTokens: 7,
-              },
-              warnings: [],
-            }
-      },
-    })
-    const client = new AISDKLLMClient({model})
-
-    const result = await client.generateObject({
-      prompt: 'Return JSON',
-      schema: z.object({
-        ok: z.boolean(),
-      }),
-    })
-
-    expect(result.object).to.deep.equal({ok: true})
-    expect(result.usage?.totalTokens).to.equal(7)
-  })
-
-  it('uses JSON text object generation directly when structured outputs are disabled', async () => {
-    let calls = 0
-    const traces: unknown[] = []
     const model = createMockLanguageModel({
       async generateResult() {
         calls += 1
 
         return {
-          content: [
-            {
-              text: '{"ok":true}',
-              type: 'text',
-            },
-          ],
+          content: [],
           finishReason: 'stop',
-          usage: {
-            inputTokens: 4,
-            outputTokens: 3,
-            totalTokens: 7,
-          },
+          usage: testUsage(1, 0),
           warnings: [],
         }
       },
     })
-    const client = new AISDKLLMClient({
-      model,
-      structuredOutputs: false,
-      trace: {
-        record(trace) {
-          traces.push(trace)
-        },
-      },
-    })
+    const client = new AISDKLLMClient({model})
 
-    const result = await client.generateObject({
-      prompt: 'Return JSON',
-      schema: z.object({
-        ok: z.boolean(),
-      }),
-    })
-
-    expect(result.object).to.deep.equal({ok: true})
+    try {
+      await client.generateObject({
+        prompt: 'Return JSON',
+        schema: z.object({
+          ok: z.boolean(),
+        }),
+      })
+      expect.fail('Expected missing structured object to fail.')
+    } catch (error) {
+      expect(error).to.be.instanceOf(Error)
+    }
     expect(calls).to.equal(1)
-    expect((traces[0] as {operation: string; status: string}).operation).to.equal('generateObjectJsonText')
-    expect((traces[0] as {operation: string; status: string}).status).to.equal('succeeded')
   })
 
-  it('falls back to text JSON when structured object generation receives a bad request', async () => {
-    let calls = 0
-    const model = createMockLanguageModel({
-      async generateResult() {
-        calls += 1
-
-        if (calls === 1) {
-          throw new APICallError({
-            isRetryable: false,
-            message: 'Bad Request',
-            requestBodyValues: {response_format: {type: 'json_schema'}},
-            responseBody: '{"error":"unsupported response_format"}',
-            statusCode: 400,
-            url: 'https://example.test/messages',
-          })
-        }
-
-        return {
-          content: [
-            {
-              text: '{"ok":true}',
-              type: 'text',
-            },
-          ],
-          finishReason: 'stop',
-          usage: {
-            inputTokens: 4,
-            outputTokens: 3,
-            totalTokens: 7,
-          },
-          warnings: [],
-        }
-      },
-    })
-    const client = new AISDKLLMClient({model})
-
-    const result = await client.generateObject({
-      prompt: 'Return JSON',
-      schema: z.object({
-        ok: z.boolean(),
-      }),
-    })
-
-    expect(result.object).to.deep.equal({ok: true})
-  })
-
-  it('traces structured generation fallback output when fallback JSON is invalid', async () => {
+  it('propagates structured object bad requests without JSON text fallback', async () => {
     let calls = 0
     const traces: unknown[] = []
     const model = createMockLanguageModel({
       async generateResult() {
         calls += 1
 
-        if (calls === 1) {
-          throw new APICallError({
-            isRetryable: false,
-            message: 'Bad Request',
-            requestBodyValues: {},
-            statusCode: 400,
-            url: 'https://example.test/messages',
-          })
-        }
-
-        return {
-          content: [
-            {
-              text: '{"ok":"not boolean"}',
-              type: 'text',
-            },
-          ],
-          finishReason: 'stop',
-          usage: {
-            inputTokens: 4,
-            outputTokens: 3,
-            totalTokens: 7,
-          },
-          warnings: [],
-        }
+        throw new APICallError({
+          isRetryable: false,
+          message: 'Bad Request',
+          requestBodyValues: {response_format: {type: 'json_schema'}},
+          responseBody: '{"error":"unsupported response_format"}',
+          statusCode: 400,
+          url: 'https://example.test/messages',
+        })
       },
     })
     const client = new AISDKLLMClient({
@@ -384,35 +242,27 @@ describe('AI SDK LLM adapter', () => {
           ok: z.boolean(),
         }),
       })
-      throw new Error('Expected generateObject to fail.')
+      expect.fail('Expected bad request to fail.')
     } catch (error) {
-      expect(error).to.be.instanceOf(Error)
+      expect(error).to.be.instanceOf(APICallError)
     }
 
-    expect(traces).to.have.length(4)
+    expect(calls).to.equal(1)
+    expect(traces).to.have.length(1)
     const structuredTrace = traces[0] as {error: {details?: {requestBodyValues?: unknown; responseBody?: unknown; statusCode?: number; url?: string}; message: string}; model: string; operation: string; provider: string; request: {prompt?: string; schema?: unknown}; requestId: string; status: string; version: number}
-    const fallbackTrace = traces[1] as {error: {message: string; name: string}; operation: string; response: {text: string}; status: string; usage: {totalTokens: number}}
-    const finalRepairTrace = traces[3] as {operation: string; status: string}
 
     expect(structuredTrace.operation).to.equal('generateObject')
     expect(structuredTrace.status).to.equal('failed')
     expect(structuredTrace.error.message).to.equal('Bad Request')
     expect(structuredTrace.error.details?.statusCode).to.equal(400)
     expect(structuredTrace.error.details?.url).to.equal('https://example.test/messages')
-    expect(structuredTrace.error.details?.requestBodyValues).to.deep.equal({})
+    expect(structuredTrace.error.details?.requestBodyValues).to.deep.equal({response_format: {type: 'json_schema'}})
     expect(structuredTrace.model).to.equal('mock-model')
     expect(structuredTrace.provider).to.equal('mock-provider')
     expect(structuredTrace.request.prompt).to.equal('Return JSON')
     expect(structuredTrace.request.schema).to.be.an('object')
     expect(structuredTrace.requestId).to.be.a('string')
     expect(structuredTrace.version).to.equal(1)
-    expect(fallbackTrace.operation).to.equal('generateObjectFallbackText')
-    expect(fallbackTrace.status).to.equal('failed')
-    expect(fallbackTrace.error.name).to.equal('ZodError')
-    expect(fallbackTrace.response.text).to.equal('{"ok":"not boolean"}')
-    expect(fallbackTrace.usage.totalTokens).to.equal(7)
-    expect(finalRepairTrace.operation).to.equal('generateObjectFallbackText')
-    expect(finalRepairTrace.status).to.equal('failed')
   })
 
   it('lifts retryable API errors into traces', async () => {
@@ -458,11 +308,7 @@ describe('AI SDK LLM adapter', () => {
           },
         ],
         finishReason: 'stop',
-        usage: {
-          inputTokens: 3,
-          outputTokens: 1,
-          totalTokens: 4,
-        },
+        usage: testUsage(3, 1),
         warnings: [],
       },
     })
@@ -498,169 +344,6 @@ describe('AI SDK LLM adapter', () => {
     expect(trace.request.messages[0]?.content[0]?.data.includes('SGVsbG8=')).to.equal(false)
   })
 
-  it('rejects malformed comparison JSON instead of repairing it locally', async () => {
-    let calls = 0
-    const traces: unknown[] = []
-    const model = createMockLanguageModel({
-      async generateResult() {
-        calls += 1
-
-        return calls === 1
-          ? {
-              content: [],
-              finishReason: 'stop',
-              usage: {
-                inputTokens: 1,
-                outputTokens: 0,
-                totalTokens: 1,
-              },
-              warnings: [],
-            }
-          : {
-              content: [
-                {
-                  text: [
-                    '```json',
-                    '{',
-                    '  "comparison": {',
-                    '    "left": {"label": "A", "points": ["a"]},',
-                    '    {"label": "B", "points": ["b"]}',
-                    '  }',
-                    '}',
-                    '```',
-                  ].join('\n'),
-                  type: 'text',
-                },
-              ],
-              finishReason: 'stop',
-              usage: {
-                inputTokens: 4,
-                outputTokens: 3,
-                totalTokens: 7,
-              },
-              warnings: [],
-            }
-      },
-    })
-    const client = new AISDKLLMClient({
-      model,
-      trace: {
-        record(trace) {
-          traces.push(trace)
-        },
-      },
-    })
-
-    try {
-      await client.generateObject({
-        prompt: 'Return JSON',
-        schema: z.object({
-          comparison: z.object({
-            left: z.object({
-              label: z.string(),
-              points: z.array(z.string()),
-            }),
-            right: z.object({
-              label: z.string(),
-              points: z.array(z.string()),
-            }),
-          }),
-        }),
-      })
-      expect.fail('Expected malformed fallback JSON to fail.')
-    } catch (error) {
-      expect(error).to.be.instanceOf(Error)
-      expect(String(error)).to.include('LLM JSON fallback failed')
-    }
-
-    expect(traces).to.have.length(4)
-    expect((traces[1] as {operation: string; status: string}).operation).to.equal('generateObjectFallbackText')
-    expect((traces[1] as {status: string}).status).to.equal('failed')
-    expect((traces[3] as {operation: string; status: string}).operation).to.equal('generateObjectFallbackText')
-    expect((traces[3] as {status: string}).status).to.equal('failed')
-  })
-
-  it('asks the LLM to rewrite fenced fallback JSON instead of extracting it locally', async () => {
-    let calls = 0
-    const traces: unknown[] = []
-    const model = createMockLanguageModel({
-      async generateResult() {
-        calls += 1
-
-        if (calls === 1) {
-          throw new APICallError({
-            isRetryable: false,
-            message: 'Bad Request',
-            requestBodyValues: {},
-            statusCode: 400,
-            url: 'https://example.test/messages',
-          })
-        }
-
-        if (calls === 2) {
-          return {
-            content: [
-              {
-                text: '```json\n{"ok":true}\n```',
-                type: 'text',
-              },
-            ],
-            finishReason: 'stop',
-            usage: {
-              inputTokens: 4,
-              outputTokens: 3,
-              totalTokens: 7,
-            },
-            warnings: [],
-          }
-        }
-
-        return {
-          content: [
-            {
-              text: '{"ok":true}',
-              type: 'text',
-            },
-          ],
-          finishReason: 'stop',
-          usage: {
-            inputTokens: 4,
-            outputTokens: 3,
-            totalTokens: 7,
-          },
-          warnings: [],
-        }
-      },
-    })
-    const client = new AISDKLLMClient({
-      model,
-      trace: {
-        record(trace) {
-          traces.push(trace)
-        },
-      },
-    })
-
-    const result = await client.generateObject({
-      prompt: 'Return JSON',
-      schema: z.object({
-        ok: z.boolean(),
-      }),
-    })
-
-    expect(result.object).to.deep.equal({ok: true})
-    expect(traces).to.have.length(3)
-    const fallbackTrace = traces[1] as {operation: string; response: {text: string}; status: string}
-    const repairTrace = traces[2] as {operation: string; response: {text: string}; status: string}
-
-    expect(fallbackTrace.operation).to.equal('generateObjectFallbackText')
-    expect(fallbackTrace.status).to.equal('failed')
-    expect(fallbackTrace.response.text).to.equal('```json\n{"ok":true}\n```')
-    expect(repairTrace.operation).to.equal('generateObjectFallbackText')
-    expect(repairTrace.status).to.equal('succeeded')
-    expect(repairTrace.response.text).to.equal('{"ok":true}')
-  })
-
   it('streams text events while preserving final usage', async () => {
     const model = createMockLanguageModel({
       streamResult: {
@@ -687,11 +370,7 @@ describe('AI SDK LLM adapter', () => {
             {
               finishReason: 'stop',
               type: 'finish',
-              usage: {
-                inputTokens: 2,
-                outputTokens: 2,
-                totalTokens: 4,
-              },
+              usage: testUsage(2, 2),
             },
           ],
         }),
@@ -729,13 +408,28 @@ describe('AI SDK LLM adapter', () => {
 function createMockLanguageModel(options: {
   generateResult?: ((input: unknown) => unknown) | unknown
   streamResult?: unknown
-}): LanguageModel {
-  return {
-    doGenerate: async (input: unknown) => typeof options.generateResult === 'function' ? options.generateResult(input) : options.generateResult,
-    doStream: async () => options.streamResult,
+}): MockLanguageModelV3 {
+  return new MockLanguageModelV3({
     modelId: 'mock-model',
     provider: 'mock-provider',
-    specificationVersion: 'v2',
     supportedUrls: {},
-  } as LanguageModel
+    doGenerate: async (input: unknown) => typeof options.generateResult === 'function' ? options.generateResult(input) : options.generateResult,
+    doStream: async () => options.streamResult,
+  })
+}
+
+function testUsage(inputTokens: number, outputTokens: number) {
+  return {
+    inputTokens: {
+      cacheRead: undefined,
+      cacheWrite: undefined,
+      noCache: inputTokens,
+      total: inputTokens,
+    },
+    outputTokens: {
+      reasoning: undefined,
+      text: outputTokens,
+      total: outputTokens,
+    },
+  }
 }

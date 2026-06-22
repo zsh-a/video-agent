@@ -1,3 +1,6 @@
+export {DECK_FINAL_RENDERERS, DEFAULT_DECK_FINAL_RENDERER} from './render/renderers.js'
+export type {DeckFinalRenderer} from './render/renderers.js'
+
 export {
   DECK_CHECKPOINT_ARTIFACTS_BY_STAGE,
   DECK_PIPELINE_DEFINITION,
@@ -49,8 +52,7 @@ export type {
   CreateDeckRemotionRenderProjectResult,
   CreateDeckRendererBackendProjectOptions,
   CreateDeckRendererBackendProjectResult,
-  DeckRendererBackend,
 } from './render/backend.js'
 
-export {runDeckExplainerPipeline} from './runner.js'
+export {DECK_EXPLAINER_PIPELINE_MODES, runDeckExplainerPipeline} from './runner.js'
 export type {DeckExplainerPipelineMode, RunDeckExplainerPipelineOptions, RunDeckExplainerPipelineResult} from './runner.js'

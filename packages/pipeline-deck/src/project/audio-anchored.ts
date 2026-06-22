@@ -2,9 +2,10 @@ import {probeMedia} from '@video-agent/media'
 import {TranscriptSchema} from '@video-agent/providers'
 import {resolve} from 'node:path'
 
-import {assertFileExists, createProjectAgentRuntime, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
+import {createProjectAgentRuntime, createProjectWorkspace, createRuntimeLLMClient, createRuntimeProviders, readConfig, refreshArtifactManifest} from '@video-agent/runtime'
 import {convertDeckSourceAudio} from '../shared/audio.js'
 import {createAudioAnchoredDeckProjectPlan, createLLMTextDeckProjectPlan} from '../planning/index.js'
+import {DECK_STAGE_IDS} from '../pipeline.js'
 import {writeDeckAudioAnchoredPlanArtifacts} from './artifacts.js'
 import {initializeDeckJob} from './job.js'
 import {
@@ -14,8 +15,7 @@ import {
 	  withLLMTracePath,
 	} from './runtime.js'
 import type {CreateDeckAudioAnchoredProjectOptions, CreateDeckAudioAnchoredProjectResult} from './types.js'
-import {DECK_AUDIO_ANCHORED_STAGES} from '../shared/stages.js'
-import {roundSeconds} from '../shared/utils.js'
+import {assertFileExists, roundSeconds} from '../shared/utils.js'
 import {requireExactTranscriptSegments, requireExactTranscriptText, requireTranscriptLanguage} from './transcript.js'
 
 export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnchoredProjectOptions): Promise<CreateDeckAudioAnchoredProjectResult> {
@@ -29,7 +29,10 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
   })
   const workspaceDir = workspace.workspaceDir
   const llmTrace = createProjectLLMTrace(workspace, options.trace)
-  const jobStore = createDeckJobStore(workspace.projectDir)
+  const jobStore = await createDeckJobStore({
+    projectId: workspace.projectId,
+    workspaceDir,
+  })
   const agent = createProjectAgentRuntime({
     jobStore,
     workspace,
@@ -38,10 +41,9 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
   await initializeDeckJob(jobStore, {
     inputPath,
     projectId: workspace.projectId,
-    stages: DECK_AUDIO_ANCHORED_STAGES,
   })
   await agent.startRun('Deck audio-anchored generation started')
-  await agent.startStage('ingest', 'Preparing source audio')
+  await agent.startStage(DECK_STAGE_IDS.ingest, 'Preparing source audio')
 
   try {
     const outputPath = resolve(workspace.audioDir, 'deck_voiceover.wav')
@@ -69,8 +71,8 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
       llmTrace: llmTrace.recorder,
     })
 
-    await agent.completeStage('ingest', 'Source audio prepared')
-    await agent.startStage('transcribe', 'Transcribing source audio')
+    await agent.completeStage(DECK_STAGE_IDS.ingest, 'Source audio prepared')
+    await agent.startStage(DECK_STAGE_IDS.transcribe, 'Transcribing source audio')
 
     const transcript = TranscriptSchema.parse(await providers.asr.transcribe({
       duration,
@@ -80,9 +82,9 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     const language = options.language ?? requireTranscriptLanguage(transcript, 'Deck audio-anchored planning')
     const text = requireExactTranscriptText(transcript, 'Deck audio-anchored planning')
 
-    await agent.completeStage('transcribe', 'Transcription complete')
-    await agent.startStage('source-map', 'Building transcript source map')
-    await agent.completeStage('source-map', 'Transcript source map prepared')
+    await agent.completeStage(DECK_STAGE_IDS.transcribe, 'Transcription complete')
+    await agent.startStage(DECK_STAGE_IDS.sourceMap, 'Building transcript source map')
+    await agent.completeStage(DECK_STAGE_IDS.sourceMap, 'Transcript source map prepared')
 
     const generatedPlan = await createLLMTextDeckProjectPlan(llmClient, inputPath, text, {
       contentDensity: options.contentDensity,
@@ -114,13 +116,12 @@ export async function createDeckAudioAnchoredProject(options: CreateDeckAudioAnc
     }
     const artifacts = await writeDeckAudioAnchoredPlanArtifacts(workspace, transcript, plan, deckVoiceover, llmTrace.path)
 
-    await agent.startStage('timing-preflight', 'Checking source-aligned timings')
-    await agent.completeStage('timing-preflight', 'Timing preflight complete')
-    await agent.startStage('align', 'Aligning deck to source audio')
-    await agent.completeStage('align', 'Deck aligned to source audio')
-    await agent.startStage('visual-preflight', 'Checking deck visual artifacts')
-    await agent.completeStage('visual-preflight', 'Deck visual preflight complete')
-    await jobStore.complete('completed')
+    await agent.startStage(DECK_STAGE_IDS.timingPreflight, 'Checking source-aligned timings')
+    await agent.completeStage(DECK_STAGE_IDS.timingPreflight, 'Timing preflight complete')
+    await agent.startStage(DECK_STAGE_IDS.align, 'Aligning deck to source audio')
+    await agent.completeStage(DECK_STAGE_IDS.align, 'Deck aligned to source audio')
+    await agent.skipStage(DECK_STAGE_IDS.synthesizeVoice, 'Audio-anchored deck uses source audio')
+    await agent.skipStage(DECK_STAGE_IDS.timingRepair, 'Audio-anchored deck keeps source-aligned timing')
     await agent.completeRun('Deck audio-anchored generation complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 

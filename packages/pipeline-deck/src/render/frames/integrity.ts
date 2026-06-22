@@ -1,8 +1,7 @@
 import type {CaptureDeckHtmlFrameSequenceResult} from '@video-agent/renderer-html'
 
-import {bunFile} from '@video-agent/runtime'
 import {createHash} from 'node:crypto'
-import {stat} from 'node:fs/promises'
+import {readFile, stat} from 'node:fs/promises'
 
 import {resolveProjectPath, toProjectPath} from '../../project/paths.js'
 
@@ -48,5 +47,5 @@ export async function findMissingDeckFrameFiles(projectDir: string, frames: Capt
 }
 
 export async function sha256File(path: string): Promise<string> {
-  return createHash('sha256').update(await bunFile(path).bytes()).digest('hex')
+  return createHash('sha256').update(await readFile(path)).digest('hex')
 }

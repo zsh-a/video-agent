@@ -15,6 +15,7 @@
     "@clack/prompts": "^1.5.1",
     "@oclif/core": "^4",
     "@video-agent/api": "workspace:*",
+    "@video-agent/core": "workspace:*",
     "@video-agent/ir": "workspace:*",
     "@video-agent/mcp": "workspace:*",
     "@video-agent/media": "workspace:*",

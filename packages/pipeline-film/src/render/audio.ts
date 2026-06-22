@@ -1,13 +1,11 @@
-import type {Narration} from '@video-agent/ir'
+import type {FilmAudioMix, FilmAudioMixVoiceover, OutputNarration, OutputNarrationSegment} from '@video-agent/ir'
 import type {TTSSegment} from '@video-agent/providers'
-import type {FilmAudioMix, FilmAudioMixVoiceover} from '../shared/types.js'
 
 import {runFfmpeg} from '@video-agent/media'
-import {assertFileExists} from '@video-agent/runtime'
 import {mkdir, rename} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {resolveProjectPath, roundSeconds} from '../shared/utils.js'
+import {assertFileExists, resolveProjectPath, roundSeconds} from '../shared/utils.js'
 import {unlinkIfExists} from './utils.js'
 
 export const FILM_AUDIO_LOUDNESS_NORMALIZATION = {
@@ -18,8 +16,8 @@ export const FILM_AUDIO_LOUDNESS_NORMALIZATION = {
 
 const FILM_TTS_DURATION_TOLERANCE_SECONDS = 0.05
 
-export async function alignFilmTtsSegmentsToNarration(projectDir: string, narration: Narration, ttsSegments: TTSSegment[]): Promise<TTSSegment[]> {
-  const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
+export async function alignFilmTtsSegmentsToOutputNarration(projectDir: string, outputNarration: OutputNarration, ttsSegments: TTSSegment[]): Promise<TTSSegment[]> {
+  const narrationById = new Map(outputNarration.segments.map((segment) => [segment.id, segment]))
 
   return Promise.all(ttsSegments.map(async (ttsSegment, index) => {
     const narrationSegment = narrationById.get(ttsSegment.narrationId)
@@ -28,15 +26,10 @@ export async function alignFilmTtsSegmentsToNarration(projectDir: string, narrat
       throw new Error(`TTS segment ${index + 1} references unknown narrationId "${ttsSegment.narrationId}".`)
     }
 
-    const targetDuration = narrationSegment.duration
-
-    if (targetDuration === undefined) {
-      throw new Error(`Narration segment "${narrationSegment.id}" has no duration for TTS alignment.`)
-    }
-
+    const targetDuration = requireOutputNarrationSegmentDuration(narrationSegment, 'TTS alignment')
     const ttsDuration = requireTtsSegmentDuration(ttsSegment, 'TTS alignment')
 
-    if (targetDuration <= 0 || ttsDuration <= targetDuration + FILM_TTS_DURATION_TOLERANCE_SECONDS) {
+    if (ttsDuration <= targetDuration + FILM_TTS_DURATION_TOLERANCE_SECONDS) {
       return ttsSegment
     }
 
@@ -52,8 +45,8 @@ export async function alignFilmTtsSegmentsToNarration(projectDir: string, narrat
   }))
 }
 
-export async function createAudioMixVoiceovers(projectDir: string, narration: Narration, ttsSegments: TTSSegment[]): Promise<FilmAudioMixVoiceover[]> {
-  const narrationById = new Map(narration.segments.map((segment) => [segment.id, segment]))
+export async function createAudioMixVoiceovers(projectDir: string, outputNarration: OutputNarration, ttsSegments: TTSSegment[]): Promise<FilmAudioMixVoiceover[]> {
+  const narrationById = new Map(outputNarration.segments.map((segment) => [segment.id, segment]))
   const voiceovers = ttsSegments.map((ttsSegment, index) => {
     const narrationSegment = narrationById.get(ttsSegment.narrationId)
 
@@ -61,12 +54,13 @@ export async function createAudioMixVoiceovers(projectDir: string, narration: Na
       throw new Error(`TTS segment ${index + 1} references unknown narrationId "${ttsSegment.narrationId}".`)
     }
 
-    const start = roundSeconds(requireNarrationStart(narrationSegment))
+    requireOutputNarrationSegmentDuration(narrationSegment, 'audio mixing')
+    const start = roundSeconds(narrationSegment.start)
     const duration = roundSeconds(requireTtsSegmentDuration(ttsSegment, 'audio mixing'))
     const resolvedPath = resolveProjectPath(projectDir, ttsSegment.path)
 
     return {
-      delayMs: Math.max(0, Math.round(start * 1000)),
+      delayMs: Math.round(start * 1000),
       duration,
       narrationId: ttsSegment.narrationId,
       path: ttsSegment.path,
@@ -81,19 +75,23 @@ export async function createAudioMixVoiceovers(projectDir: string, narration: Na
 }
 
 function requireTtsSegmentDuration(ttsSegment: TTSSegment, stage: string): number {
-  if (ttsSegment.duration <= 0) {
+  if (!Number.isFinite(ttsSegment.duration) || ttsSegment.duration <= 0) {
     throw new Error(`TTS segment "${ttsSegment.narrationId}" must include a positive duration for ${stage}; no narration-duration fallback is allowed.`)
   }
 
   return ttsSegment.duration
 }
 
-function requireNarrationStart(segment: Narration['segments'][number]): number {
-  if (segment.start === undefined) {
-    throw new Error(`Narration segment "${segment.id}" has no start time for audio mixing.`)
+function requireOutputNarrationSegmentDuration(segment: OutputNarrationSegment, stage: string): number {
+  if (!Number.isFinite(segment.start) || segment.start < 0) {
+    throw new Error(`Output narration segment "${segment.id}" must include a finite non-negative start for ${stage}; no audio timing clamp fallback is allowed. Received: ${String(segment.start)}`)
   }
 
-  return segment.start
+  if (!Number.isFinite(segment.end) || segment.end <= segment.start) {
+    throw new Error(`Output narration segment "${segment.id}" must include an end greater than start for ${stage}; no audio timing clamp fallback is allowed. Received start=${String(segment.start)} end=${String(segment.end)}`)
+  }
+
+  return roundSeconds(segment.end - segment.start)
 }
 
 export function getAudioMixMode(hasSourceAudio: boolean, hasVoiceover: boolean): FilmAudioMix['mode'] {
@@ -113,9 +111,12 @@ export function getAudioMixMode(hasSourceAudio: boolean, hasVoiceover: boolean):
 }
 
 export async function renderAudioMix(outputPath: string, duration: number, sourceAudioPath: string | undefined, voiceovers: FilmAudioMixVoiceover[]): Promise<void> {
+  const mixDuration = requirePositiveFiniteDuration(duration, 'Film audio mix duration')
+  const validVoiceovers = voiceovers.map(requireAudioMixVoiceover)
+
   await mkdir(resolve(outputPath, '..'), {recursive: true})
 
-  if (sourceAudioPath === undefined && voiceovers.length === 0) {
+  if (sourceAudioPath === undefined && validVoiceovers.length === 0) {
     await runFfmpeg([
       '-y',
       '-f',
@@ -123,7 +124,7 @@ export async function renderAudioMix(outputPath: string, duration: number, sourc
       '-i',
       'anullsrc=channel_layout=stereo:sample_rate=48000',
       '-t',
-      String(Math.max(duration, 0.001)),
+      String(mixDuration),
       '-c:a',
       'pcm_s16le',
       outputPath,
@@ -133,23 +134,22 @@ export async function renderAudioMix(outputPath: string, duration: number, sourc
 
   const inputArgs = [
     ...(sourceAudioPath === undefined ? [] : ['-i', sourceAudioPath]),
-    ...voiceovers.flatMap((voiceover) => ['-i', voiceover.resolvedPath]),
+    ...validVoiceovers.flatMap((voiceover) => ['-i', voiceover.resolvedPath]),
   ]
   const sourceFilter = sourceAudioPath === undefined
     ? []
-    : [buildSourceAudioFilter(duration, voiceovers)]
+    : [buildSourceAudioFilter(mixDuration, validVoiceovers)]
   const voiceoverInputOffset = sourceAudioPath === undefined ? 0 : 1
-  const filters = voiceovers.map((voiceover, index) => {
-    const segmentDuration = Math.max(voiceover.duration, 0.001)
+  const filters = validVoiceovers.map((voiceover, index) => {
     const inputIndex = index + voiceoverInputOffset
 
-    return `[${inputIndex}:a]atrim=duration=${segmentDuration},asetpts=PTS-STARTPTS,adelay=${voiceover.delayMs}:all=1,volume=1[voice${index}]`
+    return `[${inputIndex}:a]atrim=duration=${voiceover.duration},asetpts=PTS-STARTPTS,adelay=${voiceover.delayMs}:all=1,volume=1[voice${index}]`
   })
   const filter = buildAudioMixFilter({
-    duration,
+    duration: mixDuration,
     hasSourceAudio: sourceAudioPath !== undefined,
     sourceFilters: sourceFilter,
-    voiceoverCount: voiceovers.length,
+    voiceoverCount: validVoiceovers.length,
     voiceoverFilters: filters,
   })
 
@@ -200,7 +200,7 @@ async function conformAudioDuration(path: string, sourceDuration: number, target
 
 function buildAtempoFilterChain(tempo: number): string {
   if (!Number.isFinite(tempo) || tempo <= 0) {
-    return 'anull'
+    throw new Error(`Film TTS audio duration conform requires a positive tempo; no atempo noop fallback is allowed. Received: ${String(tempo)}`)
   }
 
   const tempos: number[] = []
@@ -226,23 +226,21 @@ function formatFilterNumber(value: number): string {
 }
 
 function buildSourceAudioFilter(duration: number, voiceovers: FilmAudioMixVoiceover[]): string {
-  const safeDuration = Math.max(duration, 0.001)
-
   if (voiceovers.length === 0) {
-    return `[0:a:0]atrim=duration=${safeDuration},asetpts=PTS-STARTPTS,volume=0.35[source]`
+    return `[0:a:0]atrim=duration=${duration},asetpts=PTS-STARTPTS,volume=0.35[source]`
   }
 
   const condition = voiceovers
     .map((voiceover) => {
-      const start = roundSeconds(Math.max(0, voiceover.start))
-      const end = roundSeconds(Math.max(start, voiceover.start + voiceover.duration))
+      const start = roundSeconds(voiceover.start)
+      const end = roundSeconds(voiceover.start + voiceover.duration)
 
       return `between(t,${start},${end})`
     })
     .join('+')
   const volumeExpression = escapeFfmpegFilterExpression(`if(gt(${condition},0),0,0.25)`)
 
-  return `[0:a:0]atrim=duration=${safeDuration},asetpts=PTS-STARTPTS,volume=${volumeExpression}:eval=frame[source]`
+  return `[0:a:0]atrim=duration=${duration},asetpts=PTS-STARTPTS,volume=${volumeExpression}:eval=frame[source]`
 }
 
 function escapeFfmpegFilterExpression(value: string): string {
@@ -256,17 +254,16 @@ function buildAudioMixFilter(options: {
   voiceoverCount: number
   voiceoverFilters: string[]
 }): string {
-  const duration = Math.max(options.duration, 0.001)
   const allFilters = [...options.sourceFilters, ...options.voiceoverFilters]
 
   if (options.hasSourceAudio && options.voiceoverCount === 0) {
-    return normalizeFilmAudioMix(`${allFilters.join(';')};[source]apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`)
+    return normalizeFilmAudioMix(`${allFilters.join(';')};[source]apad,atrim=duration=${options.duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`)
   }
 
   const voiceLabels = Array.from({length: options.voiceoverCount}, (_, index) => `[voice${index}]`)
 
   if (!options.hasSourceAudio) {
-    return normalizeFilmAudioMix(`${allFilters.join(';')};${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`)
+    return normalizeFilmAudioMix(`${allFilters.join(';')};${voiceLabels.join('')}amix=inputs=${options.voiceoverCount}:duration=longest:dropout_transition=0,apad,atrim=duration=${options.duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`)
   }
 
   const voiceBus = options.voiceoverCount === 1
@@ -276,10 +273,32 @@ function buildAudioMixFilter(options: {
   return normalizeFilmAudioMix([
     ...allFilters,
     voiceBus,
-    `[voicebus]apad,atrim=duration=${duration},asplit=2[duckkey][voicemix]`,
+    `[voicebus]apad,atrim=duration=${options.duration},asplit=2[duckkey][voicemix]`,
     '[source][duckkey]sidechaincompress=threshold=0.03:ratio=8:attack=300:release=450[ducked]',
-    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`,
+    `[ducked][voicemix]amix=inputs=2:duration=longest:dropout_transition=0,apad,atrim=duration=${options.duration},aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=stereo[premix]`,
   ].join(';'))
+}
+
+function requireAudioMixVoiceover(voiceover: FilmAudioMixVoiceover): FilmAudioMixVoiceover {
+  if (!Number.isFinite(voiceover.start) || voiceover.start < 0) {
+    throw new Error(`Film audio mix voiceover "${voiceover.narrationId}" must include a finite non-negative start; no audio timing clamp fallback is allowed. Received: ${String(voiceover.start)}`)
+  }
+
+  requirePositiveFiniteDuration(voiceover.duration, `Film audio mix voiceover "${voiceover.narrationId}" duration`)
+
+  if (!Number.isInteger(voiceover.delayMs) || voiceover.delayMs < 0) {
+    throw new Error(`Film audio mix voiceover "${voiceover.narrationId}" delayMs must be a non-negative integer; no audio timing clamp fallback is allowed. Received: ${String(voiceover.delayMs)}`)
+  }
+
+  return voiceover
+}
+
+function requirePositiveFiniteDuration(duration: number, label: string): number {
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`${label} must be a positive finite duration; no synthetic minimum audio duration fallback is allowed. Received: ${String(duration)}`)
+  }
+
+  return duration
 }
 
 function normalizeFilmAudioMix(filter: string): string {

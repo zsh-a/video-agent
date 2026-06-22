@@ -1,9 +1,11 @@
-import {mkdir} from 'node:fs/promises'
+import {access, mkdir, writeFile} from 'node:fs/promises'
 import {basename, extname, resolve} from 'node:path'
 
+import type {ArtifactStore} from '../artifacts/store.js'
+
 import {FilesystemArtifactStore} from '../artifacts/store.js'
-import {bunFile, bunWrite} from './bun-runtime.js'
 import {writeConfig} from './config.js'
+import {DEFAULT_WORKSPACE_DIR} from './defaults.js'
 
 export interface ProjectWorkspace {
   artifactsDir: string
@@ -13,7 +15,7 @@ export interface ProjectWorkspace {
   projectDir: string
   projectId: string
   rendersDir: string
-  store: FilesystemArtifactStore
+  store: ArtifactStore
   workspaceDir: string
 }
 
@@ -22,8 +24,6 @@ export interface WorkspaceOptions {
   projectId?: string
   workspaceDir?: string
 }
-
-const DEFAULT_WORKSPACE_DIR = '.video-agent'
 
 export async function createProjectWorkspace(options: WorkspaceOptions = {}): Promise<ProjectWorkspace> {
   const workspaceDir = resolve(options.workspaceDir ?? DEFAULT_WORKSPACE_DIR)
@@ -67,11 +67,11 @@ export async function initializeWorkspace(workspaceDir = DEFAULT_WORKSPACE_DIR):
 async function writeWorkspaceReadme(workspaceDir: string): Promise<void> {
   const readmePath = resolve(workspaceDir, 'README.md')
 
-  if (await bunFile(readmePath).exists()) {
+  if (await fileExists(readmePath)) {
     return
   }
 
-  await bunWrite(readmePath, 'This directory stores video-agent project artifacts.\n')
+  await writeFile(readmePath, 'This directory stores video-agent project artifacts.\n')
 }
 
 export function createProjectId(inputPath?: string, now = new Date()): string {
@@ -83,4 +83,17 @@ export function createProjectId(inputPath?: string, now = new Date()): string {
   const timestamp = now.toISOString().replaceAll(/[-:.TZ]/g, '').slice(0, 14)
 
   return `${slug || 'project'}-${timestamp}`
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path)
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+
+    throw error
+  }
 }

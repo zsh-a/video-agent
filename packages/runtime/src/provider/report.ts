@@ -1,9 +1,17 @@
 import {resolve} from 'node:path'
 
-import type {LLMTraceOperation, LLMTraceRecord, LLMTraceStatus} from '@video-agent/llm'
-import type {ProviderCallRecord, ProviderCallRole, ProviderCallStatus} from './calls.js'
+import type {LLMTraceOperation, LLMTraceStatus} from '@video-agent/llm'
+import type {ProviderCallRecord, ProviderCallRole, ProviderCallStatus} from './call-record.js'
+import type {z} from 'zod'
 
-import {readJsonLines} from '../shared/file-io.js'
+import {countCallResultStatuses} from '@video-agent/ir'
+import {PROVIDER_CALL_ROLES} from './call-record.js'
+import {LLM_TRACES_LOG_ARTIFACT_NAME, PROVIDER_CALLS_LOG_ARTIFACT_NAME} from '../artifacts/log-artifact-names.js'
+import {LLMTraceLogLineSchema, ProviderCallLogLineSchema} from '../artifacts/log-schemas.js'
+import {readParsedJsonLines} from '../shared/file-io.js'
+
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+type LLMTraceLogLine = z.infer<typeof LLMTraceLogLineSchema>
 
 export interface ReadProjectProviderReportOptions {
   role?: ProviderCallRole
@@ -103,12 +111,12 @@ export interface ProviderReportUsage {
 }
 
 export async function readProjectProviderReport(projectId: string, options: ReadProjectProviderReportOptions = {}): Promise<ProjectProviderReport> {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
-  const calls = (await readJsonLines<ProviderCallRecord>(resolve(artifactsDir, 'provider-calls.jsonl')))
+  const calls = (await readParsedJsonLines(resolve(artifactsDir, PROVIDER_CALLS_LOG_ARTIFACT_NAME), ProviderCallLogLineSchema))
     .filter((call) => (options.role === undefined || call.role === options.role) && (options.status === undefined || call.status === options.status))
   const llmTraces = options.role === undefined
-    ? (await readJsonLines<LLMTraceRecord>(resolve(artifactsDir, 'llm-traces.jsonl')))
+    ? (await readParsedJsonLines(resolve(artifactsDir, LLM_TRACES_LOG_ARTIFACT_NAME), LLMTraceLogLineSchema))
       .map(toLLMTraceReportRecord)
       .filter((trace) => options.status === undefined || trace.status === options.status)
     : []
@@ -122,26 +130,23 @@ export async function readProjectProviderReport(projectId: string, options: Read
 }
 
 function summarizeProviderReport(calls: ProviderCallRecord[], llmTraces: LLMTraceReportRecord[]): ProviderReportSummary {
+  const callStatusCounts = countCallResultStatuses(calls)
+
   return {
     byModel: summarizeBuckets(calls, (call) => call.model ?? 'unknown'),
     byProvider: summarizeBuckets(calls, (call) => call.provider),
-    byRole: {
-      asr: summarizeBucket(calls.filter((call) => call.role === 'asr')),
-      script: summarizeBucket(calls.filter((call) => call.role === 'script')),
-      tts: summarizeBucket(calls.filter((call) => call.role === 'tts')),
-      vlm: summarizeBucket(calls.filter((call) => call.role === 'vlm')),
-    },
+    byRole: Object.fromEntries(PROVIDER_CALL_ROLES.map((role) => [role, summarizeBucket(calls.filter((call) => call.role === role))])) as Record<ProviderCallRole, ProviderReportBucket>,
     costs: sumCosts(calls),
     durationMs: summarizeDuration(calls),
-    failed: calls.filter((call) => call.status === 'failed').length,
+    failed: callStatusCounts.failed,
     llm: summarizeLLMTraces(llmTraces),
-    succeeded: calls.filter((call) => call.status === 'succeeded').length,
+    succeeded: callStatusCounts.succeeded,
     total: calls.length,
     usage: sumUsage(calls),
   }
 }
 
-function toLLMTraceReportRecord(trace: LLMTraceRecord): LLMTraceReportRecord {
+function toLLMTraceReportRecord(trace: LLMTraceLogLine): LLMTraceReportRecord {
   return {
     completedAt: trace.completedAt,
     durationMs: trace.durationMs,
@@ -158,13 +163,15 @@ function toLLMTraceReportRecord(trace: LLMTraceRecord): LLMTraceReportRecord {
 }
 
 function summarizeLLMTraces(traces: LLMTraceReportRecord[]): LLMTraceReportSummary {
+  const traceStatusCounts = countCallResultStatuses(traces)
+
   return {
     byModel: summarizeLLMBuckets(traces, (trace) => trace.model ?? 'unknown'),
     byOperation: summarizeLLMBuckets(traces, (trace) => trace.operation),
     byProvider: summarizeLLMBuckets(traces, (trace) => trace.provider ?? 'unknown'),
     durationMs: summarizeLLMDuration(traces),
-    failed: traces.filter((trace) => trace.status === 'failed').length,
-    succeeded: traces.filter((trace) => trace.status === 'succeeded').length,
+    failed: traceStatusCounts.failed,
+    succeeded: traceStatusCounts.succeeded,
     total: traces.length,
     usage: sumLLMTraceUsage(traces),
   }
@@ -184,10 +191,12 @@ function summarizeLLMBuckets(traces: LLMTraceReportRecord[], keyForTrace: (trace
 }
 
 function summarizeLLMBucket(traces: LLMTraceReportRecord[]): LLMTraceReportBucket {
+  const traceStatusCounts = countCallResultStatuses(traces)
+
   return {
     durationMs: traces.reduce((total, trace) => total + trace.durationMs, 0),
-    failed: traces.filter((trace) => trace.status === 'failed').length,
-    succeeded: traces.filter((trace) => trace.status === 'succeeded').length,
+    failed: traceStatusCounts.failed,
+    succeeded: traceStatusCounts.succeeded,
     total: traces.length,
     usage: sumLLMTraceUsage(traces),
   }
@@ -207,19 +216,16 @@ function sumLLMTraceUsage(traces: LLMTraceReportRecord[]): LLMTraceReportUsage {
   const usage = createEmptyLLMTraceUsage()
 
   for (const trace of traces) {
-    usage.inputTokens += trace.usage?.inputTokens ?? 0
-    usage.outputTokens += trace.usage?.outputTokens ?? 0
-    usage.totalTokens += trace.usage?.totalTokens ?? 0
-  }
-
-  if (usage.totalTokens === 0) {
-    usage.totalTokens = usage.inputTokens + usage.outputTokens
+    const traceUsage = normalizeLLMTraceUsage(trace.usage)
+    usage.inputTokens += traceUsage.inputTokens
+    usage.outputTokens += traceUsage.outputTokens
+    usage.totalTokens += traceUsage.totalTokens
   }
 
   return usage
 }
 
-function normalizeLLMTraceUsage(usage: LLMTraceRecord['usage']): LLMTraceReportUsage {
+function normalizeLLMTraceUsage(usage: Partial<Pick<LLMTraceReportUsage, 'inputTokens' | 'outputTokens' | 'totalTokens'>> | undefined): LLMTraceReportUsage {
   return {
     inputTokens: usage?.inputTokens ?? 0,
     outputTokens: usage?.outputTokens ?? 0,
@@ -249,11 +255,13 @@ function summarizeBuckets(calls: ProviderCallRecord[], keyForCall: (call: Provid
 }
 
 function summarizeBucket(calls: ProviderCallRecord[]): ProviderReportBucket {
+  const callStatusCounts = countCallResultStatuses(calls)
+
   return {
     costs: sumCosts(calls),
     durationMs: calls.reduce((total, call) => total + call.durationMs, 0),
-    failed: calls.filter((call) => call.status === 'failed').length,
-    succeeded: calls.filter((call) => call.status === 'succeeded').length,
+    failed: callStatusCounts.failed,
+    succeeded: callStatusCounts.succeeded,
     total: calls.length,
     usage: sumUsage(calls),
   }
@@ -285,20 +293,32 @@ function sumUsage(calls: ProviderCallRecord[]): ProviderReportUsage {
   const usage = createEmptyUsage()
 
   for (const call of calls) {
-    usage.audioSeconds += call.usage?.audioSeconds ?? 0
-    usage.inputCharacters += call.usage?.inputCharacters ?? 0
-    usage.inputTokens += call.usage?.inputTokens ?? 0
-    usage.outputCharacters += call.usage?.outputCharacters ?? 0
-    usage.outputTokens += call.usage?.outputTokens ?? 0
-    usage.totalTokens += call.usage?.totalTokens ?? 0
+    const callUsage = normalizeProviderUsage(call.usage)
+    usage.audioSeconds += callUsage.audioSeconds
+    usage.inputCharacters += callUsage.inputCharacters
+    usage.inputTokens += callUsage.inputTokens
+    usage.outputCharacters += callUsage.outputCharacters
+    usage.outputTokens += callUsage.outputTokens
+    usage.totalTokens += callUsage.totalTokens
   }
 
   usage.audioSeconds = roundMetric(usage.audioSeconds)
-  if (usage.totalTokens === 0) {
-    usage.totalTokens = usage.inputTokens + usage.outputTokens
-  }
 
   return usage
+}
+
+function normalizeProviderUsage(usage: ProviderCallRecord['usage']): ProviderReportUsage {
+  const inputTokens = usage?.inputTokens ?? 0
+  const outputTokens = usage?.outputTokens ?? 0
+
+  return {
+    audioSeconds: usage?.audioSeconds ?? 0,
+    inputCharacters: usage?.inputCharacters ?? 0,
+    inputTokens,
+    outputCharacters: usage?.outputCharacters ?? 0,
+    outputTokens,
+    totalTokens: usage?.totalTokens ?? inputTokens + outputTokens,
+  }
 }
 
 function createEmptyUsage(): ProviderReportUsage {

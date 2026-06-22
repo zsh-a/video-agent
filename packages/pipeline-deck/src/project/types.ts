@@ -1,4 +1,4 @@
-import type {DeckContentDensity, DeckFormat, DeckSlideType, Document} from '@video-agent/ir'
+import type {DeckContentDensity, DeckFormat, DeckSlideType, TextDocumentSourceType} from '@video-agent/ir'
 import type {LLMClient} from '@video-agent/llm'
 
 import type {
@@ -21,7 +21,7 @@ export interface CreateDeckExplainerProjectOptions {
   requiredSlideTypes?: DeckSlideType[]
   slideCountMax?: number
   slideCountTarget?: number
-  sourceType?: Exclude<Document['source']['sourceType'], 'audio'>
+  sourceType?: TextDocumentSourceType
   theme?: string
   title?: string
   trace?: boolean

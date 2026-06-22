@@ -1,7 +1,8 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type ProjectEventRecord, type ProjectPipelineEventType, type ProviderCallRole, readProjectEvents} from '@video-agent/runtime'
+import {PIPELINE_EVENT_TYPES, type PipelineEventType} from '@video-agent/core'
+import {PROJECT_EVENT_KINDS, PROJECT_EVENT_KIND_PIPELINE, PROVIDER_CALL_ROLES, PROVIDER_CALL_STATUS_SUCCEEDED, PROVIDER_CALL_STATUSES, type ProjectEventKind, type ProjectEventRecord, type ProviderCallRole, type ProviderCallStatus, readProjectEvents} from '@video-agent/runtime'
 
-const PIPELINE_EVENT_TYPES = ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start'] as const
+import {normalizeNonNegativeIntegerFlag, parseOptionalEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
 
 export default class Events extends Command {
   static args = {
@@ -10,24 +11,24 @@ export default class Events extends Command {
   static description = 'Read pipeline events and provider call records for a project'
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    kind: Flags.string({description: 'Event kind to read', options: ['pipeline', 'provider']}),
+    kind: Flags.string({description: 'Event kind to read', options: [...PROJECT_EVENT_KINDS]}),
     limit: Flags.integer({description: 'Limit to the last N events'}),
-    role: Flags.string({description: 'Provider role filter', options: ['asr', 'script', 'tts', 'vlm']}),
+    role: Flags.string({description: 'Provider role filter', options: [...PROVIDER_CALL_ROLES]}),
     stage: Flags.string({description: 'Pipeline stage filter'}),
-    status: Flags.string({description: 'Provider status filter', options: ['failed', 'succeeded']}),
+    status: Flags.string({description: 'Provider status filter', options: [...PROVIDER_CALL_STATUSES]}),
     type: Flags.string({description: 'Pipeline event type filter', options: [...PIPELINE_EVENT_TYPES]}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {args, flags} = await this.parse(Events)
     const result = await readProjectEvents(args.project, {
-      kind: flags.kind as 'pipeline' | 'provider' | undefined,
-      limit: flags.limit,
+      kind: parseOptionalEnumFlag<ProjectEventKind>(flags.kind, PROJECT_EVENT_KINDS, '--kind'),
+      limit: normalizeNonNegativeIntegerFlag(flags.limit, '--limit'),
       pipelineStage: flags.stage,
-      pipelineType: flags.type as ProjectPipelineEventType | undefined,
-      providerRole: flags.role as ProviderCallRole | undefined,
-      providerStatus: flags.status as 'failed' | 'succeeded' | undefined,
+      pipelineType: parseOptionalEnumFlag<PipelineEventType>(flags.type, PIPELINE_EVENT_TYPES, '--type'),
+      providerRole: parseOptionalEnumFlag<ProviderCallRole>(flags.role, PROVIDER_CALL_ROLES, '--role'),
+      providerStatus: parseOptionalEnumFlag<ProviderCallStatus>(flags.status, PROVIDER_CALL_STATUSES, '--status'),
       workspaceDir: flags.workspace,
     })
 
@@ -48,7 +49,7 @@ export default class Events extends Command {
 }
 
 function formatEvent(record: ProjectEventRecord): string {
-  if (record.kind === 'pipeline') {
+  if (record.kind === PROJECT_EVENT_KIND_PIPELINE) {
     const stage = record.event.stage === undefined ? '' : `\t${record.event.stage}${record.event.step === undefined ? '' : `.${record.event.step}`}`
     const level = record.event.level === undefined ? '' : `\t${record.event.level}`
     const message = record.event.message === undefined ? '' : `\t${record.event.message}`
@@ -63,12 +64,12 @@ function formatEvent(record: ProjectEventRecord): string {
   const request = `\trequestId=${record.event.requestId}`
   const model = record.event.model === undefined ? '' : `\tmodel=${record.event.model}`
   const usage = formatData(record.event.usage, 'usage.')
-  const summary = formatData(record.event.status === 'succeeded' ? record.event.output : record.event.input)
+  const summary = formatData(record.event.status === PROVIDER_CALL_STATUS_SUCCEEDED ? record.event.output : record.event.input)
 
   return `${record.time}\tprovider\t${record.event.role}\t${record.event.provider}\t${record.event.operation}\t${record.event.status}\t${record.event.durationMs}ms${request}${model}${usage}${summary}${error}`
 }
 
-function formatProgress(event: Extract<ProjectEventRecord, {kind: 'pipeline'}>['event']): string {
+function formatProgress(event: Extract<ProjectEventRecord, {kind: typeof PROJECT_EVENT_KIND_PIPELINE}>['event']): string {
   const values = {
     current: event.current,
     percent: event.percent,

@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {formatProjectStatus} from '../../src/commands/status.js'
+import {formatProjectStatus} from '../../src/utils/status-output.js'
 
 describe('status command', () => {
   it('formats complete render diagnostics', () => {

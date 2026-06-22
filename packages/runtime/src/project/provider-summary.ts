@@ -1,13 +1,12 @@
-import type {ProviderCallRecord, ProviderCallRole} from '../provider/calls.js'
+import type {ProviderCallRecord, ProviderCallRole} from '../provider/call-record.js'
+
+import {CALL_STATUS_FAILED, countCallResultStatuses} from '@video-agent/ir'
+import {PROVIDER_CALL_ROLES} from '../provider/call-record.js'
 import type {ProjectRuntimeSummary, ProviderRoleSummary} from './status-types.js'
 
 export function summarizeProviderCalls(calls: ProviderCallRecord[]): ProjectRuntimeSummary['providers'] {
-  const byRole: Record<ProviderCallRole, ProviderRoleSummary> = {
-    asr: createEmptyProviderRoleSummary(),
-    script: createEmptyProviderRoleSummary(),
-    tts: createEmptyProviderRoleSummary(),
-    vlm: createEmptyProviderRoleSummary(),
-  }
+  const byRole = Object.fromEntries(PROVIDER_CALL_ROLES.map((role) => [role, createEmptyProviderRoleSummary()])) as Record<ProviderCallRole, ProviderRoleSummary>
+  const callStatusCounts = countCallResultStatuses(calls)
 
   for (const call of calls) {
     byRole[call.role].total += 1
@@ -16,7 +15,7 @@ export function summarizeProviderCalls(calls: ProviderCallRecord[]): ProjectRunt
       byRole[call.role].costs[call.cost.currency] = (byRole[call.role].costs[call.cost.currency] ?? 0) + call.cost.amount
     }
 
-    if (call.status === 'failed') {
+    if (call.status === CALL_STATUS_FAILED) {
       byRole[call.role].failed += 1
     } else {
       byRole[call.role].succeeded += 1
@@ -26,8 +25,8 @@ export function summarizeProviderCalls(calls: ProviderCallRecord[]): ProjectRunt
   return {
     byRole,
     costs: sumProviderCosts(calls),
-    failed: calls.filter((call) => call.status === 'failed').length,
-    succeeded: calls.filter((call) => call.status === 'succeeded').length,
+    failed: callStatusCounts.failed,
+    succeeded: callStatusCounts.succeeded,
     total: calls.length,
   }
 }

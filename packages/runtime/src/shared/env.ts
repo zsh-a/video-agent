@@ -1,8 +1,10 @@
+import {readFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {bunEnv, bunFile} from './bun-runtime.js'
+import {bunEnv} from './bun-runtime.js'
 
-export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<string, string | undefined> = bunEnv()): Promise<Record<string, string | undefined>> {
+import {DEFAULT_WORKSPACE_DIR} from './defaults.js'
+export async function readRuntimeEnv(workspaceDir = DEFAULT_WORKSPACE_DIR, env: Record<string, string | undefined> = bunEnv()): Promise<Record<string, string | undefined>> {
   const workspaceEnvPath = resolve(workspaceDir, '.env')
   const dotenv = await readDotEnvFile(workspaceEnvPath)
 
@@ -14,7 +16,7 @@ export async function readRuntimeEnv(workspaceDir = '.video-agent', env: Record<
 
 async function readDotEnvFile(path: string): Promise<Record<string, string>> {
   try {
-    return parseDotEnv(await bunFile(path).text(), path)
+    return parseDotEnv(await readFile(path, 'utf8'), path)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return {}

@@ -1,59 +1,29 @@
-import type {DeckHtmlFrameSequenceCaptureBackend} from '@video-agent/renderer-html'
-
 export const DEFAULT_DECK_FRAME_CONCURRENCY = 1
 export const DEFAULT_DECK_RENDER_FPS = 30
 export const DEFAULT_DECK_FRAME_SHARD_SIZE = 300
 
-export function deckFrameVideoRenderer(backend: DeckHtmlFrameSequenceCaptureBackend): 'chromium+ffmpeg' | 'playwright+ffmpeg' {
-  return backend === 'playwright' ? 'playwright+ffmpeg' : 'chromium+ffmpeg'
-}
-
 export function normalizeDeckFrameConcurrency(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return DEFAULT_DECK_FRAME_CONCURRENCY
-  }
-
-  return Math.max(1, Math.floor(value))
+  return readPositiveIntegerOption(value, DEFAULT_DECK_FRAME_CONCURRENCY, 'Deck frame concurrency')
 }
 
 export function normalizeDeckFrameShardSize(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return DEFAULT_DECK_FRAME_SHARD_SIZE
-  }
-
-  return Math.max(1, Math.floor(value))
+  return readPositiveIntegerOption(value, DEFAULT_DECK_FRAME_SHARD_SIZE, 'Deck frame shard size')
 }
 
 export function normalizeDeckShardConcurrency(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return 1
-  }
-
-  return Math.max(1, Math.floor(value))
+  return readPositiveIntegerOption(value, 1, 'Deck shard concurrency')
 }
 
 export function normalizeDeckShardRetries(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return 0
-  }
-
-  return Math.max(0, Math.floor(value))
+  return readNonNegativeIntegerOption(value, 0, 'Deck shard retries')
 }
 
 export function normalizeDeckShardRetryDelayMs(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value)) {
-    return 0
-  }
-
-  return Math.max(0, Math.floor(value))
+  return readNonNegativeIntegerOption(value, 0, 'Deck shard retry delay ms')
 }
 
 export function normalizeDeckRendererFps(value: number | undefined): number {
-  if (value === undefined || !Number.isFinite(value) || value <= 0) {
-    return DEFAULT_DECK_RENDER_FPS
-  }
-
-  return Math.max(1, Math.floor(value))
+  return readPositiveIntegerOption(value, DEFAULT_DECK_RENDER_FPS, 'Deck renderer fps')
 }
 
 export function normalizeDeckFrameRange(options: {frameEnd?: number; frameStart?: number}): {end?: number; start?: number} | undefined {
@@ -61,17 +31,20 @@ export function normalizeDeckFrameRange(options: {frameEnd?: number; frameStart?
     return undefined
   }
 
-  const start = options.frameStart === undefined || !Number.isFinite(options.frameStart) ? undefined : Math.max(1, Math.floor(options.frameStart))
-  const end = options.frameEnd === undefined || !Number.isFinite(options.frameEnd) ? undefined : Math.max(1, Math.floor(options.frameEnd))
+  const start = readOptionalPositiveIntegerOption(options.frameStart, 'Deck frameStart')
+  const end = readOptionalPositiveIntegerOption(options.frameEnd, 'Deck frameEnd')
 
   if (start !== undefined && end !== undefined && end < start) {
-    throw new RangeError(`--frame-end (${end}) must be greater than or equal to --frame-start (${start}).`)
+    throw new RangeError(`Deck frameEnd (${end}) must be greater than or equal to frameStart (${start}).`)
   }
 
   return {end, start}
 }
 
 export function createDeckFrameShardRanges(frameCount: number, frameShardSize: number): Array<{end: number; start: number}> {
+  assertPositiveInteger(frameCount, 'Deck frame count')
+  assertPositiveInteger(frameShardSize, 'Deck frame shard size')
+
   const ranges: Array<{end: number; start: number}> = []
 
   for (let start = 1; start <= frameCount; start += frameShardSize) {
@@ -82,4 +55,42 @@ export function createDeckFrameShardRanges(frameCount: number, frameShardSize: n
   }
 
   return ranges
+}
+
+function readPositiveIntegerOption(value: number | undefined, defaultValue: number, label: string): number {
+  if (value === undefined) {
+    return defaultValue
+  }
+
+  assertPositiveInteger(value, label)
+
+  return value
+}
+
+function readNonNegativeIntegerOption(value: number | undefined, defaultValue: number, label: string): number {
+  if (value === undefined) {
+    return defaultValue
+  }
+
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`${label} must be a non-negative integer; no runtime integer coercion fallback is allowed. Received: ${String(value)}`)
+  }
+
+  return value
+}
+
+function readOptionalPositiveIntegerOption(value: number | undefined, label: string): number | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  assertPositiveInteger(value, label)
+
+  return value
+}
+
+function assertPositiveInteger(value: number, label: string): void {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new RangeError(`${label} must be a positive integer; no runtime integer coercion fallback is allowed. Received: ${String(value)}`)
+  }
 }

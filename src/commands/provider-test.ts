@@ -1,9 +1,9 @@
-import type {ProviderSmokeTestResult, ProviderSmokeTestRole} from '@video-agent/runtime'
+import type {ProviderSmokeTestResult, ProviderSmokeTestRoleOption} from '@video-agent/runtime'
 
 import {Command, Flags} from '@oclif/core'
-import {runProviderSmokeTest} from '@video-agent/runtime'
+import {PROVIDER_CALL_STATUS_FAILED, PROVIDER_SMOKE_TEST_ROLE_OPTIONS, parseEnvAssignments, resolveProviderSmokeTestRoles, runProviderSmokeTest} from '@video-agent/runtime'
 
-import {parseEnvFlags} from '../utils/env-flags.js'
+import {parseRequiredEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
 
 export default class ProviderTest extends Command {
   static description = 'Run smoke tests against configured ASR, VLM, and TTS providers'
@@ -12,21 +12,21 @@ export default class ProviderTest extends Command {
       description: 'Environment variable to use for provider smoke tests, formatted as KEY=VALUE. Repeatable; when set, only explicit values are inspected.',
       multiple: true,
     }),
-    frame: Flags.string({description: 'Sample frame path for VLM smoke tests'}),
+    frame: Flags.string({description: 'Sample frame path for VLM smoke tests; required when --role all or --role vlm'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    media: Flags.string({description: 'Sample media path for ASR smoke tests'}),
-    role: Flags.string({default: 'all', description: 'Provider role to test', options: ['all', 'asr', 'tts', 'vlm']}),
-    text: Flags.string({description: 'Sample narration text for TTS smoke tests'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    media: Flags.string({description: 'Sample media path for ASR smoke tests; required when --role all or --role asr'}),
+    role: Flags.string({default: 'all', description: 'Provider role to test', options: [...PROVIDER_SMOKE_TEST_ROLE_OPTIONS]}),
+    text: Flags.string({description: 'Sample narration text for TTS smoke tests; required when --role all or --role tts'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(ProviderTest)
     const report = await runProviderSmokeTest({
-      env: flags.env === undefined ? undefined : parseEnvFlags(flags.env),
+      env: flags.env === undefined ? undefined : parseEnvAssignments(flags.env, '--env value'),
       framePath: flags.frame,
       mediaPath: flags.media,
-      roles: parseRoles(flags.role),
+      roles: resolveProviderSmokeTestRoles(parseRequiredEnumFlag<ProviderSmokeTestRoleOption>(flags.role, PROVIDER_SMOKE_TEST_ROLE_OPTIONS, '--role')),
       text: flags.text,
       workspaceDir: flags.workspace,
     })
@@ -50,18 +50,10 @@ export default class ProviderTest extends Command {
   }
 }
 
-function parseRoles(role: string): ProviderSmokeTestRole[] | undefined {
-  if (role === 'all') {
-    return undefined
-  }
-
-  return [role as ProviderSmokeTestRole]
-}
-
 function formatResult(result: ProviderSmokeTestResult): string {
   const base = `${result.role}: ${result.status} - ${result.provider} (${result.durationMs}ms)`
 
-  if (result.status === 'failed') {
+  if (result.status === PROVIDER_CALL_STATUS_FAILED) {
     const code = result.error?.code === undefined ? '' : ` code=${result.error.code}`
     const retryable = result.error?.retryable === undefined ? '' : ` retryable=${String(result.error.retryable)}`
 

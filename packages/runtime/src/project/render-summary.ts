@@ -1,15 +1,21 @@
 import type {RenderSummary} from './status-types.js'
 
-import {readOptionalJson} from '../shared/file-io.js'
-import {readArrayLength, readFiniteNumber, readIssueErrors, readIssueWarnings, type IssueCountLike} from './status-utils.js'
+import {RenderOutputSchema} from '../artifacts/core-schemas.js'
+import {readOptionalProjectJson} from './optional-json.js'
 
 export async function readRenderSummary(path: string): Promise<RenderSummary> {
-  const report = await readOptionalJson<RenderOutputLike>(path)
+  const value = await readOptionalProjectJson(path)
 
-  return report === undefined ? createEmptyRenderSummary() : createRenderSummary(report)
+  if (value === undefined) {
+    return createEmptyRenderSummary()
+  }
+
+  const report = RenderOutputSchema.safeParse(value)
+
+  return report.success ? createRenderSummary(report.data) : createEmptyRenderSummary()
 }
 
-function createRenderSummary(report: RenderOutputLike): RenderSummary {
+function createRenderSummary(report: RenderOutputArtifact): RenderSummary {
   return {
     ...readAudioRenderSummary(report),
     ...readOutputRenderSummary(report),
@@ -22,54 +28,54 @@ function createRenderSummary(report: RenderOutputLike): RenderSummary {
   }
 }
 
-function readAudioRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'audioInputs' | 'audioQualityErrors' | 'audioQualityWarnings' | 'audioWarnings' | 'missingVoiceovers'> {
+function readAudioRenderSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'audioInputs' | 'audioQualityErrors' | 'audioQualityWarnings' | 'audioWarnings' | 'missingVoiceovers'> {
   return {
-    audioInputs: readFiniteNumber(report.audioInputs) ?? 0,
-    audioQualityErrors: readIssueErrors(report.audioQuality),
-    audioQualityWarnings: readIssueWarnings(report.audioQuality),
-    audioWarnings: readArrayLength(report.audioDiagnostics, 'warnings'),
-    missingVoiceovers: readArrayLength(report.audioDiagnostics, 'missingVoiceovers'),
+    audioInputs: report.audioInputs ?? 0,
+    audioQualityErrors: report.audioQuality?.errors ?? 0,
+    audioQualityWarnings: report.audioQuality?.warnings ?? 0,
+    audioWarnings: report.audioDiagnostics?.warnings.length ?? 0,
+    missingVoiceovers: report.audioDiagnostics?.missingVoiceovers.length ?? 0,
   }
 }
 
-function readOutputRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'output' | 'outputErrors' | 'outputWarnings'> {
+function readOutputRenderSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'output' | 'outputErrors' | 'outputWarnings'> {
   return {
-    ...(typeof report.outputPath === 'string' ? {output: report.outputPath} : {}),
-    outputErrors: readIssueErrors(report.outputQuality),
-    outputWarnings: readIssueWarnings(report.outputQuality),
+    ...(report.outputPath === undefined ? {} : {output: report.outputPath}),
+    outputErrors: report.outputQuality?.errors ?? 0,
+    outputWarnings: report.outputQuality?.warnings ?? 0,
   }
 }
 
-function readRendererSummary(report: RenderOutputLike): Pick<RenderSummary, 'renderer'> {
-  return typeof report.renderer === 'string' ? {renderer: report.renderer} : {}
+function readRendererSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'renderer'> {
+  return {renderer: report.renderer}
 }
 
-function readReviewRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'reviewAvailable' | 'reviewHtml' | 'reviewReport'> {
+function readReviewRenderSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'reviewAvailable' | 'reviewHtml' | 'reviewReport'> {
   return {
-    reviewAvailable: typeof report.reviewHtmlPath === 'string' && typeof report.reviewReportPath === 'string',
-    ...(typeof report.reviewHtmlPath === 'string' ? {reviewHtml: report.reviewHtmlPath} : {}),
-    ...(typeof report.reviewReportPath === 'string' ? {reviewReport: report.reviewReportPath} : {}),
+    reviewAvailable: report.reviewHtmlPath !== undefined && report.reviewReportPath !== undefined,
+    ...(report.reviewHtmlPath === undefined ? {} : {reviewHtml: report.reviewHtmlPath}),
+    ...(report.reviewReportPath === undefined ? {} : {reviewReport: report.reviewReportPath}),
   }
 }
 
-function readSubtitleRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'subtitleErrors' | 'subtitleWarnings'> {
+function readSubtitleRenderSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'subtitleErrors' | 'subtitleWarnings'> {
   return {
-    subtitleErrors: readIssueErrors(report.subtitleQuality),
-    subtitleWarnings: readIssueWarnings(report.subtitleQuality),
+    subtitleErrors: report.subtitleQuality?.errors ?? 0,
+    subtitleWarnings: report.subtitleQuality?.warnings ?? 0,
   }
 }
 
-function readVisualRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'visualErrors' | 'visualWarnings'> {
+function readVisualRenderSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'visualErrors' | 'visualWarnings'> {
   return {
-    visualErrors: readIssueErrors(report.visualQuality),
-    visualWarnings: readIssueWarnings(report.visualQuality),
+    visualErrors: report.visualQuality?.errors ?? 0,
+    visualWarnings: report.visualQuality?.warnings ?? 0,
   }
 }
 
-function readTemplateRenderSummary(report: RenderOutputLike): Pick<RenderSummary, 'templateErrors' | 'templateWarnings'> {
+function readTemplateRenderSummary(report: RenderOutputArtifact): Pick<RenderSummary, 'templateErrors' | 'templateWarnings'> {
   return {
-    templateErrors: readIssueErrors(report.templateQuality),
-    templateWarnings: readIssueWarnings(report.templateQuality),
+    templateErrors: report.templateQuality?.errors ?? 0,
+    templateWarnings: report.templateQuality?.warnings ?? 0,
   }
 }
 
@@ -93,16 +99,4 @@ function createEmptyRenderSummary(): RenderSummary {
   }
 }
 
-interface RenderOutputLike {
-  audioDiagnostics?: unknown
-  audioInputs?: unknown
-  audioQuality?: IssueCountLike
-  outputPath?: unknown
-  outputQuality?: IssueCountLike
-  renderer?: unknown
-  reviewHtmlPath?: unknown
-  reviewReportPath?: unknown
-  subtitleQuality?: IssueCountLike
-  templateQuality?: IssueCountLike
-  visualQuality?: IssueCountLike
-}
+type RenderOutputArtifact = ReturnType<typeof RenderOutputSchema.parse>

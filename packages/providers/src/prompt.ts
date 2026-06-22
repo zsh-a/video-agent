@@ -1,4 +1,5 @@
 import type {GenerateObjectRequest, LLMMessage} from '@video-agent/llm'
+import type {ProviderPromptStage} from './prompt-stages.js'
 
 import {createObjectPromptRequest} from '@video-agent/llm'
 
@@ -10,7 +11,7 @@ export function createProviderObjectPromptRequest<TInput, TOutput>(input: {
   promptInput: TInput
   schema: GenerateObjectRequest<TOutput>['schema']
   schemaName: string
-  stage: string
+  stage: ProviderPromptStage
   temperature: number
 }): GenerateObjectRequest<TOutput> {
   return createObjectPromptRequest({

@@ -1,7 +1,7 @@
-import {providerEnvName, type ProviderRole} from '@video-agent/providers'
+import {PROVIDER_ROLES, providerEnvName, type ProviderSettings} from '@video-agent/providers'
 
 import {bunEnv} from '../shared/bun-runtime.js'
-import type {AgentConfig, ProviderSettings} from '../shared/config.js'
+import type {AgentConfig} from '../shared/config.js'
 
 export function createProviderEnv(config: AgentConfig, env: Record<string, string | undefined> = bunEnv()): Record<string, string | undefined> {
   return {
@@ -13,8 +13,8 @@ export function createProviderEnv(config: AgentConfig, env: Record<string, strin
 function providerSettingsToEnv(settings: ProviderSettings): Record<string, string> {
   const env: Record<string, string> = {}
 
-  for (const [role, roleSettings] of Object.entries(settings)) {
-    const providerRole = role as ProviderRole
+  for (const providerRole of PROVIDER_ROLES) {
+    const roleSettings = settings[providerRole]
 
     if (roleSettings?.command !== undefined) {
       env[providerEnvName(providerRole, 'COMMAND')] = JSON.stringify(roleSettings.command)

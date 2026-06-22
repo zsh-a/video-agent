@@ -2,7 +2,7 @@ import type {TuiActionResult} from '../actions/types.js'
 import type {TuiCommandSuggestion, TuiSnapshot} from '../model.js'
 
 export type TuiManagerView = 'actions' | 'artifacts' | 'commands' | 'dashboard' | 'events' | 'output' | 'projects' | 'quality'
-export type TuiManagerActionId = 'audio' | 'events' | 'export' | 'provider-test' | 'quality' | 'render' | 'rerun' | 'status' | 'verify' | 'visual' | 'worker-dry-run'
+export type TuiManagerActionId = 'audio' | 'events' | 'export' | 'quality' | 'render' | 'rerun' | 'status' | 'verify' | 'visual' | 'worker-dry-run'
 
 export interface TuiManagerActionRequest {
   artifactName?: string
@@ -59,7 +59,6 @@ export const MANAGER_ACTIONS: TuiManagerActionDefinition[] = [
   {confirm: false, description: 'Manifest and schemas', group: 'Inspect', id: 'verify', label: 'Verify', projectScoped: true},
   {confirm: false, description: 'Audio readiness', group: 'Inspect', id: 'audio', label: 'Audio', projectScoped: true},
   {confirm: false, description: 'Frame samples', group: 'Inspect', id: 'visual', label: 'Visual', projectScoped: true},
-  {confirm: false, description: 'Provider smoke test', group: 'Inspect', id: 'provider-test', label: 'Providers', projectScoped: false},
   {confirm: false, description: 'Recovery preview', group: 'Inspect', id: 'worker-dry-run', label: 'Worker dry-run', projectScoped: false},
   {confirm: true, description: 'Run from configured stage', group: 'Operate', id: 'rerun', label: 'Rerun', projectScoped: true},
   {confirm: true, description: 'Create render output', group: 'Operate', id: 'render', label: 'Render', projectScoped: true},

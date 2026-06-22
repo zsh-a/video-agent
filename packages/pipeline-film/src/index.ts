@@ -21,10 +21,11 @@ export {
   createFilmSubtitleProject,
   createFilmVoiceoverProject,
 } from './output/index.js'
+export {DEFAULT_FILM_MAX_SCENES} from './understanding/evidence.js'
 export {runFilmRecapProject} from './recovery/runner.js'
 export {runFilmRecapPipeline} from './runner.js'
-export {recoverWorkspaceJobs} from './worker.js'
-export {rerunProject} from './rerun.js'
+export {FILM_RECOVERABLE_JOB_STATUSES, FILM_RECOVERY_ORDER_BY_VALUES, FILM_RECOVERY_STATUS_OPTIONS, isFilmRecoverableJobStatus, isFilmRecoveryOrderBy, recoverFilmWorkspaceJobs, resolveFilmRecoverableStatuses} from './worker.js'
+export {rerunFilmProject} from './rerun.js'
 
 export type {
   CreateFilmClipPlanProjectOptions,
@@ -56,7 +57,6 @@ export type {
   FilmQualityReport,
 } from './output/index.js'
 export type {RunFilmRecapProjectOptions, RunFilmRecapProjectResult} from './recovery/runner.js'
-export type {FilmAudioMix, FilmAudioMixVoiceover, FilmSubtitleOutput} from './shared/types.js'
 export type {RunFilmRecapPipelineOptions, RunFilmRecapPipelineResult} from './runner.js'
-export type {RecoverableJobStatus, RecoverWorkspaceJobResult, RecoverWorkspaceJobsOptions, RecoverWorkspaceJobsReport, RecoveryOrderBy} from './worker.js'
-export type {RerunProjectOptions, RerunProjectResult} from './rerun.js'
+export type {FilmRecoverableJobStatus, RecoverFilmWorkspaceJobResult, RecoverFilmWorkspaceJobsOptions, RecoverFilmWorkspaceJobsReport, FilmRecoveryOrderBy, FilmRecoveryStatusOption} from './worker.js'
+export type {RerunFilmProjectOptions, RerunFilmProjectResult} from './rerun.js'

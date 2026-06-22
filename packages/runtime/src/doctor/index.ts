@@ -6,6 +6,7 @@ import {checkProviderConfig} from './provider-checks.js'
 import {summarizeHealthChecks} from './summary.js'
 import {checkBinary, checkBunRuntime, checkConfig, checkProjectListing, checkWorkspaceAccess} from './system-checks.js'
 
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
 export type {
   HealthCheck,
   HealthCheckStatus,
@@ -15,7 +16,7 @@ export type {
 } from './types.js'
 
 export async function checkRuntimeHealth(options: RuntimeHealthOptions = {}): Promise<RuntimeHealthReport> {
-  const workspaceDir = resolve(options.workspaceDir ?? '.video-agent')
+  const workspaceDir = resolve(options.workspaceDir ?? DEFAULT_WORKSPACE_DIR)
   const checks: HealthCheck[] = [
     checkBunRuntime(),
     await checkWorkspaceAccess(workspaceDir),

@@ -1,14 +1,22 @@
 import type {LLMClient, LLMClientConfig, LLMTraceRecord} from '@video-agent/llm'
 
-import {createAsrProvider, createTtsProvider, createVlmProvider, ProviderExecutionError, ProviderResponseValidationError, readProviderMetadata, type ProviderCostMetadata, type ProviderUsageMetadata} from '@video-agent/providers'
+import {CALL_STATUS_FAILED, CALL_STATUS_SUCCEEDED, countCallResultStatuses} from '@video-agent/ir'
+import {PROVIDER_ROLES, createAsrProvider, createTtsProvider, createVlmProvider, ProviderExecutionError, ProviderResponseValidationError, readProviderMetadata, type ProviderCostMetadata, type ProviderName, type ProviderRole, type ProviderUsageMetadata} from '@video-agent/providers'
 import {resolve} from 'node:path'
 
 import {readConfig} from '../shared/config.js'
 import {readRuntimeEnv} from '../shared/env.js'
+import {PROVIDER_CALL_STATUSES, type ProviderCallStatus} from './call-record.js'
 import {createProviderEnv} from './settings.js'
 
-export type ProviderSmokeTestRole = 'asr' | 'tts' | 'vlm'
-export type ProviderSmokeTestStatus = 'failed' | 'succeeded'
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+export const PROVIDER_SMOKE_TEST_ROLES = PROVIDER_ROLES
+export const PROVIDER_SMOKE_TEST_ROLE_OPTIONS = ['all', ...PROVIDER_SMOKE_TEST_ROLES] as const
+export const PROVIDER_SMOKE_TEST_STATUSES = PROVIDER_CALL_STATUSES
+
+export type ProviderSmokeTestRole = ProviderRole
+export type ProviderSmokeTestRoleOption = (typeof PROVIDER_SMOKE_TEST_ROLE_OPTIONS)[number]
+export type ProviderSmokeTestStatus = ProviderCallStatus
 
 export interface ProviderSmokeTestOptions {
   env?: Record<string, string | undefined>
@@ -116,10 +124,17 @@ export type ProviderSmokeTestOutput =
       type: 'scenes'
     }
 
-const DEFAULT_ROLES: ProviderSmokeTestRole[] = ['asr', 'vlm', 'tts']
+const DEFAULT_ROLES: readonly ProviderSmokeTestRole[] = PROVIDER_SMOKE_TEST_ROLES
+
+class ProviderSmokeTestInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ProviderSmokeTestInputError'
+  }
+}
 
 export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {}): Promise<ProviderSmokeTestReport> {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
   const config = await readConfig(workspaceDir)
   const runtimeEnv = options.env ?? await readRuntimeEnv(workspaceDir)
   const roles = options.roles ?? DEFAULT_ROLES
@@ -142,6 +157,7 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
             llmTraces.push(trace)
           },
         },
+        workspaceDir,
       })
       const metadata = readSmokeTestMetadata(output.raw)
       const roleTraces = llmTraces.slice(traceStart)
@@ -152,7 +168,7 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
         output: output.summary,
         provider: config.providers[role],
         role,
-        status: 'succeeded',
+        status: CALL_STATUS_SUCCEEDED,
         traces: summarizeRoleTraces(roleTraces),
       })
     } catch (error) {
@@ -163,7 +179,7 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
         error: normalizeSmokeTestError(error),
         provider: config.providers[role],
         role,
-        status: 'failed',
+        status: CALL_STATUS_FAILED,
         traces: summarizeRoleTraces(roleTraces),
       })
     }
@@ -174,18 +190,36 @@ export async function runProviderSmokeTest(options: ProviderSmokeTestOptions = {
   return {
     certification: certifyProviderSmokeTest(results, reportTraces),
     llmTraces: reportTraces,
-    ok: results.every((result) => result.status === 'succeeded'),
+    ok: results.every((result) => result.status === CALL_STATUS_SUCCEEDED),
     results,
     summary: summarizeProviderSmokeTestResults(results),
     workspaceDir,
   }
 }
 
+export function resolveProviderSmokeTestRoles(role: null | ProviderSmokeTestRoleOption | undefined): ProviderSmokeTestRole[] | undefined {
+  if (role === undefined || role === null || role === 'all') {
+    return undefined
+  }
+
+  if (isProviderSmokeTestRole(role)) {
+    return [role]
+  }
+
+  throw new Error(`Invalid provider smoke-test role: ${role}`)
+}
+
+export function isProviderSmokeTestRole(role: string): role is ProviderSmokeTestRole {
+  return (PROVIDER_SMOKE_TEST_ROLES as readonly string[]).includes(role)
+}
+
 function summarizeProviderSmokeTestResults(results: ProviderSmokeTestResult[]): ProviderSmokeTestSummary {
+  const resultStatusCounts = countCallResultStatuses(results)
+
   return {
-    failed: results.filter((result) => result.status === 'failed').length,
-    failedRoles: results.filter((result) => result.status === 'failed').map((result) => result.role),
-    succeeded: results.filter((result) => result.status === 'succeeded').length,
+    failed: resultStatusCounts.failed,
+    failedRoles: results.filter((result) => result.status === CALL_STATUS_FAILED).map((result) => result.role),
+    succeeded: resultStatusCounts.succeeded,
     total: results.length,
   }
 }
@@ -216,11 +250,11 @@ function normalizeSmokeTestError(error: unknown): NonNullable<ProviderSmokeTestR
   }
 }
 
-async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, options: ProviderSmokeTestOptions & {llmTrace?: {record(trace: LLMTraceRecord): void}}): Promise<{raw: object; summary: ProviderSmokeTestOutput}> {
+async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: ProviderName, options: ProviderSmokeTestOptions & {llmTrace?: {record(trace: LLMTraceRecord): void}; workspaceDir: string}): Promise<{raw: object; summary: ProviderSmokeTestOutput}> {
   if (role === 'asr') {
     const transcript = await createAsrProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig, llmTrace: options.llmTrace}).transcribe({
       mimeType: 'audio/wav',
-      path: options.mediaPath ?? 'provider-smoke-test.wav',
+      path: readRequiredSmokeTestInput('asr', 'mediaPath', options.mediaPath),
     })
 
     return {
@@ -240,12 +274,11 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
         {
           duration: 1,
           id: 'provider-smoke-test',
-          start: 0,
-          text: options.text ?? 'Provider smoke test narration.',
+          text: readRequiredSmokeTestInput('tts', 'text', options.text),
         },
       ],
       {
-        outputDir: resolve(options.workspaceDir ?? '.video-agent', 'provider-smoke-test', 'tts'),
+        outputDir: resolve(options.workspaceDir, 'provider-smoke-test', 'tts'),
         pathPrefix: 'provider-smoke-test/tts',
       },
     )
@@ -263,7 +296,7 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
 
   const scenes = await createVlmProvider(provider, {env: options.env, llmClient: options.llmClient, llmConfig: options.llmConfig, llmTrace: options.llmTrace}).analyzeScenes([
     {
-      frames: [options.framePath ?? 'provider-smoke-test-frame.jpg'],
+      frames: [readRequiredSmokeTestInput('vlm', 'framePath', options.framePath)],
       sceneId: 'provider-smoke-test-scene',
       timeRange: [0, 1],
     },
@@ -277,6 +310,14 @@ async function runRoleSmokeTest(role: ProviderSmokeTestRole, provider: string, o
       type: 'scenes',
     },
   }
+}
+
+function readRequiredSmokeTestInput(role: ProviderSmokeTestRole, optionName: 'framePath' | 'mediaPath' | 'text', value: string | undefined): string {
+  if (value === undefined || value.trim() === '') {
+    throw new ProviderSmokeTestInputError(`${role.toUpperCase()} provider smoke test requires ${optionName}.`)
+  }
+
+  return value
 }
 
 function readSmokeTestMetadata(value: object): ProviderSmokeTestResult['metadata'] {
@@ -295,10 +336,12 @@ function readSmokeTestMetadata(value: object): ProviderSmokeTestResult['metadata
 }
 
 function summarizeRoleTraces(traces: LLMTraceRecord[]): ProviderSmokeTestRoleTraceSummary {
+  const traceStatusCounts = countCallResultStatuses(traces)
+
   return {
-    failed: traces.filter((trace) => trace.status === 'failed').length,
+    failed: traceStatusCounts.failed,
     requestIds: traces.map((trace) => trace.requestId),
-    succeeded: traces.filter((trace) => trace.status === 'succeeded').length,
+    succeeded: traceStatusCounts.succeeded,
     total: traces.length,
   }
 }
@@ -327,15 +370,15 @@ function toProviderSmokeTestLLMTrace(trace: LLMTraceRecord): ProviderSmokeTestLL
 
 function certifyProviderSmokeTest(results: ProviderSmokeTestResult[], traces: ProviderSmokeTestLLMTrace[]): ProviderSmokeTestCertification {
   return {
-    costMetadata: certifyObserved(results.some((result) => result.metadata?.cost !== undefined), results.every((result) => result.status === 'succeeded')),
-    failureDetails: results.some((result) => result.status === 'failed')
-      ? (results.every((result) => result.status === 'succeeded' || result.error?.message !== undefined) ? 'passed' : 'failed')
+    costMetadata: certifyObserved(results.some((result) => result.metadata?.cost !== undefined), results.every((result) => result.status === CALL_STATUS_SUCCEEDED)),
+    failureDetails: results.some((result) => result.status === CALL_STATUS_FAILED)
+      ? (results.every((result) => result.status === CALL_STATUS_SUCCEEDED || result.error?.message !== undefined) ? 'passed' : 'failed')
       : 'not-observed',
-    retryableFailures: results.some((result) => result.status === 'failed')
-      ? (results.every((result) => result.status === 'succeeded' || result.error?.retryable !== undefined) ? 'passed' : 'failed')
+    retryableFailures: results.some((result) => result.status === CALL_STATUS_FAILED)
+      ? (results.every((result) => result.status === CALL_STATUS_SUCCEEDED || result.error?.retryable !== undefined) ? 'passed' : 'failed')
       : 'not-observed',
     traces: certifyObserved(traces.length > 0, true),
-    usageMetadata: certifyObserved(results.some((result) => result.metadata?.usage !== undefined), results.every((result) => result.status === 'succeeded')),
+    usageMetadata: certifyObserved(results.some((result) => result.metadata?.usage !== undefined), results.every((result) => result.status === CALL_STATUS_SUCCEEDED)),
   }
 }
 

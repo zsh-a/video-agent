@@ -1,8 +1,8 @@
 import {runProcess} from '@video-agent/media'
-import {mkdir, unlink} from 'node:fs/promises'
+import {mkdir, unlink, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
-import {bunRuntime, bunWrite} from '../shared/bun-runtime.js'
+import {bunRuntime} from '../shared/bun-runtime.js'
 import {readConfig} from '../shared/config.js'
 import type {HealthCheck} from './types.js'
 import {listProjects} from '../project/projects.js'
@@ -31,7 +31,7 @@ export async function checkWorkspaceAccess(workspaceDir: string): Promise<Health
 
   try {
     await mkdir(workspaceDir, {recursive: true})
-    await bunWrite(checkPath, 'ok\n')
+    await writeFile(checkPath, 'ok\n')
     await unlink(checkPath)
 
     return {

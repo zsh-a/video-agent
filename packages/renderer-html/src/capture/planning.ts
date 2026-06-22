@@ -9,9 +9,9 @@ export function createDeckHtmlFrameSequence(input: {
   outputDir: string
   timedDeck: TimedDeck
 }): DeckHtmlFrameSequenceFrame[] {
-  const fps = Math.max(1, input.fps)
-  const duration = Math.max(0, input.timedDeck.timings.at(-1)?.end ?? 0)
-  const frameCount = Math.max(1, Math.ceil(duration * fps))
+  const fps = requirePositiveIntegerFps(input.fps)
+  const duration = requireDeckHtmlFrameSequenceDuration(input.timedDeck)
+  const frameCount = Math.ceil(duration * fps)
 
   return Array.from({length: frameCount}, (_, index) => {
     const time = round(index / fps)
@@ -23,6 +23,20 @@ export function createDeckHtmlFrameSequence(input: {
       time,
     }
   })
+}
+
+function requireDeckHtmlFrameSequenceDuration(timedDeck: TimedDeck): number {
+  const lastTiming = timedDeck.timings.at(-1)
+
+  if (lastTiming === undefined) {
+    throw new Error('Deck HTML frame sequence requires at least one slide timing; no single-frame capture fallback is allowed.')
+  }
+
+  if (!Number.isFinite(lastTiming.end) || lastTiming.end <= 0) {
+    throw new Error('Deck HTML frame sequence requires a positive final slide timing end.')
+  }
+
+  return lastTiming.end
 }
 
 export function createDeckHtmlKeyframes(input: {
@@ -136,6 +150,14 @@ function slideIdAtTime(timedDeck: TimedDeck, time: number): string {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function requirePositiveIntegerFps(value: number): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`Deck HTML frame sequence requires a positive integer fps; no fps coercion fallback is allowed. Received: ${String(value)}`)
+  }
+
+  return value
 }
 
 function round(value: number): number {

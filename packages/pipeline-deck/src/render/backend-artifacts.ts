@@ -1,8 +1,9 @@
 import type {MotionTimeline} from '@video-agent/ir'
 import type {MotionCanvasDeckProject} from '@video-agent/renderer-motion-canvas'
 import type {RemotionDeckProject} from '@video-agent/renderer-remotion'
+import type {DeckRendererBackend} from '@video-agent/runtime'
 
-import type {DeckRendererBackend} from './backend.js'
+import {TIMED_DECK_ARTIFACT_NAME} from '@video-agent/runtime'
 import {toProjectPath} from '../project/paths.js'
 
 export function createDeckRendererBackendArtifact(input: {
@@ -32,7 +33,7 @@ export function createDeckRendererBackendArtifact(input: {
     previewCommand: ['bun', 'run', 'preview'],
     projectId: input.projectId,
     renderCommand: ['bun', 'run', 'render'],
-    source: 'timed-deck.json' as const,
+    source: TIMED_DECK_ARTIFACT_NAME,
     sourceSha256: input.sourceSha256,
     version: 1 as const,
     ...(width === undefined ? {} : {width}),

@@ -1,5 +1,6 @@
 import {expect} from '#test/expect'
 
+import {parseCommandArgvJson, resolveProviderCommandArgv} from '../../../packages/providers/src/command-env.js'
 import {createProviders, createVlmProvider} from '../../../packages/providers/src/registry.js'
 
 const LLM_CONFIG = {
@@ -23,7 +24,7 @@ describe('provider registry', () => {
       },
     })
 
-    expect(providers).to.have.keys(['asr', 'script', 'storyboard', 'tts', 'vlm'])
+    expect(providers).to.have.keys(['asr', 'tts', 'vlm'])
   })
 
   it('lets direct role factories resolve LLM clients from llmConfig and env', () => {
@@ -45,5 +46,18 @@ describe('provider registry', () => {
         vlm: 'llm',
       },
     })).to.throw('Provider vlm is set to llm, but LLM is not configured.')
+  })
+
+  it('parses command provider argv from env through a shared provider boundary', () => {
+    expect(resolveProviderCommandArgv('asr', {
+      VIDEO_AGENT_ASR_COMMAND: '["bun","providers/asr.ts","--label=hello world"]',
+    })).to.deep.equal(['bun', 'providers/asr.ts', '--label=hello world'])
+  })
+
+  it('rejects invalid command provider argv without runtime-specific parsing', () => {
+    expect(() => parseCommandArgvJson('["bun",""]', {source: 'VIDEO_AGENT_ASR_COMMAND'}))
+      .to.throw('VIDEO_AGENT_ASR_COMMAND must be a non-empty JSON array of non-empty strings.')
+    expect(() => parseCommandArgvJson('not-json', {source: 'VIDEO_AGENT_ASR_COMMAND'}))
+      .to.throw('VIDEO_AGENT_ASR_COMMAND must be a JSON array of command arguments')
   })
 })

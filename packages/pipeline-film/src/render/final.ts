@@ -1,8 +1,9 @@
 import type {QualityIssue} from '@video-agent/quality'
 
 import {runFfmpeg} from '@video-agent/media'
-import {bunFile, findCjkSubtitleFont, findCjkSubtitleFontPath} from '@video-agent/runtime'
-import {mkdir, rename} from 'node:fs/promises'
+import {QUALITY_WARNING_SEVERITY, countQualityIssues} from '@video-agent/quality'
+import {findCjkSubtitleFont, findCjkSubtitleFontPath} from '@video-agent/runtime'
+import {mkdir, readFile, rename} from 'node:fs/promises'
 import {dirname, resolve} from 'node:path'
 
 import {containsCjk, roundSeconds} from '../shared/utils.js'
@@ -51,7 +52,7 @@ export async function renderFinalFilmVideo(options: {
       subtitleBurnInIssue: {
         code: 'subtitle.render.filters_unavailable',
         message: 'The ffmpeg subtitles and drawtext filters are unavailable; subtitles were written as a sidecar file but not burned into final.mp4.',
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       },
       subtitlesBurned: false,
     }
@@ -70,8 +71,8 @@ export function withSubtitleBurnInWarning<T extends {errors: number; issues: Qua
 
   return {
     ...quality,
+    ...countQualityIssues(issues),
     issues,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -97,7 +98,7 @@ async function renderFinalFilmVideoAttempt(options: {
 }
 
 async function getSubtitleBurnInReadinessIssue(subtitlePath: string): Promise<QualityIssue | undefined> {
-  const content = await bunFile(subtitlePath).text()
+  const content = await readFile(subtitlePath, 'utf8')
 
   if (!containsCjk(content)) {
     return undefined
@@ -110,7 +111,7 @@ async function getSubtitleBurnInReadinessIssue(subtitlePath: string): Promise<Qu
   return {
     code: 'subtitle.render.cjk_font_unavailable',
     message: 'No reliable CJK subtitle font was found; subtitles were written as a sidecar file but not burned into final.mp4.',
-    severity: 'warning',
+    severity: QUALITY_WARNING_SEVERITY,
   }
 }
 
@@ -193,7 +194,7 @@ function isMissingDrawtextFilterError(error: unknown): boolean {
 
 async function buildDrawtextSubtitleFilter(subtitlePath: string): Promise<string> {
   const fontPath = await findCjkSubtitleFontPath()
-  const cues = parseSrtSubtitleCues(await bunFile(subtitlePath).text())
+  const cues = parseSrtSubtitleCues(await readFile(subtitlePath, 'utf8'))
 
   if (cues.length === 0) {
     return 'null'

@@ -89,16 +89,30 @@ describe('long video chunk planning', () => {
     ])
   })
 
-  it('returns an empty plan when media duration is unknown', () => {
-    const plan = createLongVideoChunkPlan({
+  it('rejects unknown media duration instead of returning an empty chunk plan', () => {
+    expect(() => createLongVideoChunkPlan({
       inputPath: '/tmp/live.mp4',
       probedAt: '2026-06-16T00:00:00.000Z',
       streams: [],
       version: 1,
-    })
+    })).to.throw('no empty chunk-plan fallback is allowed')
+  })
 
-    expect(plan.sourceDuration).to.equal(0)
-    expect(plan.chunks).to.deep.equal([])
+  it('rejects explicit zero media duration instead of falling back to stream duration', () => {
+    expect(() => createLongVideoChunkPlan({
+      duration: 0,
+      inputPath: '/tmp/zero.mp4',
+      probedAt: '2026-06-16T00:00:00.000Z',
+      streams: [
+        {
+          duration: 12,
+          fps: 30,
+          index: 0,
+          type: 'video',
+        },
+      ],
+      version: 1,
+    })).to.throw('positive media duration')
   })
 
   it('uses stream duration when container duration is unavailable', () => {

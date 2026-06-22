@@ -12,6 +12,8 @@ describe('doctor', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
 
     try {
+      await writeConfig(root, {})
+
       const report = await checkRuntimeHealth({
         binaries: {
           chromium: 'true',
@@ -50,6 +52,8 @@ describe('doctor', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
 
     try {
+      await writeConfig(root, {})
+
       const report = await checkRuntimeHealth({
         binaries: {
           chromium: 'true',
@@ -62,6 +66,27 @@ describe('doctor', () => {
       expect(report.ok).to.equal(false)
       expect(report.summary.fail).to.equal(1)
       expect(report.checks.find((check) => check.name === 'ffmpeg')?.status).to.equal('fail')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails config checks before workspace initialization writes config', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
+
+    try {
+      const report = await checkRuntimeHealth({
+        binaries: {
+          chromium: 'true',
+          ffmpeg: 'true',
+          ffprobe: 'true',
+        },
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(false)
+      expect(report.checks.find((check) => check.name === 'config')?.status).to.equal('fail')
+      expect(report.checks.find((check) => check.name === 'config')?.message).to.contain('Config file not found')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -110,6 +135,32 @@ describe('doctor', () => {
 
       expect(report.ok).to.equal(true)
       expect(report.checks.find((check) => check.name === 'provider:asr')?.status).to.equal('pass')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('fails command provider checks with shared argv validation errors', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-doctor-'))
+
+    try {
+      await writeConfig(root, {asr: 'command'})
+
+      const report = await checkRuntimeHealth({
+        binaries: {
+          chromium: 'true',
+          ffmpeg: 'true',
+          ffprobe: 'true',
+        },
+        env: {
+          VIDEO_AGENT_ASR_COMMAND: '["bun",""]',
+        },
+        workspaceDir: root,
+      })
+
+      expect(report.ok).to.equal(false)
+      expect(report.checks.find((check) => check.name === 'provider:asr')?.message)
+        .to.equal('VIDEO_AGENT_ASR_COMMAND must be a non-empty JSON array of non-empty strings.')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

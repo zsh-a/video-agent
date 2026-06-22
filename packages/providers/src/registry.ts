@@ -1,13 +1,23 @@
-import {createLLMClientFromConfig, type LLMClient, type LLMClientConfig, type LLMTraceRecorder} from '@video-agent/llm'
+import {
+  DEFAULT_LLM_API_KEY_ENV,
+  MIMO_API_KEY_ENV,
+  OPENAI_COMPATIBLE_LLM_PROVIDER,
+  createLLMClientFromConfig,
+  createMimoApiKeyEnvCandidates,
+  type LLMClient,
+  type LLMClientConfig,
+  type LLMTraceRecorder,
+} from '@video-agent/llm'
 
-import type {ASRProvider, ScriptProvider, StoryboardProvider, TTSProvider, VLMProvider} from './contracts.js'
+import type {ASRProvider, ScriptProvider, TTSProvider, VLMProvider} from './contracts.js'
 
 import {bunEnv} from './bun-runtime.js'
 import {CommandASRProvider, CommandTTSProvider, CommandVLMProvider} from './command.js'
-import {providerEnvName, type ProviderRole} from './descriptors.js'
+import {resolveProviderCommandArgv} from './command-env.js'
+import {type ProviderName, type ProviderRole} from './descriptors.js'
 import {LLMASRProvider, LLMTTSProvider, LLMVLMProvider, MIMO_ASR_BASE_URL, MIMO_ASR_MODEL, MIMO_TTS_BASE_URL, MIMO_TTS_DEFAULT_VOICE, MIMO_TTS_MODEL, MimoASRProvider, MimoTTSProvider} from './llm/media.js'
 import {MockASRProvider, MockTTSProvider, MockVLMProvider} from './mock.js'
-import {LLMRequiredScriptProvider, LLMRequiredStoryboardProvider, LLMScriptProvider, LLMStoryboardProvider} from './planning.js'
+import {LLMScriptProvider} from './planning.js'
 
 export {
   BUILTIN_PROVIDER_NAMES,
@@ -35,9 +45,9 @@ export interface ProviderConfig {
   llm?: LLMClientConfig
   providerEnv?: Record<string, string | undefined>
   providers: {
-    asr: string
-    tts: string
-    vlm: string
+    asr: ProviderName
+    tts: ProviderName
+    vlm: ProviderName
   }
 }
 
@@ -51,8 +61,6 @@ export interface ProviderRegistryOptions {
 
 export interface ProviderSet {
   asr: ASRProvider
-  script: ScriptProvider
-  storyboard: StoryboardProvider
   tts: TTSProvider
   vlm: VLMProvider
 }
@@ -62,89 +70,74 @@ export function createProviders(config: ProviderConfig, options: ProviderRegistr
 
   return {
     asr: createAsrProvider(config.providers.asr, mergedOptions),
-    script: createScriptProvider(mergedOptions),
-    storyboard: createStoryboardProvider(mergedOptions),
     tts: createTtsProvider(config.providers.tts, mergedOptions),
     vlm: createVlmProvider(config.providers.vlm, mergedOptions),
   }
 }
 
-export function createAsrProvider(name: string, options: ProviderRegistryOptions = {}): ASRProvider {
-  if (name === 'mock') {
-    return new MockASRProvider()
-  }
+export function createAsrProvider(name: ProviderName, options: ProviderRegistryOptions = {}): ASRProvider {
+  switch (name) {
+    case 'mock':
+      return new MockASRProvider()
+    case 'command':
+      return new CommandASRProvider({
+        command: resolveCommand('asr', options.env),
+      })
+    case 'llm': {
+      const mimoAsrClient = createMimoAsrClient(options)
 
-  if (name === 'command') {
-    return new CommandASRProvider({
-      command: resolveCommand('asr', options.env),
-    })
-  }
-
-  if (name === 'llm') {
-    const mimoAsrClient = createMimoAsrClient(options)
-
-    if (mimoAsrClient !== undefined) {
-      return new MimoASRProvider(mimoAsrClient)
+      return mimoAsrClient === undefined ? new LLMASRProvider(resolveLLMClient('asr', options)) : new MimoASRProvider(mimoAsrClient)
     }
-
-    return new LLMASRProvider(resolveLLMClient('asr', options))
   }
 
-  throw new Error(`Unsupported ASR provider: ${name}`)
+  return throwUnsupportedProvider('ASR', name)
 }
 
 export function createScriptProvider(options: ProviderRegistryOptions = {}): ScriptProvider {
   const llmClient = resolveOptionalLLMClient(options)
 
-  return llmClient === undefined ? new LLMRequiredScriptProvider() : new LLMScriptProvider(llmClient)
-}
-
-export function createStoryboardProvider(options: ProviderRegistryOptions = {}): StoryboardProvider {
-  const llmClient = resolveOptionalLLMClient(options)
-
-  return llmClient === undefined ? new LLMRequiredStoryboardProvider() : new LLMStoryboardProvider(llmClient)
-}
-
-export function createTtsProvider(name: string, options: ProviderRegistryOptions = {}): TTSProvider {
-  if (name === 'mock') {
-    return new MockTTSProvider()
+  if (llmClient === undefined) {
+    throw new Error('Film Recap semantic planning requires an LLM provider. Configure an llm block or pass an injected LLM client.')
   }
 
-  if (name === 'command') {
-    return new CommandTTSProvider({
-      command: resolveCommand('tts', options.env),
-    })
-  }
+  return new LLMScriptProvider(llmClient)
+}
 
-  if (name === 'llm') {
-    const mimoTtsProvider = createMimoTtsProvider(options)
+export function createTtsProvider(name: ProviderName, options: ProviderRegistryOptions = {}): TTSProvider {
+  switch (name) {
+    case 'mock':
+      return new MockTTSProvider()
+    case 'command':
+      return new CommandTTSProvider({
+        command: resolveCommand('tts', options.env),
+      })
+    case 'llm': {
+      const mimoTtsProvider = createMimoTtsProvider(options)
 
-    if (mimoTtsProvider !== undefined) {
-      return mimoTtsProvider
+      return mimoTtsProvider ?? new LLMTTSProvider(resolveLLMClient('tts', options))
     }
-
-    return new LLMTTSProvider(resolveLLMClient('tts', options))
   }
 
-  throw new Error(`Unsupported TTS provider: ${name}`)
+  return throwUnsupportedProvider('TTS', name)
 }
 
-export function createVlmProvider(name: string, options: ProviderRegistryOptions = {}): VLMProvider {
-  if (name === 'mock') {
-    return new MockVLMProvider()
+export function createVlmProvider(name: ProviderName, options: ProviderRegistryOptions = {}): VLMProvider {
+  switch (name) {
+    case 'mock':
+      return new MockVLMProvider()
+    case 'command':
+      return new CommandVLMProvider({
+        command: resolveCommand('vlm', options.env),
+      })
+    case 'llm':
+      return new LLMVLMProvider(resolveLLMClient('vlm', options))
   }
 
-  if (name === 'command') {
-    return new CommandVLMProvider({
-      command: resolveCommand('vlm', options.env),
-    })
-  }
+  return throwUnsupportedProvider('VLM', name)
+}
 
-  if (name === 'llm') {
-    return new LLMVLMProvider(resolveLLMClient('vlm', options))
-  }
-
-  throw new Error(`Unsupported VLM provider: ${name}`)
+function throwUnsupportedProvider(role: string, name: never): never {
+  throw new Error(`Unsupported ${role} provider: ${String(name)}`)
 }
 
 function mergeProviderRegistryOptions(config: ProviderConfig, options: ProviderRegistryOptions): ProviderRegistryOptions {
@@ -175,7 +168,7 @@ function createMimoAsrClient(options: ProviderRegistryOptions): LLMClient | unde
     ...options.llmConfig,
     baseURL: MIMO_ASR_BASE_URL,
     model: MIMO_ASR_MODEL,
-    provider: 'openai-compatible',
+    provider: OPENAI_COMPATIBLE_LLM_PROVIDER,
   }, {
     env,
     trace: options.llmTrace,
@@ -197,7 +190,7 @@ function createMimoTtsProvider(options: ProviderRegistryOptions): MimoTTSProvide
   const apiKey = resolveMimoApiKey(options.llmConfig, env)
 
   if (apiKey === undefined) {
-    throw new Error('Provider tts is set to llm with Mimo profile, but Mimo API key is not configured. Set VIDEO_AGENT_LLM_TOKEN or MIMO_API_KEY.')
+    throw new Error(`Provider tts is set to llm with Mimo profile, but Mimo API key is not configured. Set ${MIMO_API_KEY_ENV} or ${DEFAULT_LLM_API_KEY_ENV}.`)
   }
 
   return new MimoTTSProvider({
@@ -211,14 +204,7 @@ function createMimoTtsProvider(options: ProviderRegistryOptions): MimoTTSProvide
 }
 
 function resolveMimoApiKey(config: LLMClientConfig, env: Record<string, string | undefined>): string | undefined {
-  const names = [
-    config.apiKeyEnv,
-    config.authTokenEnv,
-    'MIMO_API_KEY',
-    'VIDEO_AGENT_LLM_TOKEN',
-  ].filter((name, index, names): name is string => typeof name === 'string' && name.trim() !== '' && names.indexOf(name) === index)
-
-  for (const name of names) {
+  for (const name of createMimoApiKeyEnvCandidates(config)) {
     const value = resolveOptionalEnv(env, name)
 
     if (value !== undefined) {
@@ -253,26 +239,5 @@ function resolveOptionalLLMClient(options: ProviderRegistryOptions): LLMClient |
 }
 
 function resolveCommand(role: ProviderRole, env: Record<string, string | undefined> = bunEnv()): string[] {
-  const name = providerEnvName(role, 'COMMAND')
-  const value = env[name]
-
-  if (value === undefined || value.trim() === '') {
-    throw new Error(`Provider ${role} is set to command, but ${name} is not configured.`)
-  }
-
-  let parsed: unknown
-
-  try {
-    parsed = JSON.parse(value)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-
-    throw new Error(`${name} must be a JSON array of command arguments: ${message}`)
-  }
-
-  if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== 'string' || part.length === 0)) {
-    throw new Error(`${name} must be a non-empty JSON array of strings.`)
-  }
-
-  return parsed
+  return resolveProviderCommandArgv(role, env)
 }

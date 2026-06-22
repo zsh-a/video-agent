@@ -1,7 +1,6 @@
-import type {ExportFormat} from '@video-agent/runtime'
 import type {McpToolDefinition} from './toolkit.js'
 
-import {exportProject, inspectFfmpegAudio, renderProject} from '@video-agent/runtime'
+import {EXPORT_FORMATS, exportProject, inspectFfmpegAudio, renderProject} from '@video-agent/runtime'
 import {
   booleanSchema,
   createToolDefinition,
@@ -9,9 +8,9 @@ import {
   numberSchema,
   projectIdSchema,
   readOptionalBoolean,
-  readOptionalEnum,
   readOptionalNumber,
   readOptionalString,
+  readRequiredEnum,
   readRequiredString,
   stringSchema,
 } from './toolkit.js'
@@ -65,16 +64,16 @@ export const RENDER_MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
   })),
   createToolDefinition('video_agent_export', 'Export final video or full project bundle.', {
     cleanOutput: booleanSchema('When true for directory exports, remove the existing output directory before copying the new bundle output.'),
-    format: enumSchema(['video', 'bundle'], 'Export format. Defaults to video.'),
+    format: enumSchema([...EXPORT_FORMATS], 'Export format.'),
     outputPath: stringSchema('Destination path for the exported output.'),
     projectId: projectIdSchema(),
     requireQuality: booleanSchema('When true, refuse export unless project quality is clean.'),
   }, (args, workspaceDir) => exportProject({
     cleanOutput: readOptionalBoolean(args, 'cleanOutput'),
-    format: readOptionalEnum(args, 'format', ['video', 'bundle']) as ExportFormat | undefined,
+    format: readRequiredEnum(args, 'format', [...EXPORT_FORMATS]),
     outputPath: readOptionalString(args, 'outputPath'),
     projectId: readRequiredString(args, 'projectId'),
     requireQuality: readOptionalBoolean(args, 'requireQuality'),
     workspaceDir,
-  })),
+  }), ['format', 'projectId']),
 ]

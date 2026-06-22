@@ -1,6 +1,6 @@
 import type {JobState} from '@video-agent/db'
 
-import type {ProviderCallRole} from '../provider/calls.js'
+import type {ProviderCallRole} from '../provider/call-record.js'
 import type {ProjectAgentStatus} from './agent-status.js'
 
 export interface ProjectStatus {

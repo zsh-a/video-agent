@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
-import {listProjectArtifacts, readProjectArtifact, verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
+import {listProjectArtifacts, readProjectArtifact, readProjectArtifactManifest, verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
 
 describe('artifacts', () => {
   it('lists and reads project artifacts', async () => {
@@ -23,9 +23,179 @@ describe('artifacts', () => {
       const mediaInfo = await readProjectArtifact('demo', 'media-info.json', root)
 
       expect(artifacts.map((artifact) => artifact.name)).to.deep.equal(['artifact-manifest.json', 'media-info.json', 'pipeline-events.jsonl'])
+      expect(artifacts.map((artifact) => [artifact.name, artifact.kind])).to.deep.equal([
+        ['artifact-manifest.json', 'json'],
+        ['media-info.json', 'json'],
+        ['pipeline-events.jsonl', 'log'],
+      ])
       expect(artifacts.find((artifact) => artifact.name === 'media-info.json')?.sha256).to.match(/^[a-f0-9]{64}$/)
       expect(mediaInfo.artifact.sha256).to.match(/^[a-f0-9]{64}$/)
       expect(mediaInfo.content).to.deep.equal({version: 1})
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('requires an artifact manifest before listing or reading artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+
+      const listError = await captureAsyncError(() => listProjectArtifacts('demo', root))
+      const readError = await captureAsyncError(() => readProjectArtifact('demo', 'media-info.json', root))
+
+      expect(String(listError)).to.include('Project artifacts require artifact-manifest.json')
+      expect(String(readError)).to.include('Project artifacts require artifact-manifest.json')
+      expect(String(listError)).to.include('no file-name kind inference fallback is allowed')
+      expect(String(readError)).to.include('no file-name kind inference fallback is allowed')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects malformed artifact manifests instead of trusting declared entries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await writeText(join(artifactsDir, 'artifact-manifest.json'), `${JSON.stringify({
+        artifacts: [
+          {
+            kind: 'other',
+            name: 'media-info.json',
+            sha256: '0'.repeat(64),
+            size: 14,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+          {
+            kind: 'json',
+            name: 'media-info.json',
+            sha256: '1'.repeat(64),
+            size: 14,
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        generatedAt: '2026-01-01T00:00:00.000Z',
+        version: 1,
+      })}\n`)
+
+      const listError = await captureAsyncError(() => listProjectArtifacts('demo', root))
+      const readError = await captureAsyncError(() => readProjectArtifact('demo', 'media-info.json', root))
+      const manifestError = await captureAsyncError(() => readProjectArtifactManifest('demo', root))
+      const integrity = await verifyProjectArtifacts('demo', root)
+
+      expect(String(listError)).to.include('Project artifact manifest artifact-manifest.json is invalid')
+      expect(String(readError)).to.include('Project artifact manifest artifact-manifest.json is invalid')
+      expect(String(manifestError)).to.include('no manifest shape inference fallback is allowed')
+      expect(integrity.ok).to.equal(false)
+      expect(integrity.checked).to.equal(0)
+      expect(integrity.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['artifact-manifest.json'])
+      expect(integrity.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['artifacts.0.kind', 'artifacts.1.name'])
+      expect(integrity.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects artifact manifests that are not valid JSON through the shared artifact boundary', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'media-info.json'), '{"version":1}\n')
+      await writeText(join(artifactsDir, 'artifact-manifest.json'), 'not json\n')
+
+      const listError = await captureAsyncError(() => listProjectArtifacts('demo', root))
+      const readError = await captureAsyncError(() => readProjectArtifact('demo', 'media-info.json', root))
+      const manifestError = await captureAsyncError(() => readProjectArtifactManifest('demo', root))
+      const integrity = await verifyProjectArtifacts('demo', root)
+
+      expect(String(listError)).to.include('Project artifact manifest artifact-manifest.json is invalid JSON')
+      expect(String(readError)).to.include('Project artifact manifest artifact-manifest.json is invalid JSON')
+      expect(String(manifestError)).to.include('no manifest shape inference fallback is allowed')
+      expect(integrity.ok).to.equal(false)
+      expect(integrity.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['artifact-manifest.json'])
+      expect(integrity.schemaInvalid[0]?.issues.map((issue) => issue.code)).to.deep.equal(['invalid_json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects untracked artifacts instead of inferring kind from file names', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'media-info.json'), `${JSON.stringify(createMediaInfoArtifact())}\n`)
+      await refreshArtifactManifest(artifactsDir)
+      await writeText(join(artifactsDir, 'deck.json'), '{"version":1}\n')
+
+      const listError = await captureAsyncError(() => listProjectArtifacts('demo', root))
+      const readError = await captureAsyncError(() => readProjectArtifact('demo', 'deck.json', root))
+      const integrity = await verifyProjectArtifacts('demo', root)
+
+      expect(String(listError)).to.include('Project artifact "deck.json" is not tracked in artifact-manifest.json')
+      expect(String(readError)).to.include('Project artifact "deck.json" is not tracked in artifact-manifest.json')
+      expect(String(listError)).to.include('no file-name kind inference fallback is allowed')
+      expect(String(readError)).to.include('no file-name kind inference fallback is allowed')
+      expect(integrity.untracked).to.deep.equal(['deck.json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects tracked JSON artifact content that is not valid JSON', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'media-info.json'), 'not json\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const readError = await captureAsyncError(() => readProjectArtifact('demo', 'media-info.json', root))
+      const integrity = await verifyProjectArtifacts('demo', root)
+
+      expect(String(readError)).to.include('Project artifact "media-info.json" is invalid JSON')
+      expect(String(readError)).to.include('no artifact content fallback is allowed')
+      expect(integrity.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['media-info.json'])
+      expect(integrity.schemaInvalid[0]?.issues.map((issue) => issue.code)).to.deep.equal(['invalid_json'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('does not infer JSON artifact kind from unregistered file extensions', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'extra.json'), '{"ok":true}\n')
+      await refreshArtifactManifest(artifactsDir)
+
+      const artifacts = await listProjectArtifacts('demo', root)
+      const extra = await readProjectArtifact('demo', 'extra.json', root)
+
+      expect(artifacts.find((artifact) => artifact.name === 'extra.json')?.kind).to.equal('other')
+      expect(extra.artifact.kind).to.equal('other')
+      expect(extra.content).to.equal('{"ok":true}\n')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -188,6 +358,43 @@ describe('artifacts', () => {
     }
   })
 
+  it('reports quality reports whose summary counts do not match issues', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'quality-report.json'), `${JSON.stringify({
+        issues: [
+          {
+            code: 'timeline.item.out_of_bounds',
+            message: 'bad timeline',
+            severity: 'error',
+          },
+        ],
+        summary: {
+          errors: 0,
+          warnings: 1,
+        },
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.summary).to.deep.include({
+        errors: 1,
+        schemaInvalid: 1,
+      })
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['quality-report.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['summary.errors', 'summary.warnings'])
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('reports deck quality reports that fail their schema', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 
@@ -293,7 +500,30 @@ describe('artifacts', () => {
       const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
 
       await mkdir(artifactsDir, {recursive: true})
-      await writeText(join(artifactsDir, 'render-output.json'), '{"renderer":"ffmpeg","version":1,"outputQuality":{"errors":-1,"warnings":0},"audioInputs":-1}\n')
+      await writeText(
+        join(artifactsDir, 'render-output.json'),
+        `${JSON.stringify({
+          audioInputs: -1,
+          outputQuality: {
+            errors: -1,
+            warnings: 0,
+          },
+          renderer: 'ffmpeg',
+          version: 1,
+          visualQuality: {
+            errors: 0,
+            frameSamples: [
+              {
+                capturedAt: '2026-01-01T00:00:00.000Z',
+                ok: true,
+                path: 'renders/frame.jpg',
+                timestamp: -1,
+              },
+            ],
+            warnings: 0,
+          },
+        })}\n`,
+      )
       await refreshArtifactManifest(artifactsDir)
 
       const result = await verifyProjectArtifacts('demo', root)
@@ -304,7 +534,7 @@ describe('artifacts', () => {
         schemaInvalid: 1,
       })
       expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['render-output.json'])
-      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['audioInputs', 'outputQuality.errors'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include.members(['audioInputs', 'outputQuality.errors', 'visualQuality.frameSamples.0.timestamp'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -526,6 +756,7 @@ describe('artifacts', () => {
           errors: 0,
           frameSamples: [
             {
+              capturedAt: '2026-01-01T00:00:00.000Z',
               ok: true,
               path: join(projectDir, 'renders', 'final-frame-first.jpg'),
               timestamp: 0,
@@ -607,6 +838,104 @@ describe('artifacts', () => {
       expect(result.ok).to.equal(false)
       expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['transcript.json'])
       expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports ASR result artifacts with zero-length segments', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'asr-result.json'), `${JSON.stringify({
+        language: 'en',
+        segments: [{
+          end: 1,
+          id: 'asr-001',
+          start: 1,
+          text: 'bad',
+          timestampConfidence: 'exact',
+        }],
+        text: 'bad',
+        timestampConfidence: 'exact',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal(['asr-result.json'])
+      expect(result.schemaInvalid[0]?.issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('reports Film timing artifacts with zero-length ranges', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'clip-plan.json'), `${JSON.stringify({
+        clips: [{
+          duration: 0,
+          id: 'clip-001',
+          sceneId: 'scene-001',
+          source: '/tmp/source.mp4',
+          sourceRange: [0, 0],
+          start: 0,
+        }],
+        duration: 0,
+        source: '/tmp/source.mp4',
+        sourceDuration: 1,
+        version: 1,
+      })}\n`)
+      await writeText(join(artifactsDir, 'output-narration.json'), `${JSON.stringify({
+        language: 'en',
+        segments: [{
+          end: 1,
+          evidence: [],
+          id: 'output-narration-001',
+          overlapsSpeech: false,
+          pauseAfterMs: 0,
+          source: 'script',
+          start: 1,
+          text: 'bad',
+        }],
+        timeline: 'output',
+        version: 1,
+      })}\n`)
+      await writeText(join(artifactsDir, 'output-timeline-map.json'), `${JSON.stringify({
+        clips: [{
+          clipId: 'clip-001',
+          outputEnd: 0,
+          outputStart: 0,
+          sourceEnd: 0,
+          sourceStart: 0,
+        }],
+        outputDuration: 1,
+        source: '/tmp/source.mp4',
+        version: 1,
+      })}\n`)
+      await refreshArtifactManifest(artifactsDir)
+
+      const result = await verifyProjectArtifacts('demo', root)
+
+      expect(result.ok).to.equal(false)
+      expect(result.schemaInvalid.map((issue) => issue.name)).to.deep.equal([
+        'clip-plan.json',
+        'output-narration.json',
+        'output-timeline-map.json',
+      ])
+      expect(result.schemaInvalid.find((issue) => issue.name === 'clip-plan.json')?.issues.map((issue) => issue.path.join('.'))).to.include.members(['clips.0.duration', 'clips.0.sourceRange', 'duration'])
+      expect(result.schemaInvalid.find((issue) => issue.name === 'output-narration.json')?.issues.map((issue) => issue.path.join('.'))).to.include('segments.0.end')
+      expect(result.schemaInvalid.find((issue) => issue.name === 'output-timeline-map.json')?.issues.map((issue) => issue.path.join('.'))).to.include.members(['clips.0.outputEnd', 'clips.0.sourceEnd'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -707,4 +1036,14 @@ function createPipelineEvent(): Record<string, unknown> {
     time: '2026-01-01T00:00:00.000Z',
     type: 'stage:start',
   }
+}
+
+async function captureAsyncError(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn()
+  } catch (error) {
+    return error
+  }
+
+  throw new Error('Expected function to throw')
 }

@@ -1,4 +1,5 @@
-import {getProviderDescriptor, MIMO_PROVIDER_MODEL_IDS, PROVIDER_ROLES, providerEnvName, type ProviderRole} from '@video-agent/providers'
+import {DEFAULT_LLM_API_KEY_ENV, createMimoApiKeyEnvCandidates} from '@video-agent/llm'
+import {MIMO_PROVIDER_MODEL_IDS, PROVIDER_ROLES, parseCommandArgvJson, providerEnvName, type ProviderRole} from '@video-agent/providers'
 
 import {bunEnv} from '../shared/bun-runtime.js'
 import {type AgentConfig, readConfig} from '../shared/config.js'
@@ -25,16 +26,6 @@ export async function checkProviderConfig(workspaceDir: string, env: Record<stri
 
 function checkProviderRole(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> | undefined): HealthCheck {
   const provider = config.providers[role]
-  const descriptor = getProviderDescriptor(provider)
-
-  if (descriptor === undefined) {
-    return {
-      details: {provider},
-      message: `Unsupported ${role} provider: ${provider}`,
-      name: `provider:${role}`,
-      status: 'fail',
-    }
-  }
 
   if (provider === 'mock') {
     return {
@@ -53,7 +44,7 @@ function checkProviderRole(role: ProviderRole, config: AgentConfig, env: Record<
     return checkLLMProvider(role, config, env)
   }
 
-  return checkUnsupportedConfiguredProvider(role, provider)
+  return throwUnsupportedProvider(role, provider)
 }
 
 function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<string, string | undefined> = bunEnv()): HealthCheck {
@@ -86,7 +77,7 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
     }
   }
 
-  const authEnv = config.llm.authTokenEnv ?? config.llm.apiKeyEnv ?? (config.llm.provider === 'openai-compatible' ? 'VIDEO_AGENT_LLM_TOKEN' : undefined)
+  const authEnv = config.llm.apiKeyEnv ?? DEFAULT_LLM_API_KEY_ENV
 
   if (authEnv === undefined) {
     return {
@@ -115,12 +106,7 @@ function checkLLMProvider(role: ProviderRole, config: AgentConfig, env: Record<s
 }
 
 function createMimoAuthEnvCandidates(config: AgentConfig): string[] {
-  return [
-    config.llm?.apiKeyEnv,
-    config.llm?.authTokenEnv,
-    'MIMO_API_KEY',
-    'VIDEO_AGENT_LLM_TOKEN',
-  ].filter((name, index, names): name is string => typeof name === 'string' && name.trim() !== '' && names.indexOf(name) === index)
+  return createMimoApiKeyEnvCandidates(config.llm)
 }
 
 function resolveMimoRoleModel(role: ProviderRole, config: AgentConfig): string {
@@ -149,19 +135,10 @@ function checkCommandProvider(role: ProviderRole, env: Record<string, string | u
   }
 
   try {
-    const parsed = JSON.parse(value) as unknown
-
-    if (!Array.isArray(parsed) || parsed.length === 0 || parsed.some((part) => typeof part !== 'string' || part.length === 0)) {
-      return {
-        details: {env: envName, provider: 'command'},
-        message: `${envName} must be a non-empty JSON array of strings`,
-        name: `provider:${role}`,
-        status: 'fail',
-      }
-    }
+    const command = parseCommandArgvJson(value, {source: envName})
 
     return {
-      details: {command: parsed, env: envName, provider: 'command'},
+      details: {command, env: envName, provider: 'command'},
       message: `${envName} is configured`,
       name: `provider:${role}`,
       status: 'pass',
@@ -169,18 +146,13 @@ function checkCommandProvider(role: ProviderRole, env: Record<string, string | u
   } catch (error) {
     return {
       details: {env: envName, provider: 'command'},
-      message: `${envName} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      message: error instanceof Error ? error.message : String(error),
       name: `provider:${role}`,
       status: 'fail',
     }
   }
 }
 
-function checkUnsupportedConfiguredProvider(role: ProviderRole, provider: string): HealthCheck {
-  return {
-    details: {provider},
-    message: `Unsupported ${role} provider: ${provider}`,
-    name: `provider:${role}`,
-    status: 'fail',
-  }
+function throwUnsupportedProvider(role: ProviderRole, provider: never): never {
+  throw new TypeError(`Unsupported ${role} provider: ${String(provider)}`)
 }

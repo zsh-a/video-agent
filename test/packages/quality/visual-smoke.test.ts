@@ -79,13 +79,15 @@ describe('visual smoke quality', () => {
       },
     )
 
-    expect(result.frameSample).to.deep.equal({
-      capturedAt: '2026-01-01T00:00:00.000Z',
-      ok: true,
-      path: '/tmp/final-first-frame.jpg',
-      size: 123,
-      timestamp: 0,
-    })
+    expect(result.frameSamples).to.deep.equal([
+      {
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        ok: true,
+        path: '/tmp/final-first-frame.jpg',
+        size: 123,
+        timestamp: 0,
+      },
+    ])
     expect(result.issues).to.deep.equal([])
 
     expect(
@@ -105,7 +107,7 @@ describe('visual smoke quality', () => {
     ).to.deep.equal(['visual.frame_sample.failed'])
   })
 
-  it('records multiple frame samples while keeping the first sample compatibility field', () => {
+  it('records multiple frame samples', () => {
     const result = addVisualFrameSamples(
       checkVisualSmoke({
         blackDuration: 0,
@@ -130,7 +132,6 @@ describe('visual smoke quality', () => {
       ],
     )
 
-    expect(result.frameSample?.path).to.equal('/tmp/final-frame-first.jpg')
     expect(result.frameSamples?.map((sample) => sample.path)).to.deep.equal(['/tmp/final-frame-first.jpg', '/tmp/final-frame-middle.jpg'])
     expect(result.issues).to.deep.equal([])
   })

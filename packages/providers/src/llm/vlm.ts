@@ -1,15 +1,16 @@
 import type {LLMClient, LLMMessage} from '@video-agent/llm'
 
+import {readFile} from 'node:fs/promises'
 import {posix} from 'node:path'
 
 import type {SceneFrameBatch, VLMProvider, VLMScene} from '../contracts.js'
 
-import {bunFile} from '../bun-runtime.js'
 import {createProviderObjectPromptRequest} from '../prompt.js'
+import {PROVIDER_PROMPT_VLM_SCENE_ANALYSIS_STAGE} from '../prompt-stages.js'
 import {createFileDataUri, resolveImageMimeType} from './media-utils.js'
 import {parseVlmScenes} from '../json-response.js'
 import {attachProviderMetadata} from '../metadata.js'
-import {VlmScenesSchema} from '../schemas.js'
+import {SceneFrameBatchesSchema, VlmScenesSchema} from '../schemas.js'
 import {validateVlmScenesForBatches} from '../vlm-validation.js'
 
 const MAX_VLM_IMAGE_PARTS = 16
@@ -17,22 +18,23 @@ const MAX_VLM_IMAGE_PARTS = 16
 export class LLMVLMProvider implements VLMProvider {
   constructor(private readonly llm: LLMClient) {}
 
-	  async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
-	    const messages = await createVlmMessages(input, context)
-	    const result = await this.llm.generateObject(createProviderObjectPromptRequest({
-	      buildMessages: () => messages,
-	      id: 'llm.vlm.scene-analysis',
-	      promptInput: {
-	        context,
-	        sceneBatches: input,
-	      },
-	      schema: VlmScenesSchema,
-	      schemaName: 'VlmScenes',
-	      stage: 'vlm-scene-analysis',
-	      temperature: 0.2,
-	    }))
+  async analyzeScenes(input: SceneFrameBatch[], context?: string): Promise<VLMScene[]> {
+    const batches = SceneFrameBatchesSchema.parse(input)
+    const messages = await createVlmMessages(batches, context)
+    const result = await this.llm.generateObject(createProviderObjectPromptRequest({
+      buildMessages: () => messages,
+      id: 'llm.vlm.scene-analysis',
+      promptInput: {
+        context,
+        sceneBatches: batches,
+      },
+      schema: VlmScenesSchema,
+      schemaName: 'VlmScenes',
+      stage: PROVIDER_PROMPT_VLM_SCENE_ANALYSIS_STAGE,
+      temperature: 0.2,
+    }))
 
-    return attachProviderMetadata(validateVlmScenesForBatches(parseVlmScenes(result.object), input), {
+    return attachProviderMetadata(validateVlmScenesForBatches(parseVlmScenes(result.object), batches), {
       usage: result.usage,
     })
   }
@@ -121,7 +123,7 @@ function sampleEvenly<T>(values: T[], limit: number): T[] {
 
 async function createVlmImagePart(path: string): Promise<{data: string; filename: string; mediaType: string; type: 'file'}> {
   try {
-    const image = await bunFile(path).bytes()
+    const image = await readFile(path)
     const mediaType = resolveImageMimeType(path)
 
     return {

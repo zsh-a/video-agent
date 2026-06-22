@@ -1,24 +1,25 @@
 import {ClipPlanSchema, OutputTimelineMapSchema, SourceManifestSchema} from '@video-agent/ir'
 import {resolve} from 'node:path'
 
-import {refreshArtifactManifest} from '@video-agent/runtime'
+import {CLIP_PLAN_ARTIFACT_NAME, CLIP_PLAN_VALIDATED_ARTIFACT_NAME, OUTPUT_TIMELINE_MAP_ARTIFACT_NAME, SOURCE_MANIFEST_ARTIFACT_NAME, refreshArtifactManifest} from '@video-agent/runtime'
 import {createOutputTimelineMap, validateClipPlanForCut} from '../planning/clip-plan.js'
+import {FILM_STAGE_IDS} from '../pipeline.js'
 import type {CreateFilmCutProjectOptions, CreateFilmCutProjectResult} from './types.js'
 import {renderCutVideo} from '../render/index.js'
-import {completeFilmStage, failFilmStage, openFilmStageWorkspace} from '../shared/stage-runtime.js'
+import {openFilmStageWorkspace} from '../shared/stage-runtime.js'
 
 export async function createFilmCutProject(options: CreateFilmCutProjectOptions): Promise<CreateFilmCutProjectResult> {
   const projectId = options.projectId
-  const {jobStore, workspace} = await openFilmStageWorkspace({
+  const {agent, workspace} = await openFilmStageWorkspace({
     projectId,
-    stage: 'render-cut',
+    stage: FILM_STAGE_IDS.renderCut,
     workspaceDir: options.workspaceDir,
   })
 
   try {
     const [clipPlan, sourceManifest] = await Promise.all([
-      ClipPlanSchema.parseAsync(await workspace.store.readJson('clip-plan.json')),
-      SourceManifestSchema.parseAsync(await workspace.store.readJson('source-manifest.json')),
+      ClipPlanSchema.parseAsync(await workspace.store.readJson(CLIP_PLAN_ARTIFACT_NAME)),
+      SourceManifestSchema.parseAsync(await workspace.store.readJson(SOURCE_MANIFEST_ARTIFACT_NAME)),
     ])
     const validatedClipPlan = ClipPlanSchema.parse(validateClipPlanForCut(clipPlan))
     const outputTimelineMap = OutputTimelineMapSchema.parse(createOutputTimelineMap(validatedClipPlan))
@@ -27,11 +28,12 @@ export async function createFilmCutProject(options: CreateFilmCutProjectOptions)
     await renderCutVideo(validatedClipPlan, outputPath, sourceManifest.audioTracks > 0)
 
     const artifacts = {
-      clipPlanValidated: await workspace.store.writeJson('clip-plan-validated.json', validatedClipPlan),
-      outputTimelineMap: await workspace.store.writeJson('output-timeline-map.json', outputTimelineMap),
+      clipPlanValidated: await workspace.store.writeJson(CLIP_PLAN_VALIDATED_ARTIFACT_NAME, validatedClipPlan),
+      outputTimelineMap: await workspace.store.writeJson(OUTPUT_TIMELINE_MAP_ARTIFACT_NAME, outputTimelineMap),
     }
 
-    await completeFilmStage(jobStore, workspace, 'render-cut')
+    await agent.completeStage(FILM_STAGE_IDS.renderCut)
+    await agent.completeRun('Film stage render-cut complete')
     await refreshArtifactManifest(workspace.artifactsDir)
 
     return {
@@ -42,7 +44,8 @@ export async function createFilmCutProject(options: CreateFilmCutProjectOptions)
       status: 'cut',
     }
   } catch (error) {
-    await failFilmStage(jobStore, workspace, 'render-cut', error)
+    await agent.failStage(FILM_STAGE_IDS.renderCut, error)
+    await agent.failRun(error)
     throw error
   }
 }

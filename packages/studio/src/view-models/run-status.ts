@@ -1,10 +1,11 @@
 import type {AgentStep, DashboardData, StageSummary} from '../types'
 
 export type RunViewStatus = 'completed' | 'failed' | 'idle' | 'running'
+export type RunStageStatus = RunViewStatus | 'pending' | 'skipped'
 
 export type RunStageGroup = {
   name: string
-  status: RunViewStatus | 'pending'
+  status: RunStageStatus
   steps: AgentStep[]
 }
 
@@ -86,9 +87,9 @@ function groupAgentSteps(steps: AgentStep[]): RunStageGroup[] {
 function groupJobStages(stages: StageSummary[]): RunStageGroup[] {
   return stages.map((stage) => ({
     name: stage.name,
-    status: normalizeRunStatus(stage.status) === 'idle' ? 'pending' : normalizeRunStatus(stage.status),
+    status: normalizeStageStatus(stage.status),
     steps: [{
-      completedAt: stage.status === 'completed' ? '' : undefined,
+      completedAt: stage.status === 'completed' || stage.status === 'skipped' ? '' : undefined,
       current: stage.current,
       message: stage.message,
       name: stage.step ?? stage.name,
@@ -123,7 +124,7 @@ function selectProgress(step: AgentStep | undefined, stageGroups: RunStageGroup[
     return undefined
   }
 
-  const completed = stageGroups.reduce((sum, group) => sum + group.steps.filter((groupStep) => groupStep.status === 'completed').length, 0)
+  const completed = stageGroups.reduce((sum, group) => sum + group.steps.filter((groupStep) => groupStep.status === 'completed' || groupStep.status === 'skipped').length, 0)
 
   return {
     current: completed,
@@ -137,21 +138,31 @@ function summarizeStepStatus(steps: AgentStep[]): RunStageGroup['status'] {
   if (steps.some((step) => step.status === 'failed')) return 'failed'
   if (steps.some((step) => step.status === 'running')) return 'running'
   if (steps.length > 0 && steps.every((step) => step.status === 'completed')) return 'completed'
+  if (steps.length > 0 && steps.every((step) => step.status === 'completed' || step.status === 'skipped')) return 'skipped'
 
   return 'pending'
 }
 
+function normalizeStageStatus(status: string | undefined): RunStageStatus {
+  if (status === 'skipped') return 'skipped'
+
+  const runStatus = normalizeRunStatus(status)
+
+  return runStatus === 'idle' ? 'pending' : runStatus
+}
+
 function normalizeRunStatus(status: string | undefined): RunViewStatus {
   if (status === 'running') return 'running'
-  if (status === 'completed' || status === 'complete') return 'completed'
-  if (status === 'failed' || status === 'error') return 'failed'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
 
   return 'idle'
 }
 
 function normalizeStepStatus(status: string): AgentStep['status'] {
-  if (status === 'completed' || status === 'complete') return 'completed'
-  if (status === 'failed' || status === 'error') return 'failed'
+  if (status === 'completed') return 'completed'
+  if (status === 'failed') return 'failed'
+  if (status === 'skipped') return 'skipped'
 
   return 'running'
 }

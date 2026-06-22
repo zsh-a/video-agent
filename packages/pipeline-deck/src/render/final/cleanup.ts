@@ -1,5 +1,6 @@
 import type {ProjectWorkspace} from '@video-agent/runtime'
 
+import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DECK_FRAME_SHARD_PLAN_ARTIFACT_NAME, DECK_KEYFRAMES_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME, REVIEW_REPORT_ARTIFACT_NAME, SUBTITLES_ARTIFACT_NAME} from '@video-agent/runtime'
 import {readdir, rm} from 'node:fs/promises'
 import {resolve} from 'node:path'
 
@@ -16,11 +17,11 @@ export async function removeDeckHtmlFrameArtifacts(workspace: ProjectWorkspace):
 
   const artifactNames = await readdir(workspace.artifactsDir).catch(() => [])
   const staleArtifacts = artifactNames.filter((name) =>
-    name === 'deck-frame-manifest.json'
-    || name === 'deck-frame-shard-plan.json'
-    || name === 'deck-frame-shard-batch.json'
-    || name === 'deck-keyframes.json'
-    || name === 'review-report.json'
+    name === DECK_FRAME_MANIFEST_ARTIFACT_NAME
+    || name === DECK_FRAME_SHARD_PLAN_ARTIFACT_NAME
+    || name === DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME
+    || name === DECK_KEYFRAMES_ARTIFACT_NAME
+    || name === REVIEW_REPORT_ARTIFACT_NAME
     || /^deck-frame-shard-\d{6}-\d{6}\.json$/.test(name),
   )
 
@@ -34,8 +35,8 @@ export async function removeDeckFinalRenderArtifacts(workspace: ProjectWorkspace
     rm(resolve(workspace.rendersDir, 'deck_silent.mp4'), {force: true}),
     rm(resolve(workspace.rendersDir, 'final.mp4'), {force: true}),
     rm(resolve(workspace.rendersDir, 'subtitles.srt'), {force: true}),
-    rm(workspace.store.resolve('deck-keyframes.json'), {force: true}),
-    rm(workspace.store.resolve('render-output.json'), {force: true}),
-    rm(workspace.store.resolve('subtitles.json'), {force: true}),
+    rm(workspace.store.resolve(DECK_KEYFRAMES_ARTIFACT_NAME), {force: true}),
+    rm(workspace.store.resolve(RENDER_OUTPUT_ARTIFACT_NAME), {force: true}),
+    rm(workspace.store.resolve(SUBTITLES_ARTIFACT_NAME), {force: true}),
   ])
 }

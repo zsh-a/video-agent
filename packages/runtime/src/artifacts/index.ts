@@ -1,17 +1,19 @@
-import {stat} from 'node:fs/promises'
-import {extname, resolve} from 'node:path'
+import {readFile, stat} from 'node:fs/promises'
+import {resolve} from 'node:path'
 
+import type {ArtifactKind} from './files.js'
 import type {ArtifactManifest} from './store.js'
 
-import {ARTIFACT_MANIFEST_NAME} from './store.js'
-import {collectArtifactFiles} from './files.js'
-import {bunFile} from '../shared/bun-runtime.js'
-import {readOptionalJson} from '../shared/file-io.js'
+import {ARTIFACT_MANIFEST_NAME} from './artifact-names.js'
+import {readRequiredArtifactManifest} from './store.js'
+import {collectArtifactFiles, JSON_ARTIFACT_KIND} from './files.js'
+import {JsonFileParseError, readOptionalJson} from '../shared/file-io.js'
 
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
 export {verifyProjectArtifacts} from './integrity.js'
 
 export interface ProjectArtifact {
-  kind: 'json' | 'log' | 'other'
+  kind: ArtifactKind
   name: string
   path: string
   sha256?: string
@@ -69,22 +71,38 @@ export interface ArtifactIntegritySummary {
   warnings: number
 }
 
-export async function listProjectArtifacts(projectId: string, workspaceDir = '.video-agent'): Promise<ProjectArtifact[]> {
+export async function listProjectArtifacts(projectId: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ProjectArtifact[]> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
-  const manifest = await readArtifactManifest(artifactsDir)
+  const manifest = await readRequiredArtifactManifest(artifactsDir)
+  const manifestEntries = new Map(manifest.artifacts.map((artifact) => [artifact.name, artifact]))
   const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const artifacts = await Promise.all(
     entries
       .map(async (entry) => {
         const path = resolve(artifactsDir, entry.name)
         const metadata = await stat(path)
-        const manifestEntry = manifest?.artifacts.find((artifact) => artifact.name === entry.name)
+
+        if (entry.name === ARTIFACT_MANIFEST_NAME) {
+          return {
+            kind: JSON_ARTIFACT_KIND,
+            name: entry.name,
+            path,
+            size: metadata.size,
+            updatedAt: metadata.mtime.toISOString(),
+          }
+        }
+
+        const manifestEntry = manifestEntries.get(entry.name)
+
+        if (manifestEntry === undefined) {
+          throw new Error(`Project artifact "${entry.name}" is not tracked in ${ARTIFACT_MANIFEST_NAME}; no file-name kind inference fallback is allowed.`)
+        }
 
         return {
-          kind: inferArtifactKind(entry.name),
+          kind: manifestEntry.kind,
           name: entry.name,
           path,
-          ...(manifestEntry?.sha256 === undefined ? {} : {sha256: manifestEntry.sha256}),
+          sha256: manifestEntry.sha256,
           size: metadata.size,
           updatedAt: metadata.mtime.toISOString(),
         }
@@ -94,7 +112,7 @@ export async function listProjectArtifacts(projectId: string, workspaceDir = '.v
   return artifacts.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export async function readProjectArtifact(projectId: string, artifactName: string, workspaceDir = '.video-agent'): Promise<ReadProjectArtifactResult> {
+export async function readProjectArtifact(projectId: string, artifactName: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ReadProjectArtifactResult> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
   const path = resolve(artifactsDir, artifactName)
 
@@ -103,18 +121,26 @@ export async function readProjectArtifact(projectId: string, artifactName: strin
   }
 
   const metadata = await stat(path)
-  const manifest = await readArtifactManifest(artifactsDir)
-  const manifestEntry = manifest?.artifacts.find((item) => item.name === artifactName)
+  const manifest = await readRequiredArtifactManifest(artifactsDir)
+  const manifestEntry = artifactName === ARTIFACT_MANIFEST_NAME
+    ? undefined
+    : manifest.artifacts.find((item) => item.name === artifactName)
+
+  if (artifactName !== ARTIFACT_MANIFEST_NAME && manifestEntry === undefined) {
+    throw new Error(`Project artifact "${artifactName}" is not tracked in ${ARTIFACT_MANIFEST_NAME}; no file-name kind inference fallback is allowed.`)
+  }
+
   const artifact = {
-    kind: inferArtifactKind(artifactName),
+    kind: manifestEntry?.kind ?? JSON_ARTIFACT_KIND,
     name: artifactName,
     path,
-    ...(manifestEntry?.sha256 === undefined ? {} : {sha256: manifestEntry.sha256}),
+    ...(manifestEntry === undefined ? {} : {sha256: manifestEntry.sha256}),
     size: metadata.size,
     updatedAt: metadata.mtime.toISOString(),
   }
-  const text = await bunFile(path).text()
-  const content = artifact.kind === 'json' ? JSON.parse(text) : text
+  const content = artifact.kind === 'json'
+    ? await readProjectArtifactJsonContent(path, artifactName)
+    : await readFile(path, 'utf8')
 
   return {
     artifact,
@@ -122,22 +148,24 @@ export async function readProjectArtifact(projectId: string, artifactName: strin
   }
 }
 
-export async function readProjectArtifactManifest(projectId: string, workspaceDir = '.video-agent'): Promise<ArtifactManifest | undefined> {
-  return readArtifactManifest(resolve(workspaceDir, 'projects', projectId, 'artifacts'))
+async function readProjectArtifactJsonContent(path: string, artifactName: string): Promise<unknown> {
+  try {
+    const value = await readOptionalJson(path)
+
+    if (value === undefined) {
+      throw Object.assign(new Error(`Project artifact "${artifactName}" is missing.`), {code: 'ENOENT'})
+    }
+
+    return value
+  } catch (error) {
+    if (error instanceof JsonFileParseError) {
+      throw new Error(`Project artifact "${artifactName}" is invalid JSON; no artifact content fallback is allowed. ${error.details.issues}`)
+    }
+
+    throw error
+  }
 }
 
-async function readArtifactManifest(artifactsDir: string): Promise<ArtifactManifest | undefined> {
-  return readOptionalJson<ArtifactManifest>(resolve(artifactsDir, ARTIFACT_MANIFEST_NAME))
-}
-
-function inferArtifactKind(name: string): ProjectArtifact['kind'] {
-  if (extname(name) === '.json') {
-    return 'json'
-  }
-
-  if (extname(name) === '.jsonl' || extname(name) === '.log') {
-    return 'log'
-  }
-
-  return 'other'
+export async function readProjectArtifactManifest(projectId: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ArtifactManifest> {
+  return readRequiredArtifactManifest(resolve(workspaceDir, 'projects', projectId, 'artifacts'))
 }

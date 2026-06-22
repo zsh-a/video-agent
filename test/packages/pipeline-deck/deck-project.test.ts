@@ -1,12 +1,13 @@
 import {expect} from '#test/expect'
 import {mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import type {GenerateObjectRequest, LLMClient} from '../../../packages/llm/src/index.js'
 
 import {runProcess} from '../../../packages/media/src/process.js'
 import {exportProject} from '../../../packages/runtime/src/render/export.js'
+import {DECK_RENDERER_REMOTION_ARTIFACT_NAME} from '../../../packages/runtime/src/artifacts/deck-artifact-constants.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
 import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 import {readProjectEvents} from '../../../packages/runtime/src/project/events-reader.js'
@@ -14,6 +15,7 @@ import {readProjectQualityDetails} from '../../../packages/runtime/src/project/q
 import {readProjectStatus} from '../../../packages/runtime/src/project/status.js'
 import {readProjectVisualSamples} from '../../../packages/runtime/src/project/visual-samples.js'
 import {createDeckAudioAnchoredProject, createDeckExplainerProject, createDeckFinalRenderProject, createDeckFrameShardBatchProject, createDeckFrameShardPlanProject, createDeckRemotionRenderProject, createDeckRendererBackendProject, createDeckSummarizeProject, createDeckVoiceoverProject} from '../../../packages/pipeline-deck/src/index.js'
+import {DECK_PIPELINE_STAGES} from '../../../packages/pipeline-deck/src/pipeline.js'
 import type {LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 
 function deckSemantic(text: string, blockType: 'claim' | 'context' | 'data' | 'example' | 'quote' | 'recommendation' | 'summary' = 'claim') {
@@ -359,6 +361,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(
         inputPath,
         [
@@ -415,8 +418,40 @@ describe('deck explainer project', () => {
       expect(status.agent.currentRun?.steps.map((step) => step.name)).to.include('content-analysis')
       expect(status.agent.currentRun?.steps.map((step) => step.name)).to.include('deck-brief')
       expect(status.agent.currentRun?.steps.map((step) => step.name)).to.include('slide-plan')
+      expect(status.job.status).to.equal('running')
+      expect(status.job.stages.map((stage) => stage.name)).to.deep.equal([...DECK_PIPELINE_STAGES])
+      expect(status.job.stages.find((stage) => stage.name === 'transcribe')?.status).to.equal('skipped')
+      expect(status.job.stages.find((stage) => stage.name === 'align')?.status).to.equal('skipped')
       expect(status.job.stages.find((stage) => stage.name === 'script')?.status).to.equal('completed')
       expect(agentEvents.events.length).to.be.greaterThan(4)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('stores Deck job state in the configured SQLite job store', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-sqlite-'))
+    const inputPath = join(root, 'notes.md')
+
+    try {
+      await writeConfig(root, {jobStore: 'sqlite'})
+      await writeFile(inputPath, 'SQLite persistence should be used by every Deck stage.')
+
+      await createDeckExplainerProject({
+        inputPath,
+        llmClient: createDeckPlanningLLMClient(),
+        projectId: 'deck-sqlite',
+        sourceType: 'markdown',
+        workspaceDir: root,
+      })
+
+      const status = await readProjectStatus('deck-sqlite', root)
+
+      expect(status.job.projectId).to.equal('deck-sqlite')
+      expect(status.job.stages.map((stage) => stage.name)).to.deep.equal([...DECK_PIPELINE_STAGES])
+      expect(status.job.stages.find((stage) => stage.name === 'transcribe')?.status).to.equal('skipped')
+      expect(await Bun.file(join(root, 'state', 'jobs.db')).exists()).to.equal(true)
+      expect(await Bun.file(join(root, 'projects', 'deck-sqlite', 'job-state.json')).exists()).to.equal(false)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -428,6 +463,7 @@ describe('deck explainer project', () => {
     let planningRequests = 0
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Not Audio\n\nThis should use Deck explainer planning, not audio summary.')
 
       let error: unknown
@@ -458,6 +494,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, 'Provider certification should make failures, costs, retries, and traces auditable.')
       await createDeckExplainerProject({
         inputPath,
@@ -525,6 +562,7 @@ describe('deck explainer project', () => {
     ].join('\n')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, markdownSource)
 
       const result = await createDeckExplainerProject({
@@ -595,6 +633,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'skill.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Loose Deck\n\nExplain the framework clearly.')
 
       let error: unknown
@@ -655,6 +694,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Template Diversity\n\nAvoid repeated template rhythm.')
 
       const result = await createDeckExplainerProject({
@@ -755,6 +795,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Source Ranges\n\nSelected moments should come from the LLM plan.')
 
       let error: unknown
@@ -815,6 +856,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Point Limit\n\nThe LLM must split overfilled slides itself.')
 
       let error: unknown
@@ -876,6 +918,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Missing Note\n\nShow the generated visible points.')
 
       let error: unknown
@@ -935,6 +978,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Missing Motion\n\nSlide motion should be selected by the LLM.')
 
       let error: unknown
@@ -994,6 +1038,7 @@ describe('deck explainer project', () => {
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(inputPath, '# Missing Theme\n\nDeck theme should be selected by the LLM.')
 
       let error: unknown
@@ -1048,11 +1093,12 @@ describe('deck explainer project', () => {
     }
   })
 
-  it('synthesizes Deck voiceover, renders final video, and updates timed DeckIR', async () => {
+  it('synthesizes Deck voiceover, renders final video, and updates timed DeckIR', {timeout: 15_000}, async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-voice-'))
     const inputPath = join(root, 'notes.md')
 
     try {
+      await writeConfig(root, {})
       await writeFile(
         inputPath,
         [
@@ -1327,28 +1373,29 @@ describe('deck explainer project', () => {
 
       await rm(join(root, 'projects', 'deck-voice-demo', 'renders', 'deck-frames', 'frame-000001.png'), {force: true})
 
-      const flakyChromiumPath = join(root, 'flaky-chromium.ts')
-      const flakyStatePath = join(root, 'flaky-chromium-state.json')
+      const flakyPlaywrightPath = join(root, 'flaky-playwright.ts')
+      const flakyStatePath = join(root, 'flaky-playwright-state.json')
       await writeFile(
-        flakyChromiumPath,
+        flakyPlaywrightPath,
         [
           `const statePath = ${JSON.stringify(flakyStatePath)}`,
           'let attempts = 0',
           'try { attempts = (await Bun.file(statePath).json()).attempts } catch {}',
           'await Bun.write(statePath, JSON.stringify({attempts: attempts + 1}))',
           'if (attempts === 0) process.exit(23)',
-          'const screenshotArg = Bun.argv.find((arg) => arg.startsWith("--screenshot="))',
-          'if (screenshotArg === undefined) process.exit(2)',
-          'const outputPath = screenshotArg.slice("--screenshot=".length)',
+          'const manifestPath = Bun.argv.at(-1)',
+          'if (manifestPath === undefined) process.exit(2)',
+          'const manifest = await Bun.file(manifestPath).json()',
           "const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAACXBIWXMAAAABAAAAAQBPJcTWAAAAE0lEQVR4nGP8//8/AwMDCwMYAAAkFAMDuxa40wAAAABJRU5ErkJggg==', 'base64')",
-          'await Bun.write(outputPath, png)',
+          'for (const frame of manifest.frames) {',
+          '  await Bun.write(frame.path, png)',
+          '}',
           '',
         ].join('\n'),
       )
       const retriedBatch = await createDeckFrameShardBatchProject({
-        chromiumCommand: ['bun', flakyChromiumPath],
-        frameCaptureBackend: 'chromium',
         frameShardSize: 2,
+        playwrightCommand: ['bun', flakyPlaywrightPath],
         projectId: 'deck-voice-demo',
         shardRetries: 1,
         workspaceDir: root,
@@ -1420,7 +1467,7 @@ describe('deck explainer project', () => {
       expect(remotionRender.backend).to.equal('remotion')
       expect((await stat(remotionRender.outputPath)).size).to.be.greaterThan(0)
       expect(remotionRenderArtifact.backend).to.equal('remotion')
-      expect(remotionRenderArtifact.exportArtifactPath).to.equal('artifacts/deck-renderer-remotion.json')
+      expect(remotionRenderArtifact.exportArtifactPath).to.equal(`artifacts/${DECK_RENDERER_REMOTION_ARTIFACT_NAME}`)
       expect(remotionRenderArtifact.outputPath).to.equal('renders/remotion/out/final.mp4')
       expect((await verifyProjectArtifacts('deck-voice-demo', root)).ok).to.equal(true)
 
@@ -1478,6 +1525,7 @@ describe('deck explainer project', () => {
 
       const resumedRender = await createDeckFinalRenderProject({
         chromiumCommand: ['bun', failingChromiumPath],
+        playwrightCommand: ['bun', playwrightPath],
         projectId: 'deck-voice-demo',
         renderer: 'html',
         workspaceDir: root,
@@ -1485,13 +1533,15 @@ describe('deck explainer project', () => {
       const resumedOutput = JSON.parse(await readFile(resumedRender.artifactPath, 'utf8')) as {
         frameCapturedCount: number
         frameCount: number
+        frameRenderer: string
         frameReuse: boolean
         frameSkippedCount: number
       }
 
-      expect(resumedOutput.frameReuse).to.equal(true)
-      expect(resumedOutput.frameCapturedCount).to.equal(0)
-      expect(resumedOutput.frameSkippedCount).to.equal(resumedOutput.frameCount)
+      expect(resumedOutput.frameReuse).to.equal(false)
+      expect(resumedOutput.frameRenderer).to.equal('playwright')
+      expect(resumedOutput.frameCapturedCount).to.equal(resumedOutput.frameCount)
+      expect(resumedOutput.frameSkippedCount).to.equal(0)
       expect(resumedRender.frameCount).to.equal(render.frameCount)
       expect((await stat(resumedRender.outputPath)).size).to.be.greaterThan(0)
 
@@ -1580,6 +1630,7 @@ describe('deck explainer project', () => {
       expect((await stat(htmlCapturePath)).size).to.be.greaterThan(0)
 
       const exported = await exportProject({
+        format: 'video',
         outputPath: join(root, 'deck-final.mp4'),
         projectId: 'deck-voice-demo',
         workspaceDir: root,
@@ -1623,6 +1674,16 @@ describe('deck explainer project', () => {
       expect(missingFrameError).to.be.instanceOf(Error)
       expect(missingFrameError?.message).to.contain('Deck frame sequence is incomplete')
       expect(missingFrameError?.message).to.contain('frame-000001.png')
+
+      const chromiumShardPlan = await createDeckFrameShardPlanProject({
+        frameCaptureBackend: 'chromium',
+        frameShardSize: 2,
+        projectId: 'deck-voice-demo',
+        workspaceDir: root,
+      })
+
+      expect(chromiumShardPlan.shards[0]?.commandArgs).to.deep.equal(['deck', 'render', 'deck-voice-demo', '--frame-start', '1', '--frame-end', '2', '--frame-capture-backend', 'chromium'])
+      expect(chromiumShardPlan.pendingShards).to.equal(chromiumShardPlan.shardCount)
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -1688,6 +1749,7 @@ describe('deck explainer project', () => {
       const transcript = JSON.parse(await readFile(result.artifacts.transcript, 'utf8')) as {text: string}
       const timedDeck = JSON.parse(await readFile(result.artifacts.timedDeck, 'utf8')) as {audioRef?: string; timings: Array<{end: number; start: number}>}
       const deckVoiceover = JSON.parse(await readFile(result.artifacts.deckVoiceover, 'utf8')) as {outputPath: string}
+      const plannedStatus = await readProjectStatus('deck-audio-demo', root)
 
       expect(result.status).to.equal('completed')
       expect(result.duration).to.be.greaterThan(0)
@@ -1703,6 +1765,9 @@ describe('deck explainer project', () => {
       expect(timedDeck.timings.at(-1)?.end).to.equal(result.duration)
       expect(deckVoiceover.outputPath).to.equal('audio/deck_voiceover.wav')
       expect((await stat(result.outputPath)).size).to.be.greaterThan(44)
+      expect(plannedStatus.job.status).to.equal('running')
+      expect(plannedStatus.job.stages.find((stage) => stage.name === 'synthesize-voice')?.status).to.equal('skipped')
+      expect(plannedStatus.job.stages.find((stage) => stage.name === 'timing-repair')?.status).to.equal('skipped')
 
       const render = await createDeckFinalRenderProject({
         chromiumCommand: await createFakeChromiumCommand(root),
@@ -1715,8 +1780,10 @@ describe('deck explainer project', () => {
 
       expect(render.status).to.equal('rendered')
       expect((await stat(render.outputPath)).size).to.be.greaterThan(0)
+      expect((await readProjectStatus('deck-audio-demo', root)).job.status).to.equal('completed')
 
       const exported = await exportProject({
+        format: 'video',
         outputPath: join(root, 'deck-audio.mp4'),
         projectId: 'deck-audio-demo',
         workspaceDir: root,
@@ -1734,7 +1801,7 @@ describe('deck explainer project', () => {
     }
   })
 
-  it('rejects chunked ASR timestamps before Deck audio planning instead of aligning by fallback windows', async () => {
+  it('rejects non-exact ASR timestamps at the provider boundary before Deck audio planning', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-deck-audio-chunked-'))
     const inputPath = join(root, 'podcast.wav')
     let planningRequests = 0
@@ -1779,8 +1846,8 @@ describe('deck explainer project', () => {
       }
 
       expect(anchoredError).to.be.instanceOf(Error)
-      expect((anchoredError as Error).message).to.include('requires exact ASR transcript timestamps')
-      expect((anchoredError as Error).message).to.include('received chunked')
+      expect((anchoredError as Error).message).to.include('timestampConfidence')
+      expect((anchoredError as Error).message).to.include('exact')
 
       let summaryError: unknown
 
@@ -1798,8 +1865,8 @@ describe('deck explainer project', () => {
       }
 
       expect(summaryError).to.be.instanceOf(Error)
-      expect((summaryError as Error).message).to.include('requires exact ASR transcript timestamps')
-      expect((summaryError as Error).message).to.include('received chunked')
+      expect((summaryError as Error).message).to.include('timestampConfidence')
+      expect((summaryError as Error).message).to.include('exact')
       expect(planningRequests).to.equal(0)
     } finally {
       await rm(root, {force: true, recursive: true})
@@ -1872,6 +1939,8 @@ describe('deck explainer project', () => {
 })
 
 async function createSampleAudio(inputPath: string): Promise<void> {
+  await writeConfig(dirname(inputPath), {})
+
   const result = await runProcess([
     'ffmpeg',
     '-hide_banner',

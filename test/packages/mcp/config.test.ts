@@ -7,7 +7,6 @@ import {
   listMcpClientConfigPresetInfo,
   supportedMcpClientConfigPresets,
 } from '../../../packages/mcp/src/config.js'
-import {parseEnvFlags} from '../../../src/utils/env-flags.js'
 
 describe('mcp client config', () => {
   it('creates a Bun development stdio config', () => {
@@ -135,14 +134,4 @@ describe('mcp client config', () => {
     ])
   })
 
-  it('parses repeated env flags', () => {
-    expect(parseEnvFlags(['VIDEO_AGENT_ASR_COMMAND=asr-provider', 'EMPTY='])).to.deep.equal({
-      EMPTY: '',
-      VIDEO_AGENT_ASR_COMMAND: 'asr-provider',
-    })
-  })
-
-  it('rejects invalid env flags', () => {
-    expect(() => parseEnvFlags(['VIDEO_AGENT_ASR_COMMAND'])).to.throw('Expected KEY=VALUE')
-  })
 })

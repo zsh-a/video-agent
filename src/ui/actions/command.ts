@@ -1,10 +1,11 @@
 import type {RunTuiActionOptions, TuiActionResult} from './types.js'
 
 import {createTuiCommandSuggestions} from '../format/command.js'
+import {isTuiCommandAction} from '../model.js'
 import {readTuiSnapshot} from '../snapshot.js'
 
 export async function runTuiCommandAction(options: RunTuiActionOptions): Promise<TuiActionResult | undefined> {
-  if (options.action !== 'commands' && options.action !== 'select') {
+  if (!isTuiCommandAction(options.action)) {
     return undefined
   }
 

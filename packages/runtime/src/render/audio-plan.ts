@@ -1,12 +1,17 @@
 import type {Narration} from '@video-agent/ir'
+import type {TTSSegment} from '@video-agent/providers'
 import type {FfmpegAudioOptions, FfmpegVoiceoverInput} from '@video-agent/renderer-ffmpeg'
 import type {ProjectWorkspace} from '../shared/workspace.js'
-import type {FfmpegAudioDiagnostics, MissingVoiceoverDiagnostic, RenderProjectOptions, VoiceoverAlignment, VoiceoverPlanArtifact, VoiceoverPlanSegment} from './project.js'
+import type {FfmpegAudioDiagnostics, MissingVoiceoverDiagnostic, RenderProjectOptions, VoiceoverPlanArtifact, VoiceoverPlanSegment} from './project.js'
+import type {VoiceoverAlignment} from './voiceover-plan.js'
 
+import {TtsSegmentsSchema} from '@video-agent/providers'
+import {access} from 'node:fs/promises'
 import {isAbsolute, resolve} from 'node:path'
 
-import {bunFile} from '../shared/bun-runtime.js'
 import {readNarrationIfAvailable} from './subtitles.js'
+import {TTS_SEGMENTS_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
+import {MISSING_VOICEOVER_REASON, VOICEOVER_ALIGNMENT_NARRATION_ID, VOICEOVER_ALIGNMENT_SEQUENTIAL, VOICEOVER_STATUS_AVAILABLE, VOICEOVER_STATUS_MISSING} from './voiceover-plan.js'
 
 export interface FfmpegAudioPlan {
   audio?: FfmpegAudioOptions
@@ -60,13 +65,6 @@ export async function readAudioPlanIfAvailable(workspace: ProjectWorkspace, opti
   }
 }
 
-interface RawTtsSegment {
-  duration?: unknown
-  narrationId?: unknown
-  path?: unknown
-  start?: unknown
-}
-
 interface VoiceoverPlan {
   artifact: VoiceoverPlanArtifact
   missing: MissingVoiceoverDiagnostic[]
@@ -80,15 +78,15 @@ interface VoiceoverPlanBuildResult {
 
 interface VoiceoverTiming {
   alignment: VoiceoverAlignment
-  duration?: number
+  duration: number
   start: number
 }
 
 async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<VoiceoverPlan> {
-  let rawSegments: RawTtsSegment[]
+  let rawSegments: TTSSegment[]
 
   try {
-    rawSegments = (await workspace.store.readJson('tts-segments.json')) as RawTtsSegment[]
+    rawSegments = TtsSegmentsSchema.parse(await workspace.store.readJson(TTS_SEGMENTS_ARTIFACT_NAME))
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       return {
@@ -109,16 +107,12 @@ async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<V
   const narrationById = new Map(narration?.segments.map((segment) => [segment.id, segment]) ?? [])
   const cursor = createVoiceoverTimingCursor()
   const plannedSegments = rawSegments.map((segment, index) => {
-    const narrationSegment = typeof segment.narrationId === 'string' ? narrationById.get(segment.narrationId) : undefined
-    const indexedNarrationSegment = narrationSegment ?? narration?.segments[index]
+    const narrationSegment = narrationById.get(segment.narrationId)
 
     return {
       index,
-      narrationSegment: indexedNarrationSegment,
       raw: segment,
       timing: cursor.resolve(segment, {
-        fallbackIndex: index,
-        indexedNarrationSegment,
         narrationSegment,
       }),
     }
@@ -127,19 +121,6 @@ async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<V
     plannedSegments.map(async ({index, raw: segment, timing}): Promise<VoiceoverPlanBuildResult> => {
       const {alignment, duration, start} = timing
 
-      if (typeof segment.path !== 'string') {
-        return {
-          segment: {
-            alignment,
-            ...(duration === undefined ? {} : {duration}),
-            index,
-            ...(typeof segment.narrationId === 'string' ? {narrationId: segment.narrationId} : {}),
-            start,
-            status: 'invalid-path' as const,
-          },
-        }
-      }
-
       const resolvedPath = resolveTtsPath(segment.path, workspace)
       const path = await findExistingPath(resolvedPath)
 
@@ -147,13 +128,13 @@ async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<V
         return {
           segment: {
             alignment,
-            ...(duration === undefined ? {} : {duration}),
+            duration,
             index,
-            ...(typeof segment.narrationId === 'string' ? {narrationId: segment.narrationId} : {}),
+            narrationId: segment.narrationId,
             path: segment.path,
             resolvedPath,
             start,
-            status: 'missing' as const,
+            status: VOICEOVER_STATUS_MISSING,
           },
         }
       }
@@ -161,16 +142,16 @@ async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<V
       return {
         segment: {
           alignment,
-          ...(duration === undefined ? {} : {duration}),
+          duration,
           index,
-          ...(typeof segment.narrationId === 'string' ? {narrationId: segment.narrationId} : {}),
+          narrationId: segment.narrationId,
           path: segment.path,
           resolvedPath,
           start,
-          status: 'available' as const,
+          status: VOICEOVER_STATUS_AVAILABLE,
         },
         voiceover: {
-          ...(duration === undefined ? {} : {duration}),
+          duration,
           path,
           start,
         },
@@ -179,12 +160,12 @@ async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<V
   )
   const segments = results.map((result) => result.segment)
   const missing = segments
-    .filter((segment) => segment.status !== 'available')
+    .filter((segment) => segment.status !== VOICEOVER_STATUS_AVAILABLE)
     .map((segment): MissingVoiceoverDiagnostic => ({
       index: segment.index,
-      ...(segment.narrationId === undefined ? {} : {narrationId: segment.narrationId}),
-      ...(segment.path === undefined ? {} : {path: segment.path}),
-      reason: segment.status === 'missing' ? 'missing' : 'invalid-path',
+      narrationId: segment.narrationId,
+      path: segment.path,
+      reason: MISSING_VOICEOVER_REASON,
       ...(segment.resolvedPath === undefined ? {} : {resolvedPath: segment.resolvedPath}),
     }))
 
@@ -199,10 +180,6 @@ async function readVoiceoversIfAvailable(workspace: ProjectWorkspace): Promise<V
   }
 }
 
-function resolveVoiceoverDurationValue(segment: RawTtsSegment, narrationSegment: Narration['segments'][number] | undefined): number | undefined {
-  return isPositiveFiniteNumber(segment.duration) ? segment.duration : narrationSegment?.duration
-}
-
 function createAudioWarnings(sourceAudioPath: string | undefined, voiceoverPlan: VoiceoverPlan): string[] {
   return [
     ...(sourceAudioPath === undefined && voiceoverPlan.voiceovers.length === 0 ? ['No usable audio inputs were found; render will be silent unless the source video already contains audio copied by ffmpeg.'] : []),
@@ -212,97 +189,54 @@ function createAudioWarnings(sourceAudioPath: string | undefined, voiceoverPlan:
 
 function createVoiceoverTimingCursor(): {
   resolve: (
-    segment: RawTtsSegment,
+    segment: TTSSegment,
     options: {
-      fallbackIndex: number
-      indexedNarrationSegment: Narration['segments'][number] | undefined
       narrationSegment: Narration['segments'][number] | undefined
     },
   ) => VoiceoverTiming
 } {
   const cursors = new Map<string, number>()
-  let sequentialCursor = 0
 
   return {
     resolve(segment, options) {
-      const duration = resolveVoiceoverDurationValue(segment, options.narrationSegment ?? options.indexedNarrationSegment)
-      const key = typeof segment.narrationId === 'string' ? `id:${segment.narrationId}` : 'sequential'
-      const hasExistingCursor = cursors.has(key)
+      const key = `id:${segment.narrationId}`
       const timing = resolveVoiceoverTimingStart(segment, {
         existingCursor: cursors.get(key),
-        fallbackIndex: options.fallbackIndex,
-        hasExistingCursor,
-        indexedNarrationSegment: options.indexedNarrationSegment,
         narrationSegment: options.narrationSegment,
-        sequentialCursor,
       })
-      const nextCursor = timing.start + (duration ?? 0)
 
-      cursors.set(key, nextCursor)
-
-      if (key === 'sequential') {
-        sequentialCursor = nextCursor
-      }
+      cursors.set(key, timing.start + segment.duration)
 
       return {
         ...timing,
-        ...(duration === undefined ? {} : {duration}),
+        duration: segment.duration,
       }
     },
   }
 }
 
 function resolveVoiceoverTimingStart(
-  segment: RawTtsSegment,
+  segment: TTSSegment,
   options: {
     existingCursor?: number
-    fallbackIndex: number
-    hasExistingCursor: boolean
-    indexedNarrationSegment: Narration['segments'][number] | undefined
     narrationSegment: Narration['segments'][number] | undefined
-    sequentialCursor: number
   },
 ): Pick<VoiceoverTiming, 'alignment' | 'start'> {
-  if (isNonnegativeFiniteNumber(segment.start)) {
+  if (options.existingCursor !== undefined) {
     return {
-      alignment: 'explicit-start',
-      start: segment.start,
-    }
-  }
-
-  if (options.hasExistingCursor && options.existingCursor !== undefined) {
-    return {
-      alignment: 'sequential',
+      alignment: VOICEOVER_ALIGNMENT_SEQUENTIAL,
       start: options.existingCursor,
     }
   }
 
   if (options.narrationSegment?.start !== undefined) {
     return {
-      alignment: 'narration-id',
+      alignment: VOICEOVER_ALIGNMENT_NARRATION_ID,
       start: options.narrationSegment.start,
     }
   }
 
-  if (options.indexedNarrationSegment?.start !== undefined) {
-    return {
-      alignment: 'narration-index',
-      start: options.indexedNarrationSegment.start,
-    }
-  }
-
-  return {
-    alignment: 'sequential',
-    start: options.sequentialCursor === 0 ? options.fallbackIndex : options.sequentialCursor,
-  }
-}
-
-function isNonnegativeFiniteNumber(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0
-}
-
-function isPositiveFiniteNumber(value: unknown): value is number {
-  return isNonnegativeFiniteNumber(value) && value > 0
+  throw new Error(`Voiceover segment "${segment.narrationId}" requires a matching narration segment; no segment-index timing fallback is allowed.`)
 }
 
 function resolveTtsPath(path: string, workspace: ProjectWorkspace): string {
@@ -314,5 +248,14 @@ function resolveTtsPath(path: string, workspace: ProjectWorkspace): string {
 }
 
 async function findExistingPath(path: string): Promise<string | undefined> {
-  return await bunFile(path).exists() ? path : undefined
+  try {
+    await access(path)
+    return path
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return undefined
+    }
+
+    throw error
+  }
 }

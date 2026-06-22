@@ -102,6 +102,26 @@ describe('compileDeckMotionPlan', () => {
     expect(() => compileDeckMotionPlan(timedDeck, resolver)).to.throw('No motionSteps registered')
   })
 
+  it('throws for an empty deck instead of creating a zero-duration motion plan', () => {
+    const timedDeck = makeTimedDeck([], [])
+
+    expect(() => compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)).to.throw('no zero-duration motion fallback is allowed')
+  })
+
+  it('throws for zero-duration slide timing instead of compiling a minimum motion scene', () => {
+    const timedDeck = makeTimedDeck(
+      [{slideId: 'slide-001', type: 'hero', points: ['A']}],
+      [{slideId: 'slide-001', start: 0, end: 0}],
+    )
+    const nanTimedDeck = makeTimedDeck(
+      [{slideId: 'slide-001', type: 'hero', points: ['A']}],
+      [{slideId: 'slide-001', start: 0, end: Number.NaN}],
+    )
+
+    expect(() => compileDeckMotionPlan(timedDeck, resolveMotionStepsForTemplate)).to.throw('requires positive timing duration')
+    expect(() => compileDeckMotionPlan(nanTimedDeck, resolveMotionStepsForTemplate)).to.throw('requires positive timing duration')
+  })
+
   it('throws when a slide has no timing entry instead of deriving timing by index', () => {
     const timedDeck = makeTimedDeck(
       [

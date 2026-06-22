@@ -1,7 +1,7 @@
 import {mkdir} from 'node:fs/promises'
 import {dirname} from 'node:path'
 
-import type {InitializeJobOptions, JobRunStatus, JobStageProgress, JobStageState, JobStageStatus, JobState, JobStore} from './job-store.js'
+import {JOB_STATUS_PENDING, JOB_STATUS_RUNNING, deriveJobRunStatus, isMessageJobStageStatus, isTerminalJobRunStatus, isTerminalJobStageStatus, normalizeJobStageProgress, type InitializeJobOptions, type JobRunStatus, type JobStageProgress, type JobStageState, type JobStageStatus, type JobState, type JobStore} from './job-store.js'
 
 interface BunDatabase {
   exec(sql: string): void
@@ -18,7 +18,7 @@ interface JobRow {
   completed_at: null | string
   created_at: string
   input_path: string
-  pipeline: null | string
+  pipeline: string
   project_id: string
   status: JobRunStatus
   updated_at: string
@@ -78,12 +78,12 @@ export class BunSqliteJobStore implements JobStore {
           values (?, ?, ?, ?, ?, ?, 1)
           on conflict(project_id) do update set
             input_path = excluded.input_path,
-            pipeline = coalesce(excluded.pipeline, jobs.pipeline),
+            pipeline = excluded.pipeline,
             status = excluded.status,
             updated_at = excluded.updated_at
         `,
       )
-      .run(options.projectId, options.inputPath, options.pipeline ?? null, 'running', createdAt, now)
+      .run(options.projectId, options.inputPath, options.pipeline, JOB_STATUS_RUNNING, createdAt, now)
 
     database.prepare('delete from job_stages where project_id = ?').run(options.projectId)
 
@@ -100,7 +100,7 @@ export class BunSqliteJobStore implements JobStore {
       insertStage.run(
         options.projectId,
         stage,
-        existingStage?.status ?? 'pending',
+        existingStage?.status ?? JOB_STATUS_PENDING,
         existingStage?.attempt ?? null,
         existingStage?.startedAt ?? null,
         existingStage?.completedAt ?? null,
@@ -133,6 +133,10 @@ export class BunSqliteJobStore implements JobStore {
       throw new Error(`Job state not found for project: ${this.projectId}`)
     }
 
+    if (typeof job.pipeline !== 'string' || job.pipeline.length === 0) {
+      throw new Error(`Job state for project ${this.projectId} is missing pipeline.`)
+    }
+
     const stages = database
       .prepare<StageRow>(
         `
@@ -148,7 +152,7 @@ export class BunSqliteJobStore implements JobStore {
       ...(job.completed_at === null ? {} : {completedAt: job.completed_at}),
       createdAt: job.created_at,
       inputPath: job.input_path,
-      ...(job.pipeline === null ? {} : {pipeline: job.pipeline}),
+      pipeline: job.pipeline,
       projectId: job.project_id,
       stages: stages.map((stage) => deserializeStage(stage)),
       status: job.status,
@@ -184,15 +188,15 @@ export class BunSqliteJobStore implements JobStore {
       )
       .run(
         attempt ?? existing.attempt,
-        status === 'completed' || status === 'failed' ? now : null,
-        status === 'running' ? existing.current : null,
-        status === 'failed' || status === 'running' ? message ?? null : null,
-        status === 'running' ? existing.percent : null,
-        status === 'running' ? now : existing.started_at,
+        isTerminalJobStageStatus(status) ? now : null,
+        status === JOB_STATUS_RUNNING ? existing.current : null,
+        isMessageJobStageStatus(status) ? message ?? null : null,
+        status === JOB_STATUS_RUNNING ? existing.percent : null,
+        status === JOB_STATUS_RUNNING ? now : existing.started_at,
         status,
-        status === 'running' ? existing.step : null,
-        status === 'running' ? existing.total : null,
-        status === 'running' ? existing.unit : null,
+        status === JOB_STATUS_RUNNING ? existing.step : null,
+        status === JOB_STATUS_RUNNING ? existing.total : null,
+        status === JOB_STATUS_RUNNING ? existing.unit : null,
         this.projectId,
         name,
       )
@@ -206,7 +210,7 @@ export class BunSqliteJobStore implements JobStore {
         `,
       )
       .all(this.projectId)
-    const runStatus = stageStatuses.some((stage) => stage.status === 'failed') ? 'failed' : stageStatuses.every((stage) => stage.status === 'completed') ? 'completed' : 'running'
+    const runStatus = deriveJobRunStatus(stageStatuses)
 
     database
       .prepare(
@@ -217,7 +221,7 @@ export class BunSqliteJobStore implements JobStore {
         `,
       )
       .run(
-        runStatus === 'completed' || runStatus === 'failed' ? now : null,
+        isTerminalJobRunStatus(runStatus) ? now : null,
         runStatus,
         now,
         this.projectId,
@@ -229,6 +233,21 @@ export class BunSqliteJobStore implements JobStore {
   async updateStageProgress(name: string, progress: JobStageProgress): Promise<JobState> {
     const database = await this.open()
     const now = new Date().toISOString()
+    const existing = database
+      .prepare<Pick<StageRow, 'name'>>(
+        `
+          select name
+          from job_stages
+          where project_id = ? and name = ?
+        `,
+      )
+      .get(this.projectId, name)
+
+    if (existing === null) {
+      throw new Error(`Job stage not found: ${name}`)
+    }
+
+    const normalizedProgress = normalizeJobStageProgress(progress)
 
     database
       .prepare(
@@ -239,12 +258,12 @@ export class BunSqliteJobStore implements JobStore {
         `,
       )
       .run(
-        progress.current ?? null,
-        progress.message ?? null,
-        progress.percent ?? null,
-        progress.step ?? null,
-        progress.total ?? null,
-        progress.unit ?? null,
+        normalizedProgress.current ?? null,
+        normalizedProgress.message ?? null,
+        normalizedProgress.percent ?? null,
+        normalizedProgress.step ?? null,
+        normalizedProgress.total ?? null,
+        normalizedProgress.unit ?? null,
         this.projectId,
         name,
       )
@@ -277,7 +296,7 @@ export class BunSqliteJobStore implements JobStore {
       create table if not exists jobs (
         project_id text primary key,
         input_path text not null,
-        pipeline text,
+        pipeline text not null,
         status text not null,
         completed_at text,
         created_at text not null,

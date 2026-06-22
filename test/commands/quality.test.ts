@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {formatQualityRenderSummary} from '../../src/commands/quality.js'
+import {formatQualityRenderSummary} from '../../src/utils/quality-output.js'
 
 describe('quality command', () => {
   it('formats all render diagnostic categories', () => {

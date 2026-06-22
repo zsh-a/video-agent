@@ -69,9 +69,9 @@ describe('project provider report', () => {
             completedAt: '2026-01-01T00:00:04.000Z',
             durationMs: 400,
             model: 'mimo-v2.5',
-            operation: 'generateObjectFallbackText',
+            operation: 'generateObject',
             provider: 'mimo.chat',
-            request: {messages: [{content: 'private fallback prompt', role: 'user'}]},
+            request: {messages: [{content: 'private prompt', role: 'user'}]},
             requestId: 'llm-2',
             response: {text: 'private response'},
             startedAt: '2026-01-01T00:00:03.600Z',
@@ -110,7 +110,7 @@ describe('project provider report', () => {
       expect(report.summary.llm.durationMs).to.deep.equal({average: 350, max: 400, total: 700})
       expect(report.summary.llm.usage).to.deep.equal({inputTokens: 100, outputTokens: 40, totalTokens: 140})
       expect(report.summary.llm.byOperation.generateObject?.failed).to.equal(1)
-      expect(report.summary.llm.byOperation.generateObjectFallbackText?.succeeded).to.equal(1)
+      expect(report.summary.llm.byOperation.generateObject?.succeeded).to.equal(1)
       expect(report.summary.llm.byProvider['mimo.chat']?.total).to.equal(2)
       expect(report.summary.llm.byModel['mimo-v2.5']?.total).to.equal(2)
       expect(failedVlm.calls).to.have.length(1)
@@ -118,6 +118,88 @@ describe('project provider report', () => {
       expect(failedVlm.summary.byRole.vlm.failed).to.equal(1)
       expect(failedLLM.llmTraces).to.have.length(1)
       expect(failedLLM.summary.llm.failed).to.equal(1)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('normalizes token totals per record instead of using aggregate zero-total fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-provider-report-token-total-'))
+
+    try {
+      await mkdir(join(root, 'projects', 'demo', 'artifacts'), {recursive: true})
+      await writeText(
+        join(root, 'projects', 'demo', 'artifacts', 'provider-calls.jsonl'),
+        [
+          JSON.stringify({
+            completedAt: '2026-01-01T00:00:01.000Z',
+            durationMs: 100,
+            input: {},
+            operation: 'transcribe',
+            output: {},
+            provider: 'llm',
+            requestId: 'asr-1',
+            role: 'asr',
+            startedAt: '2026-01-01T00:00:00.900Z',
+            status: 'succeeded',
+            usage: {inputTokens: 10, outputTokens: 5},
+            version: 1,
+          }),
+          JSON.stringify({
+            completedAt: '2026-01-01T00:00:02.000Z',
+            durationMs: 200,
+            input: {},
+            operation: 'analyzeScenes',
+            output: {},
+            provider: 'llm',
+            requestId: 'vlm-1',
+            role: 'vlm',
+            startedAt: '2026-01-01T00:00:01.800Z',
+            status: 'succeeded',
+            usage: {inputTokens: 30, outputTokens: 20, totalTokens: 60},
+            version: 1,
+          }),
+        ].join('\n'),
+      )
+      await writeText(
+        join(root, 'projects', 'demo', 'artifacts', 'llm-traces.jsonl'),
+        [
+          JSON.stringify({
+            completedAt: '2026-01-01T00:00:03.000Z',
+            durationMs: 300,
+            model: 'mimo-v2.5',
+            operation: 'generateObject',
+            provider: 'mimo.chat',
+            request: {},
+            requestId: 'llm-1',
+            startedAt: '2026-01-01T00:00:02.700Z',
+            status: 'succeeded',
+            usage: {inputTokens: 7, outputTokens: 3},
+            version: 1,
+          }),
+          JSON.stringify({
+            completedAt: '2026-01-01T00:00:04.000Z',
+            durationMs: 400,
+            model: 'mimo-v2.5',
+            operation: 'generateObject',
+            provider: 'mimo.chat',
+            request: {},
+            requestId: 'llm-2',
+            startedAt: '2026-01-01T00:00:03.600Z',
+            status: 'succeeded',
+            usage: {inputTokens: 100, outputTokens: 40, totalTokens: 150},
+            version: 1,
+          }),
+        ].join('\n'),
+      )
+
+      const report = await readProjectProviderReport('demo', {workspaceDir: root})
+
+      expect(report.summary.usage.totalTokens).to.equal(75)
+      expect(report.summary.byRole.asr.usage.totalTokens).to.equal(15)
+      expect(report.summary.byRole.vlm.usage.totalTokens).to.equal(60)
+      expect(report.summary.llm.usage.totalTokens).to.equal(160)
+      expect(report.summary.llm.byModel['mimo-v2.5']?.usage.totalTokens).to.equal(160)
     } finally {
       await rm(root, {force: true, recursive: true})
     }

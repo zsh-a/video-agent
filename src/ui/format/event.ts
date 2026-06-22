@@ -1,4 +1,4 @@
-import type {ProjectEventRecord} from '@video-agent/runtime'
+import {PROJECT_EVENT_KIND_PIPELINE, type ProjectEventRecord} from '@video-agent/runtime'
 
 export function formatEvents(events: ProjectEventRecord[]): string[] {
   if (events.length === 0) {
@@ -13,14 +13,14 @@ export function formatTuiEventRecord(record: ProjectEventRecord): string {
 }
 
 function formatEventDetail(record: ProjectEventRecord): string {
-  if (record.kind === 'pipeline') {
+  if (record.kind === PROJECT_EVENT_KIND_PIPELINE) {
     return `${record.event.type}${record.event.stage === undefined ? '' : ` ${record.event.stage}`}${formatPipelineProgress(record.event)}${record.event.message === undefined ? '' : ` ${record.event.message}`}`
   }
 
   return `${record.event.role} ${record.event.operation} ${record.event.status} ${record.event.durationMs}ms`
 }
 
-function formatPipelineProgress(event: Extract<ProjectEventRecord, {kind: 'pipeline'}>['event']): string {
+function formatPipelineProgress(event: Extract<ProjectEventRecord, {kind: typeof PROJECT_EVENT_KIND_PIPELINE}>['event']): string {
   const parts = [
     ...(event.current === undefined ? [] : [`${event.current}`]),
     ...(event.total === undefined ? [] : [`/${event.total}`]),

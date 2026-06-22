@@ -1,9 +1,18 @@
-import type {Narration, NarrationSegment} from '@video-agent/ir'
-
 export interface SrtCue {
   end: number
   index: number
   start: number
+  text: string
+}
+
+export interface SubtitleNarration {
+  segments: SubtitleNarrationSegment[]
+}
+
+export interface SubtitleNarrationSegment {
+  duration?: number
+  end?: number
+  start?: number
   text: string
 }
 
@@ -15,11 +24,11 @@ const DEFAULT_MAX_LINE_CHARS = 24
 const MIN_SOFT_BREAK_CHARS = 10
 const MIN_REMAINDER_CHARS = 10
 
-export function narrationToSrt(narration: Narration): string {
+export function narrationToSrt(narration: SubtitleNarration): string {
   return `${narrationToSrtCues(narration).map(formatCue).join('\n\n')}\n`
 }
 
-export function narrationToSrtCues(narration: Narration): SrtCue[] {
+export function narrationToSrtCues(narration: SubtitleNarration): SrtCue[] {
   let index = 1
 
   return narration.segments.flatMap((segment) => {
@@ -31,11 +40,11 @@ export function narrationToSrtCues(narration: Narration): SrtCue[] {
   })
 }
 
-function segmentToSrtCues(segment: NarrationSegment, firstIndex: number): SrtCue[] {
-  const start = segment.start ?? 0
+function segmentToSrtCues(segment: SubtitleNarrationSegment, firstIndex: number): SrtCue[] {
+  const start = resolveSubtitleSegmentStart(segment)
   const chunks = splitSubtitleText(segment.text)
-  const duration = segment.duration ?? Math.max(chunks.length, 1)
-  const totalWeight = chunks.reduce((total, chunk) => total + subtitleWeight(chunk), 0) || 1
+  const duration = resolveSubtitleSegmentDuration(segment)
+  const totalWeight = chunks.reduce((total, chunk) => total + subtitleWeight(chunk), 0)
   let elapsed = 0
 
   return chunks.map((chunk, index) => {
@@ -56,6 +65,40 @@ function segmentToSrtCues(segment: NarrationSegment, firstIndex: number): SrtCue
   })
 }
 
+function resolveSubtitleSegmentStart(segment: SubtitleNarrationSegment): number {
+  if (segment.start === undefined) {
+    throw new Error('Subtitle narration segment requires an explicit start time; no zero-start subtitle fallback is allowed.')
+  }
+
+  if (!Number.isFinite(segment.start) || segment.start < 0) {
+    throw new Error('Subtitle narration segment start must be a nonnegative finite number.')
+  }
+
+  return segment.start
+}
+
+function resolveSubtitleSegmentDuration(segment: SubtitleNarrationSegment): number {
+  if (segment.duration !== undefined) {
+    if (!Number.isFinite(segment.duration) || segment.duration <= 0) {
+      throw new Error('Subtitle narration segment duration must be a positive finite number.')
+    }
+
+    return segment.duration
+  }
+
+  if (segment.start !== undefined && segment.end !== undefined) {
+    const duration = segment.end - segment.start
+
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new Error('Subtitle narration segment end must be greater than start.')
+    }
+
+    return duration
+  }
+
+  throw new Error('Subtitle narration segment requires duration or end time; no text-length subtitle duration fallback is allowed.')
+}
+
 function formatCue(cue: SrtCue): string {
   return `${cue.index}\n${formatSrtTime(cue.start)} --> ${formatSrtTime(cue.end)}\n${cue.text}`
 }
@@ -64,7 +107,7 @@ function splitSubtitleText(text: string): string[] {
   const normalized = normalizeSubtitleText(text)
 
   if (normalized === '') {
-    return ['']
+    throw new Error('Subtitle narration segment text must be non-empty after whitespace normalization; no blank subtitle cue fallback is allowed.')
   }
 
   const chunks: string[] = []

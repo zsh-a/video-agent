@@ -1,28 +1,31 @@
 import {Command, Flags} from '@oclif/core'
-import {type RecoverableJobStatus, type RecoverWorkspaceJobResult, recoverWorkspaceJobs, type RecoveryOrderBy} from '@video-agent/pipeline-film'
+import {FILM_RECOVERY_ORDER_BY_VALUES, FILM_RECOVERY_STATUS_OPTIONS, recoverFilmWorkspaceJobs, type FilmRecoveryOrderBy, type FilmRecoveryStatusOption, resolveFilmRecoverableStatuses} from '@video-agent/pipeline-film'
+
+import {normalizeNonNegativeIntegerFlag, parseOptionalEnumFlag, parseRequiredEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
+import {formatWorkerResult} from '../utils/worker-output.js'
 
 export default class Worker extends Command {
-  static description = 'Recover failed or interrupted local pipeline jobs'
+  static description = 'Recover failed or interrupted Film pipeline jobs'
   static flags = {
-    'dry-run': Flags.boolean({description: 'List recoverable jobs without rerunning them'}),
+    'dry-run': Flags.boolean({description: 'List recoverable Film jobs without rerunning them'}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    limit: Flags.integer({description: 'Maximum number of recoverable jobs to process'}),
-    'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value'}),
-    'order-by': Flags.string({description: 'Recovery candidate ordering', options: ['attempt', 'oldest', 'recent']}),
-    'running-stale-after-ms': Flags.integer({description: 'Skip running jobs updated more recently than this threshold'}),
-    status: Flags.string({default: 'active', description: 'Job status to recover', options: ['active', 'failed', 'running']}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    limit: Flags.integer({description: 'Maximum number of recoverable Film jobs to process'}),
+    'max-attempts': Flags.integer({description: 'Skip Film jobs whose recovery stage attempt is greater than or equal to this value'}),
+    'order-by': Flags.string({description: 'Film recovery candidate ordering', options: [...FILM_RECOVERY_ORDER_BY_VALUES]}),
+    'running-stale-after-ms': Flags.integer({description: 'Skip running Film jobs updated more recently than this threshold'}),
+    status: Flags.string({default: 'active', description: 'Film job status to recover', options: [...FILM_RECOVERY_STATUS_OPTIONS]}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Worker)
-    const report = await recoverWorkspaceJobs({
+    const report = await recoverFilmWorkspaceJobs({
       dryRun: flags['dry-run'],
-      limit: flags.limit,
-      maxAttempts: flags['max-attempts'],
-      orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
-      runningStaleAfterMs: flags['running-stale-after-ms'],
-      statuses: resolveRecoverableStatuses(flags.status),
+      limit: normalizeNonNegativeIntegerFlag(flags.limit, '--limit'),
+      maxAttempts: normalizeNonNegativeIntegerFlag(flags['max-attempts'], '--max-attempts'),
+      orderBy: parseOptionalEnumFlag<FilmRecoveryOrderBy>(flags['order-by'], FILM_RECOVERY_ORDER_BY_VALUES, '--order-by'),
+      runningStaleAfterMs: normalizeNonNegativeIntegerFlag(flags['running-stale-after-ms'], '--running-stale-after-ms'),
+      statuses: resolveFilmRecoverableStatuses(parseRequiredEnumFlag<FilmRecoveryStatusOption>(flags.status, FILM_RECOVERY_STATUS_OPTIONS, '--status')),
       workspaceDir: flags.workspace,
     })
 
@@ -40,33 +43,4 @@ export default class Worker extends Command {
       this.log(formatWorkerResult(result))
     }
   }
-}
-
-export function formatWorkerResult(result: RecoverWorkspaceJobResult): string {
-  const diagnostics = [
-    result.error,
-    formatWorkerArtifactList('missing', result.missingArtifacts),
-    formatWorkerArtifactList('changed', result.changedArtifacts),
-    formatWorkerArtifactList('schema invalid', result.schemaInvalidArtifacts),
-    formatWorkerArtifactList('untracked', result.untrackedArtifacts),
-    result.validationIssues?.map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; '),
-  ].filter((item): item is string => item !== undefined).join('; ')
-
-  return `${result.projectId}\t${result.status}${result.fromStage === undefined ? '' : `\t${result.fromStage}`}${result.skipReason === undefined ? '' : `\t${result.skipReason}`}${diagnostics === '' ? '' : `\t${diagnostics}`}`
-}
-
-function formatWorkerArtifactList(label: string, artifacts?: string[]): string | undefined {
-  return artifacts === undefined || artifacts.length === 0 ? undefined : `${label}: ${artifacts.join(', ')}`
-}
-
-function resolveRecoverableStatuses(status: string): RecoverableJobStatus[] {
-  if (status === 'failed') {
-    return ['failed']
-  }
-
-  if (status === 'running') {
-    return ['running']
-  }
-
-  return ['failed', 'running']
 }

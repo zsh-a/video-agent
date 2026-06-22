@@ -227,7 +227,7 @@ export function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript
   let cursor = 0
 
   return speakerScript.segments.map((segment, index) => {
-    const duration = roundSeconds(durations[index] ?? 0)
+    const duration = roundSeconds(requireDurationAt(durations, index, segment.slideId))
     const start = roundSeconds(cursor)
     const end = roundSeconds(start + duration)
 
@@ -241,9 +241,23 @@ export function createSlideTimingsFromSpeakerScript(speakerScript: SpeakerScript
   })
 }
 
+function requireDurationAt(durations: number[], index: number, slideId: string): number {
+  const duration = durations[index]
+
+  if (duration === undefined) {
+    throw new Error(`Deck speaker script segment ${index + 1} for slide "${slideId}" has no resolved duration; no runtime slide duration fallback is allowed.`)
+  }
+
+  return duration
+}
+
 function requireEstimatedDuration(segment: SpeakerScript['segments'][number], index: number): number {
   if (segment.estimatedDuration === undefined) {
     throw new Error(`Deck speaker script segment ${index + 1} for slide "${segment.slideId}" is missing LLM-authored estimatedDuration.`)
+  }
+
+  if (!Number.isFinite(segment.estimatedDuration) || segment.estimatedDuration <= 0) {
+    throw new Error(`Deck speaker script segment ${index + 1} for slide "${segment.slideId}" must include a positive LLM-authored estimatedDuration; no runtime slide duration fallback is allowed.`)
   }
 
   return segment.estimatedDuration

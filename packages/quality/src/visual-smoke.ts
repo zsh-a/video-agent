@@ -1,11 +1,12 @@
 import type {QualityIssue} from './timeline.js'
 
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY, countQualityIssues} from './issues.js'
+
 export interface VisualSmokeInput {
   blackDuration: number
   blackRatio?: number
   blackSegments: VisualBlackSegment[]
   duration?: number
-  frameSample?: VisualFrameSample
   frameSamples?: VisualFrameSample[]
 }
 
@@ -21,7 +22,6 @@ export interface VisualSmokeQualityResult {
   blackSegments: VisualBlackSegment[]
   duration?: number
   errors: number
-  frameSample?: VisualFrameSample
   frameSamples?: VisualFrameSample[]
   issues: QualityIssue[]
   probed: boolean
@@ -47,12 +47,10 @@ export function checkVisualSmoke(input: VisualSmokeInput): VisualSmokeQualityRes
     ...(input.blackRatio === undefined ? {} : {blackRatio: input.blackRatio}),
     blackSegments: input.blackSegments,
     ...(input.duration === undefined ? {} : {duration: input.duration}),
-    errors: issues.filter((issue) => issue.severity === 'error').length,
-    ...(frameSamples[0] === undefined ? {} : {frameSample: frameSamples[0]}),
+    ...countQualityIssues(issues),
     ...(frameSamples.length === 0 ? {} : {frameSamples}),
     issues,
     probed: true,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -61,7 +59,7 @@ export function createVisualSmokeProbeFailure(message: string): VisualSmokeQuali
     {
       code: 'visual.smoke.probe_failed',
       message,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 
@@ -80,17 +78,15 @@ export function addVisualFrameSample(result: VisualSmokeQualityResult, frameSamp
 }
 
 export function addVisualFrameSamples(result: VisualSmokeQualityResult, frameSamples: VisualFrameSample[]): VisualSmokeQualityResult {
-  const existingSamples = result.frameSamples ?? (result.frameSample === undefined ? [] : [result.frameSample])
+  const existingSamples = result.frameSamples ?? []
   const nextSamples = [...existingSamples, ...frameSamples]
   const issues = [...result.issues, ...checkFrameSamples(frameSamples, result.duration)]
 
   return {
     ...result,
-    errors: issues.filter((issue) => issue.severity === 'error').length,
-    ...(nextSamples[0] === undefined ? {} : {frameSample: nextSamples[0]}),
+    ...countQualityIssues(issues),
     frameSamples: nextSamples,
     issues,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
   }
 }
 
@@ -104,7 +100,7 @@ function checkBlackRatio(input: VisualSmokeInput): QualityIssue[] {
       {
         code: 'visual.smoke.black_screen',
         message: `Rendered video is mostly black (${formatPercent(input.blackRatio)} black frames).`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
       },
     ]
   }
@@ -113,7 +109,7 @@ function checkBlackRatio(input: VisualSmokeInput): QualityIssue[] {
     {
       code: 'visual.smoke.high_black_ratio',
       message: `Rendered video has a high black-frame ratio (${formatPercent(input.blackRatio)}).`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 }
@@ -127,7 +123,7 @@ function checkBlackDurationWithoutRatio(input: VisualSmokeInput): QualityIssue[]
     {
       code: 'visual.smoke.black_detected',
       message: `Rendered video contains ${input.blackDuration}s of black frames, but total duration was unavailable.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
     },
   ]
 }
@@ -139,7 +135,7 @@ function checkFrameSamples(frameSamples: VisualFrameSample[], duration: number |
         {
           code: 'visual.frame_sample.out_of_bounds',
           message: `Rendered video frame sample at ${frameSample.timestamp}s is outside the rendered duration (${duration}s).`,
-          severity: 'warning' as const,
+          severity: QUALITY_WARNING_SEVERITY,
         },
       ]
     }
@@ -149,7 +145,7 @@ function checkFrameSamples(frameSamples: VisualFrameSample[], duration: number |
         {
           code: 'visual.frame_sample.failed',
           message: frameSample.error === undefined ? `Rendered video frame sample at ${frameSample.timestamp}s could not be generated.` : `Rendered video frame sample at ${frameSample.timestamp}s could not be generated: ${frameSample.error}`,
-          severity: 'warning' as const,
+          severity: QUALITY_WARNING_SEVERITY,
         },
       ]
     }
@@ -159,7 +155,7 @@ function checkFrameSamples(frameSamples: VisualFrameSample[], duration: number |
         {
           code: 'visual.frame_sample.empty',
           message: `Rendered video frame sample at ${frameSample.timestamp}s is empty.`,
-          severity: 'warning' as const,
+          severity: QUALITY_WARNING_SEVERITY,
         },
       ]
     }
@@ -179,7 +175,7 @@ function checkFrameSamples(frameSamples: VisualFrameSample[], duration: number |
       {
         code: 'visual.frame_sample.static',
         message: `Rendered video frame samples appear identical across ${successfulHashes.length} capture points.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       },
     ]
   }
@@ -190,7 +186,7 @@ function checkFrameSamples(frameSamples: VisualFrameSample[], duration: number |
       {
         code: 'visual.frame_sample.low_variation',
         message: `Rendered video frame samples have very low byte-size variation across ${successfulSizes.length} capture points.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
       },
     ]
   }
@@ -214,7 +210,7 @@ function hasLowSampleSizeVariation(sizes: number[]): boolean {
 }
 
 function normalizeFrameSamples(input: VisualSmokeInput): VisualFrameSample[] {
-  return input.frameSamples ?? (input.frameSample === undefined ? [] : [input.frameSample])
+  return input.frameSamples ?? []
 }
 
 function formatPercent(value: number): string {

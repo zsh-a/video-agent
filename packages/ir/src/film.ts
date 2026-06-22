@@ -1,6 +1,6 @@
 import {z} from 'zod'
 
-import {LongVideoTimeRangeSchema} from './long-video.js'
+import {LongVideoPositiveTimeRangeSchema} from './long-video.js'
 import {EvidenceSchema} from './storyboard.js'
 
 export const SourceManifestSchema = z.object({
@@ -18,7 +18,7 @@ export const SourceManifestSchema = z.object({
 
 export const FilmSceneSchema = z.object({
   id: z.string().min(1),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   summary: z.string().optional(),
 })
 
@@ -35,9 +35,9 @@ export const ASRSegmentSchema = z.object({
   speaker: z.string().optional(),
   start: z.number().finite().nonnegative(),
   text: z.string().min(1),
-  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']),
-}).refine((segment) => segment.end >= segment.start, {
-  message: 'ASR segment end must be greater than or equal to start.',
+  timestampConfidence: z.literal('exact'),
+}).refine((segment) => segment.end > segment.start, {
+  message: 'ASR segment end must be greater than start.',
   path: ['end'],
 })
 
@@ -45,7 +45,7 @@ export const ASRResultSchema = z.object({
   language: z.string().min(1),
   segments: z.array(ASRSegmentSchema),
   text: z.string(),
-  timestampConfidence: z.enum(['chunked', 'exact', 'untimed']),
+  timestampConfidence: z.literal('exact'),
   version: z.literal(1),
 })
 
@@ -74,7 +74,7 @@ export const VLMSceneAnalysisSchema = z.object({
   plotClues: z.array(z.string().min(1)),
   relationships: z.array(z.string().min(1)),
   sceneId: z.string().min(1),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   summary: z.string().min(1),
 })
 
@@ -90,7 +90,7 @@ export const TimelineFusionItemSchema = z.object({
   id: z.string().min(1),
   sceneId: z.string().min(1),
   silencePeriodIds: z.array(z.string().min(1)),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   summary: z.string().min(1),
   vlmAnalysisIds: z.array(z.string().min(1)),
 })
@@ -124,7 +124,7 @@ export const NarrativeBeatSchema = z.object({
   characters: z.array(z.string().min(1)),
   evidence: z.array(EvidenceSchema),
   id: z.string().min(1),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   summary: z.string().min(1),
   type: NarrativeBeatTypeSchema,
 })
@@ -145,7 +145,7 @@ export const RecapScriptSegmentSchema = z.object({
   narrationText: z.string().min(1),
   overlapsSpeech: z.boolean(),
   pauseAfterMs: z.number().int().nonnegative(),
-  sourceRange: LongVideoTimeRangeSchema,
+  sourceRange: LongVideoPositiveTimeRangeSchema,
   suggestedDuration: z.number().finite().nonnegative(),
   targetBeatIds: z.array(z.string().min(1)),
   visualGuidance: z.string().min(1),
@@ -179,18 +179,18 @@ export const OutputTimelineMapClipSchema = z.object({
   sourceEnd: z.number().finite().nonnegative(),
   sourceStart: z.number().finite().nonnegative(),
 }).superRefine((clip, ctx) => {
-  if (clip.sourceEnd < clip.sourceStart) {
+  if (clip.sourceEnd <= clip.sourceStart) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Mapped clip sourceEnd must be greater than or equal to sourceStart.',
+      message: 'Mapped clip sourceEnd must be greater than sourceStart.',
       path: ['sourceEnd'],
     })
   }
 
-  if (clip.outputEnd < clip.outputStart) {
+  if (clip.outputEnd <= clip.outputStart) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Mapped clip outputEnd must be greater than or equal to outputStart.',
+      message: 'Mapped clip outputEnd must be greater than outputStart.',
       path: ['outputEnd'],
     })
   }
@@ -223,8 +223,8 @@ export const OutputNarrationSegmentSchema = z.object({
   source: z.literal('script'),
   start: z.number().finite().nonnegative(),
   text: z.string().min(1),
-}).refine((segment) => segment.end >= segment.start, {
-  message: 'Output narration segment end must be greater than or equal to start.',
+}).refine((segment) => segment.end > segment.start, {
+  message: 'Output narration segment end must be greater than start.',
   path: ['end'],
 })
 
@@ -235,9 +235,53 @@ export const OutputNarrationSchema = z.object({
   version: z.literal(1),
 })
 
+export const FilmAudioMixVoiceoverSchema = z.object({
+  delayMs: z.number().int().nonnegative(),
+  duration: z.number().finite().nonnegative(),
+  narrationId: z.string().min(1),
+  path: z.string().min(1),
+  resolvedPath: z.string().min(1),
+  start: z.number().finite().nonnegative(),
+}).strict()
+
+export const FilmAudioMixSchema = z.object({
+  ducking: z.object({
+    attackMs: z.number().finite().nonnegative(),
+    ratio: z.number().finite().nonnegative(),
+    releaseMs: z.number().finite().nonnegative(),
+    threshold: z.number().finite().nonnegative(),
+  }).strict().optional(),
+  duration: z.number().finite().nonnegative(),
+  generatedAt: z.string().min(1),
+  loudnessNormalization: z.object({
+    loudnessRangeLufs: z.number().finite(),
+    targetIntegratedLufs: z.number().finite(),
+    truePeakDb: z.number().finite(),
+  }).strict(),
+  mode: z.enum(['silence', 'source-ducked', 'source-only', 'voiceover-only']),
+  outputPath: z.string().min(1),
+  sourceAudioRetained: z.boolean(),
+  sourcePath: z.string().min(1),
+  sourceVolume: z.number().finite().nonnegative(),
+  sourceVolumeDuringVoiceover: z.number().finite().nonnegative().optional(),
+  version: z.literal(1),
+  voiceoverSegments: z.array(FilmAudioMixVoiceoverSchema),
+  voiceoverVolume: z.number().finite().nonnegative(),
+}).strict()
+
+export const FilmSubtitleOutputSchema = z.object({
+  cues: z.number().int().nonnegative(),
+  format: z.literal('srt'),
+  generatedAt: z.string().min(1),
+  path: z.string().min(1),
+  version: z.literal(1),
+}).strict()
+
 export type ASRSegment = z.infer<typeof ASRSegmentSchema>
 export type ASRResult = z.infer<typeof ASRResultSchema>
 export type CharacterIndex = z.infer<typeof CharacterIndexSchema>
+export type FilmAudioMix = z.infer<typeof FilmAudioMixSchema>
+export type FilmAudioMixVoiceover = z.infer<typeof FilmAudioMixVoiceoverSchema>
 export type CharacterIndexEntry = z.infer<typeof CharacterIndexEntrySchema>
 export type FilmScene = z.infer<typeof FilmSceneSchema>
 export type FilmScenes = z.infer<typeof FilmScenesSchema>
@@ -254,6 +298,7 @@ export type SilencePeriod = z.infer<typeof SilencePeriodSchema>
 export type SilencePeriods = z.infer<typeof SilencePeriodsSchema>
 export type SourceManifest = z.infer<typeof SourceManifestSchema>
 export type StoryIndex = z.infer<typeof StoryIndexSchema>
+export type FilmSubtitleOutput = z.infer<typeof FilmSubtitleOutputSchema>
 export type TimelineFusion = z.infer<typeof TimelineFusionSchema>
 export type TimelineFusionItem = z.infer<typeof TimelineFusionItemSchema>
 export type VLMAnalysis = z.infer<typeof VLMAnalysisSchema>

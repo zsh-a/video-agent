@@ -2,11 +2,13 @@ import type {Deck, DeckTimingDriftReport, LongVideoSelectedMoments, MediaInfo, S
 import type {TTSSegment} from '@video-agent/providers'
 
 import {NarrationSchema, StoryboardSchema, TimedDeckSchema, TimelineSchema} from '@video-agent/ir'
+import {countQualityIssues} from '@video-agent/quality'
 
-import {createTextQualityIssues, summarizeQualityIssues} from '../quality/report.js'
+import {createTextQualityIssues} from '../quality/report.js'
 import {createDeckNarrationFromTimings, createSlideTimingsFromTts, createTextTimeline, deckNarrationIdForIndex, updateSelectedMomentsTiming, updateStoryboardTiming} from '../planning/timing.js'
 import type {DeckVoiceover} from './voiceover-types.js'
 import {createDeckTimingDriftReport} from '../quality/timing-drift.js'
+import {requireSlideTimingsDuration} from '../shared/utils.js'
 
 export interface DeckVoiceoverUpdate {
   deckVoiceover: DeckVoiceover
@@ -16,7 +18,7 @@ export interface DeckVoiceoverUpdate {
     checkedAt: string
     issues: ReturnType<typeof createTextQualityIssues>
     narrationSegments: number
-    summary: ReturnType<typeof summarizeQualityIssues>
+    summary: ReturnType<typeof countQualityIssues>
     ttsSegments: number
     version: 1
   }
@@ -43,7 +45,7 @@ export function createDeckVoiceoverUpdate(input: {
   })
 
   const timings = createSlideTimingsFromTts(input.speakerScript, input.currentTimedDeck, input.ttsSegments)
-  const totalDuration = timings.at(-1)?.end ?? 0
+  const totalDuration = requireSlideTimingsDuration(timings, 'Deck voiceover update')
   const timedDeck = TimedDeckSchema.parse({
     audioRef: 'audio/deck_voiceover.wav',
     deck: input.deck,
@@ -70,7 +72,7 @@ export function createDeckVoiceoverUpdate(input: {
     checkedAt: new Date().toISOString(),
     issues,
     narrationSegments: narration.segments.length,
-    summary: summarizeQualityIssues(issues),
+    summary: countQualityIssues(issues),
     ttsSegments: input.ttsSegments.length,
     version: 1 as const,
   }

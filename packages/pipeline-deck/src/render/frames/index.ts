@@ -14,7 +14,6 @@ export {
   DEFAULT_DECK_FRAME_SHARD_SIZE,
   DEFAULT_DECK_RENDER_FPS,
   createDeckFrameShardRanges,
-  deckFrameVideoRenderer,
   normalizeDeckFrameConcurrency,
   normalizeDeckFrameRange,
   normalizeDeckFrameShardSize,

@@ -1,5 +1,7 @@
 import type {TuiSnapshot} from '../model.js'
 
+import {PROJECT_EVENT_KIND_PIPELINE} from '@video-agent/runtime'
+
 export function formatRender(render: NonNullable<TuiSnapshot['selected']>['summary']['render']): string {
   if (!render.rendered) {
     return 'none'
@@ -9,7 +11,7 @@ export function formatRender(render: NonNullable<TuiSnapshot['selected']>['summa
 }
 
 export function formatEvent(event: TuiSnapshot['events'][number]): string {
-  if (event.kind === 'pipeline') {
+  if (event.kind === PROJECT_EVENT_KIND_PIPELINE) {
     return `${event.time} pipeline ${event.event.type}${event.event.stage === undefined ? '' : ` ${event.event.stage}`}${event.event.message === undefined ? '' : ` ${event.event.message}`}`
   }
 

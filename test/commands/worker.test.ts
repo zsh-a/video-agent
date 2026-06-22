@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {formatWorkerResult} from '../../src/commands/worker.js'
+import {formatWorkerResult} from '../../src/utils/worker-output.js'
 
 describe('worker command', () => {
   it('formats checkpoint artifact diagnostics in human-readable output', () => {

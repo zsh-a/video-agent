@@ -1,7 +1,7 @@
-import {recoverWorkspaceJobs} from '@video-agent/pipeline-film'
-import {checkRuntimeHealth, createProviderEnvironmentShellTemplate, listProjects, readConfig, readProviderEnvironment, readVideoAgentGuidedActions, runProviderSmokeTest} from '@video-agent/runtime'
+import {FILM_RECOVERY_ORDER_BY_VALUES, FILM_RECOVERY_STATUS_OPTIONS, recoverFilmWorkspaceJobs, resolveFilmRecoverableStatuses} from '@video-agent/pipeline-film'
+import {PROVIDER_SMOKE_TEST_ROLE_OPTIONS, checkRuntimeHealth, createProviderEnvironmentShellTemplate, listProjects, readConfig, readProviderEnvironment, readVideoAgentGuidedActions, resolveProviderSmokeTestRoles, runProviderSmokeTest} from '@video-agent/runtime'
 
-import {parseOptionalBoolean, parseOptionalInteger, readBooleanField, readCommandPrefix, readEnvField, readEnvQuery, readJsonBody, readNumberField, readRecoveryOrderBy, readStringField, resolveProviderSmokeTestRoles, resolveRecoverableStatuses} from './request.js'
+import {parseOptionalBoolean, parseOptionalEnum, parseOptionalNonNegativeInteger, readBooleanField, readCommandPrefix, readEnvField, readEnvQuery, readJsonBody, readNonNegativeIntegerField, readStringField} from './request.js'
 import {jsonResponse, methodNotAllowed} from './response.js'
 
 interface RootRouteContext {
@@ -77,7 +77,7 @@ async function routeProviderTest({request, workspaceDir}: RootRouteContext): Pro
       env: readEnvField(body, 'env'),
       framePath: readStringField(body, 'framePath') ?? undefined,
       mediaPath: readStringField(body, 'mediaPath') ?? undefined,
-      roles: resolveProviderSmokeTestRoles(readStringField(body, 'role')),
+      roles: resolveProviderSmokeTestRoles(parseOptionalEnum(readStringField(body, 'role'), PROVIDER_SMOKE_TEST_ROLE_OPTIONS)),
       text: readStringField(body, 'text') ?? undefined,
       workspaceDir,
     }),
@@ -98,7 +98,7 @@ async function routeActions({request, url, workspaceDir}: RootRouteContext): Pro
   }
 
   return jsonResponse(await readVideoAgentGuidedActions({
-    artifactLimit: parseOptionalInteger(url.searchParams.get('artifactLimit')),
+    artifactLimit: parseOptionalNonNegativeInteger(url.searchParams.get('artifactLimit')),
     commandPrefix: readCommandPrefix(url.searchParams),
     workspaceDir,
   }))
@@ -120,13 +120,13 @@ async function routeWorker({request, workspaceDir}: RootRouteContext): Promise<R
   const body = await readJsonBody(request)
 
   return jsonResponse(
-    await recoverWorkspaceJobs({
+    await recoverFilmWorkspaceJobs({
       dryRun: readBooleanField(body, 'dryRun'),
-      limit: readNumberField(body, 'limit'),
-      maxAttempts: readNumberField(body, 'maxAttempts'),
-      orderBy: readRecoveryOrderBy(readStringField(body, 'orderBy')),
-      runningStaleAfterMs: readNumberField(body, 'runningStaleAfterMs'),
-      statuses: resolveRecoverableStatuses(readStringField(body, 'status')),
+      limit: readNonNegativeIntegerField(body, 'limit'),
+      maxAttempts: readNonNegativeIntegerField(body, 'maxAttempts'),
+      orderBy: parseOptionalEnum(readStringField(body, 'orderBy'), FILM_RECOVERY_ORDER_BY_VALUES),
+      runningStaleAfterMs: readNonNegativeIntegerField(body, 'runningStaleAfterMs'),
+      statuses: resolveFilmRecoverableStatuses(parseOptionalEnum(readStringField(body, 'status'), FILM_RECOVERY_STATUS_OPTIONS)),
       workspaceDir,
     }),
   )

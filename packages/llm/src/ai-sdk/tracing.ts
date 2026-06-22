@@ -5,6 +5,8 @@ import {toJSONSchema} from 'zod'
 
 import type {GenerateObjectRequest, GenerateTextRequest, LLMTraceOperation, LLMTraceRecord, LLMTraceRecorder, LLMUsage} from '../types.js'
 
+import {CALL_STATUS_FAILED, CALL_STATUS_SUCCEEDED} from '@video-agent/ir'
+
 const MAX_ERROR_TEXT_CHARS = 4000
 const MAX_ERROR_STACK_CHARS = 2000
 const MAX_ERROR_DETAIL_DEPTH = 3
@@ -67,7 +69,7 @@ export async function recordAISDKTrace(input: {
       requestId: input.trace.requestId,
       ...(input.result.error === undefined ? {response: traceResponse(input.result)} : input.result.text === undefined ? {} : {response: {text: input.result.text}}),
       startedAt: input.trace.startedAt,
-      status: input.result.error === undefined ? 'succeeded' : 'failed',
+      status: input.result.error === undefined ? CALL_STATUS_SUCCEEDED : CALL_STATUS_FAILED,
       ...(input.result.usage === undefined ? {} : {usage: input.result.usage}),
       version: 1,
     } satisfies LLMTraceRecord)

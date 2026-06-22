@@ -4,7 +4,8 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {listProjects} from '../../../packages/runtime/src/project/projects.js'
+import {listProjects, readMostRecentProjectId} from '../../../packages/runtime/src/project/projects.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
 describe('projects', () => {
   it('lists project summaries sorted by update time', async () => {
@@ -18,6 +19,7 @@ describe('projects', () => {
 
       expect(projects.map((project) => project.projectId)).to.deep.equal(['new', 'old'])
       expect(projects[0].status).to.equal('running')
+      expect(await readMostRecentProjectId(root)).to.equal('new')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -27,7 +29,26 @@ describe('projects', () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-projects-'))
 
     try {
+      await writeConfig(root, {})
+
       expect(await listProjects(root)).to.deep.equal([])
+      const error = await captureAsyncError(() => readMostRecentProjectId(root))
+
+      expect(error).to.be.instanceOf(Error)
+      expect(error instanceof Error ? error.message : '').to.equal(`No projects found in workspace ${root}.`)
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('ignores project directories without job state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-projects-'))
+
+    try {
+      await mkdir(join(root, 'projects', 'legacy'), {recursive: true})
+      await createJob(root, 'demo', ['ingest'])
+
+      expect((await listProjects(root)).map((project) => project.projectId)).to.deep.equal(['demo'])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -37,10 +58,22 @@ describe('projects', () => {
 async function createJob(root: string, projectId: string, stages: string[]): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
 
+  await writeConfig(root, {})
   await mkdir(projectDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: `/tmp/${projectId}.mp4`,
+    pipeline: 'film',
     projectId,
     stages,
   })
+}
+
+async function captureAsyncError(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn()
+  } catch (error) {
+    return error
+  }
+
+  throw new Error('Expected function to throw')
 }

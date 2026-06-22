@@ -8,6 +8,7 @@ import type {ProjectStatus} from '../../packages/runtime/src/project/status.js'
 
 import {JsonJobStore} from '../../packages/db/src/job-store.js'
 import {refreshArtifactManifest} from '../../packages/runtime/src/artifacts/store.js'
+import {writeConfig} from '../../packages/runtime/src/shared/config.js'
 import {runTuiAction} from '../../src/ui/actions/index.js'
 import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../../src/ui/format/console.js'
 
@@ -62,6 +63,7 @@ describe('tui command', () => {
           error: 'Checkpoint IR validation failed.',
           fromStage: 'quality-check',
           missingArtifacts: ['narration.json'],
+          pipeline: 'film',
           projectId: 'demo',
           schemaInvalidArtifacts: ['clip-plan.json'],
           skipReason: 'checkpoint-invalid',
@@ -235,16 +237,11 @@ describe('tui command', () => {
           status: 'completed',
           updatedAt: '2026-06-15T00:00:00.000Z',
         },
-        {
-          projectDir: '/tmp/workspace/projects/legacy',
-          projectId: 'legacy',
-        },
       ],
       type: 'projects',
     })).to.equal([
-      'Action: projects -> 2 projects',
+      'Action: projects -> 1 projects',
       '  demo\tcompleted\t2026-06-15T00:00:00.000Z',
-      '  legacy\tunknown\t-',
     ].join('\n'))
   })
 
@@ -590,10 +587,20 @@ describe('tui command', () => {
 
     try {
       const renderDir = join(root, 'projects', 'demo', 'renders')
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
       const outputPath = join(root, 'out.mp4')
 
       await mkdir(renderDir, {recursive: true})
+      await mkdir(artifactsDir, {recursive: true})
       await writeFile(join(renderDir, 'final.mp4'), 'video')
+      await writeFile(
+        join(artifactsDir, 'render-output.json'),
+        `${JSON.stringify({
+          outputPath: 'renders/final.mp4',
+          renderer: 'ffmpeg',
+          version: 1,
+        })}\n`,
+      )
 
       const result = await runTuiAction({
         action: 'export',
@@ -847,7 +854,6 @@ describe('tui command', () => {
     expect(output).to.include('quality-report.json')
     expect(output).to.include('2026-06-15T00:00:00.000Z pipeline stage:start ingest')
     expect(output).to.include('Commands')
-    expect(output).to.include('Test providers')
     expect(output).to.include('Inspect status')
     expect(output).to.include('bun run dev tui --project demo --action status --workspace .video-agent')
     expect(output.includes('Rerun from ingest')).to.equal(false)
@@ -934,10 +940,6 @@ describe('tui command', () => {
       description: 'Rerun the focused project from the first unfinished stage, quality-check.',
       priority: 15,
     })
-    expect(commands.find((item) => item.id === 'provider-test')).to.include({
-      category: 'provider',
-      description: 'Run ASR, VLM, and TTS provider smoke tests for the current workspace.',
-    })
     expect(commands.find((item) => item.id === 'verify-artifacts')).to.include({
       category: 'artifact',
       description: 'Verify artifact manifest hashes and known IR/provider schemas.',
@@ -948,13 +950,12 @@ describe('tui command', () => {
     expect(commands.find((item) => item.id === 'read-events')?.command).to.equal("vagent tui --project 'demo project' --action events --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'inspect-visual-samples')?.command).to.equal("vagent tui --project 'demo project' --action visual --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'inspect-audio')?.command).to.equal("vagent tui --project 'demo project' --action audio --workspace 'workspace dir'")
-    expect(commands.find((item) => item.id === 'provider-test')?.command).to.equal("vagent tui --action provider-test --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'worker-dry-run')?.command).to.equal("vagent tui --action worker --dry-run --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'open-artifact')?.command).to.equal("vagent tui --project 'demo project' --action artifact --artifact 'quality report.json' --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'rerun-suggested-stage')?.command).to.equal("vagent tui --project 'demo project' --action rerun --from-stage quality-check --workspace 'workspace dir'")
     expect(commands.find((item) => item.id === 'render-final-video')?.command).to.equal("vagent tui --project 'demo project' --action render --workspace 'workspace dir'")
-    expect(commands.find((item) => item.id === 'export-output')?.command).to.equal("vagent tui --project 'demo project' --action export --export-require-quality --workspace 'workspace dir'")
-    expect(commands.some((item) => item.id.startsWith('export-') && item.command.includes('--export-format'))).to.equal(false)
+    expect(commands.find((item) => item.id === 'export-output')?.command).to.equal("vagent tui --project 'demo project' --action export --export-format video --export-require-quality --workspace 'workspace dir'")
+    expect(commands.some((item) => item.id.startsWith('export-') && item.command.includes('--export-format'))).to.equal(true)
   })
 
   it('formats and resolves guided command selections', () => {
@@ -1129,6 +1130,7 @@ async function createQualityProject(root: string, projectId: string): Promise<vo
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
@@ -1162,6 +1164,7 @@ async function createEventsProject(root: string, projectId: string): Promise<voi
   const projectDir = join(root, 'projects', projectId)
   const artifactsDir = join(projectDir, 'artifacts')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
@@ -1223,9 +1226,13 @@ async function createVisualSampleProject(root: string, projectId: string): Promi
   await writeFile(
     join(artifactsDir, 'render-output.json'),
     `${JSON.stringify({
+      renderer: 'ffmpeg',
+      version: 1,
       visualQuality: {
+        errors: 0,
         frameSamples: [
           {
+            capturedAt: '2026-01-01T00:00:00.000Z',
             ok: true,
             path: join(rendersDir, 'final-frame-first.jpg'),
             sha256: 'first-hash',
@@ -1233,6 +1240,7 @@ async function createVisualSampleProject(root: string, projectId: string): Promi
             timestamp: 0,
           },
         ],
+        warnings: 0,
       },
     })}\n`,
   )

@@ -6,14 +6,15 @@ import {resolve} from 'node:path'
 import {readConfig} from '../shared/config.js'
 import {createConfiguredJobStore, readOptionalJobState} from '../shared/job-store.js'
 
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
 export interface ProjectSummary {
   projectDir: string
   projectId: string
-  status?: JobState['status']
-  updatedAt?: string
+  status: JobState['status']
+  updatedAt: string
 }
 
-export async function listProjects(workspaceDir = '.video-agent'): Promise<ProjectSummary[]> {
+export async function listProjects(workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ProjectSummary[]> {
   const resolvedWorkspaceDir = resolve(workspaceDir)
   const config = await readConfig(resolvedWorkspaceDir)
   const projectsDir = resolve(resolvedWorkspaceDir, 'projects')
@@ -24,7 +25,7 @@ export async function listProjects(workspaceDir = '.video-agent'): Promise<Proje
 
     throw error
   })
-  const projects = await Promise.all(
+  const projectResults = await Promise.all(
     entries
       .filter((entry) => entry.isDirectory())
       .map(async (entry) => {
@@ -38,18 +39,33 @@ export async function listProjects(workspaceDir = '.video-agent'): Promise<Proje
           }),
         )
 
+        if (job === undefined) {
+          return undefined
+        }
+
         return {
           projectDir,
           projectId: entry.name,
-          status: job?.status,
-          updatedAt: job?.updatedAt,
+          status: job.status,
+          updatedAt: job.updatedAt,
         }
       }),
   )
+  const projects = projectResults.filter((project): project is ProjectSummary => project !== undefined)
 
   return projects.sort((a, b) => {
-    const updatedAtOrder = (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+    const updatedAtOrder = b.updatedAt.localeCompare(a.updatedAt)
 
     return updatedAtOrder === 0 ? a.projectId.localeCompare(b.projectId) : updatedAtOrder
   })
+}
+
+export async function readMostRecentProjectId(workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<string> {
+  const [project] = await listProjects(workspaceDir)
+
+  if (project === undefined) {
+    throw new Error(`No projects found in workspace ${workspaceDir}.`)
+  }
+
+  return project.projectId
 }

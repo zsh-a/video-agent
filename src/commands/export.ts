@@ -1,20 +1,21 @@
 import {Args, Command, Flags} from '@oclif/core'
-import {type ExportFormat, exportProject, ExportQualityError, type ProjectQualityReport} from '@video-agent/runtime'
+import {EXPORT_FORMATS, type ExportFormat, exportProject, ExportQualityError} from '@video-agent/runtime'
 
-import {formatQualityRenderSummary} from './quality.js'
+import {parseRequiredEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
+import {createExportQualityFailurePayload, formatExportQualityFailure} from '../utils/export-output.js'
 
 export default class Export extends Command {
   static args = {
     project: Args.string({description: 'Project id to export', required: true}),
   }
-  static description = 'Export a rendered project'
+  static description = 'Export a project as video or bundle'
   static flags = {
     'clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting bundle format'}),
-    format: Flags.string({description: 'Export format. Omit to infer from the latest render output.', options: ['video', 'bundle']}),
+    format: Flags.string({description: 'Export format.', options: [...EXPORT_FORMATS], required: true}),
     json: Flags.boolean({description: 'Print machine-readable output'}),
     output: Flags.string({description: 'Output file or directory path'}),
     'require-quality': Flags.boolean({description: 'Refuse export when project quality, render diagnostics, or artifact integrity are not clean'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -24,7 +25,7 @@ export default class Export extends Command {
     try {
       output = await exportProject({
         cleanOutput: flags['clean-output'],
-        format: flags.format as ExportFormat | undefined,
+        format: parseRequiredEnumFlag<ExportFormat>(flags.format, EXPORT_FORMATS, '--format'),
         outputPath: flags.output,
         projectId: args.project,
         requireQuality: flags['require-quality'],
@@ -58,37 +59,4 @@ export default class Export extends Command {
     this.log(`Quality gate: ${output.requireQuality ? 'required' : 'not required'}`)
     this.log(`Artifact: ${output.artifactPath}`)
   }
-}
-
-export function createExportQualityFailurePayload(projectId: string, quality: ProjectQualityReport, message: string): {
-  error: {
-    code: 'export_quality_failed'
-    message: string
-    name: 'ExportQualityError'
-  }
-  ok: false
-  projectId: string
-  quality: ProjectQualityReport
-} {
-  return {
-    error: {
-      code: 'export_quality_failed',
-      message,
-      name: 'ExportQualityError',
-    },
-    ok: false,
-    projectId,
-    quality,
-  }
-}
-
-export function formatExportQualityFailure(projectId: string, quality: ProjectQualityReport): string {
-  return [
-    `Export blocked: project ${projectId} did not pass quality checks.`,
-    `Quality: ${quality.summary.errors} errors, ${quality.summary.warnings} warnings`,
-    `Pipeline: ${quality.pipeline.errors} errors, ${quality.pipeline.warnings} warnings`,
-    `Content: ${quality.content.errors} errors, ${quality.content.warnings} warnings`,
-    `Render: ${formatQualityRenderSummary(quality.render)}`,
-    `Artifacts: ${quality.artifacts.ok ? 'ok' : 'not ok'} (${quality.artifacts.summary.changed} changed, ${quality.artifacts.summary.missing} missing, ${quality.artifacts.summary.schemaInvalid} schema invalid, ${quality.artifacts.summary.untracked} untracked)`,
-  ].join('\n')
 }

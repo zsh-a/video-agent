@@ -59,14 +59,6 @@ export function normalizePositiveFiniteNumber(value: number | undefined): number
   return value === undefined || !Number.isFinite(value) || value <= 0 ? undefined : value
 }
 
-export function parseOptionalJson(text: string): undefined | unknown {
-  try {
-    return JSON.parse(text) as unknown
-  } catch {
-    return undefined
-  }
-}
-
 export function readStringField(value: unknown, field: string): string | undefined {
   if (!isRecord(value)) {
     return undefined

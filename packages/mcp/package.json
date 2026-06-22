@@ -11,6 +11,8 @@
     }
   },
   "dependencies": {
+    "@video-agent/core": "workspace:*",
+    "@video-agent/ir": "workspace:*",
     "@video-agent/pipeline-deck": "workspace:*",
     "@video-agent/pipeline-film": "workspace:*",
     "@video-agent/runtime": "workspace:*",

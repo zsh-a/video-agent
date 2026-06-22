@@ -1,12 +1,15 @@
 import {expect} from '#test/expect'
-import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
+import {runFilmRecapProject} from '../../../packages/pipeline-film/src/recovery/runner.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
+import {readProjectEvents} from '../../../packages/runtime/src/project/events-reader.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 import {PipelineCheckpointError} from '@video-agent/runtime'
-import {rerunProject} from '../../../packages/pipeline-film/src/rerun.js'
+import {rerunFilmProject} from '../../../packages/pipeline-film/src/rerun.js'
 
 describe('rerun project', () => {
   it('reruns an existing film project from job state input path', async () => {
@@ -15,7 +18,7 @@ describe('rerun project', () => {
     try {
       await createFilmQualityCheckpoint(root, 'demo')
 
-      const result = await rerunProject('demo', {
+      const result = await rerunFilmProject('demo', {
         fromStage: 'quality-check',
         workspaceDir: root,
       })
@@ -41,7 +44,7 @@ describe('rerun project', () => {
       expect(error).to.be.instanceOf(PipelineCheckpointError)
       expect((error as PipelineCheckpointError).fromStage).to.equal('quality-check')
       expect((error as PipelineCheckpointError).missingArtifacts).to.include.members([
-        'narration.json',
+        'output-narration.json',
         'output-timeline-map.json',
         'render-output.json',
         'tts-segments.json',
@@ -109,19 +112,99 @@ describe('rerun project', () => {
       await rm(root, {force: true, recursive: true})
     }
   })
+
+  it('uses configured stage retries when running film stages', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-retry-'))
+    const inputPath = join(root, 'input.mp4')
+    const binDir = join(root, 'bin')
+    const statePath = join(root, 'ffprobe-attempts.txt')
+    const originalPath = process.env.PATH
+
+    try {
+      await mkdir(binDir, {recursive: true})
+      await writeConfig(root, {
+        maxStageRetries: 1,
+        retryBackoffMs: 0,
+      })
+      await writeFile(inputPath, 'placeholder')
+      await writeFile(join(binDir, 'ffprobe'), createFlakyFfprobeScript(statePath))
+      await chmod(join(binDir, 'ffprobe'), 0o755)
+
+      process.env.PATH = `${binDir}:${originalPath ?? ''}`
+
+      const error = await captureAsyncError(() => runFilmRecapProject({
+        fromStage: 'ingest',
+        inputPath,
+        projectId: 'retry-demo',
+        workspaceDir: root,
+      }))
+      const retryEvents = await readProjectEvents('retry-demo', {
+        kind: 'pipeline',
+        pipelineType: 'stage:retry',
+        workspaceDir: root,
+      })
+
+      expect(error).to.be.instanceOf(Error)
+      expect(await readFile(statePath, 'utf8')).to.equal('2\n')
+      expect(retryEvents.events.map((event) => event.event.stage)).to.include('ingest')
+    } finally {
+      process.env.PATH = originalPath
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('generates a real project id before Film pipeline retry events instead of using a film fallback id', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-rerun-generated-id-'))
+    const inputPath = join(root, 'source clip.mp4')
+    const binDir = join(root, 'bin')
+    const statePath = join(root, 'ffprobe-attempts.txt')
+    const originalPath = process.env.PATH
+
+    try {
+      await mkdir(binDir, {recursive: true})
+      await writeConfig(root, {
+        maxStageRetries: 1,
+        retryBackoffMs: 0,
+      })
+      await writeFile(inputPath, 'placeholder')
+      await writeFile(join(binDir, 'ffprobe'), createFlakyFfprobeScript(statePath))
+      await chmod(join(binDir, 'ffprobe'), 0o755)
+
+      process.env.PATH = `${binDir}:${originalPath ?? ''}`
+
+      const error = await captureAsyncError(() => runFilmRecapProject({
+        fromStage: 'ingest',
+        inputPath,
+        workspaceDir: root,
+      }))
+      const projectIds = await readdir(join(root, 'projects'))
+      const projectId = projectIds[0]
+
+      expect(error).to.be.instanceOf(Error)
+      expect(projectIds).to.have.length(1)
+      expect(projectId === 'film').to.equal(false)
+      expect(projectId?.startsWith('source-clip-')).to.equal(true)
+
+      const retryEvents = await readProjectEvents(projectId ?? '', {
+        kind: 'pipeline',
+        pipelineType: 'stage:retry',
+        workspaceDir: root,
+      })
+
+      expect(retryEvents.events.length).to.be.greaterThan(0)
+      expect(retryEvents.events.every((event) => event.event.projectId === projectId)).to.equal(true)
+    } finally {
+      process.env.PATH = originalPath
+      await rm(root, {force: true, recursive: true})
+    }
+  })
 })
 
 async function catchRerun(root: string, projectId: string): Promise<unknown> {
-  try {
-    await rerunProject(projectId, {
-      fromStage: 'quality-check',
-      workspaceDir: root,
-    })
-  } catch (error) {
-    return error
-  }
-
-  return undefined
+  return captureAsyncError(() => rerunFilmProject(projectId, {
+    fromStage: 'quality-check',
+    workspaceDir: root,
+  }))
 }
 
 interface CreateFilmQualityCheckpointOptions {
@@ -134,6 +217,7 @@ async function createFilmQualityCheckpoint(root: string, projectId: string, opti
   const artifactsDir = join(projectDir, 'artifacts')
   const inputPath = join(root, 'input.mp4')
 
+  await writeConfig(root, {})
   await mkdir(artifactsDir, {recursive: true})
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
@@ -151,9 +235,10 @@ async function createFilmQualityCheckpoint(root: string, projectId: string, opti
         renderer: 'ffmpeg',
         version: 1,
       }),
-      writeJson(artifactsDir, 'narration.json', {
+      writeJson(artifactsDir, 'output-narration.json', {
         language: 'zh-CN',
         segments: [],
+        timeline: 'output',
         version: 1,
       }),
       writeJson(artifactsDir, 'tts-segments.json', []),
@@ -175,4 +260,33 @@ async function createFilmQualityCheckpoint(root: string, projectId: string, opti
 
 async function writeJson(dir: string, name: string, value: unknown): Promise<void> {
   await writeFile(join(dir, name), `${JSON.stringify(value)}\n`)
+}
+
+async function captureAsyncError(fn: () => Promise<unknown>): Promise<unknown> {
+  try {
+    await fn()
+  } catch (error) {
+    return error
+  }
+
+  return undefined
+}
+
+function createFlakyFfprobeScript(statePath: string): string {
+  return `#!/bin/sh
+STATE=${shellSingleQuote(statePath)}
+if [ ! -f "$STATE" ]; then
+  printf '1\\n' > "$STATE"
+  echo 'transient ffprobe failure' >&2
+  exit 17
+fi
+printf '2\\n' > "$STATE"
+cat <<'JSON'
+{"format":{"duration":"1","format_name":"mov","size":"10"},"streams":[{"avg_frame_rate":"30/1","codec_name":"h264","codec_type":"video","duration":"1","height":180,"index":0,"width":320}]}
+JSON
+`
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", String.raw`'\''`)}'`
 }

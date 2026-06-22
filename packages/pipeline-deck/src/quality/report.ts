@@ -1,7 +1,8 @@
 import type {DeckFormat, DeckQualityIssue, DeckQualityReport, DeckSlideQualityMetrics, LongVideoSelectedMoments, MediaInfo, Narration, Slide, SlideTiming, Storyboard, TimedDeck, Timeline} from '@video-agent/ir'
 import type {QualityIssue} from '@video-agent/quality'
 
-import {checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds} from '@video-agent/quality'
+import {TIMED_DECK_ARTIFACT_NAME} from '@video-agent/ir'
+import {QUALITY_ERROR_SEVERITY, QUALITY_WARNING_SEVERITY, checkNarrationTiming, checkStoryboardConsistency, checkTimelineBounds, countQualityIssues} from '@video-agent/quality'
 import {compileDeckMotionPlan, resolveMotionStepsForTemplate, validateSlideAgainstTemplateManifest} from '@video-agent/renderer-deck'
 
 import {deckSlideText} from '../planning/slide-content.js'
@@ -36,7 +37,7 @@ export function createDeckQualityReport(timedDeck: TimedDeck): DeckQualityReport
       issues.push({
         code: 'deck.slide_timing_missing',
         message: `Slide ${slide.slideId} has no timing entry.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
         slideId: slide.slideId,
       })
     }
@@ -70,11 +71,10 @@ export function createDeckQualityReport(timedDeck: TimedDeck): DeckQualityReport
       estimatedRenderSeconds: roundSeconds(motion.duration * estimateDeckRenderSecondsPerSecond(timedDeck.deck.format)),
       fps: motion.timeline.fps,
     },
-    source: 'timed-deck.json',
+    source: TIMED_DECK_ARTIFACT_NAME,
     summary: {
-      errors: issues.filter((issue) => issue.severity === 'error').length,
+      ...countQualityIssues(issues),
       slides: timedDeck.deck.slides.length,
-      warnings: issues.filter((issue) => issue.severity === 'warning').length,
     },
     templateDistribution: createTemplateDistribution(timedDeck.deck.slides),
     textDensity: {
@@ -88,19 +88,12 @@ export function createDeckQualityReport(timedDeck: TimedDeck): DeckQualityReport
   }
 }
 
-export function summarizeQualityIssues(issues: QualityIssue[]): {errors: number; warnings: number} {
-  return {
-    errors: issues.filter((issue) => issue.severity === 'error').length,
-    warnings: issues.filter((issue) => issue.severity === 'warning').length,
-  }
-}
-
 export function assertDeckQualityReportHasNoErrors(report: DeckQualityReport, reportPath?: string): void {
   if (report.summary.errors === 0) {
     return
   }
 
-  const firstError = report.issues.find((issue) => issue.severity === 'error')
+  const firstError = report.issues.find((issue) => issue.severity === QUALITY_ERROR_SEVERITY)
   const reportHint = reportPath === undefined ? '' : ` Report: ${reportPath}.`
   const firstErrorHint = firstError === undefined ? '' : ` First error: ${firstError.code}: ${firstError.message}`
 
@@ -131,7 +124,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.title_too_long',
       message: `Slide ${slide.slideId} title has ${metric.titleCharacters} characters; target is ${maxTitleCharacters} or fewer for ${format}.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -140,7 +133,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.text_density_high',
       message: `Slide ${slide.slideId} has ${metric.textCharacters} text characters; target is ${maxTextCharacters} or fewer for ${format}.`,
-      severity: metric.textCharacters > maxTextCharacters * 1.5 ? 'error' : 'warning',
+      severity: metric.textCharacters > maxTextCharacters * 1.5 ? QUALITY_ERROR_SEVERITY : QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -149,7 +142,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.too_many_points',
       message: `Slide ${slide.slideId} has ${metric.pointCount} points; target is 4 or fewer.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -158,7 +151,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.slide_too_short',
       message: `Slide ${slide.slideId} duration is ${metric.duration}s; target is at least 2s for readability.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -167,7 +160,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.reading_rate_high',
       message: `Slide ${slide.slideId} has an estimated reading rate of ${metric.estimatedCharactersPerSecond} characters/s.`,
-      severity: metric.estimatedCharactersPerSecond > 28 ? 'error' : 'warning',
+      severity: metric.estimatedCharactersPerSecond > 28 ? QUALITY_ERROR_SEVERITY : QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -176,7 +169,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.chart_missing_source',
       message: `Slide ${slide.slideId} is a chart slide without evidence for its chart data.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -187,7 +180,7 @@ function createDeckSlideQualityIssues(slide: Slide, metric: DeckSlideQualityMetr
     issues.push({
       code: 'deck.stat_missing_context',
       message: `Slide ${slide.slideId} is a stat slide without supporting points or caption.`,
-      severity: 'warning',
+      severity: QUALITY_WARNING_SEVERITY,
       slideId: slide.slideId,
     })
   }
@@ -241,7 +234,7 @@ function createSlideContentIssue(slide: Slide, code: string, message: string): D
   return {
     code,
     message: `Slide ${slide.slideId} ${message}`,
-    severity: 'error',
+    severity: QUALITY_ERROR_SEVERITY,
     slideId: slide.slideId,
   }
 }
@@ -250,7 +243,7 @@ function createDeckTemplateQualityIssues(slide: Slide): DeckQualityIssue[] {
   return validateSlideAgainstTemplateManifest(slide).map((message): DeckQualityIssue => ({
     code: 'deck.template.manifest_violation',
     message,
-    severity: 'error',
+    severity: QUALITY_ERROR_SEVERITY,
     slideId: slide.slideId,
   }))
 }
@@ -300,7 +293,7 @@ function createDeckTimingQualityIssues(timings: SlideTiming[]): DeckQualityIssue
       issues.push({
         code: 'deck.timing_overlap',
         message: `Slide ${timing.slideId} starts before the previous slide ends.`,
-        severity: 'error',
+        severity: QUALITY_ERROR_SEVERITY,
         slideId: timing.slideId,
       })
     }
@@ -309,7 +302,7 @@ function createDeckTimingQualityIssues(timings: SlideTiming[]): DeckQualityIssue
       issues.push({
         code: 'deck.timing_gap',
         message: `Slide ${timing.slideId} starts ${roundSeconds(timing.start - previous.end)}s after the previous slide ends.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
         slideId: timing.slideId,
       })
     }
@@ -330,7 +323,7 @@ function createDuplicateSlideQualityIssues(slides: Slide[]): DeckQualityIssue[] 
       issues.push({
         code: 'deck.duplicate_slide',
         message: `Slide ${slide.slideId} duplicates the visible text of ${previousSlideId}.`,
-        severity: 'warning',
+        severity: QUALITY_WARNING_SEVERITY,
         slideId: slide.slideId,
       })
     } else {

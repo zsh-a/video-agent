@@ -2,7 +2,7 @@ import {expect} from '#test/expect'
 
 import type {ProjectQualityReport} from '../../packages/runtime/src/project/quality.js'
 
-import {createExportQualityFailurePayload, formatExportQualityFailure} from '../../src/commands/export.js'
+import {createExportQualityFailurePayload, formatExportQualityFailure} from '../../src/utils/export-output.js'
 
 describe('export command', () => {
   it('formats quality gate failures with actionable diagnostics', () => {

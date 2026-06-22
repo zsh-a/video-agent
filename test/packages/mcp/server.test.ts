@@ -2,9 +2,11 @@ import {expect} from '#test/expect'
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {PassThrough} from 'node:stream'
 
 import {JsonJobStore} from '../../../packages/db/src/job-store.js'
-import {createVideoAgentMcpServer} from '../../../packages/mcp/src/server.js'
+import {createVideoAgentMcpServer, parseJsonRpcMessageBody} from '../../../packages/mcp/src/server.js'
+import {startMcpStdioServer} from '../../../packages/mcp/src/stdio.js'
 import {refreshArtifactManifest} from '../../../packages/runtime/src/artifacts/store.js'
 import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 
@@ -47,17 +49,63 @@ describe('mcp server', () => {
     const deckRenderProperties = toolsByName.get('video_agent_deck_render')?.inputSchema.properties ?? {}
     const deckBackendProperties = toolsByName.get('video_agent_deck_export_backend')?.inputSchema.properties ?? {}
     const deckRenderBackendProperties = toolsByName.get('video_agent_deck_render_backend')?.inputSchema.properties ?? {}
-    const deckRunShardProperties = toolsByName.get('video_agent_deck_run_shards')?.inputSchema.properties ?? {}
+    const deckRunShardProperties = toolsByName.get('video_agent_deck_run_shards')?.inputSchema.properties as Record<string, {minimum?: number}> | undefined ?? {}
 
     expect(Object.keys(renderProperties)).to.include.members(['duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(deckRenderProperties)).to.include.members(['chromiumCommand', 'finalizeOnly', 'frameCaptureBackend', 'frameStart', 'frameEnd', 'keyframeCaptureBackend', 'playwrightCommand'])
     expect(Object.keys(deckBackendProperties)).to.include.members(['backend', 'compositionId', 'fps', 'outputDir'])
-    expect(Object.keys(deckRenderBackendProperties)).to.include.members(['backend', 'command', 'compositionId', 'outputPath'])
+    expect(Object.keys(deckRenderBackendProperties)).to.include.members(['command', 'compositionId', 'outputPath'])
+    expect(Object.keys(deckRenderBackendProperties).includes('backend')).to.equal(false)
+    expect(toolsByName.get('video_agent_deck_export_backend')?.inputSchema.required).to.deep.equal(['backend', 'projectId'])
     expect(Object.keys(deckRunShardProperties)).to.include.members(['frameCaptureBackend', 'frameConcurrency', 'frameShardSize', 'playwrightCommand', 'shardConcurrency', 'shardRetries', 'shardRetryDelayMs'])
+    expect(deckRunShardProperties.frameShardSize?.minimum).to.equal(1)
+    expect(deckRunShardProperties.shardRetries?.minimum).to.equal(0)
     expect(Object.keys(audioProperties)).to.include.members(['duckingAttackMs', 'duckingRatio', 'duckingReleaseMs', 'duckingThreshold', 'sourceVolume', 'voiceoverVolume'])
     expect(Object.keys(workerProperties)).to.include.members(['dryRun', 'limit', 'maxAttempts', 'orderBy', 'runningStaleAfterMs', 'status'])
     expect(Object.keys(qualityProperties)).to.include('details')
     expect(Object.keys(exportProperties)).to.include('cleanOutput')
+  })
+
+  it('describes and enforces non-empty command arrays', async () => {
+    const server = createVideoAgentMcpServer()
+    const toolsByName = new Map(server.tools.map((tool) => [tool.name, tool]))
+    const deckRenderProperties = toolsByName.get('video_agent_deck_render')?.inputSchema.properties as Record<string, {items?: {minLength?: number}; minItems?: number}> | undefined
+
+    expect(deckRenderProperties?.chromiumCommand.minItems).to.equal(1)
+    expect(deckRenderProperties?.chromiumCommand.items?.minLength).to.equal(1)
+
+    const response = await server.handleMessage({
+      id: 'empty-command-array',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        arguments: {
+          chromiumCommand: [],
+          projectId: 'demo',
+        },
+        name: 'video_agent_deck_render',
+      },
+    })
+
+    expect(response?.error?.message).to.equal('MCP tool argument chromiumCommand must be a non-empty string array.')
+  })
+
+  it('enforces positive Deck integer arguments at the MCP boundary', async () => {
+    const server = createVideoAgentMcpServer()
+    const response = await server.handleMessage({
+      id: 'invalid-deck-integer',
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: {
+        arguments: {
+          frameShardSize: 0,
+          projectId: 'demo',
+        },
+        name: 'video_agent_deck_plan_shards',
+      },
+    })
+
+    expect(response?.error?.message).to.equal('MCP tool argument frameShardSize must be a positive integer.')
   })
 
   it('adds client-facing descriptions to important tool arguments', () => {
@@ -72,8 +120,8 @@ describe('mcp server', () => {
     expect(guidedActionProperties?.artifactLimit.description).to.include('Maximum number of project artifacts')
     expect(renderProperties?.projectId.description).to.equal('Project id inside the video-agent workspace.')
     expect(renderProperties?.audio.description).to.include('render without source or voiceover audio')
-    expect(workerProperties?.runningStaleAfterMs.description).to.include('Skip running jobs')
-    expect(workerProperties?.orderBy.description).to.include('Recovery candidate ordering')
+    expect(workerProperties?.runningStaleAfterMs.description).to.include('Skip running Film jobs')
+    expect(workerProperties?.orderBy.description).to.include('Film recovery candidate ordering')
 	    expect(deckShardProperties?.frameShardSize.description).to.include('Frame count per planned shard')
 	    expect(deckRunShardProperties?.shardConcurrency.description).to.include('Maximum shards')
 	    expect(guidedActionProperties?.commandPrefix.description).to.include('Command prefix')
@@ -232,8 +280,12 @@ describe('mcp server', () => {
   it('uses explicit provider env values for environment reports and smoke tests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
     const command = '["bun","examples/provider-adapters/mock-json-provider.ts"]'
+    const sampleFramePath = join(root, 'sample-frame.jpg')
+    const sampleMediaPath = join(root, 'sample-media.wav')
 
     try {
+      await writeFile(sampleFramePath, Buffer.from('fake-jpeg'))
+      await writeFile(sampleMediaPath, Buffer.from('fake-audio'))
       await createProject(root, 'demo')
       await writeConfig(root, {
         asr: 'command',
@@ -286,7 +338,10 @@ describe('mcp server', () => {
               VIDEO_AGENT_TTS_COMMAND: command,
               VIDEO_AGENT_VLM_COMMAND: command,
             },
+            framePath: sampleFramePath,
+            mediaPath: sampleMediaPath,
             role: 'all',
+            text: 'Provider smoke test narration.',
           },
           name: 'video_agent_provider_test',
         },
@@ -316,8 +371,10 @@ describe('mcp server', () => {
 
   it('calls the provider smoke test tool', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mcp-'))
+    const sampleMediaPath = join(root, 'sample-media.wav')
 
     try {
+      await writeFile(sampleMediaPath, Buffer.from('fake-audio'))
       await createProject(root, 'demo')
 
       const server = createVideoAgentMcpServer({workspaceDir: root})
@@ -327,6 +384,7 @@ describe('mcp server', () => {
         method: 'tools/call',
         params: {
           arguments: {
+            mediaPath: sampleMediaPath,
             role: 'asr',
           },
           name: 'video_agent_provider_test',
@@ -585,6 +643,7 @@ describe('mcp server', () => {
 
     try {
       await createProject(root, 'demo')
+      await writeQualityArtifacts(root, 'demo')
 
       const server = createVideoAgentMcpServer({workspaceDir: root})
       const response = await server.handleMessage({
@@ -593,6 +652,7 @@ describe('mcp server', () => {
         method: 'tools/call',
         params: {
           arguments: {
+            format: 'video',
             projectId: 'demo',
             requireQuality: true,
           },
@@ -870,18 +930,80 @@ describe('mcp server', () => {
 
     expect(response?.error?.message).to.equal('Unknown MCP tool: missing_tool')
   })
+
+  it('returns JSON-RPC invalid-request errors instead of throwing on malformed request objects', async () => {
+    const server = createVideoAgentMcpServer()
+    const response = await server.handleMessage({
+      id: 1,
+      jsonrpc: '2.0',
+      params: {},
+    })
+
+    expect(response).to.deep.include({
+      id: null,
+      jsonrpc: '2.0',
+    })
+    expect(response?.error).to.deep.include({
+      code: -32600,
+      message: 'Invalid JSON-RPC request.',
+    })
+    expect(((response?.error?.data as {issues?: unknown[]}).issues ?? []).length).to.be.greaterThan(0)
+  })
+
+  it('returns JSON-RPC parse errors for malformed stdio message bodies', async () => {
+    const server = createVideoAgentMcpServer()
+    const response = await server.handleMessage(parseJsonRpcMessageBody('{"jsonrpc":"2.0",'))
+
+    expect(response).to.deep.include({
+      id: null,
+      jsonrpc: '2.0',
+    })
+    expect(response?.error?.code).to.equal(-32700)
+    expect(response?.error?.message).to.include('Invalid JSON-RPC message body')
+  })
+
+  it('frames stdio parse errors as JSON-RPC responses instead of writing transport errors', async () => {
+    const stdin = new PassThrough()
+    const stdout = new PassThrough()
+    const stderr = new PassThrough()
+    const output = new Promise<string>((resolve) => {
+      stdout.once('data', (chunk) => {
+        resolve(String(chunk))
+      })
+    })
+
+    startMcpStdioServer({stderr, stdin, stdout})
+    stdin.write(frameMcpMessage('{"jsonrpc":"2.0",'))
+
+    const framed = await output
+    const body = framed.slice(framed.indexOf('\r\n\r\n') + 4)
+    const response = JSON.parse(body) as {error?: {code: number; message: string}; id: null; jsonrpc: string}
+
+    expect(response.id).to.equal(null)
+    expect(response.jsonrpc).to.equal('2.0')
+    expect(response.error?.code).to.equal(-32700)
+    expect(response.error?.message).to.include('Invalid JSON-RPC message body')
+    expect(stderr.read()).to.equal(null)
+  })
 })
+
+function frameMcpMessage(body: string): string {
+  return `Content-Length: ${Buffer.byteLength(body, 'utf8')}\r\n\r\n${body}`
+}
 
 async function createProject(root: string, projectId: string): Promise<void> {
   const projectDir = join(root, 'projects', projectId)
+  const artifactsDir = join(projectDir, 'artifacts')
 
-  await mkdir(join(projectDir, 'artifacts'), {recursive: true})
+  await writeConfig(root, {})
+  await mkdir(artifactsDir, {recursive: true})
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
     inputPath: '/tmp/input.mp4',
     pipeline: 'film',
     projectId,
     stages: ['ingest', 'quality-check'],
   })
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeQualityArtifacts(root: string, projectId: string): Promise<void> {
@@ -905,6 +1027,7 @@ async function writeQualityArtifacts(root: string, projectId: string): Promise<v
       version: 1,
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -925,6 +1048,7 @@ async function createRerunProject(root: string, projectId: string): Promise<stri
   const projectDir = join(root, 'projects', projectId)
   const inputPath = join(root, `${projectId}.mp4`)
 
+  await writeConfig(root, {})
   await mkdir(join(projectDir, 'artifacts'), {recursive: true})
   await writeFile(inputPath, 'placeholder')
   await new JsonJobStore(join(projectDir, 'job-state.json')).initialize({
@@ -954,10 +1078,11 @@ async function writeRerunArtifacts(root: string, projectId: string): Promise<voi
       })}\n`,
     ),
     writeFile(
-      join(artifactsDir, 'narration.json'),
+      join(artifactsDir, 'output-narration.json'),
       `${JSON.stringify({
         language: 'zh-CN',
         segments: [],
+        timeline: 'output',
         version: 1,
       })}\n`,
     ),
@@ -1009,6 +1134,7 @@ async function writeDeckArtifacts(root: string, projectId: string): Promise<void
       version: 1,
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }
 
 async function writeVisualSamples(root: string, projectId: string): Promise<void> {
@@ -1024,13 +1150,19 @@ async function writeVisualSamples(root: string, projectId: string): Promise<void
       renderer: 'ffmpeg',
       version: 1,
       visualQuality: {
-        frameSample: {
-          ok: true,
-          path: join(rendersDir, 'final-frame-first.jpg'),
-          size: 5,
-          timestamp: 0,
-        },
+        errors: 0,
+        frameSamples: [
+          {
+            capturedAt: '2026-01-01T00:00:00.000Z',
+            ok: true,
+            path: join(rendersDir, 'final-frame-first.jpg'),
+            size: 5,
+            timestamp: 0,
+          },
+        ],
+        warnings: 0,
       },
     })}\n`,
   )
+  await refreshArtifactManifest(artifactsDir)
 }

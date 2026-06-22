@@ -1,49 +1,52 @@
-import type {RecoveryOrderBy} from '@video-agent/pipeline-film'
-import type {ExportFormat, PipelineStage, ProjectEventKind, ProjectPipelineEventType, ProviderCallRole, ProviderCallStatus} from '@video-agent/runtime'
+import type {FilmPipelineStage, FilmRecoveryOrderBy, FilmRecoveryStatusOption} from '@video-agent/pipeline-film'
+import type {PipelineEventType} from '@video-agent/core'
+import type {ExportFormat, ProjectEventKind, ProviderCallRole, ProviderCallStatus, ProviderSmokeTestRoleOption} from '@video-agent/runtime'
 import type {RunTuiActionOptions} from '../ui/actions/index.js'
 import type {FormatTuiSnapshotOptions, TuiAction, TuiCommandSuggestion} from '../ui/model.js'
 
 import {Command, Flags} from '@oclif/core'
-import {FILM_PIPELINE_STAGES} from '@video-agent/pipeline-film'
+import {PIPELINE_EVENT_TYPES} from '@video-agent/core'
+import {FILM_PIPELINE_STAGES, FILM_RECOVERY_ORDER_BY_VALUES, FILM_RECOVERY_STATUS_OPTIONS} from '@video-agent/pipeline-film'
+import {EXPORT_FORMATS, PROJECT_EVENT_KINDS, PROVIDER_CALL_ROLES, PROVIDER_CALL_STATUSES, PROVIDER_SMOKE_TEST_ROLE_OPTIONS} from '@video-agent/runtime'
 import {createInterface, type Interface} from 'node:readline'
 
 import {readTuiSnapshot, runTuiAction} from '../ui/actions/index.js'
 import {createTuiCommandSuggestions, formatTuiActionResult, formatTuiCommandSelector, formatTuiSnapshot, resolveTuiCommandSelection} from '../ui/format/console.js'
 import {type TuiManagerActionRequest, launchTuiManager} from '../ui/manager/index.js'
-
-const PIPELINE_EVENT_TYPES = ['agent:run:complete', 'agent:run:fail', 'agent:run:start', 'agent:step:complete', 'agent:step:fail', 'agent:step:progress', 'agent:step:start', 'artifact', 'log', 'stage:complete', 'stage:fail', 'stage:progress', 'stage:retry', 'stage:start', 'tool:call:complete', 'tool:call:fail', 'tool:call:start'] as const
+import {TUI_ACTIONS} from '../ui/model.js'
+import {normalizeNonNegativeIntegerFlag, normalizePositiveIntegerFlag, normalizeRequiredNonNegativeIntegerFlag, normalizeRequiredPositiveIntegerFlag, parseOptionalEnumFlag, parseOptionalNumberFlag, parseRequiredEnumFlag, workspaceFlag} from '../utils/cli-flags.js'
 
 export default class Tui extends Command {
   static description = 'Manage video-agent workspace projects in the terminal'
   static flags = {
-    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: ['artifact', 'audio', 'commands', 'dashboard', 'events', 'export', 'projects', 'provider-test', 'quality', 'render', 'rerun', 'select', 'status', 'verify', 'visual', 'worker']}),
+    action: Flags.string({default: 'dashboard', description: 'Dashboard action to run before rendering', options: [...TUI_ACTIONS]}),
     artifact: Flags.string({description: 'Artifact filename to inspect when --action artifact is used'}),
     'artifact-limit': Flags.integer({default: 8, description: 'Maximum artifacts to show for the selected project'}),
     'command-prefix': Flags.string({default: 'bun run dev', description: 'Command prefix used in TUI command suggestions'}),
-    'dry-run': Flags.boolean({description: 'Preview worker recovery when --action worker is used'}),
-    'event-kind': Flags.string({description: 'Event kind filter when --action events is used', options: ['pipeline', 'provider']}),
+    'dry-run': Flags.boolean({description: 'Preview Film worker recovery when --action worker is used'}),
+    'event-kind': Flags.string({description: 'Event kind filter when --action events is used', options: [...PROJECT_EVENT_KINDS]}),
     'event-limit': Flags.integer({default: 6, description: 'Maximum recent events to show for the selected project'}),
-    'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: ['asr', 'script', 'tts', 'vlm']}),
-    'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: ['failed', 'succeeded']}),
+    'event-provider-role': Flags.string({description: 'Provider role filter when --action events is used', options: [...PROVIDER_CALL_ROLES]}),
+    'event-provider-status': Flags.string({description: 'Provider status filter when --action events is used', options: [...PROVIDER_CALL_STATUSES]}),
     'event-stage': Flags.string({description: 'Pipeline stage filter when --action events is used'}),
     'event-type': Flags.string({description: 'Pipeline event type filter when --action events is used', options: [...PIPELINE_EVENT_TYPES]}),
     'export-clean-output': Flags.boolean({description: 'Remove an existing directory output before exporting bundle format when --action export is used'}),
-    'export-format': Flags.string({description: 'Export format when --action export is used. Omit to infer from the latest render output.', options: ['video', 'bundle']}),
+    'export-format': Flags.string({description: 'Export format when --action export is used.', options: [...EXPORT_FORMATS]}),
     'export-output': Flags.string({description: 'Output file or directory path when --action export is used'}),
     'export-require-quality': Flags.boolean({allowNo: true, default: true, description: 'Refuse export unless project quality is clean when --action export is used'}),
-    frame: Flags.string({description: 'Sample frame path for VLM provider tests'}),
+    frame: Flags.string({description: 'Sample frame path for VLM provider tests; required when --provider-role all or --provider-role vlm'}),
     'from-stage': Flags.string({
       description: 'Stage to start from when --action rerun is used',
       options: [...FILM_PIPELINE_STAGES],
     }),
     interactive: Flags.boolean({allowNo: true, default: true, description: 'Use the interactive Ink manager when a TTY is available'}),
     json: Flags.boolean({description: 'Print machine-readable dashboard snapshot'}),
-    limit: Flags.integer({description: 'Maximum recoverable jobs to process when --action worker is used'}),
-    'max-attempts': Flags.integer({description: 'Skip jobs whose recovery stage attempt is greater than or equal to this value when --action worker is used'}),
-    media: Flags.string({description: 'Sample media path for ASR provider tests'}),
-    'order-by': Flags.string({description: 'Recovery candidate ordering when --action worker is used', options: ['attempt', 'oldest', 'recent']}),
+    limit: Flags.integer({description: 'Maximum recoverable Film jobs to process when --action worker is used'}),
+    'max-attempts': Flags.integer({description: 'Skip Film jobs whose recovery stage attempt is greater than or equal to this value when --action worker is used'}),
+    media: Flags.string({description: 'Sample media path for ASR provider tests; required when --provider-role all or --provider-role asr'}),
+    'order-by': Flags.string({description: 'Film recovery candidate ordering when --action worker is used', options: [...FILM_RECOVERY_ORDER_BY_VALUES]}),
     project: Flags.string({description: 'Project id to focus; defaults to the most recently updated project'}),
-    'provider-role': Flags.string({default: 'all', description: 'Provider role to test when --action provider-test is used', options: ['all', 'asr', 'tts', 'vlm']}),
+    'provider-role': Flags.string({default: 'all', description: 'Provider role to test when --action provider-test is used', options: [...PROVIDER_SMOKE_TEST_ROLE_OPTIONS]}),
     'quality-details': Flags.boolean({description: 'Include raw quality-report.json and render-output.json content when --action quality is used'}),
     'refresh-ms': Flags.integer({default: 2000, description: 'Refresh interval for the interactive manager or --watch dashboard'}),
     'render-audio': Flags.boolean({allowNo: true, default: true, description: 'Mix available source audio and TTS voiceover segments when --action render is used'}),
@@ -56,23 +59,25 @@ export default class Tui extends Command {
     'render-source-volume': Flags.string({description: 'Source audio volume multiplier when --action render is used'}),
     'render-subtitles': Flags.boolean({allowNo: true, default: true, description: 'Burn narration subtitles when --action render is used'}),
     'render-voiceover-volume': Flags.string({description: 'Voiceover audio volume multiplier when --action render is used'}),
-    'running-stale-after-ms': Flags.integer({description: 'Skip running jobs updated more recently than this threshold when --action worker is used'}),
-    status: Flags.string({default: 'active', description: 'Job status to recover when --action worker is used', options: ['active', 'failed', 'running']}),
-    text: Flags.string({description: 'Sample narration text for TTS provider tests'}),
+    'running-stale-after-ms': Flags.integer({description: 'Skip running Film jobs updated more recently than this threshold when --action worker is used'}),
+    status: Flags.string({default: 'active', description: 'Film job status to recover when --action worker is used', options: [...FILM_RECOVERY_STATUS_OPTIONS]}),
+    text: Flags.string({description: 'Sample narration text for TTS provider tests; required when --provider-role all or --provider-role tts'}),
     'visual-include-content': Flags.boolean({description: 'Include base64 image content when --action visual is used'}),
     watch: Flags.boolean({description: 'Refresh the dashboard until interrupted'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
     const {flags} = await this.parse(Tui)
+    const integerFlagValues = parseTuiIntegerFlagValues(flags)
     const options = {
-      artifactLimit: flags['artifact-limit'],
+      artifactLimit: integerFlagValues.artifactLimit,
       commandPrefix: flags['command-prefix'],
-      eventLimit: flags['event-limit'],
+      eventLimit: integerFlagValues.eventLimit,
     }
 
-    const action = flags.action as TuiAction
+    const action = parseRequiredEnumFlag<TuiAction>(flags.action, TUI_ACTIONS, '--action')
+    const actionFlagValues = parseTuiActionFlagValues(flags)
 
     if (flags.watch && flags.json) {
       throw new Error('The tui command cannot combine --watch and --json.')
@@ -90,71 +95,36 @@ export default class Tui extends Command {
     })) {
       await launchTuiManager({
         initialProjectId: flags.project,
-        refreshMs: flags['refresh-ms'],
+        refreshMs: integerFlagValues.refreshMs,
         runtime: {
           createCommands: (snapshot) => createTuiCommandSuggestions(snapshot, {commandPrefix: flags['command-prefix']}),
           formatActionResult: formatTuiActionResult,
           readSnapshot: (projectId) => readTuiSnapshot({
-            artifactLimit: flags['artifact-limit'],
-            eventLimit: flags['event-limit'],
+            artifactLimit: integerFlagValues.artifactLimit,
+            eventLimit: integerFlagValues.eventLimit,
             projectId,
             workspaceDir: flags.workspace,
           }),
-          runAction: (request) => runTuiAction(createTuiManagerActionOptions(flags, request)),
+          runAction: (request) => runTuiAction(createTuiManagerActionOptions(flags, request, actionFlagValues, integerFlagValues)),
         },
       })
       return
     }
 
     if (flags.watch) {
-      await this.watchDashboard(flags.workspace, flags.project, flags['refresh-ms'], options)
+      await this.watchDashboard(flags.workspace, flags.project, integerFlagValues.refreshMs, options)
       return
     }
 
-    let actionResult = await runTuiAction({
+    let actionResult = await runTuiAction(createTuiActionOptions(flags, {
       action,
-      artifactLimit: flags['artifact-limit'],
       artifactName: flags.artifact,
-      commandPrefix: flags['command-prefix'],
       dryRun: flags['dry-run'],
-      eventKind: flags['event-kind'] as ProjectEventKind | undefined,
-      eventLimit: flags['event-limit'],
-      eventPipelineStage: flags['event-stage'],
-      eventPipelineType: flags['event-type'] as ProjectPipelineEventType | undefined,
-      eventProviderRole: flags['event-provider-role'] as ProviderCallRole | undefined,
-      eventProviderStatus: flags['event-provider-status'] as ProviderCallStatus | undefined,
-      exportCleanOutput: flags['export-clean-output'],
-      exportFormat: flags['export-format'] as ExportFormat | undefined,
-      exportOutputPath: flags['export-output'],
-      exportRequireQuality: flags['export-require-quality'],
-      framePath: flags.frame,
-      fromStage: flags['from-stage'] as PipelineStage | undefined,
-      limit: flags.limit,
-      maxAttempts: flags['max-attempts'],
-      mediaPath: flags.media,
-      orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
       projectId: flags.project,
-      providerRole: flags['provider-role'],
-      qualityDetails: flags['quality-details'],
-      renderAudio: flags['render-audio'],
-      renderAudioDucking: flags['render-audio-ducking'],
-      renderDuckingAttackMs: flags['render-ducking-attack-ms'],
-      renderDuckingRatio: flags['render-ducking-ratio'],
-      renderDuckingReleaseMs: flags['render-ducking-release-ms'],
-      renderDuckingThreshold: parseOptionalNumber(flags['render-ducking-threshold'], 'render-ducking-threshold'),
-      renderOutputPath: flags['render-output'],
-      renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
-      renderSubtitles: flags['render-subtitles'],
-      renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
-      runningStaleAfterMs: flags['running-stale-after-ms'],
-      status: flags.status,
-      text: flags.text,
-      visualIncludeContent: flags['visual-include-content'],
-      workspaceDir: flags.workspace,
-    })
+    }, actionFlagValues, integerFlagValues))
     const snapshot = await readTuiSnapshot({
-      artifactLimit: flags['artifact-limit'],
-      eventLimit: flags['event-limit'],
+      artifactLimit: integerFlagValues.artifactLimit,
+      eventLimit: integerFlagValues.eventLimit,
       projectId: flags.project,
       workspaceDir: flags.workspace,
     })
@@ -232,14 +202,13 @@ interface ParsedTuiFlags {
   'export-output'?: string
   'export-require-quality': boolean
   frame?: string
-  'from-stage'?: string
   limit?: number
   'max-attempts'?: number
   media?: string
   'order-by'?: string
   project?: string
-  'provider-role': string
   'quality-details'?: boolean
+  'refresh-ms': number
   'render-audio'?: boolean
   'render-audio-ducking'?: boolean
   'render-ducking-attack-ms'?: number
@@ -251,56 +220,135 @@ interface ParsedTuiFlags {
   'render-subtitles'?: boolean
   'render-voiceover-volume'?: string
   'running-stale-after-ms'?: number
-  status: string
   text?: string
   'visual-include-content'?: boolean
   workspace: string
 }
 
-function createTuiManagerActionOptions(flags: ParsedTuiFlags, request: TuiManagerActionRequest): RunTuiActionOptions {
-  const action = request.id === 'worker-dry-run' ? 'worker' : request.id
+interface TuiActionFlagValues {
+  eventKind?: ProjectEventKind
+  eventPipelineType?: PipelineEventType
+  eventProviderRole?: ProviderCallRole
+  eventProviderStatus?: ProviderCallStatus
+  exportFormat?: ExportFormat
+  fromStage?: FilmPipelineStage
+  orderBy?: FilmRecoveryOrderBy
+  providerRole: ProviderSmokeTestRoleOption
+  renderDuckingThreshold?: number
+  renderSourceVolume?: number
+  renderVoiceoverVolume?: number
+  status: FilmRecoveryStatusOption
+}
 
+interface TuiIntegerFlagValues {
+  artifactLimit: number
+  eventLimit: number
+  limit?: number
+  maxAttempts?: number
+  refreshMs: number
+  renderDuckingAttackMs?: number
+  renderDuckingRatio?: number
+  renderDuckingReleaseMs?: number
+  runningStaleAfterMs?: number
+}
+
+type TuiActionFlagInputs = ParsedTuiFlags & {
+  'from-stage'?: string
+  'provider-role': string
+  status: string
+}
+
+function parseTuiActionFlagValues(flags: TuiActionFlagInputs): TuiActionFlagValues {
   return {
-    action,
-    artifactLimit: flags['artifact-limit'],
-    artifactName: request.artifactName ?? flags.artifact,
+    eventKind: parseOptionalEnumFlag<ProjectEventKind>(flags['event-kind'], PROJECT_EVENT_KINDS, '--event-kind'),
+    eventPipelineType: parseOptionalEnumFlag<PipelineEventType>(flags['event-type'], PIPELINE_EVENT_TYPES, '--event-type'),
+    eventProviderRole: parseOptionalEnumFlag<ProviderCallRole>(flags['event-provider-role'], PROVIDER_CALL_ROLES, '--event-provider-role'),
+    eventProviderStatus: parseOptionalEnumFlag<ProviderCallStatus>(flags['event-provider-status'], PROVIDER_CALL_STATUSES, '--event-provider-status'),
+    exportFormat: parseOptionalEnumFlag<ExportFormat>(flags['export-format'], EXPORT_FORMATS, '--export-format'),
+    fromStage: parseOptionalEnumFlag<FilmPipelineStage>(flags['from-stage'], FILM_PIPELINE_STAGES, '--from-stage'),
+    orderBy: parseOptionalEnumFlag<FilmRecoveryOrderBy>(flags['order-by'], FILM_RECOVERY_ORDER_BY_VALUES, '--order-by'),
+    providerRole: parseRequiredEnumFlag<ProviderSmokeTestRoleOption>(flags['provider-role'], PROVIDER_SMOKE_TEST_ROLE_OPTIONS, '--provider-role'),
+    renderDuckingThreshold: parseOptionalNumberFlag(flags['render-ducking-threshold'], '--render-ducking-threshold'),
+    renderSourceVolume: parseOptionalNumberFlag(flags['render-source-volume'], '--render-source-volume'),
+    renderVoiceoverVolume: parseOptionalNumberFlag(flags['render-voiceover-volume'], '--render-voiceover-volume'),
+    status: parseRequiredEnumFlag<FilmRecoveryStatusOption>(flags.status, FILM_RECOVERY_STATUS_OPTIONS, '--status'),
+  }
+}
+
+function parseTuiIntegerFlagValues(flags: ParsedTuiFlags): TuiIntegerFlagValues {
+  return {
+    artifactLimit: normalizeRequiredNonNegativeIntegerFlag(flags['artifact-limit'], '--artifact-limit'),
+    eventLimit: normalizeRequiredNonNegativeIntegerFlag(flags['event-limit'], '--event-limit'),
+    limit: normalizeNonNegativeIntegerFlag(flags.limit, '--limit'),
+    maxAttempts: normalizeNonNegativeIntegerFlag(flags['max-attempts'], '--max-attempts'),
+    refreshMs: normalizeRequiredPositiveIntegerFlag(flags['refresh-ms'], '--refresh-ms'),
+    renderDuckingAttackMs: normalizeNonNegativeIntegerFlag(flags['render-ducking-attack-ms'], '--render-ducking-attack-ms'),
+    renderDuckingRatio: normalizePositiveIntegerFlag(flags['render-ducking-ratio'], '--render-ducking-ratio'),
+    renderDuckingReleaseMs: normalizeNonNegativeIntegerFlag(flags['render-ducking-release-ms'], '--render-ducking-release-ms'),
+    runningStaleAfterMs: normalizeNonNegativeIntegerFlag(flags['running-stale-after-ms'], '--running-stale-after-ms'),
+  }
+}
+
+interface TuiActionContext {
+  action: TuiAction
+  artifactName?: string
+  dryRun?: boolean
+  projectId?: string
+}
+
+function createTuiActionOptions(flags: ParsedTuiFlags, context: TuiActionContext, actionFlagValues: TuiActionFlagValues, integerFlagValues: TuiIntegerFlagValues): RunTuiActionOptions {
+  return {
+    action: context.action,
+    artifactLimit: integerFlagValues.artifactLimit,
+    artifactName: context.artifactName,
     commandPrefix: flags['command-prefix'],
-    dryRun: request.id === 'worker-dry-run' ? true : flags['dry-run'],
-    eventKind: flags['event-kind'] as ProjectEventKind | undefined,
-    eventLimit: flags['event-limit'],
+    dryRun: context.dryRun,
+    eventKind: actionFlagValues.eventKind,
+    eventLimit: integerFlagValues.eventLimit,
     eventPipelineStage: flags['event-stage'],
-    eventPipelineType: flags['event-type'] as ProjectPipelineEventType | undefined,
-    eventProviderRole: flags['event-provider-role'] as ProviderCallRole | undefined,
-    eventProviderStatus: flags['event-provider-status'] as ProviderCallStatus | undefined,
+    eventPipelineType: actionFlagValues.eventPipelineType,
+    eventProviderRole: actionFlagValues.eventProviderRole,
+    eventProviderStatus: actionFlagValues.eventProviderStatus,
     exportCleanOutput: flags['export-clean-output'],
-    exportFormat: flags['export-format'] as ExportFormat | undefined,
+    exportFormat: actionFlagValues.exportFormat,
     exportOutputPath: flags['export-output'],
     exportRequireQuality: flags['export-require-quality'],
     framePath: flags.frame,
-    fromStage: flags['from-stage'] as PipelineStage | undefined,
-    limit: flags.limit,
-    maxAttempts: flags['max-attempts'],
+    fromStage: actionFlagValues.fromStage,
+    limit: integerFlagValues.limit,
+    maxAttempts: integerFlagValues.maxAttempts,
     mediaPath: flags.media,
-    orderBy: flags['order-by'] as RecoveryOrderBy | undefined,
-    projectId: request.projectId ?? flags.project,
-    providerRole: flags['provider-role'],
+    orderBy: actionFlagValues.orderBy,
+    projectId: context.projectId,
+    providerRole: actionFlagValues.providerRole,
     qualityDetails: flags['quality-details'],
     renderAudio: flags['render-audio'],
     renderAudioDucking: flags['render-audio-ducking'],
-    renderDuckingAttackMs: flags['render-ducking-attack-ms'],
-    renderDuckingRatio: flags['render-ducking-ratio'],
-    renderDuckingReleaseMs: flags['render-ducking-release-ms'],
-    renderDuckingThreshold: parseOptionalNumber(flags['render-ducking-threshold'], 'render-ducking-threshold'),
+    renderDuckingAttackMs: integerFlagValues.renderDuckingAttackMs,
+    renderDuckingRatio: integerFlagValues.renderDuckingRatio,
+    renderDuckingReleaseMs: integerFlagValues.renderDuckingReleaseMs,
+    renderDuckingThreshold: actionFlagValues.renderDuckingThreshold,
     renderOutputPath: flags['render-output'],
-    renderSourceVolume: parseOptionalNumber(flags['render-source-volume'], 'render-source-volume'),
+    renderSourceVolume: actionFlagValues.renderSourceVolume,
     renderSubtitles: flags['render-subtitles'],
-    renderVoiceoverVolume: parseOptionalNumber(flags['render-voiceover-volume'], 'render-voiceover-volume'),
-    runningStaleAfterMs: flags['running-stale-after-ms'],
-    status: flags.status,
+    renderVoiceoverVolume: actionFlagValues.renderVoiceoverVolume,
+    runningStaleAfterMs: integerFlagValues.runningStaleAfterMs,
+    status: actionFlagValues.status,
     text: flags.text,
     visualIncludeContent: flags['visual-include-content'],
     workspaceDir: flags.workspace,
   }
+}
+
+function createTuiManagerActionOptions(flags: ParsedTuiFlags, request: TuiManagerActionRequest, actionFlagValues: TuiActionFlagValues, integerFlagValues: TuiIntegerFlagValues): RunTuiActionOptions {
+  const action: TuiAction = request.id === 'worker-dry-run' ? 'worker' : request.id
+
+  return createTuiActionOptions(flags, {
+    action,
+    artifactName: request.artifactName ?? flags.artifact,
+    dryRun: request.id === 'worker-dry-run' ? true : flags['dry-run'],
+    projectId: request.projectId ?? flags.project,
+  }, actionFlagValues, integerFlagValues)
 }
 
 async function promptTuiCommandSelection(commands: TuiCommandSuggestion[]): Promise<TuiCommandSuggestion | undefined> {
@@ -342,18 +390,4 @@ async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
-}
-
-function parseOptionalNumber(value: string | undefined, flag: string): number | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  const parsed = Number(value)
-
-  if (!Number.isFinite(parsed)) {
-    throw new TypeError(`Flag --${flag} must be a finite number.`)
-  }
-
-  return parsed
 }

@@ -17,7 +17,7 @@ import {resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 
 import {createDeckHtmlFrameSequence, createDeckHtmlKeyframes} from './planning.js'
-import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange} from './utils.js'
+import {isNonEmptyFile, normalizeCaptureConcurrency, normalizeFrameRange, requireCaptureFps} from './utils.js'
 
 export class PlaywrightCaptureError extends Error {
   constructor(
@@ -34,7 +34,7 @@ export async function captureDeckHtmlFrameSequenceWithPlaywright(options: Captur
   const projectDir = resolve(options.projectDir)
   const captureDir = resolve(projectDir, 'capture-sequence-playwright')
   const viewport = deckCanvasSize(options.timedDeck.deck.format)
-  const fps = options.fps ?? 30
+  const fps = requireCaptureFps(options.fps)
   const concurrency = normalizeCaptureConcurrency(options.concurrency)
   const frames = createDeckHtmlFrameSequence({
     fps,
@@ -111,7 +111,7 @@ export async function captureDeckHtmlKeyframesWithPlaywright(options: CaptureDec
   const projectDir = resolve(options.projectDir)
   const captureDir = resolve(projectDir, 'capture-keyframes-playwright')
   const viewport = deckCanvasSize(options.timedDeck.deck.format)
-  const fps = options.fps ?? 30
+  const fps = requireCaptureFps(options.fps)
   const concurrency = normalizeCaptureConcurrency(options.concurrency)
   const frames = createDeckHtmlKeyframes({
     fps,

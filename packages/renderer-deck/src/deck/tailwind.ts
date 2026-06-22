@@ -2,12 +2,11 @@ import type {Deck} from '@video-agent/ir'
 
 import {runProcess} from '@video-agent/media'
 import {createHash} from 'node:crypto'
-import {copyFile, mkdir} from 'node:fs/promises'
+import {copyFile, mkdir, writeFile} from 'node:fs/promises'
 import {createRequire} from 'node:module'
 import {tmpdir} from 'node:os'
 import {dirname, resolve} from 'node:path'
 
-import {bunWrite} from '../bun-runtime.js'
 import {createDeckCss} from './styles/create-deck-css.js'
 
 const require = createRequire(import.meta.url)
@@ -33,14 +32,14 @@ export async function compileDeckTailwindCss(options: CompileDeckTailwindCssOpti
   const cachePath = resolveDeckTailwindCachePath(options.deck)
 
   if (await copyCachedCss(cachePath, options.outputPath)) {
-    await bunWrite(options.inputPath, createDeckCss(options.deck, {
+    await writeFile(options.inputPath, createDeckCss(options.deck, {
       sourceHtmlPath: options.sourceHtmlPath,
       tailwindCssPath: resolveTailwindCssPath(),
     }))
     return
   }
 
-  await bunWrite(options.inputPath, createDeckCss(options.deck, {
+  await writeFile(options.inputPath, createDeckCss(options.deck, {
     sourceHtmlPath: options.sourceHtmlPath,
     tailwindCssPath: resolveTailwindCssPath(),
   }))

@@ -11,6 +11,7 @@
     }
   },
   "dependencies": {
-    "@video-agent/ir": "workspace:*"
+    "@video-agent/ir": "workspace:*",
+    "zod": "^4.1.13"
   }
 }

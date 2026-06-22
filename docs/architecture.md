@@ -89,7 +89,7 @@ packages/
   core/               Stage interface, PipelineContext, event contract, sequential pipeline runner
   runtime/            Filesystem artifact store, pipeline event bus, workspace, config store, and JobRunner
   media/              ffmpeg / ffprobe / process wrappers with Bun subprocess execution
-  providers/          ASR / VLM / TTS plus storyboard/script business provider interfaces
+  providers/          ASR / VLM / TTS plus script business provider interfaces
   llm/                Internal LLMClient interface, AI SDK config factory, and AI SDK-backed default adapter
   renderer-ffmpeg/    Emits renders/final.mp4 from TimelineIR and subtitles from NarrationIR
   renderer-deck/      Shared DeckIR React/Tailwind templates, theme CSS, Shiki code highlighting, template manifest, and MotionIR compiler
@@ -129,7 +129,11 @@ The runtime owns jobs, events, checkpoints, artifacts, workspace IO, provider se
 
 Each stage accepts typed input, writes serializable artifacts, emits events, and returns typed output. Film jobs can resume from supported checkpoint stages with `rerun <projectId> --from-stage` or worker recovery. Deck recovery is handled through dedicated deck commands rather than generic rerun. Before resuming, the runtime validates the upstream artifact set and fails without mutating job state when artifacts are missing, changed, untracked, or invalid against the relevant IR schema.
 
-Agent-style generation is modeled as runtime-observable work inside pipeline stages, not as an adapter-specific chat session. The core event contract includes `agent:run:*`, `agent:step:*`, and `tool:call:*` events alongside stage events. Runtime helpers append those events to `pipeline-events.jsonl`, update the active job stage with progress fields, and project them into `ProjectStatus.agent` for adapters. LLM trace files and provider call logs remain audit artifacts; TUI, Web Studio, API, MCP, and CLI status surfaces consume the runtime projection instead of interpreting provider traces.
+Agent-style generation is modeled as runtime-observable work inside pipeline stages, not as an adapter-specific chat session. The core event contract includes `agent:run:*`, `agent:step:*`, and `tool:call:*` events alongside stage events, including `stage:skip` for stages that are intentionally not applicable to a pipeline mode. Runtime helpers append those events to `pipeline-events.jsonl`, update the active job stage with progress fields, and project them into `ProjectStatus.agent` for adapters. LLM trace files and provider call logs remain audit artifacts; TUI, Web Studio, API, MCP, and CLI status surfaces consume the runtime projection instead of interpreting provider traces.
+
+Pipeline definitions are the only source of truth for job stage schemas. A mode such as Deck text, audio summary, or audio-anchored generation must initialize the same Deck stage list and mark non-applicable stages as `skipped`; it must not reinitialize a job with a shortened mode-specific stage list. Job state must be opened through the runtime-configured job store so JSON and SQLite persistence expose the same project status to CLI, TUI, API, MCP, and Studio.
+
+Pipeline runners use the core stage runner for ordered execution and configured retry policy. Stage implementations still own their artifact writes and domain-specific provider calls, while runtime stage helpers own job state and event projection. Retry attempts emit `stage:retry` into the same project event stream.
 
 This shared agent runtime is intentionally about execution mechanics: step lifecycle, progress, validation/rewrite loops, artifact writes, and resumable state. It does not define generic semantic stages. Deck still owns deck brief, slide outline, slide planning, script semantics, and template validation. Film still owns story indexing, recap scripting, and clip planning.
 
@@ -222,7 +226,7 @@ deck/motion.ts     deterministic motion presets compiled into a seekable timelin
 
 Templates compose lower layers and declare semantic structure only. `deck/templates/registry.tsx` is the renderer-side catalog for template modules; `template-manifest.ts` remains the LLM-facing catalog of allowed choices, limits, repair behavior, and quality rules. Themes own style tokens, motion presets own animation behavior, and LLM output remains limited to DeckIR fields selected from the manifest.
 
-The primary renderer for this pipeline is Remotion. `@video-agent/pipeline-deck` compiles DeckIR plus MotionIR into a Remotion composition under `renders/remotion/`, renders a silent H.264 video with `imageFormat=jpeg`, `jpegQuality=85`, `x264Preset=veryfast`, and `concurrency=75%`, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The static React HTML renderer is retained as an explicit fallback through `renderer: "html"` or CLI `--renderer html`; it is best suited for compatibility, inspection, and keyframe visual QC rather than default full-video rendering. The HTML path can capture Playwright or Chromium frame sequences, write `deck-frame-manifest.json`, reuse existing non-empty frames, plan shards with `--plan-shards`, run shard batches with retry, and finalize from complete frame manifests. A Remotion final render removes stale HTML frame artifacts so interrupted browser-frame renders do not pollute the artifact manifest. HyperFrames remains an optional backend for compatible HTML project rendering. `createDeckRendererBackendProject` and CLI `deck export-backend` compile the same DeckIR plus MotionIR into standalone Remotion or Motion Canvas projects and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json`. `createDeckRemotionRenderProject` and CLI `deck render-backend --backend remotion` still run an explicit external Remotion command inside `renders/remotion/`, expect `out/final.mp4` by default, and record `deck-renderer-remotion-output.json`.
+The primary renderer for this pipeline is Remotion. `@video-agent/pipeline-deck` compiles DeckIR plus MotionIR into a Remotion composition under `renders/remotion/`, renders a silent H.264 video with `imageFormat=jpeg`, `jpegQuality=85`, `x264Preset=veryfast`, and `concurrency=75%`, then uses ffmpeg to mux voiceover audio and `mov_text` subtitles into `renders/final.mp4`. The static React HTML renderer is an explicit inspection path through `renderer: "html"` or CLI `--renderer html`; it is best suited for deterministic browser frame capture, debugging, and keyframe visual QC rather than default full-video rendering. The HTML path can capture Playwright or Chromium frame sequences, write `deck-frame-manifest.json`, reuse existing non-empty frames, plan shards with `--plan-shards`, run shard batches with retry, and finalize from complete frame manifests. A Remotion final render removes stale HTML frame artifacts so interrupted browser-frame renders do not pollute the artifact manifest. HyperFrames remains an optional backend for HTML project rendering. `createDeckRendererBackendProject` and CLI `deck export-backend --backend remotion|motion-canvas` compile the same DeckIR plus MotionIR into standalone Remotion or Motion Canvas projects and record `deck-renderer-remotion.json` or `deck-renderer-motion-canvas.json`. `createDeckRemotionRenderProject` and CLI `deck render-backend` run an explicit external Remotion command inside `renders/remotion/`, expect `out/final.mp4` by default, and record `deck-renderer-remotion-output.json`.
 
 Quality checks focus on text density, safe area, title overflow, visual hierarchy, contrast, slide/audio timing, subtitle overlap, chart/source evidence, repeated slides, and empty slides.
 
@@ -302,6 +306,7 @@ workspace/
       clip-plan.json
       timeline.json
       narration.json
+      output-narration.json
       quality-report.json
       chunks/
         000/
@@ -320,14 +325,12 @@ Providers are interfaces first:
 ASRProvider
 VLMProvider
 TTSProvider
-StoryboardProvider
 ScriptProvider
-AssetProvider
 ```
 
-Concrete providers can wrap local command adapters, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. Semantic understanding and generation must not use deterministic fallback logic: Film Recap and Deck Explainer story summaries, selected moments, storyboard/deck content, script/narration, narrative beat classification, and semantic clip selection come from LLM/VLM structured outputs. Deterministic TypeScript logic is limited to media, evidence, validation, and timeline orchestration.
+Concrete providers can wrap local command adapters, `@video-agent/llm`, or provider-specific media-producing endpoints. Runtime stages call business provider interfaces only; they do not call AI SDK or vendor SDKs directly. Semantic understanding and generation must not use deterministic fallback logic: Film Recap and Deck Explainer story summaries, selected moments, storyboard/deck content, recap scripts, output narration, narrative beat classification, and semantic clip selection come from LLM/VLM structured outputs. Deterministic TypeScript logic is limited to media, evidence, validation, and timeline orchestration.
 
-If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/storyboard/script providers that select `llm`. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms when possible. Binary media endpoints such as MiMo TTS stay behind provider interfaces when they need to write artifacts directly.
+If workspace config contains an `llm` block, runtime creates an AI SDK-backed `LLMClient` and injects it into ASR/VLM/script providers that select `llm`. Hosted LLM-like services should be added through `packages/llm` provider config and AI SDK transforms when possible. Binary media endpoints such as MiMo TTS stay behind provider interfaces when they need to write artifacts directly.
 
 ## Near-Term Roadmap
 

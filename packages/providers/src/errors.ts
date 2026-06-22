@@ -1,10 +1,12 @@
+import type {ProviderRole} from './descriptors.js'
+
 export interface ProviderValidationIssue {
   code: string
   message: string
   path: string[]
 }
 
-export type ProviderExecutionRole = 'asr' | 'tts' | 'vlm'
+export type ProviderExecutionRole = ProviderRole
 
 export interface ProviderExecutionErrorOptions {
   cause?: unknown
@@ -33,9 +35,9 @@ export class ProviderExecutionError extends Error {
 
 export class ProviderResponseValidationError extends TypeError {
   readonly issues: ProviderValidationIssue[]
-  readonly role: 'asr' | 'tts' | 'vlm'
+  readonly role: ProviderRole
 
-  constructor(role: ProviderResponseValidationError['role'], message: string, issues: ProviderValidationIssue[]) {
+  constructor(role: ProviderRole, message: string, issues: ProviderValidationIssue[]) {
     const firstIssue = issues[0]
     const detail = firstIssue === undefined ? '' : ` (${firstIssue.path.join('.') || '<root>'}: ${firstIssue.message})`
 

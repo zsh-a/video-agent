@@ -1,6 +1,6 @@
 import type {Readable, Writable} from 'node:stream'
 
-import {createVideoAgentMcpServer, type McpServerOptions} from './server.js'
+import {createVideoAgentMcpServer, parseJsonRpcMessageBody, type McpServerOptions} from './server.js'
 
 export interface McpStdioOptions extends McpServerOptions {
   stderr?: Writable
@@ -30,7 +30,7 @@ export function startMcpStdioServer(options: McpStdioOptions = {}): void {
     while (message !== undefined) {
       buffer = buffer.subarray(message.bytesRead)
 
-      const response = await server.handleMessage(JSON.parse(message.body) as unknown)
+      const response = await server.handleMessage(parseJsonRpcMessageBody(message.body))
 
       if (response !== undefined) {
         stdout.write(frameMessage(JSON.stringify(response)))

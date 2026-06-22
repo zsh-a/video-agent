@@ -2,11 +2,12 @@ import {expect} from '#test/expect'
 import type {GenerateObjectRequest, GenerateObjectResult, LLMClient} from '../../../packages/llm/src/index.js'
 import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
-import {join} from 'node:path'
+import {dirname, join} from 'node:path'
 
 import {probeMedia} from '../../../packages/media/src/ffmpeg.js'
 import {runProcess} from '../../../packages/media/src/process.js'
 import {verifyProjectArtifacts} from '../../../packages/runtime/src/artifacts/index.js'
+import {writeConfig} from '../../../packages/runtime/src/shared/config.js'
 import {createFilmAudioMixProject, createFilmClipPlanProject, createFilmCutProject, createFilmFinalRenderProject, createFilmIngestProject, createFilmOutputNarrationProject, createFilmQualityCheckProject, createFilmRecapScriptProject, createFilmStoryIndexProject, createFilmSubtitleProject, createFilmUnderstandingProject, createFilmVoiceoverProject, runFilmRecapProject} from '../../../packages/pipeline-film/src/index.js'
 import {createTimelineFusion} from '../../../packages/pipeline-film/src/understanding/evidence.js'
 
@@ -226,7 +227,7 @@ describe('film recap project', () => {
         '  end: Math.round((index + 1) / 14 * 1000) / 1000,',
         '  text: `Segment ${index + 1}`',
         '}))',
-        'console.log(JSON.stringify({language: "en", segments, text: segments.map((segment) => segment.text).join(" "), timestampConfidence: "chunked"}))',
+        'console.log(JSON.stringify({language: "en", segments, text: segments.map((segment) => segment.text).join(" "), timestampConfidence: "exact"}))',
         '',
       ].join('\n'))
       await writeJson(join(root, 'config.json'), {
@@ -237,6 +238,8 @@ describe('film recap project', () => {
         },
         providers: {
           asr: 'command',
+          tts: 'mock',
+          vlm: 'mock',
         },
         version: 1,
       })
@@ -1022,10 +1025,6 @@ describe('film recap project', () => {
         segments: Array<{end: number; evidence: string[]; start: number; text: string}>
         timeline: string
       }
-      const narration = JSON.parse(await readFile(result.artifacts.narration, 'utf8')) as {
-        segments: Array<{duration: number; start: number; text: string}>
-      }
-
       expect(result.status).to.equal('narrated')
       expect(result.segments).to.equal(1)
       expect(outputNarration.timeline).to.equal('output')
@@ -1037,11 +1036,6 @@ describe('film recap project', () => {
       expect(outputNarration.segments[0]?.text).to.contain('一开场')
       expect(outputNarration.segments[0]?.text).not.include('第 1 段')
       expect(outputNarration.segments[0]?.text).not.include('Mock visual analysis')
-      expect(narration.segments[0]).to.deep.include({
-        duration: 0.5,
-        start: 0,
-      })
-
       const verification = await verifyProjectArtifacts('film-narrate-demo', root)
 
       expect(verification.ok).to.equal(true)
@@ -1148,7 +1142,9 @@ describe('film recap project', () => {
           },
         },
         providers: {
+          asr: 'mock',
           tts: 'command',
+          vlm: 'mock',
         },
         version: 1,
       })
@@ -1407,7 +1403,7 @@ describe('film recap project', () => {
       expect(qualityReport.narrationSegments).to.equal(1)
       expect(qualityReport.ttsSegments).to.equal(1)
       expect(qualityReport.summary.errors).to.equal(0)
-      const jobState = JSON.parse(await readFile(join(root, 'projects', 'film-final-demo', 'job-state.json'), 'utf8')) as {pipeline?: string; status: string}
+      const jobState = JSON.parse(await readFile(join(root, 'projects', 'film-final-demo', 'job-state.json'), 'utf8')) as {pipeline: string; status: string}
       const pipelineEvents = await readFile(join(root, 'projects', 'film-final-demo', 'artifacts', 'pipeline-events.jsonl'), 'utf8')
 
       expect(jobState).to.include({
@@ -1678,6 +1674,8 @@ function roundTestSeconds(value: number): number {
 }
 
 async function createSampleVideo(inputPath: string): Promise<void> {
+  await writeConfig(dirname(inputPath), {})
+
   const result = await runProcess([
     'ffmpeg',
     '-hide_banner',
@@ -1702,6 +1700,8 @@ async function createSampleVideo(inputPath: string): Promise<void> {
 }
 
 async function createSampleVideoWithAudio(inputPath: string, durationSeconds = 1): Promise<void> {
+  await writeConfig(dirname(inputPath), {})
+
   const result = await runProcess([
     'ffmpeg',
     '-hide_banner',

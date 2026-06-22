@@ -56,6 +56,10 @@ export interface MotionOptions {
 }
 
 export function compileDeckMotionPlan(timedDeck: TimedDeck, resolveMotionSteps: ResolveMotionSteps, options?: MotionOptions): DeckMotionPlan {
+  if (timedDeck.deck.slides.length === 0) {
+    throw new Error('Deck motion plan requires at least one slide; no zero-duration motion fallback is allowed.')
+  }
+
   const timingBySlide = new Map(timedDeck.timings.map((timing) => [timing.slideId, timing]))
   const slides = timedDeck.deck.slides.map((slide) => {
     const timing = timingBySlide.get(slide.slideId)
@@ -66,6 +70,10 @@ export function compileDeckMotionPlan(timedDeck: TimedDeck, resolveMotionSteps: 
 
     const start = timing.start
     const end = timing.end
+
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      throw new Error(`Deck motion plan slide "${slide.slideId}" requires positive timing duration; no zero-duration motion fallback is allowed.`)
+    }
 
     return {
       end: round(end),
@@ -103,8 +111,13 @@ function compileMotionTimeline(input: {
   slides: DeckMotionSlide[]
   steps: DeckMotionStep[]
 }): MotionTimeline {
+  if (input.slides.length === 0) {
+    throw new Error('Deck motion timeline requires at least one slide; no zero-duration motion fallback is allowed.')
+  }
+
   const tracks = input.steps.flatMap((step, index) => tracksForStep(step, index, input.options))
-  const duration = round(Math.max(input.slides.at(-1)?.end ?? 0, ...tracks.map((track) => track.start + track.duration)))
+  const lastSlide = input.slides[input.slides.length - 1]
+  const duration = round(Math.max(lastSlide.end, ...tracks.map((track) => track.start + track.duration)))
 
   return MotionTimelineSchema.parse({
     duration,
@@ -156,7 +169,7 @@ function compileSlideSteps(slide: Slide, timing: DeckMotionSlide, resolveMotionS
 }
 
 function resolveTemplateSteps(slide: Slide, timing: DeckMotionSlide, templateSteps: TemplateMotionStep[], options?: MotionOptions): DeckMotionStep[] {
-  const duration = Math.max(0.1, timing.end - timing.start)
+  const duration = timing.end - timing.start
   const root = `[data-slide="${cssEscape(slide.slideId)}"]`
 
   return templateSteps.map((templateStep) => {

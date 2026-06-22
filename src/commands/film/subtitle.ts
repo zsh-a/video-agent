@@ -1,16 +1,17 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {createFilmSubtitleProject} from '@video-agent/pipeline-film'
 
+import {workspaceFlag} from '../../utils/cli-flags.js'
 export default class FilmSubtitle extends Command {
   static args = {
-    projectId: Args.string({description: 'Film Recap project id with narration.json', required: true}),
+    projectId: Args.string({description: 'Film Recap project id with output-narration.json', required: true}),
   }
 
   static description = 'Generate Film Recap subtitle files from output-timeline narration'
 
   static flags = {
     json: Flags.boolean({description: 'Print machine-readable output'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {

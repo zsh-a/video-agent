@@ -1,10 +1,12 @@
-import type {NarrationSegment} from '@video-agent/ir'
-
-import type {ASRProvider, MediaInput, SceneFrameBatch, Transcript, TTSProvider, TTSSegment, TTSProviderSynthesizeOptions, VLMProvider, VLMScene} from './contracts.js'
+import type {ASRProvider, MediaInput, SceneFrameBatch, Transcript, TTSInputSegment, TTSProvider, TTSSegment, TTSProviderSynthesizeOptions, VLMProvider, VLMScene} from './contracts.js'
 
 import {Buffer} from 'node:buffer'
 import {mkdir, writeFile} from 'node:fs/promises'
 import {join, posix} from 'node:path'
+
+import {SceneFrameBatchesSchema} from './schemas.js'
+
+const MOCK_TTS_SAMPLE_RATE = 24_000
 
 export class MockASRProvider implements ASRProvider {
   async transcribe(input: MediaInput): Promise<Transcript> {
@@ -26,12 +28,13 @@ export class MockASRProvider implements ASRProvider {
 }
 
 export class MockTTSProvider implements TTSProvider {
-  async synthesize(segments: NarrationSegment[], options: TTSProviderSynthesizeOptions = {}): Promise<TTSSegment[]> {
+  async synthesize(segments: TTSInputSegment[], options: TTSProviderSynthesizeOptions = {}): Promise<TTSSegment[]> {
     if (options.outputDir !== undefined) {
       await mkdir(options.outputDir, {recursive: true})
     }
 
     const results = segments.map((segment, index) => {
+      const duration = requireMockTtsDuration(segment)
       const filename = `${String(index + 1).padStart(4, '0')}-${sanitizeFilename(segment.id)}.wav`
       const outputPath = options.outputDir === undefined ? undefined : join(options.outputDir, filename)
       const path = outputPath === undefined
@@ -41,7 +44,7 @@ export class MockTTSProvider implements TTSProvider {
       return {
         outputPath,
         segment: {
-          duration: segment.duration ?? 0,
+          duration,
           narrationId: segment.id,
           path,
         },
@@ -58,9 +61,23 @@ export class MockTTSProvider implements TTSProvider {
   }
 }
 
+function requireMockTtsDuration(segment: TTSInputSegment): number {
+  if (!Number.isFinite(segment.duration) || segment.duration <= 0) {
+    throw new Error(`Mock TTS segment "${segment.id}" must include a positive finite duration; no synthetic mock audio duration fallback is allowed. Received: ${String(segment.duration)}`)
+  }
+
+  if (Math.round(segment.duration * MOCK_TTS_SAMPLE_RATE) < 1) {
+    throw new Error(`Mock TTS segment "${segment.id}" duration is too short to produce one WAV frame; no single-frame mock audio fallback is allowed. Received: ${String(segment.duration)}`)
+  }
+
+  return segment.duration
+}
+
 export class MockVLMProvider implements VLMProvider {
   async analyzeScenes(input: SceneFrameBatch[]): Promise<VLMScene[]> {
-    return input.map((batch) => ({
+    const batches = SceneFrameBatchesSchema.parse(input)
+
+    return batches.map((batch) => ({
       actions: [],
       characters: [],
       description: `Mock visual analysis for ${batch.sceneId}.`,
@@ -80,10 +97,10 @@ function sanitizeFilename(value: string): string {
 }
 
 function createSilentWav(durationSeconds: number): Buffer {
-  const sampleRate = 24_000
+  const sampleRate = MOCK_TTS_SAMPLE_RATE
   const channels = 1
   const bytesPerSample = 2
-  const frameCount = Math.max(1, Math.round(Math.max(durationSeconds, 0.1) * sampleRate))
+  const frameCount = Math.round(durationSeconds * sampleRate)
   const dataSize = frameCount * channels * bytesPerSample
   const buffer = Buffer.alloc(44 + dataSize)
 

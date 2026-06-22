@@ -1,30 +1,65 @@
-import type {PipelineDefinition} from '@video-agent/runtime'
+import {PIPELINE_KIND_DECK, type PipelineDefinition} from '@video-agent/core'
+import {CONTENT_ANALYSIS_ARTIFACT_NAME, DECK_ARTIFACT_NAME, DECK_BRIEF_ARTIFACT_NAME, DECK_COHERENCE_REPORT_ARTIFACT_NAME, DECK_COVERAGE_REPORT_ARTIFACT_NAME, DECK_QUALITY_REPORT_ARTIFACT_NAME, DECK_TIMING_REPORT_ARTIFACT_NAME, DECK_VOICEOVER_ARTIFACT_NAME, DOCUMENT_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME, NARRATION_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME, REVIEW_REPORT_ARTIFACT_NAME, SCRIPT_TIMING_REPORT_ARTIFACT_NAME, SLIDE_OUTLINE_ARTIFACT_NAME, SOURCE_MAP_ARTIFACT_NAME, SPEAKER_SCRIPT_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME} from '@video-agent/runtime'
 
-export const DECK_PIPELINE_STAGES = ['ingest', 'source-map', 'transcribe', 'understand', 'brief', 'outline', 'plan-slides', 'script', 'timing-preflight', 'align', 'synthesize-voice', 'timing-repair', 'visual-preflight', 'render-final', 'review'] as const
+export const DECK_STAGE_IDS = {
+  align: 'align',
+  brief: 'brief',
+  ingest: 'ingest',
+  outline: 'outline',
+  planSlides: 'plan-slides',
+  renderFinal: 'render-final',
+  review: 'review',
+  script: 'script',
+  sourceMap: 'source-map',
+  synthesizeVoice: 'synthesize-voice',
+  timingPreflight: 'timing-preflight',
+  timingRepair: 'timing-repair',
+  transcribe: 'transcribe',
+  understand: 'understand',
+  visualPreflight: 'visual-preflight',
+} as const
+
+export const DECK_PIPELINE_STAGES = [
+  DECK_STAGE_IDS.ingest,
+  DECK_STAGE_IDS.sourceMap,
+  DECK_STAGE_IDS.transcribe,
+  DECK_STAGE_IDS.understand,
+  DECK_STAGE_IDS.brief,
+  DECK_STAGE_IDS.outline,
+  DECK_STAGE_IDS.planSlides,
+  DECK_STAGE_IDS.script,
+  DECK_STAGE_IDS.timingPreflight,
+  DECK_STAGE_IDS.align,
+  DECK_STAGE_IDS.synthesizeVoice,
+  DECK_STAGE_IDS.timingRepair,
+  DECK_STAGE_IDS.visualPreflight,
+  DECK_STAGE_IDS.renderFinal,
+  DECK_STAGE_IDS.review,
+] as const
 
 export type DeckPipelineStage = typeof DECK_PIPELINE_STAGES[number]
 
-export const DECK_CHECKPOINT_ARTIFACTS_BY_STAGE: Record<DeckPipelineStage, readonly string[]> = {
-  ingest: [],
-  'source-map': ['source-map.json'],
-  transcribe: ['media-info.json'],
-  understand: ['source-map.json', 'content-analysis.json', 'document.json', 'media-info.json'],
-  brief: ['content-analysis.json', 'deck-brief.json'],
-  outline: ['deck-brief.json', 'slide-outline.json', 'deck-coverage-report.json'],
-  'plan-slides': ['deck.json', 'timed-deck.json'],
-  script: ['deck.json', 'speaker-script.json', 'deck-coherence-report.json'],
-  'timing-preflight': ['script-timing-report.json', 'timed-deck.json'],
-  align: ['deck.json', 'timed-deck.json', 'speaker-script.json'],
-  'synthesize-voice': ['narration.json', 'timed-deck.json'],
-  'timing-repair': ['deck-voiceover.json', 'deck-timing-report.json', 'tts-segments.json'],
-  'visual-preflight': ['deck-quality-report.json'],
-  'render-final': ['timed-deck.json', 'deck-voiceover.json'],
-  review: ['render-output.json', 'review-report.json'],
-}
+export const DECK_CHECKPOINT_ARTIFACTS_BY_STAGE = {
+  [DECK_STAGE_IDS.ingest]: [],
+  [DECK_STAGE_IDS.sourceMap]: [SOURCE_MAP_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.transcribe]: [MEDIA_INFO_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.understand]: [SOURCE_MAP_ARTIFACT_NAME, CONTENT_ANALYSIS_ARTIFACT_NAME, DOCUMENT_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.brief]: [CONTENT_ANALYSIS_ARTIFACT_NAME, DECK_BRIEF_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.outline]: [DECK_BRIEF_ARTIFACT_NAME, SLIDE_OUTLINE_ARTIFACT_NAME, DECK_COVERAGE_REPORT_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.planSlides]: [DECK_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.script]: [DECK_ARTIFACT_NAME, SPEAKER_SCRIPT_ARTIFACT_NAME, DECK_COHERENCE_REPORT_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.timingPreflight]: [SCRIPT_TIMING_REPORT_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.align]: [DECK_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME, SPEAKER_SCRIPT_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.synthesizeVoice]: [NARRATION_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.timingRepair]: [DECK_VOICEOVER_ARTIFACT_NAME, DECK_TIMING_REPORT_ARTIFACT_NAME, TTS_SEGMENTS_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.visualPreflight]: [DECK_QUALITY_REPORT_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.renderFinal]: [TIMED_DECK_ARTIFACT_NAME, DECK_VOICEOVER_ARTIFACT_NAME],
+  [DECK_STAGE_IDS.review]: [RENDER_OUTPUT_ARTIFACT_NAME, REVIEW_REPORT_ARTIFACT_NAME],
+} satisfies Record<DeckPipelineStage, readonly string[]>
 
-export const DECK_PIPELINE_DEFINITION: PipelineDefinition<'deck', DeckPipelineStage> = {
+export const DECK_PIPELINE_DEFINITION: PipelineDefinition<typeof PIPELINE_KIND_DECK, DeckPipelineStage> = {
   checkpointArtifactsByStage: DECK_CHECKPOINT_ARTIFACTS_BY_STAGE,
-  defaultRerunStage: 'outline',
-  kind: 'deck',
+  defaultRerunStage: DECK_STAGE_IDS.outline,
+  kind: PIPELINE_KIND_DECK,
   stages: DECK_PIPELINE_STAGES,
 }

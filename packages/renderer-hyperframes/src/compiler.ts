@@ -1,9 +1,7 @@
 import type {Narration, Storyboard, Timeline} from '@video-agent/ir'
 
-import {mkdir} from 'node:fs/promises'
+import {mkdir, writeFile} from 'node:fs/promises'
 import {resolve} from 'node:path'
-
-import {bunWrite} from './bun-runtime.js'
 
 import styles from './styles.css' with { type: 'text' }
 
@@ -52,9 +50,9 @@ export async function writeHyperframesProject(input: WriteHyperframesProjectInpu
   })
 
   await mkdir(assetsDir, {recursive: true})
-  await bunWrite(planPath, `${JSON.stringify(plan, null, 2)}\n`)
-  await bunWrite(stylesPath, styles)
-  await bunWrite(entryHtml, createHtml(plan))
+  await writeFile(planPath, `${JSON.stringify(plan, null, 2)}\n`)
+  await writeFile(stylesPath, styles)
+  await writeFile(entryHtml, createHtml(plan))
 
   return {
     entryHtml,

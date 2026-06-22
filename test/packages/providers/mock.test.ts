@@ -12,7 +12,7 @@ describe('mock providers', () => {
     try {
       const provider = new MockTTSProvider()
       const segments = await provider.synthesize(
-        [{duration: 0.2, id: 'narration-1', start: 0, text: 'hello'}],
+        [{duration: 0.2, id: 'narration-1', text: 'hello'}],
         {
           outputDir: join(root, 'tts'),
           pathPrefix: 'audio/tts',
@@ -30,5 +30,31 @@ describe('mock providers', () => {
     } finally {
       await rm(root, {force: true, recursive: true})
     }
+  })
+
+  it('rejects invalid mock TTS durations instead of writing synthetic minimum audio', async () => {
+    const provider = new MockTTSProvider()
+    let error: unknown
+
+    try {
+      await provider.synthesize([{duration: Number.NaN, id: 'narration-1', text: 'hello'}])
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('Mock TTS segment "narration-1" must include a positive finite duration; no synthetic mock audio duration fallback is allowed. Received: NaN')
+  })
+
+  it('rejects mock TTS durations that cannot produce a WAV frame', async () => {
+    const provider = new MockTTSProvider()
+    let error: unknown
+
+    try {
+      await provider.synthesize([{duration: 0.000001, id: 'narration-1', text: 'hello'}])
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('no single-frame mock audio fallback is allowed')
   })
 })

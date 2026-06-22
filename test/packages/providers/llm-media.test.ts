@@ -106,7 +106,7 @@ describe('LLM media providers', () => {
           id: 'narration-1',
           text: 'Missing duration should fail.',
         },
-      ])
+      ] as unknown as Parameters<LLMTTSProvider['synthesize']>[0])
     } catch (caught) {
       error = caught
     }
@@ -287,6 +287,37 @@ describe('LLM media providers', () => {
     } finally {
       await rm(root, {force: true, recursive: true})
     }
+  })
+
+  it('rejects zero-length VLM input ranges before calling the LLM', async () => {
+    let calls = 0
+    let error: unknown
+
+    try {
+      await new LLMVLMProvider({
+        async generateObject() {
+          calls += 1
+          throw new Error('Should not ask the LLM for invalid scene batches.')
+        },
+        async generateText() {
+          throw new Error('Not used by this test.')
+        },
+        streamText() {
+          throw new Error('Not used by this test.')
+        },
+      } satisfies LLMClient).analyzeScenes([
+        {
+          frames: ['/tmp/frame.jpg'],
+          sceneId: 'scene-1',
+          timeRange: [2, 2],
+        },
+      ])
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(calls).to.equal(0)
+    expect(String(error)).to.include('Scene frame batch timeRange end must be greater than start')
   })
 
   it('rejects missing VLM frame files instead of analyzing filenames only', async () => {
@@ -587,8 +618,8 @@ describe('LLM media providers', () => {
         error = caught
       }
 
-      expect(String(error)).to.include('LLM ASR transcript must provide exact timestamps')
-      expect(String(error)).to.include('received missing')
+      expect(String(error)).to.include('timestampConfidence')
+      expect(String(error)).to.include('exact')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -842,8 +873,49 @@ describe('LLM media providers', () => {
         },
       })
       expect(languageRequest).to.equal(undefined)
-      expect(String(error)).to.include('MiMo ASR must return transcript JSON with timed segments')
-      expect(String(error)).to.include('plain text ASR output cannot be converted')
+      expect(String(error)).to.include('MiMo ASR response was not valid transcript JSON')
+      expect(String(error)).to.include('provider must return only JSON with timed segments')
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
+  it('rejects MiMo ASR transcript JSON that fails schema validation before normalization', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-asr-invalid-schema-'))
+    const audioPath = join(root, 'source.wav')
+    let error: unknown
+
+    try {
+      await writeText(audioPath, 'fake-audio')
+
+      try {
+        await new MimoASRProvider({
+          async generateObject() {
+            throw new Error('Language normalization should not run for schema-invalid transcript JSON.')
+          },
+          async generateText() {
+            return {
+              text: JSON.stringify({
+                language: 'zh-CN',
+                segments: 'not-segments',
+                text: '这是中文转写。',
+                timestampConfidence: 'exact',
+              }),
+            }
+          },
+          streamText() {
+            throw new Error('Not used by this test.')
+          },
+        } satisfies LLMClient).transcribe({
+          duration: 12.5,
+          path: audioPath,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(String(error)).to.include('MiMo ASR transcript JSON failed schema validation')
+      expect(String(error)).to.include('segments')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -875,6 +947,7 @@ describe('LLM media providers', () => {
                   },
                 ],
                 text: 'Language must be detected concretely.',
+                timestampConfidence: 'exact',
               }),
             }
           },
@@ -915,6 +988,7 @@ describe('LLM media providers', () => {
                 language: 'en-US',
                 segments: [],
                 text: 'Transcript text without segment timing.',
+                timestampConfidence: 'exact',
               }),
             }
           },
@@ -960,6 +1034,7 @@ describe('LLM media providers', () => {
                   },
                 ],
                 text: '',
+                timestampConfidence: 'exact',
               }),
             }
           },
@@ -1005,6 +1080,7 @@ describe('LLM media providers', () => {
                   },
                 ],
                 text: '这是中文转写。 ',
+                timestampConfidence: 'exact',
               }),
             }
           },
@@ -1050,6 +1126,7 @@ describe('LLM media providers', () => {
                   },
                 ],
                 text: '这是中文转写。',
+                timestampConfidence: 'exact',
               }),
             }
           },
@@ -1107,8 +1184,8 @@ describe('LLM media providers', () => {
         error = caught
       }
 
-      expect(String(error)).to.include('MiMo ASR must return transcript JSON with timed segments')
-      expect(String(error)).to.include('plain text ASR output cannot be converted')
+      expect(String(error)).to.include('MiMo ASR response was not valid transcript JSON')
+      expect(String(error)).to.include('provider must return only JSON with timed segments')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -1122,16 +1199,19 @@ describe('LLM media providers', () => {
         language: 'zh-CN',
         segments: [{end: 9, start: 0, text: '第一段。'}],
         text: '第一段。',
+        timestampConfidence: 'exact',
       },
       {
         language: 'zh-CN',
         segments: [{end: 8, start: 0, text: '第二段。'}],
         text: '第二段。',
+        timestampConfidence: 'exact',
       },
       {
         language: 'zh-CN',
         segments: [{end: 4, start: 0, text: '第三段。'}],
         text: '第三段。',
+        timestampConfidence: 'exact',
       },
     ]
     const windows: Array<[number, number]> = []
@@ -1213,6 +1293,33 @@ describe('LLM media providers', () => {
     }
   })
 
+  it('rejects invalid MiMo ASR segment length instead of using the default segmentation window', async () => {
+    let error: unknown
+
+    try {
+      await new MimoASRProvider({
+        async generateObject() {
+          throw new Error('Language detection should not run for invalid ASR segment length.')
+        },
+        async generateText() {
+          throw new Error('ASR should not run for invalid segment length.')
+        },
+        streamText() {
+          throw new Error('Not used by this test.')
+        },
+      } satisfies LLMClient, {
+        segmentLengthSeconds: Number.NaN,
+      }).transcribe({
+        duration: 25,
+        path: '/tmp/source.wav',
+      })
+    } catch (caught) {
+      error = caught
+    }
+
+    expect(String(error)).to.include('no segment length default fallback is allowed')
+  })
+
   it('rejects MiMo ASR chunk timestamps outside the local audio window instead of guessing absolute timing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-mimo-asr-absolute-chunk-'))
     const audioPath = join(root, 'source.wav')
@@ -1221,11 +1328,13 @@ describe('LLM media providers', () => {
         language: 'zh-CN',
         segments: [{end: 4, start: 0, text: '第一段。'}],
         text: '第一段。',
+        timestampConfidence: 'exact',
       },
       {
         language: 'zh-CN',
         segments: [{end: 14, start: 10, text: '第二段。'}],
         text: '第二段。',
+        timestampConfidence: 'exact',
       },
     ]
     let error: unknown
@@ -1275,11 +1384,13 @@ describe('LLM media providers', () => {
         language: 'zh-CN',
         segments: [{end: 4, start: 0, text: '第一段。'}],
         text: '第一段。',
+        timestampConfidence: 'exact',
       },
       {
         language: 'zh-CN',
         segments: [{end: 4, start: 0, text: '第二段。'}],
         text: ' 第二段。',
+        timestampConfidence: 'exact',
       },
     ]
 
@@ -1330,11 +1441,13 @@ describe('LLM media providers', () => {
         language: 'zh-CN',
         segments: [{end: 4, start: 0, text: '第一段。'}],
         text: '第一段。',
+        timestampConfidence: 'exact',
       },
       {
         language: 'en-US',
         segments: [{end: 4, start: 0, text: 'Second segment.'}],
         text: 'Second segment.',
+        timestampConfidence: 'exact',
       },
     ]
 
@@ -1459,7 +1572,6 @@ describe('LLM media providers', () => {
         {
           duration: 1.5,
           id: 'narration-1',
-          start: 0,
           text: '你好世界。',
           voice: '苏打',
         },
@@ -1547,7 +1659,6 @@ describe('LLM media providers', () => {
         {
           duration: 1,
           id: 'narration-1',
-          start: 0,
           text: 'Retry test.',
         },
       ], {
@@ -1560,6 +1671,17 @@ describe('LLM media providers', () => {
     } finally {
       await rm(root, {force: true, recursive: true})
     }
+  })
+
+  it('rejects invalid MiMo TTS retry options instead of coercing them', () => {
+    expect(() => new MimoTTSProvider({
+      apiKey: 'test-key',
+      maxRetries: 1.5,
+    })).to.throw('MiMo TTS maxRetries must be a non-negative integer; no retry count coercion fallback is allowed. Received: 1.5')
+    expect(() => new MimoTTSProvider({
+      apiKey: 'test-key',
+      retryBackoffMs: -1,
+    })).to.throw('MiMo TTS retryBackoffMs must be a non-negative integer; no retry delay coercion fallback is allowed. Received: -1')
   })
 
   it('surfaces non-retryable MiMo TTS failures as structured provider errors', async () => {
@@ -1584,7 +1706,6 @@ describe('LLM media providers', () => {
         {
           duration: 1,
           id: 'narration-1',
-          start: 0,
           text: 'Bad request test.',
         },
       ], {
@@ -1634,7 +1755,6 @@ describe('LLM media providers', () => {
         {
           duration: 1,
           id: 'narration-1',
-          start: 0,
           text: 'Invalid audio test.',
         },
       ], {
@@ -1681,6 +1801,7 @@ describe('LLM media providers', () => {
 
       await provider.synthesize([
         {
+          duration: 1,
           id: 'narration-1',
           text: '你好世界。',
           voice: 'male',
@@ -1721,6 +1842,7 @@ describe('LLM media providers', () => {
 
       await provider.synthesize([
         {
+          duration: 1,
           id: 'narration-1',
           text: '你好世界。',
           voice: '   ',
@@ -1757,6 +1879,7 @@ describe('LLM media providers', () => {
 
       await provider.synthesize([
         {
+          duration: 1,
           id: 'narration-1',
           text: '你好世界。',
           voice: ' 苏打 ',

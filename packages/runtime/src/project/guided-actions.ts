@@ -1,12 +1,15 @@
 import type {ProjectArtifact} from '../artifacts/index.js'
 import type {ProjectStatus} from './status.js'
 
+import {PIPELINE_KIND_FILM, detectPipelineKind} from '@video-agent/core'
+import {JOB_STATUS_FAILED, JOB_STATUS_PENDING, JOB_STATUS_RUNNING} from '@video-agent/db'
 import {listProjectArtifacts} from '../artifacts/index.js'
-import {detectPipelineKind} from '../shared/pipeline-definitions.js'
+import {ARTIFACT_MANIFEST_NAME} from '../artifacts/artifact-names.js'
 import {readProjectStatus} from './status.js'
 import {listProjects} from './projects.js'
 
-export type VideoAgentGuidedActionCategory = 'artifact' | 'dashboard' | 'export' | 'inspect' | 'provider' | 'recover' | 'render' | 'rerun'
+import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+export type VideoAgentGuidedActionCategory = 'artifact' | 'dashboard' | 'export' | 'inspect' | 'recover' | 'render' | 'rerun'
 
 export interface VideoAgentGuidedAction {
   category: VideoAgentGuidedActionCategory
@@ -38,7 +41,7 @@ export interface VideoAgentGuidedActionsResult {
 }
 
 export async function readVideoAgentGuidedActions(options: ReadVideoAgentGuidedActionsOptions = {}): Promise<VideoAgentGuidedActionsResult> {
-  const workspaceDir = options.workspaceDir ?? '.video-agent'
+  const workspaceDir = options.workspaceDir ?? DEFAULT_WORKSPACE_DIR
   const projects = await listProjects(workspaceDir)
   const projectId = options.projectId ?? projects[0]?.projectId
 
@@ -73,14 +76,6 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
   const commandPrefix = options.commandPrefix ?? 'vagent'
   const actions: VideoAgentGuidedAction[] = [
     createGuidedAction(commandPrefix, {
-      args: ['tui', '--action', 'provider-test', '--workspace', options.workspaceDir],
-      category: 'provider',
-      description: 'Run ASR, VLM, and TTS provider smoke tests for the current workspace.',
-      id: 'provider-test',
-      label: 'Test providers',
-      priority: 30,
-    }),
-    createGuidedAction(commandPrefix, {
       args: ['tui', '--action', 'worker', '--dry-run', '--workspace', options.workspaceDir],
       category: 'recover',
       description: 'Preview recoverable failed or stale running jobs without mutating state.',
@@ -103,7 +98,8 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
   }
 
   const {projectId} = options.status
-  const [firstArtifact] = options.artifacts ?? []
+  const artifacts = options.artifacts ?? []
+  const firstArtifact = artifacts.find((artifact) => artifact.name !== ARTIFACT_MANIFEST_NAME) ?? artifacts[0]
   const rerunStage = findSuggestedRerunStage(options.status)
 
   actions.push(
@@ -188,9 +184,9 @@ export function createVideoAgentGuidedActions(options: CreateVideoAgentGuidedAct
       priority: 60,
     }),
     createGuidedAction(commandPrefix, {
-      args: ['tui', '--project', projectId, '--action', 'export', '--export-require-quality', '--workspace', options.workspaceDir],
+      args: ['tui', '--project', projectId, '--action', 'export', '--export-format', 'video', '--export-require-quality', '--workspace', options.workspaceDir],
       category: 'export',
-      description: 'Export the latest rendered output only after project quality passes.',
+      description: 'Export the render-output.json video path only after project quality passes.',
       id: 'export-output',
       label: 'Export output',
       priority: 70,
@@ -258,14 +254,16 @@ function shellQuote(value: string): string {
 
 function findSuggestedRerunStage(status: ProjectStatus): string | undefined {
   try {
-    if (detectPipelineKind(status.job) !== 'film') {
+    if (detectPipelineKind(status.job) !== PIPELINE_KIND_FILM) {
       return undefined
     }
   } catch {
     return undefined
   }
 
-  const stage = status.job.stages.find((item) => item.status === 'failed') ?? status.job.stages.find((item) => item.status === 'running') ?? status.job.stages.find((item) => item.status === 'pending')
+  const stage = status.job.stages.find((item) => item.status === JOB_STATUS_FAILED)
+    ?? status.job.stages.find((item) => item.status === JOB_STATUS_RUNNING)
+    ?? status.job.stages.find((item) => item.status === JOB_STATUS_PENDING)
 
   if (stage?.name === undefined || stage.name.length === 0) {
     return undefined

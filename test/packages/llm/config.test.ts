@@ -1,6 +1,6 @@
 import {expect} from '#test/expect'
 
-import {createLanguageModelFromConfig, createLLMClientFromConfig} from '../../../packages/llm/src/index.js'
+import {createLanguageModelFromConfig, createLLMClientFromConfig, createMimoApiKeyEnvCandidates} from '../../../packages/llm/src/index.js'
 
 const asrOptionsKey = 'asr_options'
 const completionTokensKey = 'completion_tokens'
@@ -13,7 +13,7 @@ const totalTokensKey = 'total_tokens'
 describe('LLM config factory', () => {
   it('creates an AI SDK Anthropic-compatible model from config', () => {
     const model = createLanguageModelFromConfig({
-      authTokenEnv: 'VIDEO_AGENT_LLM_TOKEN',
+      apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
       baseURL: 'https://llm.example.test/anthropic',
       model: 'anthropic-test-model',
       name: 'anthropic-test',
@@ -33,6 +33,13 @@ describe('LLM config factory', () => {
 
   it('returns no client when LLM config is not set', () => {
     expect(createLLMClientFromConfig()).to.equal(undefined)
+  })
+
+  it('creates normalized Mimo API key environment candidates', () => {
+    expect(createMimoApiKeyEnvCandidates({apiKeyEnv: ' VIDEO_AGENT_LLM_TOKEN '})).to.deep.equal([
+      'VIDEO_AGENT_LLM_TOKEN',
+      'MIMO_API_KEY',
+    ])
   })
 
   it('adapts Mimo ASR requests through the AI SDK OpenAI-compatible provider', async () => {

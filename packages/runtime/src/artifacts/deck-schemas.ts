@@ -1,4 +1,10 @@
+import {DECK_HTML_CAPTURE_BACKENDS} from '@video-agent/ir'
 import {z} from 'zod'
+
+import {DECK_FRAME_SHARD_BATCH_SHARD_STATUSES, DECK_FRAME_SHARD_BATCH_STATUSES, DECK_FRAME_SHARD_PLAN_STATUSES, DECK_KEYFRAME_CAPTURE_MODES, DECK_KEYFRAME_SOURCES, TIMED_DECK_ARTIFACT_NAME} from './deck-artifact-constants.js'
+import {DECK_RENDERER_BACKENDS, DECK_VIDEO_RENDERERS} from '../render/deck-renderers.js'
+
+const DECK_REVIEW_RENDERERS = [...DECK_HTML_CAPTURE_BACKENDS, 'remotion'] as const
 
 export const DeckVoiceoverSchema = z.object({
   duration: z.number().nonnegative(),
@@ -31,9 +37,9 @@ export const DeckFrameManifestSchema = z.object({
   generatedAt: z.string().min(1),
   outputDir: z.string().min(1),
   pattern: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright']),
+  renderer: z.enum(DECK_HTML_CAPTURE_BACKENDS),
   skippedFrames: z.number().int().nonnegative().optional(),
-  source: z.literal('timed-deck.json').optional(),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME).optional(),
   sourceSha256: z.string().min(1),
   version: z.literal(1),
   viewport: z.object({
@@ -58,9 +64,9 @@ export const DeckFrameShardSchema = z.object({
   }).strict()),
   generatedAt: z.string().min(1),
   outputDir: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright']),
+  renderer: z.enum(DECK_HTML_CAPTURE_BACKENDS),
   skippedFrames: z.number().int().nonnegative(),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   sourceSha256: z.string().min(1),
   version: z.literal(1),
 }).strict()
@@ -77,7 +83,7 @@ export const DeckFrameShardPlanSchema = z.object({
   outputDir: z.string().min(1),
   partialShards: z.number().int().nonnegative(),
   pendingShards: z.number().int().nonnegative(),
-  renderer: z.enum(['chromium', 'playwright']),
+  renderer: z.enum(DECK_HTML_CAPTURE_BACKENDS),
   shards: z.array(z.object({
     commandArgs: z.array(z.string()),
     existingFrames: z.number().int().nonnegative(),
@@ -90,9 +96,9 @@ export const DeckFrameShardPlanSchema = z.object({
     }).strict()),
     missingFrames: z.number().int().nonnegative(),
     shardArtifactPath: z.string().min(1),
-    status: z.enum(['complete', 'partial', 'pending']),
+    status: z.enum(DECK_FRAME_SHARD_PLAN_STATUSES),
   }).strict()),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   sourceSha256: z.string().min(1),
   version: z.literal(1),
 }).strict()
@@ -111,7 +117,7 @@ export const DeckFrameShardBatchSchema = z.object({
   generatedAt: z.string().min(1),
   htmlOutputDir: z.string().min(1),
   outputDir: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright']),
+  renderer: z.enum(DECK_HTML_CAPTURE_BACKENDS),
   shardConcurrency: z.number().int().positive(),
   shardRetryDelayMs: z.number().int().nonnegative(),
   shardRetries: z.number().int().nonnegative(),
@@ -124,16 +130,16 @@ export const DeckFrameShardBatchSchema = z.object({
     frameEnd: z.number().int().positive(),
     frameStart: z.number().int().positive(),
     skippedFrames: z.number().int().nonnegative(),
-    status: z.enum(['complete', 'failed']),
+    status: z.enum(DECK_FRAME_SHARD_BATCH_SHARD_STATUSES),
   }).strict()),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   sourceSha256: z.string().min(1),
-  status: z.enum(['completed', 'partial']),
+  status: z.enum(DECK_FRAME_SHARD_BATCH_STATUSES),
   version: z.literal(1),
 }).strict()
 
 export const DeckRendererBackendProjectSchema = z.object({
-  backend: z.enum(['motion-canvas', 'remotion']),
+  backend: z.enum(DECK_RENDERER_BACKENDS),
   commandCwd: z.string().min(1),
   files: z.record(z.string().min(1), z.string().min(1)),
   fps: z.number().positive(),
@@ -145,7 +151,7 @@ export const DeckRendererBackendProjectSchema = z.object({
   previewCommand: z.array(z.string()),
   projectId: z.string().min(1),
   renderCommand: z.array(z.string()),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   sourceSha256: z.string().min(1),
   version: z.literal(1),
   width: z.number().int().positive().optional(),
@@ -159,7 +165,7 @@ export const DeckRendererRemotionOutputSchema = z.object({
   exportArtifactPath: z.string().min(1),
   outputPath: z.string().min(1),
   rendererProjectDir: z.string().min(1),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   sourceSha256: z.string().min(1),
   stderr: z.string(),
   stdout: z.string(),
@@ -167,11 +173,11 @@ export const DeckRendererRemotionOutputSchema = z.object({
 }).strict()
 
 export const DeckKeyframesSchema = z.object({
-  captureMode: z.enum(['browser-keyframes', 'final-video', 'frame-sequence']).optional(),
+  captureMode: z.enum(DECK_KEYFRAME_CAPTURE_MODES).optional(),
   duration: z.number().nonnegative(),
   fps: z.number().positive(),
   generatedAt: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright', 'remotion']),
+  renderer: z.enum(DECK_REVIEW_RENDERERS),
   samples: z.array(z.object({
     capturedAt: z.string().min(1),
     error: z.string().min(1).optional(),
@@ -184,7 +190,7 @@ export const DeckKeyframesSchema = z.object({
     slideId: z.string().min(1),
     time: z.number().nonnegative(),
   }).strict()),
-  source: z.enum(['deck-frame-manifest.json', 'timed-deck.json']),
+  source: z.enum(DECK_KEYFRAME_SOURCES),
   version: z.literal(1),
   viewport: z.object({
     height: z.number().int().positive(),
@@ -199,7 +205,7 @@ export const DeckReviewReportSchema = z.object({
   keyframeQualityPath: z.string().min(1),
   outputPath: z.string().min(1),
   projectId: z.string().min(1),
-  renderer: z.enum(['chromium', 'playwright', 'remotion']),
+  renderer: z.enum(DECK_REVIEW_RENDERERS),
   reviewHtmlPath: z.string().min(1),
   slides: z.array(z.object({
     chartBars: z.array(z.object({
@@ -225,7 +231,7 @@ export const DeckReviewReportSchema = z.object({
     title: z.string().min(1),
     type: z.string().min(1),
   }).strict()),
-  source: z.literal('timed-deck.json'),
+  source: z.literal(TIMED_DECK_ARTIFACT_NAME),
   summary: z.object({
     deckErrors: z.number().int().nonnegative(),
     deckWarnings: z.number().int().nonnegative(),
@@ -240,5 +246,5 @@ export const DeckReviewReportSchema = z.object({
   }).strict(),
   title: z.string().min(1),
   version: z.literal(1),
-  videoRenderer: z.enum(['chromium+ffmpeg', 'playwright+ffmpeg', 'remotion+ffmpeg']),
+  videoRenderer: z.enum(DECK_VIDEO_RENDERERS),
 }).strict()

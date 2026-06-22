@@ -136,6 +136,7 @@ export type QualityDetails = {
   deck: {errors: number; warnings: number}
   deckIssues?: QualityIssue[]
   qualityReport?: {issues?: QualityIssue[]}
+  renderOutput?: RenderOutput
   summary: {errors: number; warnings: number}
 }
 
@@ -227,9 +228,15 @@ export type RenderOptions = {
   voiceoverVolume?: number
 }
 
+export type ProviderTestOptions = {
+  framePath?: string
+  mediaPath?: string
+  text?: string
+}
+
 export type ExportOptions = {
   cleanOutput: boolean
-  format?: 'bundle' | 'video'
+  format: 'bundle' | 'video'
   outputPath?: string
   requireQuality: boolean
 }

@@ -1,5 +1,31 @@
-import type {RecoveryOrderBy} from '@video-agent/pipeline-film'
-import type {ProviderSmokeTestRole} from '@video-agent/runtime'
+import {
+  isRecord,
+  parseEnvAssignments,
+  readOptionalBooleanInput,
+  readOptionalNonNegativeIntegerInput,
+  readOptionalNumberInput,
+  readOptionalPositiveIntegerInput,
+  readOptionalStringArrayInput,
+  readOptionalStringInput,
+  readOptionalStringRecordInput,
+} from '@video-agent/runtime'
+
+export class ApiRequestError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+  }
+}
+
+const API_FIELD_READER = {
+  createError: createApiRequestError,
+  label: 'Field',
+}
+
+const API_REQUEST_FIELD_READER = {
+  createError: createApiRequestError,
+  label: 'Request field',
+}
 
 export async function readJsonBody(request: Request): Promise<Record<string, unknown>> {
   if (request.headers.get('content-length') === '0') {
@@ -12,27 +38,23 @@ export async function readJsonBody(request: Request): Promise<Record<string, unk
     return {}
   }
 
-  const parsed = JSON.parse(text) as unknown
+  let parsed: unknown
 
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new TypeError('Request body must be a JSON object.')
+  try {
+    parsed = JSON.parse(text) as unknown
+  } catch {
+    throw new ApiRequestError('Request body must be valid JSON.')
   }
 
-  return parsed as Record<string, unknown>
+  if (!isRecord(parsed)) {
+    throw new ApiRequestError('Request body must be a JSON object.')
+  }
+
+  return parsed
 }
 
 export function readStringField(body: Record<string, unknown>, field: string): null | string {
-  const value = body[field]
-
-  if (value === undefined || value === null) {
-    return null
-  }
-
-  if (typeof value !== 'string') {
-    throw new TypeError(`Field ${field} must be a string.`)
-  }
-
-  return value
+  return readOptionalStringInput(body, field, API_FIELD_READER) ?? null
 }
 
 export function readEnvQuery(params: URLSearchParams): Record<string, string> | undefined {
@@ -42,29 +64,11 @@ export function readEnvQuery(params: URLSearchParams): Record<string, string> | 
     return undefined
   }
 
-  return parseEnvAssignments(values)
+  return parseEnvAssignments(values, 'env query value')
 }
 
 export function readEnvField(body: Record<string, unknown>, field: string): Record<string, string> | undefined {
-  if (body[field] === undefined || body[field] === null) {
-    return undefined
-  }
-
-  if (typeof body[field] !== 'object' || Array.isArray(body[field])) {
-    throw new TypeError(`Request field ${field} must be an object of string values.`)
-  }
-
-  const env: Record<string, string> = {}
-
-  for (const [key, value] of Object.entries(body[field] as Record<string, unknown>)) {
-    if (typeof value !== 'string') {
-      throw new TypeError(`Request field ${field}.${key} must be a string.`)
-    }
-
-    env[key] = value
-  }
-
-  return env
+  return readOptionalStringRecordInput(body, field, API_REQUEST_FIELD_READER)
 }
 
 export function readCommandPrefix(params: URLSearchParams): string | undefined {
@@ -78,56 +82,47 @@ export function readCommandPrefix(params: URLSearchParams): string | undefined {
 }
 
 export function readBooleanField(body: Record<string, unknown>, field: string): boolean | undefined {
-  const value = body[field]
-
-  if (value === undefined || value === null) {
-    return undefined
-  }
-
-  if (typeof value !== 'boolean') {
-    throw new TypeError(`Field ${field} must be a boolean.`)
-  }
-
-  return value
+  return readOptionalBooleanInput(body, field, API_FIELD_READER)
 }
 
 export function readStringArrayField(body: Record<string, unknown>, field: string): string[] | undefined {
-  const value = body[field]
-
-  if (value === undefined || value === null) {
-    return undefined
-  }
-
-  if (!Array.isArray(value) || value.length === 0 || value.some((item) => typeof item !== 'string' || item.length === 0)) {
-    throw new TypeError(`Field ${field} must be a non-empty string array.`)
-  }
-
-  return value
+  return readOptionalStringArrayInput(body, field, {
+    ...API_FIELD_READER,
+    allowEmpty: false,
+    allowEmptyItems: false,
+    description: 'a non-empty string array',
+  })
 }
 
 export function readNumberField(body: Record<string, unknown>, field: string): number | undefined {
-  const value = body[field]
-
-  if (value === undefined || value === null) {
-    return undefined
-  }
-
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new TypeError(`Field ${field} must be a finite number.`)
-  }
-
-  return value
+  return readOptionalNumberInput(body, field, API_FIELD_READER)
 }
 
-export function parseOptionalInteger(value: null | string): number | undefined {
+export function readNonNegativeIntegerField(body: Record<string, unknown>, field: string): number | undefined {
+  return readOptionalNonNegativeIntegerInput(body, field, API_FIELD_READER)
+}
+
+export function readPositiveIntegerField(body: Record<string, unknown>, field: string): number | undefined {
+  return readOptionalPositiveIntegerInput(body, field, API_FIELD_READER)
+}
+
+export function parseOptionalNonNegativeInteger(value: null | string): number | undefined {
+  return parseOptionalIntegerWithMinimum(value, 0, 'non-negative')
+}
+
+export function parseOptionalPositiveInteger(value: null | string): number | undefined {
+  return parseOptionalIntegerWithMinimum(value, 1, 'positive')
+}
+
+function parseOptionalIntegerWithMinimum(value: null | string, minimum: number, description: string): number | undefined {
   if (value === null || value.trim() === '') {
     return undefined
   }
 
   const parsed = Number(value)
 
-  if (!Number.isInteger(parsed) || parsed < 0) {
-    throw new Error(`Invalid integer query parameter: ${value}`)
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new ApiRequestError(`Invalid ${description} integer query parameter: ${value}`)
   }
 
   return parsed
@@ -141,7 +136,7 @@ export function parseOptionalNumber(value: null | string): number | undefined {
   const parsed = Number(value)
 
   if (!Number.isFinite(parsed)) {
-    throw new TypeError(`Invalid number query parameter: ${value}`)
+    throw new ApiRequestError(`Invalid number query parameter: ${value}`)
   }
 
   return parsed
@@ -160,7 +155,7 @@ export function parseOptionalBoolean(value: null | string): boolean | undefined 
     return false
   }
 
-  throw new Error(`Invalid boolean query parameter: ${value}`)
+  throw new ApiRequestError(`Invalid boolean query parameter: ${value}`)
 }
 
 export function parseOptionalEnum<T extends string>(value: null | string, values: readonly T[]): T | undefined {
@@ -172,63 +167,23 @@ export function parseOptionalEnum<T extends string>(value: null | string, values
     return value as T
   }
 
-  throw new Error(`Invalid query parameter: ${value}`)
+  throw new ApiRequestError(`Invalid query parameter: ${value}`)
 }
 
-export function resolveRecoverableStatuses(status: null | string): Array<'failed' | 'running'> | undefined {
-  if (status === null || status === 'active') {
-    return undefined
+export function parseRequiredEnum<T extends string>(value: null | string, field: string, values: readonly T[]): T {
+  if (value === null || value.trim() === '') {
+    throw new ApiRequestError(`Field ${field} is required and must be one of: ${values.join(', ')}.`)
   }
 
-  if (status === 'failed' || status === 'running') {
-    return [status]
+  const parsed = parseOptionalEnum(value, values)
+
+  if (parsed === undefined) {
+    throw new ApiRequestError(`Field ${field} is required and must be one of: ${values.join(', ')}.`)
   }
 
-  throw new Error(`Invalid worker status: ${status}`)
+  return parsed
 }
 
-export function resolveProviderSmokeTestRoles(role: null | string): ProviderSmokeTestRole[] | undefined {
-  if (role === null || role === 'all') {
-    return undefined
-  }
-
-  if (role === 'asr' || role === 'tts' || role === 'vlm') {
-    return [role]
-  }
-
-  throw new Error(`Invalid provider test role: ${role}`)
-}
-
-export function readRecoveryOrderBy(value: null | string): RecoveryOrderBy | undefined {
-  if (value === null) {
-    return undefined
-  }
-
-  if (value === 'attempt' || value === 'oldest' || value === 'recent') {
-    return value
-  }
-
-  throw new Error(`Invalid worker orderBy: ${value}`)
-}
-
-function parseEnvAssignments(values: string[]): Record<string, string> {
-  const env: Record<string, string> = {}
-
-  for (const value of values) {
-    const separatorIndex = value.indexOf('=')
-
-    if (separatorIndex <= 0) {
-      throw new Error(`Invalid env query value "${value}". Expected KEY=VALUE.`)
-    }
-
-    const key = value.slice(0, separatorIndex).trim()
-
-    if (key.length === 0) {
-      throw new Error(`Invalid env query value "${value}". Expected KEY=VALUE.`)
-    }
-
-    env[key] = value.slice(separatorIndex + 1)
-  }
-
-  return env
+function createApiRequestError(message: string): ApiRequestError {
+  return new ApiRequestError(message)
 }

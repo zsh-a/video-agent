@@ -1,6 +1,7 @@
 import {Args, Command, Flags} from '@oclif/core'
 import {inspectFfmpegAudio, renderProject} from '@video-agent/runtime'
 
+import {normalizeNonNegativeIntegerFlag, normalizePositiveIntegerFlag, parseOptionalNumberFlag, workspaceFlag} from '../utils/cli-flags.js'
 export default class Render extends Command {
   static args = {
     project: Args.string({description: 'Project id to render', required: true}),
@@ -19,7 +20,7 @@ export default class Render extends Command {
     'source-volume': Flags.string({description: 'Source audio volume multiplier'}),
     subtitles: Flags.boolean({allowNo: true, default: true, description: 'Burn narration subtitles when narration.json exists'}),
     'voiceover-volume': Flags.string({description: 'Voiceover audio volume multiplier'}),
-    workspace: Flags.string({default: '.video-agent', description: 'Workspace directory'}),
+    workspace: workspaceFlag(),
   }
 
   async run(): Promise<void> {
@@ -27,14 +28,14 @@ export default class Render extends Command {
     const options = {
       audio: flags.audio,
       audioDucking: flags['audio-ducking'],
-      duckingAttackMs: flags['ducking-attack-ms'],
-      duckingRatio: flags['ducking-ratio'],
-      duckingReleaseMs: flags['ducking-release-ms'],
-      duckingThreshold: parseOptionalNumber(flags['ducking-threshold'], 'ducking-threshold'),
+      duckingAttackMs: normalizeNonNegativeIntegerFlag(flags['ducking-attack-ms'], '--ducking-attack-ms'),
+      duckingRatio: normalizePositiveIntegerFlag(flags['ducking-ratio'], '--ducking-ratio'),
+      duckingReleaseMs: normalizeNonNegativeIntegerFlag(flags['ducking-release-ms'], '--ducking-release-ms'),
+      duckingThreshold: parseOptionalNumberFlag(flags['ducking-threshold'], '--ducking-threshold'),
       output: flags.output,
-      sourceVolume: parseOptionalNumber(flags['source-volume'], 'source-volume'),
+      sourceVolume: parseOptionalNumberFlag(flags['source-volume'], '--source-volume'),
       subtitles: flags.subtitles,
-      voiceoverVolume: parseOptionalNumber(flags['voiceover-volume'], 'voiceover-volume'),
+      voiceoverVolume: parseOptionalNumberFlag(flags['voiceover-volume'], '--voiceover-volume'),
       workspaceDir: flags.workspace,
     }
 
@@ -82,18 +83,4 @@ export default class Render extends Command {
       this.log(`Missing voiceover: ${voiceover.narrationId ?? `index ${voiceover.index}`} (${voiceover.reason})`)
     }
   }
-}
-
-function parseOptionalNumber(value: string | undefined, flag: string): number | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-
-  const parsed = Number(value)
-
-  if (!Number.isFinite(parsed)) {
-    throw new TypeError(`Flag --${flag} must be a finite number.`)
-  }
-
-  return parsed
 }

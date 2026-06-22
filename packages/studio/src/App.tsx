@@ -10,7 +10,7 @@ import {DeckReviewPanel, RenderResultPanel, VisualSamplesPanel} from './componen
 import {RunConsole, type DiagnosticTab} from './components/run-console'
 import {StatusPill} from './components/ui'
 import {ArtifactsPanel, GuidedActionsPanel} from './components/workflow-panels'
-import type {ActionState, DashboardData, ExportOptions, ProjectSummary, ProviderEnvironment, RenderOptions, RuntimeConfig} from './types'
+import type {ActionState, DashboardData, ExportOptions, ProjectSummary, ProviderEnvironment, ProviderTestOptions, RenderOptions, RuntimeConfig} from './types'
 import {emptyData} from './types'
 import {defaultRerunStage, formatUnknownError} from './utils'
 import {createRunViewModel} from './view-models/run-status'
@@ -22,7 +22,8 @@ export function App() {
   const [actionState, setActionState] = useState<ActionState>({kind: 'idle', message: 'Select a project to run actions.'})
   const [operationsEnabled, setOperationsEnabled] = useState(false)
   const [renderOptions, setRenderOptions] = useState<RenderOptions>({audio: true, audioDucking: false, subtitles: true})
-  const [exportOptions, setExportOptions] = useState<ExportOptions>({cleanOutput: false, requireQuality: true})
+  const [exportOptions, setExportOptions] = useState<ExportOptions>({cleanOutput: false, format: 'video', requireQuality: true})
+  const [providerTestOptions, setProviderTestOptions] = useState<ProviderTestOptions>({})
   const [rerunStage, setRerunStage] = useState('')
   const [artifactPreview, setArtifactPreview] = useState('Select an artifact to preview.')
 
@@ -189,13 +190,15 @@ export function App() {
             exportOptions={exportOptions}
             operationsEnabled={operationsEnabled}
             projectId={projectId}
+            providerTestOptions={providerTestOptions}
             renderOptions={renderOptions}
             rerunStage={rerunStage}
             stages={data.projectStatus?.job.stages ?? []}
             onExport={() => void runProjectAction('Export', `/projects/${encodeURIComponent(projectId ?? '')}/export`, exportOptions, true)}
             onExportOptionsChange={setExportOptions}
             onOperationsEnabledChange={setOperationsEnabled}
-            onProviderTest={() => void runWorkspaceAction('Provider test', '/provider-test', {role: 'all'})}
+            onProviderTest={() => void runWorkspaceAction('Provider test', '/provider-test', {role: 'all', ...providerTestOptions})}
+            onProviderTestOptionsChange={setProviderTestOptions}
             onRender={() => void runProjectAction('Render', `/projects/${encodeURIComponent(projectId ?? '')}/render`, renderOptions, true)}
             onRenderOptionsChange={setRenderOptions}
             onRerun={() => void runProjectAction('Rerun', `/projects/${encodeURIComponent(projectId ?? '')}/rerun`, {fromStage: rerunStage || undefined}, true)}
@@ -218,7 +221,7 @@ export function App() {
       id: 'config',
       label: 'Config',
     },
-  ], [actionState, artifactPreview, controlledActionsLocked, data, exportOptions, operationsEnabled, projectId, renderOptions, rerunStage])
+  ], [actionState, artifactPreview, controlledActionsLocked, data, exportOptions, operationsEnabled, projectId, providerTestOptions, renderOptions, rerunStage])
 
   return (
     <div className="min-h-screen bg-studio-bg text-ink">

@@ -25,8 +25,8 @@ describe('project events', () => {
       await writeText(
         join(artifactsDir, 'provider-calls.jsonl'),
         [
-          JSON.stringify({completedAt: '2026-01-01T00:00:01.000Z', durationMs: 100, input: {}, operation: 'transcribe', output: {}, provider: 'mock', role: 'asr', startedAt: '2026-01-01T00:00:00.900Z', status: 'succeeded', version: 1}),
-          JSON.stringify({completedAt: '2026-01-01T00:00:02.000Z', durationMs: 100, error: {message: 'failed', name: 'Error'}, input: {}, operation: 'analyzeScenes', provider: 'mock', role: 'vlm', startedAt: '2026-01-01T00:00:01.900Z', status: 'failed', version: 1}),
+          JSON.stringify({completedAt: '2026-01-01T00:00:01.000Z', durationMs: 100, input: {}, operation: 'transcribe', output: {}, provider: 'mock', requestId: 'provider-call-1', role: 'asr', startedAt: '2026-01-01T00:00:00.900Z', status: 'succeeded', version: 1}),
+          JSON.stringify({completedAt: '2026-01-01T00:00:02.000Z', durationMs: 100, error: {message: 'failed', name: 'Error'}, input: {}, operation: 'analyzeScenes', provider: 'mock', requestId: 'provider-call-2', role: 'vlm', startedAt: '2026-01-01T00:00:01.900Z', status: 'failed', version: 1}),
         ].join('\n'),
       )
 
@@ -51,6 +51,10 @@ describe('project events', () => {
         limit: 2,
         workspaceDir: root,
       })
+      const emptyLimit = await readProjectEvents('demo', {
+        limit: 0,
+        workspaceDir: root,
+      })
 
       expect(all.events.map((event) => event.kind)).to.deep.equal(['pipeline', 'provider', 'pipeline', 'provider', 'pipeline'])
       expect(failedProviders.events).to.have.length(1)
@@ -70,6 +74,7 @@ describe('project events', () => {
         unit: 'segments',
       })
       expect(limited.events.map((event) => event.time)).to.deep.equal(['2026-01-01T00:00:02.000Z', '2026-01-01T00:00:03.000Z'])
+      expect(emptyLimit.events).to.deep.equal([])
     } finally {
       await rm(root, {force: true, recursive: true})
     }
@@ -85,5 +90,25 @@ describe('project events', () => {
     } finally {
       await rm(root, {force: true, recursive: true})
     }
+  })
+
+  it('rejects invalid event limits at the runtime boundary', async () => {
+    let negativeError: unknown
+    let fractionalError: unknown
+
+    try {
+      await readProjectEvents('demo', {limit: -1})
+    } catch (error) {
+      negativeError = error
+    }
+
+    try {
+      await readProjectEvents('demo', {limit: 1.5})
+    } catch (error) {
+      fractionalError = error
+    }
+
+    expect(String(negativeError)).to.include('Project event limit must be a non-negative integer. Received: -1')
+    expect(String(fractionalError)).to.include('Project event limit must be a non-negative integer. Received: 1.5')
   })
 })

@@ -1,4 +1,4 @@
-import type {AudioLoudnessQualityResult, RenderedMediaQualityResult, VisualSmokeQualityResult} from '@video-agent/quality'
+import type {AudioLoudnessQualityResult, RenderedMediaQualityResult, VisualFrameSample, VisualSmokeQualityResult} from '@video-agent/quality'
 
 import {extractVideoFrame, inspectAudioVolume, inspectVideoBlackDetect, probeMedia} from '@video-agent/media'
 import {
@@ -11,10 +11,8 @@ import {
   createVisualSmokeProbeFailure,
 } from '@video-agent/quality'
 import {createHash} from 'node:crypto'
-import {stat} from 'node:fs/promises'
+import {readFile, stat} from 'node:fs/promises'
 import {resolve} from 'node:path'
-
-import {bunFile} from '../shared/bun-runtime.js'
 
 export async function inspectRenderedOutput(outputPath: string, options: {expectAudio: boolean; expectedDuration: number}): Promise<RenderedMediaQualityResult> {
   try {
@@ -33,9 +31,10 @@ export async function inspectRenderedAudio(outputPath: string): Promise<AudioLou
 }
 
 export async function inspectRenderedVisual(outputPath: string, rendersDir: string, duration?: number): Promise<VisualSmokeQualityResult> {
-  const smokeQuality = await inspectRenderedBlackFrames(outputPath, duration)
+  const visualDuration = normalizeVisualInspectionDuration(duration)
+  const smokeQuality = await inspectRenderedBlackFrames(outputPath, visualDuration)
 
-  return addVisualFrameSamples(smokeQuality, await captureVisualFrameSamples(outputPath, rendersDir, duration))
+  return addVisualFrameSamples(smokeQuality, await captureVisualFrameSamples(outputPath, rendersDir, visualDuration))
 }
 
 async function inspectRenderedBlackFrames(outputPath: string, duration?: number): Promise<VisualSmokeQualityResult> {
@@ -46,14 +45,14 @@ async function inspectRenderedBlackFrames(outputPath: string, duration?: number)
   }
 }
 
-async function captureVisualFrameSamples(outputPath: string, rendersDir: string, duration?: number): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>[]> {
+async function captureVisualFrameSamples(outputPath: string, rendersDir: string, duration?: number): Promise<VisualFrameSample[]> {
   return Promise.all(createFrameSampleTargets(rendersDir, duration).map((target) => captureVisualFrameSample(outputPath, target)))
 }
 
-async function captureVisualFrameSample(outputPath: string, target: VisualFrameSampleTarget): Promise<NonNullable<VisualSmokeQualityResult['frameSample']>> {
+async function captureVisualFrameSample(outputPath: string, target: VisualFrameSampleTarget): Promise<VisualFrameSample> {
   try {
     await extractVideoFrame(outputPath, target.path, target.timestamp)
-    const [content, info] = await Promise.all([bunFile(target.path).bytes(), stat(target.path)])
+    const [content, info] = await Promise.all([readFile(target.path), stat(target.path)])
 
     return {
       capturedAt: new Date().toISOString(),
@@ -86,8 +85,10 @@ function createFrameSampleTargets(rendersDir: string, duration?: number): Visual
   }))
 }
 
-function createFrameSampleTimes(duration?: number): Array<{label: string; timestamp: number}> {
-  if (duration === undefined || duration <= 0.2) {
+export function createFrameSampleTimes(duration?: number): Array<{label: string; timestamp: number}> {
+  const visualDuration = normalizeVisualInspectionDuration(duration)
+
+  if (visualDuration === undefined || visualDuration <= 0.2) {
     return [
       {
         label: 'first',
@@ -96,8 +97,8 @@ function createFrameSampleTimes(duration?: number): Array<{label: string; timest
     ]
   }
 
-  const endTimestamp = Math.max(0, duration - 0.1)
-  const middleTimestamp = Math.max(0, duration / 2)
+  const endTimestamp = visualDuration - 0.1
+  const middleTimestamp = visualDuration / 2
   const samples = [
     {
       label: 'first',
@@ -114,6 +115,18 @@ function createFrameSampleTimes(duration?: number): Array<{label: string; timest
   ]
 
   return samples.filter((sample, index) => samples.findIndex((other) => other.timestamp === sample.timestamp) === index)
+}
+
+function normalizeVisualInspectionDuration(duration: number | undefined): number | undefined {
+  if (duration === undefined) {
+    return undefined
+  }
+
+  if (!Number.isFinite(duration) || duration <= 0) {
+    throw new Error(`Rendered visual inspection duration must be a positive finite number when provided; no frame-sample duration fallback is allowed. Received: ${String(duration)}`)
+  }
+
+  return duration
 }
 
 function roundTimestamp(value: number): number {

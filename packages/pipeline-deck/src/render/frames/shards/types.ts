@@ -1,7 +1,8 @@
-import type {DeckHtmlFrameSequenceCaptureBackend} from '@video-agent/renderer-html'
+import type {DeckHtmlCaptureBackend} from '@video-agent/ir'
+import type {DeckFrameShardBatchShardStatus, DeckFrameShardBatchStatus, DeckFrameShardPlanStatus} from '@video-agent/runtime'
 
 export interface CreateDeckFrameShardPlanProjectOptions {
-  frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
+  frameCaptureBackend?: DeckHtmlCaptureBackend
   frameShardSize?: number
   projectId: string
   workspaceDir?: string
@@ -16,7 +17,7 @@ export interface DeckFrameShardPlanShard {
   missingFrameSamples: Array<{frame: number; path: string}>
   missingFrames: number
   shardArtifactPath: string
-  status: 'complete' | 'partial' | 'pending'
+  status: DeckFrameShardPlanStatus
 }
 
 export interface CreateDeckFrameShardPlanProjectResult {
@@ -37,7 +38,7 @@ export interface CreateDeckFrameShardPlanProjectResult {
 
 export interface CreateDeckFrameShardBatchProjectOptions {
   chromiumCommand?: string[]
-  frameCaptureBackend?: DeckHtmlFrameSequenceCaptureBackend
+  frameCaptureBackend?: DeckHtmlCaptureBackend
   frameConcurrency?: number
   frameShardSize?: number
   playwrightCommand?: string[]
@@ -57,7 +58,7 @@ export interface DeckFrameShardBatchShard {
   frameEnd: number
   frameStart: number
   skippedFrames: number
-  status: 'complete' | 'failed'
+  status: DeckFrameShardBatchShardStatus
 }
 
 export interface CreateDeckFrameShardBatchProjectResult {
@@ -74,11 +75,11 @@ export interface CreateDeckFrameShardBatchProjectResult {
   htmlOutputDir: string
   projectDir: string
   projectId: string
-  renderer: DeckHtmlFrameSequenceCaptureBackend
+  renderer: DeckHtmlCaptureBackend
   shardConcurrency: number
   shardCount: number
   shardRetryDelayMs: number
   shardRetries: number
   shards: DeckFrameShardBatchShard[]
-  status: 'completed' | 'partial'
+  status: DeckFrameShardBatchStatus
 }
