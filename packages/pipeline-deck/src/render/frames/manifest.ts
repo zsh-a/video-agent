@@ -45,16 +45,30 @@ export async function readReusableDeckFrameManifest(workspace: ProjectWorkspace,
   renderer?: DeckHtmlCaptureBackend
   sourceSha256: string
 }): Promise<ReusableDeckFrameManifest | undefined> {
-  try {
-    const manifest = DeckFrameManifestReuseSchema.parse(await workspace.store.readJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME))
-    const matches = manifest.fps === expected.fps
-      && manifest.outputDir === toProjectPath(workspace.projectDir, expected.outputDir)
-      && (expected.renderer === undefined || manifest.renderer === expected.renderer)
-      && manifest.sourceSha256 === expected.sourceSha256
+  const value = await readDeckFrameManifestArtifact(workspace)
 
-    return matches ? manifest : undefined
-  } catch {
+  if (value === undefined) {
     return undefined
+  }
+
+  const manifest = DeckFrameManifestReuseSchema.parse(value)
+  const matches = manifest.fps === expected.fps
+    && manifest.outputDir === toProjectPath(workspace.projectDir, expected.outputDir)
+    && (expected.renderer === undefined || manifest.renderer === expected.renderer)
+    && manifest.sourceSha256 === expected.sourceSha256
+
+  return matches ? manifest : undefined
+}
+
+async function readDeckFrameManifestArtifact(workspace: ProjectWorkspace): Promise<unknown | undefined> {
+  try {
+    return await workspace.store.readJson(DECK_FRAME_MANIFEST_ARTIFACT_NAME)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return undefined
+    }
+
+    throw error
   }
 }
 

@@ -41,14 +41,17 @@ describe('projects', () => {
     }
   })
 
-  it('ignores project directories without job state', async () => {
+  it('rejects project directories without job state instead of ignoring legacy entries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-projects-'))
 
     try {
       await mkdir(join(root, 'projects', 'legacy'), {recursive: true})
       await createJob(root, 'demo', ['ingest'])
 
-      expect((await listProjects(root)).map((project) => project.projectId)).to.deep.equal(['demo'])
+      const error = await captureAsyncError(() => listProjects(root))
+
+      expect(String(error)).to.include('Job state JSON is missing')
+      expect(String(error)).to.include(join(root, 'projects', 'legacy', 'job-state.json'))
     } finally {
       await rm(root, {force: true, recursive: true})
     }

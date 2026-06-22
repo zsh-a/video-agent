@@ -47,7 +47,7 @@ describe('project quality', () => {
     }
   })
 
-  it('omits malformed raw quality artifacts from details instead of throwing', async () => {
+  it('rejects malformed raw quality artifacts from details instead of omitting them', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-quality-malformed-raw-'))
 
     try {
@@ -58,11 +58,11 @@ describe('project quality', () => {
       await writeText(join(artifactsDir, 'render-output.json'), 'not json\n')
       await refreshArtifactManifest(artifactsDir)
 
-      const report = await readProjectQualityDetails('demo', root)
-
-      expect('qualityReport' in report).to.equal(false)
-      expect('renderOutput' in report).to.equal(false)
-      expect(report.artifacts.schemaInvalid.map((issue) => issue.name)).to.include.members(['quality-report.json', 'render-output.json'])
+      await readProjectQualityDetails('demo', root)
+      throw new Error('Expected malformed raw quality artifacts to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('quality-report.json')
+      expect(String(error)).to.include('is not valid JSON')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

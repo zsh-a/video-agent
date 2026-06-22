@@ -158,6 +158,35 @@ describe('artifacts', () => {
     }
   })
 
+  it('does not inspect untracked known artifacts for reference integrity', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
+
+    try {
+      const artifactsDir = join(root, 'projects', 'demo', 'artifacts')
+
+      await mkdir(artifactsDir, {recursive: true})
+      await writeText(join(artifactsDir, 'media-info.json'), `${JSON.stringify(createMediaInfoArtifact())}\n`)
+      await refreshArtifactManifest(artifactsDir)
+      await writeText(join(artifactsDir, 'render-output.json'), 'not json\n')
+
+      const integrity = await verifyProjectArtifacts('demo', root)
+
+      expect(integrity.ok).to.equal(false)
+      expect(integrity.missing).to.deep.equal([])
+      expect(integrity.schemaInvalid).to.deep.equal([])
+      expect(integrity.untracked).to.deep.equal(['render-output.json'])
+      expect(integrity.summary).to.deep.include({
+        errors: 0,
+        missing: 0,
+        schemaInvalid: 0,
+        untracked: 1,
+        warnings: 1,
+      })
+    } finally {
+      await rm(root, {force: true, recursive: true})
+    }
+  })
+
   it('rejects tracked JSON artifact content that is not valid JSON', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-artifacts-'))
 

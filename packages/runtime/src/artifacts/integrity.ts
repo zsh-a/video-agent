@@ -97,7 +97,10 @@ export async function verifyProjectArtifacts(projectId: string, workspaceDir = D
     }
   }))
 
-  missing.push(...await findMissingArtifactReferences(artifactsDir))
+  missing.push(...await findMissingArtifactReferences(artifactsDir, {
+    skipArtifacts: new Set(schemaInvalid.map((issue) => issue.name)),
+    trackedArtifacts: manifestNames,
+  }))
 
   const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
   const untracked = entries

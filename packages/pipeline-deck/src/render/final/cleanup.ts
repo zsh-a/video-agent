@@ -15,7 +15,7 @@ export async function removeDeckHtmlFrameArtifacts(workspace: ProjectWorkspace):
     rm(resolve(workspace.rendersDir, 'review'), {force: true, recursive: true}),
   ])
 
-  const artifactNames = await readdir(workspace.artifactsDir).catch(() => [])
+  const artifactNames = await readDeckArtifactNames(workspace.artifactsDir)
   const staleArtifacts = artifactNames.filter((name) =>
     name === DECK_FRAME_MANIFEST_ARTIFACT_NAME
     || name === DECK_FRAME_SHARD_PLAN_ARTIFACT_NAME
@@ -26,6 +26,18 @@ export async function removeDeckHtmlFrameArtifacts(workspace: ProjectWorkspace):
   )
 
   await Promise.all(staleArtifacts.map((name) => rm(resolve(workspace.artifactsDir, name), {force: true})))
+}
+
+async function readDeckArtifactNames(artifactsDir: string): Promise<string[]> {
+  try {
+    return await readdir(artifactsDir)
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return []
+    }
+
+    throw error
+  }
 }
 
 export async function removeDeckFinalRenderArtifacts(workspace: ProjectWorkspace): Promise<void> {

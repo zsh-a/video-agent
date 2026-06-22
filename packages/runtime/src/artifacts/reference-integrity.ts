@@ -11,53 +11,69 @@ import {AUDIO_MIX_ARTIFACT_NAME, DECK_VOICEOVER_ARTIFACT_NAME, EXPORT_OUTPUT_ART
 import {ExportOutputSchema, IngestReportSchema, RenderOutputReferenceSchema, RenderOutputSchema} from './core-schemas.js'
 import {DeckFrameManifestSchema, DeckFrameShardBatchSchema, DeckFrameShardSchema, DeckKeyframesSchema, DeckRendererBackendProjectSchema, DeckRendererRemotionOutputSchema, DeckReviewReportSchema, DeckVoiceoverSchema} from './deck-schemas.js'
 import {DECK_FRAME_MANIFEST_ARTIFACT_NAME, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DECK_KEYFRAMES_ARTIFACT_NAME, DECK_RENDERER_BACKEND_ARTIFACT_NAMES, DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, TIMED_DECK_ARTIFACT_NAME} from './deck-artifact-constants.js'
-import {JsonFileParseError, readOptionalJson} from '../shared/file-io.js'
+import {readOptionalJson} from '../shared/file-io.js'
 
 const DECK_RENDERER_BACKEND_ARTIFACT_NAME_SET = new Set<string>(DECK_RENDERER_BACKEND_ARTIFACT_NAMES)
 
-export async function findMissingArtifactReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
+interface ReferenceIntegrityOptions {
+  skipArtifacts?: ReadonlySet<string>
+  trackedArtifacts?: ReadonlySet<string>
+}
+
+interface ReferenceReaderContext {
+  artifactsDir: string
+  skipArtifacts: ReadonlySet<string>
+  trackedArtifacts: ReadonlySet<string>
+}
+
+export async function findMissingArtifactReferences(artifactsDir: string, options: ReferenceIntegrityOptions = {}): Promise<ArtifactIntegrityMissingIssue[]> {
+  const context: ReferenceReaderContext = {
+    artifactsDir,
+    skipArtifacts: options.skipArtifacts ?? new Set(),
+    trackedArtifacts: options.trackedArtifacts ?? new Set(),
+  }
   const missing = await Promise.all([
-    findMissingIngestSideArtifactReferences(artifactsDir),
-    findMissingAnalysisFrameReferences(artifactsDir),
-    findMissingAudioMixReferences(artifactsDir),
-    findMissingDeckFrameManifestReferences(artifactsDir),
-    findMissingDeckFrameShardBatchReferences(artifactsDir),
-    findMissingDeckFrameShardReferences(artifactsDir),
-    findMissingDeckRendererBackendReferences(artifactsDir),
-    findMissingDeckRendererRemotionOutputReferences(artifactsDir),
-    findMissingDeckKeyframeReferences(artifactsDir),
-    findMissingDeckReviewReportReferences(artifactsDir),
-    findMissingDeckVoiceoverReferences(artifactsDir),
-    findMissingSubtitleOutputReferences(artifactsDir),
-    findMissingTimedDeckReferences(artifactsDir),
-    findMissingTtsSegmentReferences(artifactsDir),
-    findMissingRenderOutputReferences(artifactsDir),
-    findMissingExportOutputReferences(artifactsDir),
+    findMissingIngestSideArtifactReferences(context),
+    findMissingAnalysisFrameReferences(context),
+    findMissingAudioMixReferences(context),
+    findMissingDeckFrameManifestReferences(context),
+    findMissingDeckFrameShardBatchReferences(context),
+    findMissingDeckFrameShardReferences(context),
+    findMissingDeckRendererBackendReferences(context),
+    findMissingDeckRendererRemotionOutputReferences(context),
+    findMissingDeckKeyframeReferences(context),
+    findMissingDeckReviewReportReferences(context),
+    findMissingDeckVoiceoverReferences(context),
+    findMissingSubtitleOutputReferences(context),
+    findMissingTimedDeckReferences(context),
+    findMissingTtsSegmentReferences(context),
+    findMissingRenderOutputReferences(context),
+    findMissingExportOutputReferences(context),
   ])
 
   return missing.flat()
 }
 
-async function findMissingTimedDeckReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const timedDeck = await readOptionalReferenceArtifact(artifactsDir, TIMED_DECK_ARTIFACT_NAME, TimedDeckSchema)
+async function findMissingTimedDeckReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const timedDeck = await readOptionalReferenceArtifact(context, TIMED_DECK_ARTIFACT_NAME, TimedDeckSchema)
 
   if (timedDeck === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
 
   return findMissingProjectPathReferences(projectDir, uniquePaths([timedDeck.audioRef]))
 }
 
-async function findMissingDeckVoiceoverReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const deckVoiceover = await readOptionalReferenceArtifact(artifactsDir, DECK_VOICEOVER_ARTIFACT_NAME, DeckVoiceoverSchema)
+async function findMissingDeckVoiceoverReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const deckVoiceover = await readOptionalReferenceArtifact(context, DECK_VOICEOVER_ARTIFACT_NAME, DeckVoiceoverSchema)
 
   if (deckVoiceover === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const paths = uniquePaths([
     deckVoiceover.outputPath,
     ...deckVoiceover.segments.map((segment) => segment.path),
@@ -66,14 +82,14 @@ async function findMissingDeckVoiceoverReferences(artifactsDir: string): Promise
   return findMissingProjectPathReferences(projectDir, paths)
 }
 
-async function findMissingDeckFrameManifestReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const manifest = await readOptionalReferenceArtifact(artifactsDir, DECK_FRAME_MANIFEST_ARTIFACT_NAME, DeckFrameManifestSchema)
+async function findMissingDeckFrameManifestReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const manifest = await readOptionalReferenceArtifact(context, DECK_FRAME_MANIFEST_ARTIFACT_NAME, DeckFrameManifestSchema)
 
   if (manifest === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const paths = uniquePaths([
     manifest.outputDir,
     ...manifest.frames.map((frame) => frame.path),
@@ -82,17 +98,17 @@ async function findMissingDeckFrameManifestReferences(artifactsDir: string): Pro
   return findMissingProjectPathReferences(projectDir, paths)
 }
 
-async function findMissingDeckFrameShardReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
-  const shardNames = entries.map((entry) => entry.name).filter((name) => /^deck-frame-shard-\d{6}-\d{6}\.json$/.test(name))
+async function findMissingDeckFrameShardReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const entries = await collectArtifactFiles(context.artifactsDir, context.artifactsDir)
+  const shardNames = entries.map((entry) => entry.name).filter((name) => context.trackedArtifacts.has(name) && /^deck-frame-shard-\d{6}-\d{6}\.json$/.test(name))
   const nested = await Promise.all(shardNames.map(async (name) => {
-    const shard = await readOptionalReferenceArtifact(artifactsDir, name, DeckFrameShardSchema)
+    const shard = await readOptionalReferenceArtifact(context, name, DeckFrameShardSchema)
 
     if (shard === undefined) {
       return []
     }
 
-    const projectDir = resolve(artifactsDir, '..')
+    const projectDir = resolve(context.artifactsDir, '..')
 
     return findMissingProjectPathReferences(projectDir, uniquePaths([
       shard.outputDir,
@@ -103,14 +119,14 @@ async function findMissingDeckFrameShardReferences(artifactsDir: string): Promis
   return nested.flat()
 }
 
-async function findMissingDeckFrameShardBatchReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const batch = await readOptionalReferenceArtifact(artifactsDir, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DeckFrameShardBatchSchema)
+async function findMissingDeckFrameShardBatchReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const batch = await readOptionalReferenceArtifact(context, DECK_FRAME_SHARD_BATCH_ARTIFACT_NAME, DeckFrameShardBatchSchema)
 
   if (batch === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
 
   return findMissingProjectPathReferences(projectDir, uniquePaths([
     batch.frameManifestPath,
@@ -120,17 +136,17 @@ async function findMissingDeckFrameShardBatchReferences(artifactsDir: string): P
   ]))
 }
 
-async function findMissingDeckRendererBackendReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const entries = await collectArtifactFiles(artifactsDir, artifactsDir)
-  const artifactNames = entries.map((entry) => entry.name).filter((name) => DECK_RENDERER_BACKEND_ARTIFACT_NAME_SET.has(name))
+async function findMissingDeckRendererBackendReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const entries = await collectArtifactFiles(context.artifactsDir, context.artifactsDir)
+  const artifactNames = entries.map((entry) => entry.name).filter((name) => context.trackedArtifacts.has(name) && DECK_RENDERER_BACKEND_ARTIFACT_NAME_SET.has(name))
   const nested = await Promise.all(artifactNames.map(async (name) => {
-    const artifact = await readOptionalReferenceArtifact(artifactsDir, name, DeckRendererBackendProjectSchema)
+    const artifact = await readOptionalReferenceArtifact(context, name, DeckRendererBackendProjectSchema)
 
     if (artifact === undefined) {
       return []
     }
 
-    const projectDir = resolve(artifactsDir, '..')
+    const projectDir = resolve(context.artifactsDir, '..')
 
     return findMissingProjectPathReferences(projectDir, uniquePaths([
       artifact.commandCwd,
@@ -143,14 +159,14 @@ async function findMissingDeckRendererBackendReferences(artifactsDir: string): P
   return nested.flat()
 }
 
-async function findMissingDeckRendererRemotionOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const output = await readOptionalReferenceArtifact(artifactsDir, DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, DeckRendererRemotionOutputSchema)
+async function findMissingDeckRendererRemotionOutputReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const output = await readOptionalReferenceArtifact(context, DECK_RENDERER_REMOTION_OUTPUT_ARTIFACT_NAME, DeckRendererRemotionOutputSchema)
 
   if (output === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
 
   return findMissingProjectPathReferences(projectDir, uniquePaths([
     output.commandCwd,
@@ -160,26 +176,26 @@ async function findMissingDeckRendererRemotionOutputReferences(artifactsDir: str
   ]))
 }
 
-async function findMissingDeckKeyframeReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const keyframes = await readOptionalReferenceArtifact(artifactsDir, DECK_KEYFRAMES_ARTIFACT_NAME, DeckKeyframesSchema)
+async function findMissingDeckKeyframeReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const keyframes = await readOptionalReferenceArtifact(context, DECK_KEYFRAMES_ARTIFACT_NAME, DeckKeyframesSchema)
 
   if (keyframes === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
 
   return findMissingProjectPathReferences(projectDir, uniquePaths(keyframes.samples.map((sample) => sample.path)))
 }
 
-async function findMissingDeckReviewReportReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const report = await readOptionalReferenceArtifact(artifactsDir, REVIEW_REPORT_ARTIFACT_NAME, DeckReviewReportSchema)
+async function findMissingDeckReviewReportReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const report = await readOptionalReferenceArtifact(context, REVIEW_REPORT_ARTIFACT_NAME, DeckReviewReportSchema)
 
   if (report === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const paths = uniquePaths([
     report.keyframeQualityPath,
     report.outputPath,
@@ -190,26 +206,26 @@ async function findMissingDeckReviewReportReferences(artifactsDir: string): Prom
   return findMissingProjectPathReferences(projectDir, paths)
 }
 
-async function findMissingSubtitleOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const subtitles = await readOptionalReferenceArtifact(artifactsDir, SUBTITLES_ARTIFACT_NAME, FilmSubtitleOutputSchema)
+async function findMissingSubtitleOutputReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const subtitles = await readOptionalReferenceArtifact(context, SUBTITLES_ARTIFACT_NAME, FilmSubtitleOutputSchema)
 
   if (subtitles === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
 
   return findMissingProjectPathReferences(projectDir, uniquePaths([subtitles.path]))
 }
 
-async function findMissingAudioMixReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const audioMix = await readOptionalReferenceArtifact(artifactsDir, AUDIO_MIX_ARTIFACT_NAME, FilmAudioMixSchema)
+async function findMissingAudioMixReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const audioMix = await readOptionalReferenceArtifact(context, AUDIO_MIX_ARTIFACT_NAME, FilmAudioMixSchema)
 
   if (audioMix === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const paths = uniquePaths([
     audioMix.outputPath,
     audioMix.sourcePath,
@@ -219,14 +235,14 @@ async function findMissingAudioMixReferences(artifactsDir: string): Promise<Arti
   return findMissingProjectPathReferences(projectDir, paths)
 }
 
-async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const manifest = await readOptionalReferenceArtifact(artifactsDir, FRAMES_ARTIFACT_NAME, LongVideoAnalysisFramesSchema)
+async function findMissingAnalysisFrameReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const manifest = await readOptionalReferenceArtifact(context, FRAMES_ARTIFACT_NAME, LongVideoAnalysisFramesSchema)
 
   if (manifest === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const missing = await Promise.all(manifest.frames.map(async (frame) => {
     const exists = await pathExists(frame.path)
 
@@ -236,14 +252,14 @@ async function findMissingAnalysisFrameReferences(artifactsDir: string): Promise
   return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
 }
 
-async function findMissingIngestSideArtifactReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const report = await readOptionalReferenceArtifact(artifactsDir, INGEST_REPORT_ARTIFACT_NAME, IngestReportSchema)
+async function findMissingIngestSideArtifactReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const report = await readOptionalReferenceArtifact(context, INGEST_REPORT_ARTIFACT_NAME, IngestReportSchema)
 
   if (report === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const paths = [
     report.artifacts?.preview,
     report.artifacts?.sourceAudio,
@@ -258,14 +274,14 @@ async function findMissingIngestSideArtifactReferences(artifactsDir: string): Pr
   return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
 }
 
-async function findMissingTtsSegmentReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const segments = await readOptionalReferenceArtifact(artifactsDir, TTS_SEGMENTS_ARTIFACT_NAME, TtsSegmentsSchema)
+async function findMissingTtsSegmentReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const segments = await readOptionalReferenceArtifact(context, TTS_SEGMENTS_ARTIFACT_NAME, TtsSegmentsSchema)
 
   if (segments === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const missing = await Promise.all(segments.map(async (segment) => {
     const resolvedPath = resolveProjectPath(projectDir, segment.path)
     const exists = await pathExists(resolvedPath)
@@ -276,8 +292,8 @@ async function findMissingTtsSegmentReferences(artifactsDir: string): Promise<Ar
   return missing.filter((issue): issue is ArtifactIntegrityMissingIssue => issue !== null)
 }
 
-async function findMissingRenderOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const renderOutput = await readOptionalReferenceArtifact(artifactsDir, RENDER_OUTPUT_ARTIFACT_NAME, RenderOutputSchema)
+async function findMissingRenderOutputReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const renderOutput = await readOptionalReferenceArtifact(context, RENDER_OUTPUT_ARTIFACT_NAME, RenderOutputSchema)
 
   if (renderOutput === undefined) {
     return []
@@ -290,7 +306,7 @@ async function findMissingRenderOutputReferences(artifactsDir: string): Promise<
   }
 
   const references = referenceResult.data
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
   const paths = uniquePaths([
     references.outputPath,
     references.reviewHtmlPath,
@@ -314,38 +330,34 @@ async function findMissingRenderOutputReferences(artifactsDir: string): Promise<
   return findMissingProjectPathReferences(projectDir, paths)
 }
 
-async function findMissingExportOutputReferences(artifactsDir: string): Promise<ArtifactIntegrityMissingIssue[]> {
-  const exportOutput = await readOptionalReferenceArtifact(artifactsDir, EXPORT_OUTPUT_ARTIFACT_NAME, ExportOutputSchema)
+async function findMissingExportOutputReferences(context: ReferenceReaderContext): Promise<ArtifactIntegrityMissingIssue[]> {
+  const exportOutput = await readOptionalReferenceArtifact(context, EXPORT_OUTPUT_ARTIFACT_NAME, ExportOutputSchema)
 
   if (exportOutput === undefined) {
     return []
   }
 
-  const projectDir = resolve(artifactsDir, '..')
+  const projectDir = resolve(context.artifactsDir, '..')
 
   return findMissingProjectPathReferences(projectDir, uniquePaths([exportOutput.outputPath, exportOutput.sourcePath]))
 }
 
-async function readOptionalReferenceArtifact<T>(artifactsDir: string, name: string, schema: ZodType<T>): Promise<T | undefined> {
-  let value: unknown
-
-  try {
-    value = await readOptionalJson(resolve(artifactsDir, name))
-  } catch (error) {
-    if (error instanceof JsonFileParseError) {
-      return undefined
-    }
-
-    throw error
+async function readOptionalReferenceArtifact<T>(context: ReferenceReaderContext, name: string, schema: ZodType<T>): Promise<T | undefined> {
+  if (!context.trackedArtifacts.has(name)) {
+    return undefined
   }
+
+  if (context.skipArtifacts.has(name)) {
+    return undefined
+  }
+
+  const value = await readOptionalJson(resolve(context.artifactsDir, name))
 
   if (value === undefined) {
     return undefined
   }
 
-  const result = schema.safeParse(value)
-
-  return result.success ? result.data : undefined
+  return schema.parse(value)
 }
 
 async function findMissingProjectPathReferences(projectDir: string, paths: string[]): Promise<ArtifactIntegrityMissingIssue[]> {

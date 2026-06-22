@@ -8,11 +8,11 @@ import {checkExplainerStructure, summarizeQualityIssues, type QualityIssue} from
 
 import {DECK_QUALITY_REPORT_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME, NARRATION_ARTIFACT_NAME, QUALITY_REPORT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME, SELECTED_MOMENTS_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
 import {verifyProjectArtifacts} from '../artifacts/index.js'
-import {readOptionalProjectJson} from './optional-json.js'
 import {readQualitySummary} from './quality-summary.js'
 import {readRenderSummary} from './render-summary.js'
 
 import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+import {readOptionalJson} from '../shared/file-io.js'
 export interface ProjectQualityReport {
   artifacts: ArtifactIntegrityResult
   content: QualitySummary
@@ -32,15 +32,15 @@ export interface ProjectQualitySummary {
 
 export async function readProjectQuality(projectId: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ProjectQualityReport> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
-  const [artifacts, contentIssues] = await Promise.all([
-    verifyProjectArtifacts(projectId, workspaceDir),
-    readProjectContentIssues(artifactsDir),
-  ])
+  const artifacts = await verifyProjectArtifacts(projectId, workspaceDir)
   const [pipeline, render] = await Promise.all([
     readDiagnosticQualitySummary(artifactsDir, artifacts),
     readDiagnosticRenderSummary(artifactsDir, artifacts),
   ])
-  const deckIssues = await readProjectDeckQualityIssues(artifactsDir)
+  const [contentIssues, deckIssues] = await Promise.all([
+    readProjectContentIssues(artifactsDir, artifacts),
+    readProjectDeckQualityIssues(artifactsDir, artifacts),
+  ])
   const content = summarizeQualityIssues(contentIssues)
   const deck = summarizeQualityIssues(deckIssues)
   const summary = summarizeProjectQuality(pipeline, render, artifacts, content, deck)
@@ -64,8 +64,8 @@ export async function readProjectQualityDetails(projectId: string, workspaceDir 
 
   return {
     ...report,
-    contentIssues: await readProjectContentIssues(artifactsDir),
-    deckIssues: await readProjectDeckQualityIssues(artifactsDir),
+    contentIssues: await readProjectContentIssues(artifactsDir, report.artifacts),
+    deckIssues: await readProjectDeckQualityIssues(artifactsDir, report.artifacts),
     ...(await readOptionalJsonProperty(resolve(artifactsDir, DECK_QUALITY_REPORT_ARTIFACT_NAME), 'deckQualityReport')),
     ...(await readOptionalJsonProperty(resolve(artifactsDir, QUALITY_REPORT_ARTIFACT_NAME), 'qualityReport')),
     ...(await readOptionalJsonProperty(resolve(artifactsDir, RENDER_OUTPUT_ARTIFACT_NAME), 'renderOutput')),
@@ -150,13 +150,21 @@ function createEmptyRenderSummary(): RenderSummary {
   }
 }
 
-async function readProjectDeckQualityIssues(artifactsDir: string): Promise<QualityIssue[]> {
+async function readProjectDeckQualityIssues(artifactsDir: string, artifacts: ArtifactIntegrityResult): Promise<QualityIssue[]> {
+  if (hasSchemaInvalidArtifact(artifacts, DECK_QUALITY_REPORT_ARTIFACT_NAME)) {
+    return []
+  }
+
   const report = await readOptionalParsedJson(resolve(artifactsDir, DECK_QUALITY_REPORT_ARTIFACT_NAME), DeckQualityReportSchema)
 
   return report?.issues ?? []
 }
 
-async function readProjectContentIssues(artifactsDir: string): Promise<QualityIssue[]> {
+async function readProjectContentIssues(artifactsDir: string, artifacts: ArtifactIntegrityResult): Promise<QualityIssue[]> {
+  if ([MEDIA_INFO_ARTIFACT_NAME, NARRATION_ARTIFACT_NAME, SELECTED_MOMENTS_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME].some((name) => hasSchemaInvalidArtifact(artifacts, name))) {
+    return []
+  }
+
   const [mediaInfo, narration, selectedMoments, storyboard] = await Promise.all([
     readOptionalParsedJson(resolve(artifactsDir, MEDIA_INFO_ARTIFACT_NAME), MediaInfoSchema),
     readOptionalParsedJson(resolve(artifactsDir, NARRATION_ARTIFACT_NAME), NarrationSchema),
@@ -177,21 +185,17 @@ async function readProjectContentIssues(artifactsDir: string): Promise<QualityIs
 }
 
 async function readOptionalParsedJson<T>(path: string, schema: {parse(value: unknown): T}): Promise<T | undefined> {
-  const value = await readOptionalProjectJson(path)
+  const value = await readOptionalJson(path)
 
   if (value === undefined) {
     return undefined
   }
 
-  try {
-    return schema.parse(value)
-  } catch {
-    return undefined
-  }
+  return schema.parse(value)
 }
 
 async function readOptionalJsonProperty<T extends string>(path: string, key: T): Promise<Record<string, never> | Record<T, unknown>> {
-  const value = await readOptionalProjectJson(path)
+  const value = await readOptionalJson(path)
 
   return value === undefined ? {} : {[key]: value} as Record<T, unknown>
 }
