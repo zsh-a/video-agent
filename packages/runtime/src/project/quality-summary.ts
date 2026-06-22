@@ -1,24 +1,21 @@
 import type {QualitySummary} from './status-types.js'
 
 import {QualityReportSchema} from '../artifacts/core-schemas.js'
-import {readOptionalProjectJson} from './optional-json.js'
+import {readOptionalJson} from '../shared/file-io.js'
 
 export async function readQualitySummary(path: string): Promise<QualitySummary> {
-  const value = await readOptionalProjectJson(path)
+  const value = await readOptionalJson(path)
 
   if (value === undefined) {
     return createEmptyQualitySummary()
   }
 
-  const report = QualityReportSchema.safeParse(value)
-  if (!report.success) {
-    return createEmptyQualitySummary()
-  }
+  const report = QualityReportSchema.parse(value)
 
   return {
-    errors: report.data.summary.errors,
-    issues: report.data.issues.length,
-    warnings: report.data.summary.warnings,
+    errors: report.summary.errors,
+    issues: report.issues.length,
+    warnings: report.summary.warnings,
   }
 }
 

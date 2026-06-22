@@ -197,7 +197,7 @@ describe('project status', () => {
     }
   })
 
-  it('does not infer status summaries from malformed JSONL logs', async () => {
+  it('rejects malformed JSONL logs instead of returning empty status summaries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-status-malformed-jsonl-'))
 
     try {
@@ -205,17 +205,17 @@ describe('project status', () => {
       await writeText(join(root, 'projects', 'demo', 'artifacts', 'pipeline-events.jsonl'), 'not json\n')
       await writeText(join(root, 'projects', 'demo', 'artifacts', 'provider-calls.jsonl'), 'not json\n')
 
-      const status = await readProjectStatus('demo', root)
-
-      expect(status.agent).to.deep.equal({runs: []})
-      expect(status.summary.events.count).to.equal(0)
-      expect(status.summary.providers.total).to.equal(0)
+      await readProjectStatus('demo', root)
+      throw new Error('Expected malformed JSONL logs to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('pipeline-events.jsonl')
+      expect(String(error)).to.include('not valid JSON')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('does not infer render counts from schema-invalid render outputs', async () => {
+  it('rejects schema-invalid render outputs instead of returning empty render summaries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
 
     try {
@@ -233,62 +233,33 @@ describe('project status', () => {
         })}\n`,
       )
 
-      const status = await readProjectStatus('demo', root)
-
-      expect(status.summary.render).to.deep.equal({
-        audioInputs: 0,
-        audioQualityErrors: 0,
-        audioQualityWarnings: 0,
-        audioWarnings: 0,
-        missingVoiceovers: 0,
-        outputErrors: 0,
-        outputWarnings: 0,
-        rendered: false,
-        reviewAvailable: false,
-        subtitleErrors: 0,
-        subtitleWarnings: 0,
-        templateErrors: 0,
-        templateWarnings: 0,
-        visualErrors: 0,
-        visualWarnings: 0,
-      })
+      await readProjectStatus('demo', root)
+      throw new Error('Expected schema-invalid render output to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('audioInputs')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('does not infer render counts from malformed render outputs', async () => {
+  it('rejects malformed render outputs instead of returning empty render summaries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
 
     try {
       await createProject(root, 'demo')
       await writeText(join(root, 'projects', 'demo', 'artifacts', 'render-output.json'), 'not json\n')
 
-      const status = await readProjectStatus('demo', root)
-
-      expect(status.summary.render).to.deep.equal({
-        audioInputs: 0,
-        audioQualityErrors: 0,
-        audioQualityWarnings: 0,
-        audioWarnings: 0,
-        missingVoiceovers: 0,
-        outputErrors: 0,
-        outputWarnings: 0,
-        rendered: false,
-        reviewAvailable: false,
-        subtitleErrors: 0,
-        subtitleWarnings: 0,
-        templateErrors: 0,
-        templateWarnings: 0,
-        visualErrors: 0,
-        visualWarnings: 0,
-      })
+      await readProjectStatus('demo', root)
+      throw new Error('Expected malformed render output to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('render-output.json')
+      expect(String(error)).to.include('is not valid JSON')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('does not infer quality counts from schema-invalid summary-only reports', async () => {
+  it('rejects schema-invalid summary-only quality reports instead of returning empty quality summaries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
 
     try {
@@ -304,32 +275,27 @@ describe('project status', () => {
         })}\n`,
       )
 
-      const status = await readProjectStatus('demo', root)
-
-      expect(status.summary.quality).to.deep.equal({
-        errors: 0,
-        issues: 0,
-        warnings: 0,
-      })
+      await readProjectStatus('demo', root)
+      throw new Error('Expected schema-invalid quality report to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('issues')
     } finally {
       await rm(root, {force: true, recursive: true})
     }
   })
 
-  it('does not infer quality counts from malformed quality reports', async () => {
+  it('rejects malformed quality reports instead of returning empty quality summaries', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-status-'))
 
     try {
       await createProject(root, 'demo')
       await writeText(join(root, 'projects', 'demo', 'artifacts', 'quality-report.json'), 'not json\n')
 
-      const status = await readProjectStatus('demo', root)
-
-      expect(status.summary.quality).to.deep.equal({
-        errors: 0,
-        issues: 0,
-        warnings: 0,
-      })
+      await readProjectStatus('demo', root)
+      throw new Error('Expected malformed quality report to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('quality-report.json')
+      expect(String(error)).to.include('is not valid JSON')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

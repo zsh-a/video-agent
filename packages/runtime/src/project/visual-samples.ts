@@ -5,9 +5,9 @@ import {isAbsolute, relative, resolve} from 'node:path'
 
 import {RENDER_OUTPUT_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
 import {RenderOutputSchema} from '../artifacts/core-schemas.js'
-import {readOptionalProjectJson} from './optional-json.js'
 
 import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
+import {readOptionalJson} from '../shared/file-io.js'
 type RenderOutputArtifact = z.infer<typeof RenderOutputSchema>
 type VisualFrameSampleArtifact = NonNullable<NonNullable<RenderOutputArtifact['visualQuality']>['frameSamples']>[number]
 
@@ -50,7 +50,7 @@ export async function readProjectVisualSamples(projectId: string, options: Proje
 }
 
 async function readRenderOutput(projectDir: string): Promise<RenderOutputArtifact | undefined> {
-  const value = await readOptionalProjectJson(resolve(projectDir, 'artifacts', RENDER_OUTPUT_ARTIFACT_NAME))
+  const value = await readOptionalJson(resolve(projectDir, 'artifacts', RENDER_OUTPUT_ARTIFACT_NAME))
 
   return value === undefined ? undefined : RenderOutputSchema.parse(value)
 }

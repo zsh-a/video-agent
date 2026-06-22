@@ -1,7 +1,6 @@
 import {resolve} from 'node:path'
 
 import {readConfig} from '../shared/config.js'
-import {JsonLineReadError} from '../shared/file-io.js'
 import {createConfiguredJobStore} from '../shared/job-store.js'
 import {readProjectAgentStatus} from './agent-status.js'
 import {listProjectArtifactNames} from './artifact-list.js'
@@ -29,7 +28,7 @@ export async function readProjectStatus(projectId: string, workspaceDir = DEFAUL
     workspaceDir: resolvedWorkspaceDir,
   }).read()
   const [agent, artifacts, summary] = await Promise.all([
-    readStatusAgentStatus(projectId, resolvedWorkspaceDir),
+    readProjectAgentStatus(projectId, resolvedWorkspaceDir),
     listProjectArtifactNames(artifactsDir),
     readProjectRuntimeSummary(artifactsDir),
   ])
@@ -41,17 +40,5 @@ export async function readProjectStatus(projectId: string, workspaceDir = DEFAUL
     projectDir,
     projectId,
     summary,
-  }
-}
-
-async function readStatusAgentStatus(projectId: string, workspaceDir: string) {
-  try {
-    return await readProjectAgentStatus(projectId, workspaceDir)
-  } catch (error) {
-    if (error instanceof JsonLineReadError) {
-      return {runs: []}
-    }
-
-    throw error
   }
 }

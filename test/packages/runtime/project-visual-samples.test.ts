@@ -113,7 +113,7 @@ describe('project visual samples', () => {
     }
   })
 
-  it('returns an empty sample list when render-output JSON is malformed', async () => {
+  it('rejects malformed render-output JSON instead of treating it as no samples', async () => {
     const root = await mkdtemp(join(tmpdir(), 'video-agent-visual-samples-malformed-json-'))
 
     try {
@@ -122,9 +122,11 @@ describe('project visual samples', () => {
       await mkdir(artifactsDir, {recursive: true})
       await writeText(join(artifactsDir, 'render-output.json'), 'not json\n')
 
-      const result = await readProjectVisualSamples('demo', {workspaceDir: root})
-
-      expect(result.samples).to.deep.equal([])
+      await readProjectVisualSamples('demo', {workspaceDir: root})
+      throw new Error('Expected malformed render-output JSON to fail.')
+    } catch (error) {
+      expect(String(error)).to.include('render-output.json')
+      expect(String(error)).to.include('is not valid JSON')
     } finally {
       await rm(root, {force: true, recursive: true})
     }

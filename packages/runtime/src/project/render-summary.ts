@@ -1,18 +1,16 @@
 import type {RenderSummary} from './status-types.js'
 
 import {RenderOutputSchema} from '../artifacts/core-schemas.js'
-import {readOptionalProjectJson} from './optional-json.js'
+import {readOptionalJson} from '../shared/file-io.js'
 
 export async function readRenderSummary(path: string): Promise<RenderSummary> {
-  const value = await readOptionalProjectJson(path)
+  const value = await readOptionalJson(path)
 
   if (value === undefined) {
     return createEmptyRenderSummary()
   }
 
-  const report = RenderOutputSchema.safeParse(value)
-
-  return report.success ? createRenderSummary(report.data) : createEmptyRenderSummary()
+  return createRenderSummary(RenderOutputSchema.parse(value))
 }
 
 function createRenderSummary(report: RenderOutputArtifact): RenderSummary {

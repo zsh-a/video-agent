@@ -1,7 +1,7 @@
 import {resolve} from 'node:path'
 
 import type {ArtifactIntegrityResult} from '../artifacts/index.js'
-import type {ProjectStatus, QualitySummary, RenderSummary} from './status.js'
+import type {QualitySummary, RenderSummary} from './status.js'
 
 import {DeckQualityReportSchema, LongVideoSelectedMomentsSchema, MediaInfoSchema, NarrationSchema, StoryboardSchema} from '@video-agent/ir'
 import {checkExplainerStructure, summarizeQualityIssues, type QualityIssue} from '@video-agent/quality'
@@ -9,7 +9,8 @@ import {checkExplainerStructure, summarizeQualityIssues, type QualityIssue} from
 import {DECK_QUALITY_REPORT_ARTIFACT_NAME, MEDIA_INFO_ARTIFACT_NAME, NARRATION_ARTIFACT_NAME, QUALITY_REPORT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME, SELECTED_MOMENTS_ARTIFACT_NAME, STORYBOARD_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
 import {verifyProjectArtifacts} from '../artifacts/index.js'
 import {readOptionalProjectJson} from './optional-json.js'
-import {readProjectStatus} from './status.js'
+import {readQualitySummary} from './quality-summary.js'
+import {readRenderSummary} from './render-summary.js'
 
 import {DEFAULT_WORKSPACE_DIR} from '../shared/defaults.js'
 export interface ProjectQualityReport {
@@ -31,15 +32,18 @@ export interface ProjectQualitySummary {
 
 export async function readProjectQuality(projectId: string, workspaceDir = DEFAULT_WORKSPACE_DIR): Promise<ProjectQualityReport> {
   const artifactsDir = resolve(workspaceDir, 'projects', projectId, 'artifacts')
-  const [status, artifacts, contentIssues] = await Promise.all([
-    readProjectStatus(projectId, workspaceDir),
+  const [artifacts, contentIssues] = await Promise.all([
     verifyProjectArtifacts(projectId, workspaceDir),
     readProjectContentIssues(artifactsDir),
+  ])
+  const [pipeline, render] = await Promise.all([
+    readDiagnosticQualitySummary(artifactsDir, artifacts),
+    readDiagnosticRenderSummary(artifactsDir, artifacts),
   ])
   const deckIssues = await readProjectDeckQualityIssues(artifactsDir)
   const content = summarizeQualityIssues(contentIssues)
   const deck = summarizeQualityIssues(deckIssues)
-  const summary = summarizeProjectQuality(status, artifacts, content, deck)
+  const summary = summarizeProjectQuality(pipeline, render, artifacts, content, deck)
 
   return {
     artifacts,
@@ -47,9 +51,9 @@ export async function readProjectQuality(projectId: string, workspaceDir = DEFAU
     deck,
     generatedAt: new Date().toISOString(),
     ok: summary.errors === 0 && summary.warnings === 0,
-    pipeline: status.summary.quality,
+    pipeline,
     projectId,
-    render: status.summary.render,
+    render,
     summary,
   }
 }
@@ -68,26 +72,26 @@ export async function readProjectQualityDetails(projectId: string, workspaceDir 
   }
 }
 
-function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactIntegrityResult, content: QualitySummary, deck: QualitySummary): ProjectQualitySummary {
+function summarizeProjectQuality(pipeline: QualitySummary, render: RenderSummary, artifacts: ArtifactIntegrityResult, content: QualitySummary, deck: QualitySummary): ProjectQualitySummary {
   const errors =
-    status.summary.quality.errors +
-    status.summary.render.outputErrors +
-    status.summary.render.subtitleErrors +
-    status.summary.render.audioQualityErrors +
-    status.summary.render.templateErrors +
-    status.summary.render.visualErrors +
+    pipeline.errors +
+    render.outputErrors +
+    render.subtitleErrors +
+    render.audioQualityErrors +
+    render.templateErrors +
+    render.visualErrors +
     artifacts.summary.errors +
     content.errors +
     deck.errors
   const warnings =
-    status.summary.quality.warnings +
-    status.summary.render.outputWarnings +
-    status.summary.render.subtitleWarnings +
-    status.summary.render.audioQualityWarnings +
-    status.summary.render.templateWarnings +
-    status.summary.render.visualWarnings +
-    status.summary.render.audioWarnings +
-    status.summary.render.missingVoiceovers +
+    pipeline.warnings +
+    render.outputWarnings +
+    render.subtitleWarnings +
+    render.audioQualityWarnings +
+    render.templateWarnings +
+    render.visualWarnings +
+    render.audioWarnings +
+    render.missingVoiceovers +
     artifacts.summary.warnings +
     content.warnings +
     deck.warnings
@@ -95,6 +99,54 @@ function summarizeProjectQuality(status: ProjectStatus, artifacts: ArtifactInteg
   return {
     errors,
     warnings,
+  }
+}
+
+async function readDiagnosticQualitySummary(artifactsDir: string, artifacts: ArtifactIntegrityResult): Promise<QualitySummary> {
+  if (hasSchemaInvalidArtifact(artifacts, QUALITY_REPORT_ARTIFACT_NAME)) {
+    return createEmptyQualitySummary()
+  }
+
+  return readQualitySummary(resolve(artifactsDir, QUALITY_REPORT_ARTIFACT_NAME))
+}
+
+async function readDiagnosticRenderSummary(artifactsDir: string, artifacts: ArtifactIntegrityResult): Promise<RenderSummary> {
+  if (hasSchemaInvalidArtifact(artifacts, RENDER_OUTPUT_ARTIFACT_NAME)) {
+    return createEmptyRenderSummary()
+  }
+
+  return readRenderSummary(resolve(artifactsDir, RENDER_OUTPUT_ARTIFACT_NAME))
+}
+
+function hasSchemaInvalidArtifact(artifacts: ArtifactIntegrityResult, artifactName: string): boolean {
+  return artifacts.schemaInvalid.some((issue) => issue.name === artifactName)
+}
+
+function createEmptyQualitySummary(): QualitySummary {
+  return {
+    errors: 0,
+    issues: 0,
+    warnings: 0,
+  }
+}
+
+function createEmptyRenderSummary(): RenderSummary {
+  return {
+    audioInputs: 0,
+    audioQualityErrors: 0,
+    audioQualityWarnings: 0,
+    audioWarnings: 0,
+    missingVoiceovers: 0,
+    outputErrors: 0,
+    outputWarnings: 0,
+    rendered: false,
+    reviewAvailable: false,
+    subtitleErrors: 0,
+    subtitleWarnings: 0,
+    templateErrors: 0,
+    templateWarnings: 0,
+    visualErrors: 0,
+    visualWarnings: 0,
   }
 }
 

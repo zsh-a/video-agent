@@ -6,7 +6,7 @@ import type {z} from 'zod'
 import {QUALITY_REPORT_ARTIFACT_NAME, RENDER_OUTPUT_ARTIFACT_NAME} from '../artifacts/artifact-names.js'
 import {PIPELINE_EVENTS_LOG_ARTIFACT_NAME, PROVIDER_CALLS_LOG_ARTIFACT_NAME} from '../artifacts/log-artifact-names.js'
 import {PipelineEventLogLineSchema, ProviderCallLogLineSchema} from '../artifacts/log-schemas.js'
-import {JsonLineReadError, readParsedJsonLines} from '../shared/file-io.js'
+import {readParsedJsonLines} from '../shared/file-io.js'
 import {summarizeEvents} from './event-summary.js'
 import {summarizeProviderCalls} from './provider-summary.js'
 import {readQualitySummary} from './quality-summary.js'
@@ -29,13 +29,5 @@ export async function readProjectRuntimeSummary(artifactsDir: string): Promise<P
 }
 
 async function readStatusJsonLines<T>(path: string, schema: z.ZodType<T>): Promise<T[]> {
-  try {
-    return await readParsedJsonLines(path, schema)
-  } catch (error) {
-    if (error instanceof JsonLineReadError) {
-      return []
-    }
-
-    throw error
-  }
+  return readParsedJsonLines(path, schema)
 }
