@@ -11,6 +11,23 @@ const LLM_DECK_VISUAL_KINDS = ['chart', 'code', 'process', 'table', 'text', 'tit
 const LLM_DECK_POINT_CHARACTERS_MAX = 120
 const LLM_DECK_PROCESS_STEP_DETAIL_CHARACTERS_MAX = 72
 const LLM_DECK_PROCESS_STEP_LABEL_CHARACTERS_MAX = 32
+const LLM_DECK_TRANSITION_OUT_ALIASES = [
+  'fade-in',
+  'fade-out',
+  'soft-scale',
+  'blur-rise',
+  'stagger-up',
+  'progressive-reveal',
+  'card-stack',
+  'line-draw',
+  'number-count',
+  'spotlight',
+  'wipe',
+  'zoom-focus',
+  'cinematic-rise',
+] as const
+const LLM_DECK_MOTION_GENERATION_TYPES = [...DECK_BASE_MOTION_PRESETS, 'crossfade', 'fade', 'slide-left'] as const
+const LLM_DECK_TRANSITION_OUT_GENERATION_TYPES = [...DECK_TRANSITION_TYPES, ...LLM_DECK_TRANSITION_OUT_ALIASES] as const
 export const LLM_TEXT_DECK_MAX_SLIDES = 24
 
 const LLMDeckSourceRangeSchema = z.tuple([
@@ -51,19 +68,40 @@ const LLMTextDeckSlideSemanticSchema = z.object({
   visualStyle: LLMGeneratedTextSchema,
 })
 
+const LLMTextDeckOutlineSectionSchema = z.object({
+  goal: z.string().min(1),
+  title: z.string().min(1),
+})
+
 const LLMTextDeckOutlineSchema = z.object({
   audience: z.string().min(1).optional(),
-  sections: z.array(z.object({
-    goal: z.string().min(1),
-    title: z.string().min(1),
-  })).min(1),
+  sections: z.array(LLMTextDeckOutlineSectionSchema).min(1),
 })
+
+const LLMTextDeckScriptOutlineSchema = z.union([
+  LLMTextDeckOutlineSchema,
+  z.array(LLMTextDeckOutlineSectionSchema).min(1),
+  z.object({
+    source: z.object({
+      sections: z.array(LLMTextDeckOutlineSectionSchema).min(1),
+    }),
+  }),
+])
 
 const LLMDeckChartSchema = z.object({
   bars: z.array(z.object({
     caption: z.string().min(1).optional(),
     label: z.string().min(1),
     value: z.number().finite().min(0).max(1),
+  })).min(1).max(4),
+  valueLabel: z.string().min(1).optional(),
+})
+
+const LLMDeckChartGenerationSchema = z.object({
+  bars: z.array(z.object({
+    caption: z.string().min(1).optional(),
+    label: z.string().min(1),
+    value: z.number().finite().min(0).max(100),
   })).min(1).max(4),
   valueLabel: z.string().min(1).optional(),
 })
@@ -105,6 +143,11 @@ const LLMDeckStatSchema = z.object({
 const LLMDeckTransitionOutSchema = z.union([z.object({
   duration: z.number().finite().positive(),
   type: z.enum(DECK_TRANSITION_TYPES),
+}), z.null()])
+
+const LLMDeckTransitionOutGenerationSchema = z.union([z.object({
+  duration: z.number().finite().positive(),
+  type: z.enum(LLM_DECK_TRANSITION_OUT_GENERATION_TYPES),
 }), z.null()])
 
 const LLMDeckVisualSchema = z.object({
@@ -162,39 +205,62 @@ export const LLMTextDeckSlideOutlineSchema = z.object({
   })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
 })
 
-export const LLMTextDeckSlidePlanSchema = z.object({
+const LLMTextDeckSlidePlanSlideShape = {
+  code: LLMDeckCodeSchema.optional(),
+  comparison: LLMDeckComparisonSchema.optional(),
+  durationIntent: z.number().finite().positive(),
+  points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)),
+  process: LLMDeckProcessSchema.optional(),
+  quote: LLMDeckQuoteSchema.optional(),
+  outlineId: z.string().min(1),
+  sectionIds: z.array(z.string().min(1)).min(1),
+  stat: LLMDeckStatSchema.optional(),
+  subtitle: z.string().min(1).optional(),
+  title: z.string().min(1),
+  type: z.enum(deckTemplateTypes as [DeckSlideType, ...DeckSlideType[]], {error: 'Slide type must be one of the registered Deck template types.'}),
+  visual: LLMDeckVisualSchema,
+}
+
+export const LLMTextDeckSlidePlanGenerationSchema = z.object({
   slides: z.array(z.object({
-    chart: LLMDeckChartSchema.optional(),
-    code: LLMDeckCodeSchema.optional(),
-    comparison: LLMDeckComparisonSchema.optional(),
-    durationIntent: z.number().finite().positive(),
-    motion: z.enum(DECK_BASE_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
-    points: z.array(z.string().min(1).max(LLM_DECK_POINT_CHARACTERS_MAX)),
-    process: LLMDeckProcessSchema.optional(),
-    quote: LLMDeckQuoteSchema.optional(),
-    outlineId: z.string().min(1),
-    sectionIds: z.array(z.string().min(1)).min(1),
-    stat: LLMDeckStatSchema.optional(),
-    subtitle: z.string().min(1).optional(),
-    title: z.string().min(1),
-    transitionOut: LLMDeckTransitionOutSchema,
-    type: z.enum(deckTemplateTypes as [DeckSlideType, ...DeckSlideType[]], {error: 'Slide type must be one of the registered Deck template types.'}),
-    visual: LLMDeckVisualSchema,
+    ...LLMTextDeckSlidePlanSlideShape,
+    chart: LLMDeckChartGenerationSchema.optional(),
+    motion: z.enum(LLM_DECK_MOTION_GENERATION_TYPES, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+    transitionOut: LLMDeckTransitionOutGenerationSchema,
   })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
   targetPlatform: z.enum(STORYBOARD_TARGET_PLATFORMS),
   theme: z.enum(DECK_PRESET_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
   title: z.string().min(1),
 })
 
+export const LLMTextDeckSlidePlanSchema = z.object({
+  slides: z.array(z.object({
+    ...LLMTextDeckSlidePlanSlideShape,
+    chart: LLMDeckChartSchema.optional(),
+    motion: z.enum(DECK_BASE_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+    transitionOut: LLMDeckTransitionOutSchema,
+  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+  targetPlatform: z.enum(STORYBOARD_TARGET_PLATFORMS),
+  theme: z.enum(DECK_PRESET_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
+  title: z.string().min(1),
+})
+
+const LLMTextDeckScriptSemanticsSlideSchema = z.object({
+  duration: z.number().finite().positive(),
+  semantic: LLMTextDeckSlideSemanticSchema,
+  slideIndex: z.number().int().nonnegative(),
+  sourceRange: LLMDeckSourceRangeSchema,
+  speakerNote: z.string().min(1),
+})
+
+export const LLMTextDeckScriptSemanticsGenerationSchema = z.object({
+  outline: LLMTextDeckScriptOutlineSchema,
+  slides: z.array(LLMTextDeckScriptSemanticsSlideSchema).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+})
+
 export const LLMTextDeckScriptSemanticsSchema = z.object({
   outline: LLMTextDeckOutlineSchema,
-  slides: z.array(z.object({
-    duration: z.number().finite().positive(),
-    semantic: LLMTextDeckSlideSemanticSchema,
-    slideIndex: z.number().int().nonnegative(),
-    sourceRange: LLMDeckSourceRangeSchema,
-    speakerNote: z.string().min(1),
-  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+  slides: z.array(LLMTextDeckScriptSemanticsSlideSchema).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
 })
 
 export const LLMTextDeckCoherenceReviewSchema = z.object({
@@ -244,8 +310,10 @@ export type LLMTextDeckContentAnalysis = z.infer<typeof LLMTextDeckContentAnalys
 export type LLMTextDeckBrief = z.infer<typeof LLMTextDeckBriefSchema>
 export type LLMTextDeckCoherenceReview = z.infer<typeof LLMTextDeckCoherenceReviewSchema>
 export type LLMTextDeckPlan = z.infer<typeof LLMTextDeckPlanSchema>
+export type LLMTextDeckScriptSemanticsGeneration = z.infer<typeof LLMTextDeckScriptSemanticsGenerationSchema>
 export type LLMTextDeckScriptSemantics = z.infer<typeof LLMTextDeckScriptSemanticsSchema>
 export type LLMTextDeckSlideOutline = z.infer<typeof LLMTextDeckSlideOutlineSchema>
+export type LLMTextDeckSlidePlanGeneration = z.infer<typeof LLMTextDeckSlidePlanGenerationSchema>
 export type LLMTextDeckSlidePlan = z.infer<typeof LLMTextDeckSlidePlanSchema>
 type LLMTextDeckSlide = LLMTextDeckPlan['slides'][number]
 

@@ -5,7 +5,7 @@ import {toJSONSchema} from 'zod'
 import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMEvent, StreamTextRequest} from '../../../packages/llm/src/index.js'
 import {LLMTextDeckPlanSchema, LLMTextDeckScriptSemanticsSchema, LLMTextDeckSlidePlanSchema, type LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 import {createLLMTextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/llm-text-plan.js'
-import {createScriptSemanticsRequest} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-requests.js'
+import {createContentAnalysisRequest, createDeckBriefRequest, createScriptSemanticsRequest} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-requests.js'
 import {validateLLMTextDeckScriptSemanticsTiming} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-validation.js'
 import {createDeckSourceMap} from '../../../packages/pipeline-deck/src/planning/source-map.js'
 import {createTextDeckProjectPlanFromLLM as createStrictTextDeckProjectPlanFromLLM} from '../../../packages/pipeline-deck/src/planning/text-plan-builder.js'
@@ -459,6 +459,229 @@ function createOneSlideScriptSemanticsRequestInput() {
   }
 }
 
+function requireObjectRequestForStage(requests: Array<GenerateObjectRequest<unknown>>, stage: string): GenerateObjectRequest<unknown> {
+  const request = requests.find((candidate) => requestStage(candidate) === stage)
+
+  if (request === undefined) {
+    throw new Error(`Expected ${stage} request.`)
+  }
+
+  return request
+}
+
+function requireDefined<T>(value: T | undefined, label: string): T {
+  if (value === undefined) {
+    throw new Error(`Expected ${label}.`)
+  }
+
+  return value
+}
+
+function assertDetailedSlideOutlineContract(requests: Array<GenerateObjectRequest<unknown>>) {
+  const request = requireObjectRequestForStage(requests, 'slide-outline')
+  const payload = requestPayload(request) as {
+    instructions: string[]
+    outputContract?: {
+      forbiddenRootFieldNames?: string[]
+      slide?: {forbiddenFieldNames?: string[]; required?: string[]}
+    }
+  }
+  const outputContract = requireDefined(payload.outputContract, 'slide-outline output contract')
+  const slideContract = requireDefined(outputContract.slide, 'slide-outline slide contract')
+
+  expect(request.schemaDescription).to.include('Root must contain slides only')
+  expect(payload.instructions.join('\n')).to.include('Return root slides, not outline')
+  expect(outputContract.forbiddenRootFieldNames).to.include('outline')
+  expect(slideContract.forbiddenFieldNames).to.include('title')
+  expect(slideContract.required).to.deep.equal(['goal', 'informationRole', 'mustCover', 'narrationBudgetSeconds', 'outlineId', 'sourceSectionIds', 'templateIntent', 'visualIntent'])
+}
+
+function assertDetailedSlidePlanPromptContract(requests: Array<GenerateObjectRequest<unknown>>) {
+  const request = requireObjectRequestForStage(requests, 'slide-plan')
+  const payload = requestPayload(request) as {
+    instructions: string[]
+    target: {
+      contentDensity: {
+        level: string
+        slideCountPolicy: string
+        visibleTextPolicy: string
+      }
+      slideCount: {
+        maximum: number
+        minimum: number
+        target?: number
+      }
+    }
+  }
+
+  expect(payload.target.contentDensity.level).to.equal('detailed')
+  expect(payload.target.contentDensity.visibleTextPolicy).to.include('concrete nouns')
+  expect(payload.target.contentDensity.slideCountPolicy).to.include('splitting dense source material')
+  expect(payload.target.slideCount).to.deep.include({
+    maximum: 3,
+    minimum: 1,
+    target: 1,
+  })
+  expect(request.promptMetadata).to.deep.include({
+    id: 'deck.slide-plan',
+    schemaName: 'LLMTextDeckSlidePlan',
+    stage: 'slide-plan',
+    version: '2026-06-20',
+  })
+  expect(request.promptMetadata?.inputHash).to.match(/^[a-f0-9]{64}$/u)
+  expect(request.schemaDescription).to.include('Root must contain slides, targetPlatform, theme, and title')
+  expect(request.schemaDescription).to.include('fade-in is not valid')
+  expect(payload.instructions.join('\n')).to.include('target.contentDensity.visibleTextPolicy')
+  expect(payload.instructions.join('\n')).to.include('Use requiredSlides as the binding checklist')
+  expect(payload.instructions.join('\n')).to.include('For transitionOut.type use only crossfade, fade, slide-left, or slide-up')
+}
+
+function assertDetailedSlidePlanOutputContract(requests: Array<GenerateObjectRequest<unknown>>) {
+  const request = requireObjectRequestForStage(requests, 'slide-plan')
+  const payload = requestPayload(request) as {
+    outputContract?: {
+      slide?: {forbiddenFieldNames?: string[]; required?: string[]}
+      slideShape?: {transitionOut?: string}
+      root?: {required?: string[]}
+    }
+    requiredSlides: Array<{goal: string; outlineId: string; slideIndex: number}>
+  }
+  const outputContract = requireDefined(payload.outputContract, 'slide-plan output contract')
+  const rootContract = requireDefined(outputContract.root, 'slide-plan root contract')
+  const slideContract = requireDefined(outputContract.slide, 'slide-plan slide contract')
+  const slideShape = requireDefined(outputContract.slideShape, 'slide-plan slide shape')
+
+  expect(rootContract.required).to.deep.equal(['slides', 'targetPlatform', 'theme', 'title'])
+  expect(slideContract.forbiddenFieldNames).to.include('speakerNote')
+  expect(slideContract.required).to.include('transitionOut')
+  expect(slideShape.transitionOut).to.include('do not use fade-in')
+  expect(payload.requiredSlides).to.deep.equal([
+    {
+      goal: 'Explain outline section 1.',
+      outlineId: 'outline-001',
+      slideIndex: 0,
+    },
+  ])
+}
+
+function assertDetailedScriptPromptContract(requests: Array<GenerateObjectRequest<unknown>>) {
+  const request = requireObjectRequestForStage(requests, 'script-semantics')
+  const payload = requestPayload(request) as {
+    instructions: string[]
+    scriptOutlineObject?: {
+      sections: Array<{goal: string; title: string}>
+    }
+    slideOutline?: unknown
+    target: {
+      contentDensity: {
+        level: string
+        narrationPolicy: string
+      }
+    }
+  }
+  const instructions = payload.instructions.join('\n')
+
+  expect(payload.target.contentDensity.level).to.equal('detailed')
+  expect(payload.target.contentDensity.narrationPolicy).to.include('concrete steps')
+  expect(request.promptMetadata).to.deep.include({
+    id: 'deck.script-semantics',
+    schemaName: 'LLMTextDeckScriptSemantics',
+    stage: 'script-semantics',
+    version: '2026-06-20',
+  })
+  expect(request.schemaDescription).to.include('Root must contain outline and slides')
+  expect(request.schemaDescription).to.include('outline.sections[].goal')
+  expect(instructions).to.include('target.contentDensity.narrationPolicy')
+  expect(instructions).to.include('single-line text')
+  expect(instructions).to.include('Copy scriptOutlineObject exactly into the root outline field')
+  expect(instructions).to.include('Root outline must be an object with sections')
+  expect(instructions).to.include('Do not return slideOutline or slidePlan slide fields')
+  expect(payload.slideOutline).to.equal(undefined)
+  expect(payload.scriptOutlineObject).to.deep.equal({
+    sections: [
+      {
+        goal: 'Explain outline section 1.',
+        title: 'Chunked Planning',
+      },
+    ],
+  })
+}
+
+function assertDetailedScriptOutputContract(requests: Array<GenerateObjectRequest<unknown>>) {
+  const request = requireObjectRequestForStage(requests, 'script-semantics')
+  const payload = requestPayload(request) as {
+    outputContract?: {
+      forbiddenRootFieldNames?: string[]
+      outline?: {required?: string[]}
+      outlineSection?: {forbiddenFieldNames?: string[]; required?: string[]}
+      outlineShape?: {sections?: Array<Record<string, unknown>>; source?: string}
+      root?: {required?: string[]}
+      slide?: {forbiddenFieldNames?: string[]; required?: string[]}
+      slideShape?: {semantic?: string; sourceRange?: string}
+    }
+    requiredSlides: Array<{
+      outlineId: string
+      sourceRangeHint: {basis: 'planned-presentation-timeline'; range: [number, number]; unit: 'seconds'}
+      sourceSectionIds: string[]
+      slideIndex: number
+      title: string
+    }>
+  }
+  const outputContract = requireDefined(payload.outputContract, 'script output contract')
+  const rootContract = requireDefined(outputContract.root, 'script root contract')
+  const outlineContract = requireDefined(outputContract.outline, 'script outline contract')
+  const outlineSectionContract = requireDefined(outputContract.outlineSection, 'script outline section contract')
+  const outlineShape = requireDefined(outputContract.outlineShape, 'script outline shape')
+  const slideContract = requireDefined(outputContract.slide, 'script slide contract')
+  const slideShape = requireDefined(outputContract.slideShape, 'script slide shape')
+
+  expect(outputContract.forbiddenRootFieldNames).to.include('slideOutline')
+  expect(rootContract.required).to.deep.equal(['outline', 'slides'])
+  expect(outlineContract.required).to.deep.equal(['sections'])
+  expect(outlineSectionContract.required).to.deep.equal(['goal', 'title'])
+  expect(outlineSectionContract.forbiddenFieldNames).to.include('outlineId')
+  expect(outlineShape.sections?.[0]).to.deep.equal({
+    goal: 'non-empty string summarizing the script section goal for this slide',
+    title: 'non-empty section title for this slide',
+  })
+  expect(outlineShape.source).to.equal('copy scriptOutlineObject exactly into root outline')
+  expect(slideContract.forbiddenFieldNames).to.include('title')
+  expect(slideContract.forbiddenFieldNames).to.include('outlineId')
+  expect(slideContract.forbiddenFieldNames).to.include('sourceSectionIds')
+  expect(slideContract.required).to.include('semantic')
+  expect(slideShape.semantic).to.include('not a slide outline item')
+  expect(slideShape.sourceRange).to.include('requiredSlides[].sourceRangeHint.range')
+  expect(payload.requiredSlides).to.deep.equal([
+    {
+      outlineId: 'outline-001',
+      sourceRangeHint: {
+        basis: 'planned-presentation-timeline',
+        range: [0, 12],
+        unit: 'seconds',
+      },
+      sourceSectionIds: ['section-001'],
+      slideIndex: 0,
+      title: 'Chunked Planning',
+    },
+  ])
+}
+
+function assertDetailedCoherenceContract(requests: Array<GenerateObjectRequest<unknown>>) {
+  const request = requireObjectRequestForStage(requests, 'coherence-review')
+  const payload = requestPayload(request) as {
+    instructions: string[]
+    outputContract?: {
+      root?: {required?: string[]}
+    }
+  }
+  const outputContract = requireDefined(payload.outputContract, 'coherence output contract')
+  const rootContract = requireDefined(outputContract.root, 'coherence root contract')
+
+  expect(request.schemaDescription).to.include('Root must contain issues and summary only')
+  expect(payload.instructions.join('\n')).to.include('Return only issues and summary at the JSON root')
+  expect(rootContract.required).to.deep.equal(['issues', 'summary'])
+}
+
 describe('Deck Explainer LLM text planning', () => {
   it('uses an LLM schema that can be represented as JSON Schema for provider traces', () => {
     const schema = toJSONSchema(LLMTextDeckPlanSchema) as {properties?: Record<string, unknown>}
@@ -578,89 +801,12 @@ describe('Deck Explainer LLM text planning', () => {
       sourceType: 'markdown',
     })
 
-    const slidePlanRequest = requests.find((request) => requestStage(request) === 'slide-plan') as GenerateObjectRequest<unknown>
-    const slidePlanPayload = requestPayload(slidePlanRequest) as {
-      instructions: string[]
-      requiredSlides: Array<{goal: string; outlineId: string; slideIndex: number}>
-      target: {
-        contentDensity: {
-          level: string
-          narrationPolicy: string
-          slideCountPolicy: string
-          visibleTextPolicy: string
-        }
-        slideCount: {
-          maximum: number
-          minimum: number
-          target?: number
-        }
-      }
-    }
-    const scriptRequest = requests.find((request) => requestStage(request) === 'script-semantics') as GenerateObjectRequest<unknown>
-    const scriptPayload = requestPayload(scriptRequest) as {
-      instructions: string[]
-      requiredSlides: Array<{
-        outlineId: string
-        sourceRangeHint: {basis: 'planned-presentation-timeline'; range: [number, number]; unit: 'seconds'}
-        sourceSectionIds: string[]
-        slideIndex: number
-        title: string
-      }>
-      target: {
-        contentDensity: {
-          level: string
-          narrationPolicy: string
-        }
-      }
-    }
-
-    expect(slidePlanPayload.target.contentDensity.level).to.equal('detailed')
-    expect(slidePlanPayload.target.contentDensity.visibleTextPolicy).to.include('concrete nouns')
-    expect(slidePlanPayload.target.contentDensity.slideCountPolicy).to.include('splitting dense source material')
-    expect(slidePlanPayload.target.slideCount).to.deep.include({
-      maximum: 3,
-      minimum: 1,
-      target: 1,
-    })
-    expect(slidePlanRequest.promptMetadata).to.deep.include({
-      id: 'deck.slide-plan',
-      schemaName: 'LLMTextDeckSlidePlan',
-      stage: 'slide-plan',
-      version: '2026-06-20',
-    })
-    expect(slidePlanRequest.promptMetadata?.inputHash).to.match(/^[a-f0-9]{64}$/u)
-    expect(slidePlanPayload.instructions.join('\n')).to.include('target.contentDensity.visibleTextPolicy')
-    expect(slidePlanPayload.instructions.join('\n')).to.include('Use requiredSlides as the binding checklist')
-    expect(slidePlanPayload.requiredSlides).to.deep.equal([
-      {
-        goal: 'Explain outline section 1.',
-        outlineId: 'outline-001',
-        slideIndex: 0,
-      },
-    ])
-    expect(scriptPayload.target.contentDensity.level).to.equal('detailed')
-    expect(scriptPayload.target.contentDensity.narrationPolicy).to.include('concrete steps')
-    expect(scriptRequest.promptMetadata).to.deep.include({
-      id: 'deck.script-semantics',
-      schemaName: 'LLMTextDeckScriptSemantics',
-      stage: 'script-semantics',
-      version: '2026-06-20',
-    })
-    expect(scriptPayload.instructions.join('\n')).to.include('target.contentDensity.narrationPolicy')
-    expect(scriptPayload.instructions.join('\n')).to.include('single-line text')
-    expect(scriptPayload.requiredSlides).to.deep.equal([
-      {
-        outlineId: 'outline-001',
-        sourceRangeHint: {
-          basis: 'planned-presentation-timeline',
-          range: [0, 12],
-          unit: 'seconds',
-        },
-        sourceSectionIds: ['section-001'],
-        slideIndex: 0,
-        title: 'Chunked Planning',
-      },
-    ])
+    assertDetailedSlideOutlineContract(requests)
+    assertDetailedSlidePlanPromptContract(requests)
+    assertDetailedSlidePlanOutputContract(requests)
+    assertDetailedScriptPromptContract(requests)
+    assertDetailedScriptOutputContract(requests)
+    assertDetailedCoherenceContract(requests)
   })
 
   it('passes planned timeline ranges into script-semantics sourceRange hints', async () => {
@@ -961,6 +1107,394 @@ describe('Deck Explainer LLM text planning', () => {
     expect(plan.document.source.sourceType).to.equal('text')
   })
 
+  it('normalizes LLM-authored script outline arrays after generation', async () => {
+    const rawPlan = createOneSlideRawPlan([0, 8])
+    let returnedArrayOutline = false
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        const object = stagedDeckObjectForRequest(request, rawPlan) as {
+          outline?: {sections?: unknown[]}
+        }
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics') {
+          returnedArrayOutline = true
+
+          return {
+            object: {
+              ...object,
+              outline: object.outline?.sections,
+            } as T,
+          }
+        }
+
+        return {
+          object: object as T,
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/source.md', 'Explain provider schema recovery.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    expect(returnedArrayOutline).to.equal(true)
+    expect(plan.outline.sections.map((section) => ({
+      goal: section.goal,
+      title: section.title,
+    }))).to.deep.equal(rawPlan.outline.sections)
+  })
+
+  it('normalizes LLM-authored script outline source wrappers after generation', async () => {
+    const rawPlan = createOneSlideRawPlan([0, 8])
+    let returnedSourceOutline = false
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        const object = stagedDeckObjectForRequest(request, rawPlan) as {
+          outline?: {sections?: unknown[]}
+        }
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'script-semantics') {
+          returnedSourceOutline = true
+
+          return {
+            object: {
+              ...object,
+              outline: {
+                source: {
+                  sections: object.outline?.sections,
+                },
+              },
+            } as T,
+          }
+        }
+
+        return {
+          object: object as T,
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/source.md', 'Explain provider schema recovery.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    expect(returnedSourceOutline).to.equal(true)
+    expect(plan.outline.sections.map((section) => ({
+      goal: section.goal,
+      title: section.title,
+    }))).to.deep.equal(rawPlan.outline.sections)
+  })
+
+  it('normalizes LLM-authored slide transition aliases after generation', async () => {
+    const rawPlan = withDeckTransitions({
+      language: 'en-US',
+      outline: deckOutline(2),
+      slides: [
+        {
+          duration: 4,
+          motion: 'fade-in',
+          points: ['First transition'],
+          semantic: deckSemantic('First slide uses a provider transition alias.'),
+          sourceRange: [0, 4],
+          speakerNote: 'Explain the first slide transition.',
+          title: 'First',
+          transitionOut: {duration: 0.5, type: 'crossfade'},
+          type: 'summary',
+          visual: deckVisual('text'),
+        },
+        {
+          duration: 4,
+          motion: 'soft-scale',
+          points: ['Second slide'],
+          semantic: deckSemantic('Second slide completes the transition test.'),
+          sourceRange: [4, 8],
+          speakerNote: 'Explain the second slide.',
+          title: 'Second',
+          transitionOut: null,
+          type: 'summary',
+          visual: deckVisual('text'),
+        },
+      ],
+      summary: 'Transition aliases are normalized after LLM generation.',
+      targetPlatform: 'generic',
+      theme: 'elegant-dark',
+      title: 'Transition Alias',
+    })
+    let returnedTransitionAlias = false
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        const object = stagedDeckObjectForRequest(request, rawPlan) as {
+          slides?: Array<{transitionOut?: {duration: number; type: string} | null}>
+        }
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan') {
+          returnedTransitionAlias = true
+
+          return {
+            object: {
+              ...object,
+              slides: object.slides?.map((slide, index) => index === 0
+                ? {...slide, motion: 'fade', transitionOut: {duration: 0.5, type: 'wipe'}}
+                : slide),
+            } as T,
+          }
+        }
+
+        return {
+          object: object as T,
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/source.md', 'Explain provider transition aliases.', {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      slideCountTarget: 2,
+      sourceType: 'markdown',
+    })
+
+    expect(returnedTransitionAlias).to.equal(true)
+    expect(plan.deck.slides[0]?.motion).to.equal('fade-in')
+    expect(plan.deck.slides[0]?.transitionOut).to.deep.equal({duration: 0.5, type: 'fade'})
+  })
+
+  it('normalizes LLM-authored chart value scales after generation', async () => {
+    const rawPlan = createOneSlideRawPlan([0, 8])
+    let returnedScaledChart = false
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        const object = stagedDeckObjectForRequest(request, rawPlan) as {
+          slides?: Array<Record<string, unknown>>
+        }
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan') {
+          returnedScaledChart = true
+
+          return {
+            object: {
+              ...object,
+              slides: object.slides?.map((slide) => ({
+                ...slide,
+                chart: {
+                  bars: [
+                    {label: 'One to five', value: 5},
+                    {label: 'Percent', value: 80},
+                    {label: 'Ratio', value: 0.4},
+                  ],
+                },
+                points: [],
+                type: 'chart',
+                visual: deckVisual('chart'),
+              })),
+            } as T,
+          }
+        }
+
+        return {
+          object: object as T,
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    const plan = await createLLMTextDeckProjectPlan(llm, '/tmp/source.md', 'Explain provider chart value scales.', {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    expect(returnedScaledChart).to.equal(true)
+    expect(plan.deck.slides[0]?.chart?.bars.map((bar) => bar.value)).to.deep.equal([1, 0.8, 0.4])
+  })
+
+  it('retries schema-boundary object failures with explicit Deck repair feedback', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const rawPlan = createOneSlideRawPlan()
+    let failedContentAnalysis = false
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'content-analysis' && !failedContentAnalysis) {
+          failedContentAnalysis = true
+          throw new Error('No object generated: response did not match schema.')
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    await createLLMTextDeckProjectPlan(llm, '/tmp/source.md', 'Explain provider certification.', {
+      deckFormat: 'portrait_1080x1920',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    const contentAnalysisRequests = requests.filter((request) => requestStage(request) === 'content-analysis')
+    const retryMessage = contentAnalysisRequests[1]?.messages?.at(-1)
+    const retryPayload = JSON.parse(typeof retryMessage?.content === 'string' ? retryMessage.content : '{}') as {
+      goal?: string
+      instructions?: string[]
+      validationError?: string
+    }
+
+    expect(contentAnalysisRequests).to.have.length(2)
+    expect(retryPayload.validationError).to.include('No object generated')
+    expect(retryPayload.goal).to.include('matches the requested structured schema exactly')
+    expect(retryPayload.instructions?.join('\n')).to.include('Do not wrap the response in analysis')
+    expect(retryPayload.instructions?.join('\n')).to.include('Do not return an object from a prior stage')
+    expect(retryPayload.instructions?.join('\n')).to.include('Do not return feedback fields from this repair prompt')
+    expect(retryPayload.instructions?.join('\n')).to.include('sections[].keyClaims')
+    expect(retryPayload.instructions?.join('\n')).to.include('use only crossfade, fade, slide-left, or slide-up')
+  })
+
+  it('includes a strict content-analysis output contract in the prompt payload', () => {
+    const sourceMap = createDeckSourceMap({
+      inputPath: '/tmp/source.md',
+      language: 'zh-CN',
+      sourceType: 'markdown',
+      text: '# Serenity Alpha\n\nExplain the workflow.',
+    })
+    const request = createContentAnalysisRequest(
+      '/tmp/source.md',
+      {
+        chunkId: 'text-001',
+        text: '# Serenity Alpha\n\nExplain the workflow.',
+      },
+      sourceMap,
+      {
+        deckFormat: 'landscape_1920x1080',
+        durationTargetSeconds: 30,
+        language: 'zh-CN',
+        maxSlideCharacters: 260,
+        sourceType: 'markdown',
+      },
+    )
+    const payload = requestPayload(request) as {
+      instructions?: string[]
+      outputContract?: {
+        section?: {forbiddenFieldNames?: string[]; required?: string[]}
+        sectionShape?: {keyClaims?: Array<Record<string, unknown>>; summary?: string; title?: string}
+      }
+    }
+
+    expect(payload.instructions?.join('\n')).to.include('Follow outputContract exactly')
+    expect(request.schemaDescription).to.include('Every sections[] item must contain id, importance, keyClaims')
+    expect(payload.outputContract?.section?.required).to.deep.equal(['id', 'importance', 'keyClaims', 'mustCover', 'role', 'summary', 'title'])
+    expect(payload.outputContract?.section?.forbiddenFieldNames).to.include('analysis')
+    expect(payload.outputContract?.sectionShape?.summary).to.include('do not use analysis')
+    expect(payload.outputContract?.sectionShape?.title).to.include('do not use heading')
+    expect(payload.outputContract?.sectionShape?.keyClaims?.[0]).to.deep.equal({
+      confidence: 'number from 0 to 1',
+      sourceQuoteText: 'non-empty source-grounded quote or short source excerpt',
+      text: 'non-empty claim text',
+      type: 'one of: claim, data, recommendation, summary',
+    })
+  })
+
+  it('includes a strict deck-brief output contract in the prompt payload', () => {
+    const request = createDeckBriefRequest('/tmp/source.md', {
+      language: 'zh-CN',
+      sections: [
+        {
+          id: 'source-section-001',
+          importance: 0.9,
+          keyClaims: [{
+            confidence: 0.9,
+            sourceQuoteText: 'Observable demand matters.',
+            text: '需求变化是核心。',
+            type: 'claim',
+          }],
+          mustCover: true,
+          role: '核心原则',
+          summary: '解释核心原则。',
+          title: '核心原则',
+        },
+      ],
+      summary: 'Serenity Alpha summary.',
+      title: 'Serenity Alpha',
+    }, {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 30,
+      language: 'zh-CN',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+    const payload = requestPayload(request) as {
+      instructions?: string[]
+      outputContract?: {
+        forbiddenRootFieldNames?: string[]
+        root?: {required?: string[]}
+        rootShape?: {narrativeArc?: unknown; optionalSectionIds?: unknown; requiredSectionIds?: unknown}
+      }
+    }
+
+    expect(request.schemaDescription).to.include('Do not return sections, slides, slidePlan, output, deckBrief')
+    expect(payload.instructions?.join('\n')).to.include('Follow outputContract exactly')
+    expect(payload.outputContract?.forbiddenRootFieldNames).to.include('output')
+    expect(payload.outputContract?.forbiddenRootFieldNames).to.include('slidePlan')
+    expect(payload.outputContract?.root?.required).to.deep.equal([
+      'densityPolicy',
+      'language',
+      'narrativeArc',
+      'objective',
+      'optionalSectionIds',
+      'requiredSectionIds',
+      'styleIntent',
+      'targetDurationSeconds',
+      'targetSlideCount',
+      'title',
+    ])
+    expect(payload.outputContract?.rootShape?.narrativeArc).to.deep.equal(['array of one or more non-empty strings; do not return one paragraph string'])
+    expect(payload.outputContract?.rootShape?.optionalSectionIds).to.deep.equal(['array of source section ids that may be omitted; use [] when none'])
+    expect(payload.outputContract?.rootShape?.requiredSectionIds).to.deep.equal(['array of must-cover analysis.sections ids; preserve ids exactly'])
+  })
+
   it('sends all template validation issues to a cached slide-plan rewrite request', async () => {
     const invalidPlan = createOneSlideRawPlan()
     const fixedPlan = createOneSlideRawPlan()
@@ -1050,6 +1584,10 @@ describe('Deck Explainer LLM text planning', () => {
       stage: 'slide-plan',
       template: 'summary',
     })
+    const rewritePayload = JSON.parse(String(capturedRewriteRequest?.messages?.[2]?.content ?? '{}')) as {instructions?: string[]}
+
+    expect(rewritePayload.instructions?.join('\n')).to.include('Return only the replacement slide-plan object')
+    expect(rewritePayload.instructions?.join('\n')).to.include('Do not wrap the response in invalidOutput')
     expect(capturedRewriteRequest?.cache).to.deep.include({
       messageIndex: 0,
       mode: 'ephemeral',

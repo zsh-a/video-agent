@@ -1,4 +1,5 @@
 import {expect} from '#test/expect'
+import {z} from 'zod'
 
 import {createLanguageModelFromConfig, createLLMClientFromConfig, createMimoApiKeyEnvCandidates} from '../../../packages/llm/src/index.js'
 
@@ -122,6 +123,98 @@ describe('LLM config factory', () => {
       expect(audioPart).to.deep.equal({
         data: 'data:audio/wav;base64,AQID',
       })
+    } finally {
+      Reflect.set(globalThis, 'fetch', originalFetch)
+    }
+  })
+
+  it('sends Mimo object requests with OpenAI-compatible JSON schema response format', async () => {
+    const originalFetch = Reflect.get(globalThis, 'fetch')
+    const ResponseConstructor = Reflect.get(globalThis, 'Response') as new (body?: string, init?: {headers?: Record<string, string>}) => unknown
+    let requestBody: unknown
+
+    try {
+      Reflect.set(globalThis, 'fetch', async (_input: unknown, init: undefined | {body?: unknown}) => {
+        requestBody = JSON.parse(String(init?.body)) as unknown
+
+        return new ResponseConstructor(JSON.stringify({
+          choices: [
+            {
+              [finishReasonKey]: 'stop',
+              message: {
+                content: '{"language":"zh-CN","sourceRange":[0,1]}',
+                role: 'assistant',
+              },
+            },
+          ],
+          id: 'chatcmpl-test',
+          model: 'mimo-v2.5',
+          usage: {
+            [completionTokensKey]: 4,
+            [promptTokensKey]: 8,
+            [totalTokensKey]: 12,
+          },
+        }), {
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      })
+
+      const client = createLLMClientFromConfig({
+        apiKeyEnv: 'VIDEO_AGENT_LLM_TOKEN',
+        baseURL: 'https://token-plan-cn.xiaomimimo.com/v1',
+        model: 'mimo-v2.5',
+        name: 'mimo',
+        provider: 'openai-compatible',
+      }, {
+        env: {
+          MIMO_API_KEY: 'test-token',
+        },
+      })
+
+      const result = await client?.generateObject({
+        prompt: 'Return JSON.',
+        schema: z.object({
+          language: z.string(),
+          sourceRange: z.tuple([
+            z.number().nonnegative(),
+            z.number().nonnegative(),
+          ]),
+        }),
+      })
+      const body = requestBody as {
+        response_format?: {
+          json_schema?: {
+            schema?: {
+              $schema?: unknown
+              properties?: {
+                sourceRange?: {
+                  items?: unknown
+                  maxItems?: number
+                  minItems?: number
+                  prefixItems?: unknown
+                }
+              }
+              required?: string[]
+            }
+            strict?: boolean
+          }
+          type?: string
+        }
+      }
+
+      const sourceRangeSchema = body.response_format?.json_schema?.schema?.properties?.sourceRange
+
+      expect(result?.object).to.deep.equal({language: 'zh-CN', sourceRange: [0, 1]})
+      expect(body.response_format?.type).to.equal('json_schema')
+      expect(body.response_format?.json_schema?.strict).to.equal(true)
+      expect(body.response_format?.json_schema?.schema?.$schema).to.equal(undefined)
+      expect(body.response_format?.json_schema?.schema?.required).to.deep.equal(['language', 'sourceRange'])
+      expect(sourceRangeSchema?.items).to.deep.equal({minimum: 0, type: 'number'})
+      expect(sourceRangeSchema?.prefixItems).to.equal(undefined)
+      expect(sourceRangeSchema?.minItems).to.equal(2)
+      expect(sourceRangeSchema?.maxItems).to.equal(2)
     } finally {
       Reflect.set(globalThis, 'fetch', originalFetch)
     }

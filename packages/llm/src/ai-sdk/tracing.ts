@@ -86,6 +86,7 @@ function traceRequest(request: GenerateTextRequest | GenerateObjectRequest<unkno
     ...(request.promptMetadata === undefined ? {} : {promptMetadata: request.promptMetadata}),
     ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
     ...(!('schema' in request) ? {} : {schema: toJSONSchema(request.schema)}),
+    ...(!('schemaDescription' in request) || request.schemaDescription === undefined ? {} : {schemaDescription: request.schemaDescription}),
     ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
   }
 }

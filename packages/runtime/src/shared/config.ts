@@ -50,6 +50,7 @@ const StoredLLMConfigSchema = z.object({
   model: z.string().optional(),
   name: z.string().optional(),
   provider: z.string().optional(),
+  supportsStructuredOutputs: z.boolean().optional(),
 }).passthrough()
 
 const StoredAgentConfigSchema = z.object({
@@ -79,6 +80,7 @@ interface ParsedStoredLLMConfig {
   model?: string
   name?: string
   provider?: string
+  supportsStructuredOutputs?: boolean
 }
 
 type StoredLLMConfig = Partial<LLMClientConfig> | ParsedStoredLLMConfig
@@ -331,7 +333,7 @@ function normalizeLLMConfig(value: Partial<LLMClientConfig> | StoredLLMConfig | 
     return undefined
   }
 
-  const unsupportedKey = Object.keys(value).find((key) => !['apiKeyEnv', 'baseURL', 'headers', 'model', 'name', 'provider'].includes(key))
+  const unsupportedKey = Object.keys(value).find((key) => !['apiKeyEnv', 'baseURL', 'headers', 'model', 'name', 'provider', 'supportsStructuredOutputs'].includes(key))
 
   if (unsupportedKey !== undefined) {
     throw new TypeError(`Unsupported LLM config field: ${unsupportedKey}`)
@@ -347,9 +349,14 @@ function normalizeLLMConfig(value: Partial<LLMClientConfig> | StoredLLMConfig | 
   const baseURL = normalizeOptionalString(value.baseURL, 'LLM baseURL')
   const apiKeyEnv = normalizeOptionalString(value.apiKeyEnv, 'LLM apiKeyEnv')
   const name = normalizeOptionalString(value.name, 'LLM name')
+  const supportsStructuredOutputs = normalizeOptionalBoolean(value.supportsStructuredOutputs, 'LLM supportsStructuredOutputs')
 
   if (provider === OPENAI_COMPATIBLE_LLM_PROVIDER && baseURL === undefined) {
     throw new TypeError(`LLM baseURL must be configured for ${OPENAI_COMPATIBLE_LLM_PROVIDER}.`)
+  }
+
+  if (provider !== OPENAI_COMPATIBLE_LLM_PROVIDER && supportsStructuredOutputs !== undefined) {
+    throw new TypeError(`LLM supportsStructuredOutputs is only supported for ${OPENAI_COMPATIBLE_LLM_PROVIDER}.`)
   }
 
   return {
@@ -359,7 +366,20 @@ function normalizeLLMConfig(value: Partial<LLMClientConfig> | StoredLLMConfig | 
     model,
     ...(name === undefined ? {} : {name}),
     provider,
+    ...(supportsStructuredOutputs === undefined ? {} : {supportsStructuredOutputs}),
   }
+}
+
+function normalizeOptionalBoolean(value: boolean | undefined, field: string): boolean | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+
+  if (typeof value !== 'boolean') {
+    throw new TypeError(`${field} must be a boolean.`)
+  }
+
+  return value
 }
 
 function normalizeOptionalString(value: string | undefined, field: string): string | undefined {

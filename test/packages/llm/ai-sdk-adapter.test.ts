@@ -133,6 +133,48 @@ describe('AI SDK LLM adapter', () => {
     expect(trace.request?.promptMetadata).to.deep.equal(request.promptMetadata)
   })
 
+  it('passes prompt schema names through to AI SDK object generation', async () => {
+    let generateInput: {responseFormat?: {description?: string; name?: string; schemaName?: string}} | undefined
+    const schema = z.object({
+      ok: z.boolean(),
+    })
+    const model = createMockLanguageModel({
+      generateResult(input) {
+        generateInput = input as typeof generateInput
+
+        return {
+          content: [
+            {
+              text: '{"ok":true}',
+              type: 'text',
+            },
+          ],
+          finishReason: 'stop',
+          usage: testUsage(5, 3),
+          warnings: [],
+        }
+      },
+    })
+    const client = new AISDKLLMClient({model})
+    const request = createObjectPromptRequest({
+      buildMessages: () => [{
+        content: JSON.stringify({goal: 'Return test JSON.'}),
+        role: 'user',
+      }],
+      id: 'test.schema-name',
+      schema,
+      schemaDescription: 'Test object schema.',
+      schemaName: 'TestPromptOutput',
+      stage: 'unit-test',
+      version: 'v1',
+    }, {})
+
+    await client.generateObject(request)
+
+    expect(generateInput?.responseFormat?.name ?? generateInput?.responseFormat?.schemaName).to.equal('TestPromptOutput')
+    expect(generateInput?.responseFormat?.description).to.equal('Test object schema.')
+  })
+
   it('applies cache hints to message provider options', async () => {
     let generateInput: {prompt?: Array<{providerOptions?: Record<string, Record<string, unknown>>}>} | undefined
     const model = createMockLanguageModel({

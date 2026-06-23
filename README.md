@@ -161,6 +161,8 @@ Default ASR/VLM/TTS providers are `mock`. For a hosted profile:
 bun run dev config --provider-profile mimo
 ```
 
+The Mimo profile enables OpenAI-compatible structured outputs for schema-validated LLM planning.
+
 Credentials live in `.env` (repository root or workspace directory):
 
 ```dotenv

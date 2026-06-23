@@ -40,6 +40,7 @@ export interface GenerateTextResult {
 
 export interface GenerateObjectRequest<T> extends GenerateTextRequest {
   schema: z.ZodType<T>
+  schemaDescription?: string
 }
 
 export interface GenerateObjectResult<T> {
@@ -95,6 +96,7 @@ export interface LLMTraceRecord {
     promptMetadata?: LLMPromptMetadata
     providerOptions?: LLMProviderOptions
     schema?: unknown
+    schemaDescription?: string
     temperature?: number
   }
   requestId: string

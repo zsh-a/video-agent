@@ -1,4 +1,4 @@
-import type {LLMClient} from '@video-agent/llm'
+import type {GenerateObjectRequest, GenerateObjectResult, LLMClient, LLMMessage} from '@video-agent/llm'
 import type {ProjectAgentRuntime} from '@video-agent/runtime'
 
 import {DeckBriefSchema, DeckCoherenceReportSchema, DeckContentAnalysisSchema, DeckSlideOutlineSchema} from '@video-agent/ir'
@@ -11,8 +11,10 @@ import {
   type LLMTextDeckCoherenceReview,
   type LLMTextDeckContentAnalysis,
   type LLMTextDeckPlan,
+  type LLMTextDeckScriptSemanticsGeneration,
   type LLMTextDeckScriptSemantics,
   type LLMTextDeckSlideOutline,
+  type LLMTextDeckSlidePlanGeneration,
   type LLMTextDeckSlidePlan,
 } from './llm-plan.js'
 import type {TextDeckProjectPlan, TextDeckProjectPlanOptions} from './types.js'
@@ -46,7 +48,13 @@ import {createTextDeckProjectPlanFromLLM} from './text-plan-builder.js'
 import {createDeckSourceMap} from './source-map.js'
 import {DECK_STAGE_IDS} from '../pipeline.js'
 
+const DECK_LLM_SCHEMA_REWRITE_ATTEMPTS = 3
 const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
+
+type LLMTextDeckGeneratedTransitionType = NonNullable<LLMTextDeckSlidePlanGeneration['slides'][number]['transitionOut']>['type']
+type LLMTextDeckGeneratedMotion = LLMTextDeckSlidePlanGeneration['slides'][number]['motion']
+type LLMTextDeckTransitionType = NonNullable<LLMTextDeckSlidePlan['slides'][number]['transitionOut']>['type']
+type LLMTextDeckMotion = LLMTextDeckSlidePlan['slides'][number]['motion']
 
 interface StagedDeckPlan {
   analysis: LLMTextDeckContentAnalysis
@@ -163,7 +171,7 @@ async function createContentAnalysis(
       total: chunks.length,
       unit: 'chunks',
     })
-    const result = await llm.generateObject(createContentAnalysisRequest(inputPath, chunk, sourceMap, options))
+    const result = await generateDeckSchemaObject(llm, createContentAnalysisRequest(inputPath, chunk, sourceMap, options))
 
     return result.object
   }))
@@ -178,7 +186,7 @@ async function createContentAnalysis(
     return analysis
   }
 
-  const result = await runDeckAgentStep(agent, DECK_STAGE_IDS.understand, DECK_LLM_CONTENT_ANALYSIS_MERGE_STAGE, 'Merging content analysis chunks', () => llm.generateObject(createContentAnalysisMergeRequest(inputPath, analyses, options)))
+  const result = await runDeckAgentStep(agent, DECK_STAGE_IDS.understand, DECK_LLM_CONTENT_ANALYSIS_MERGE_STAGE, 'Merging content analysis chunks', () => generateDeckSchemaObject(llm, createContentAnalysisMergeRequest(inputPath, analyses, options)))
 
   return result.object
 }
@@ -212,7 +220,7 @@ async function generateDeckBrief(
   analysis: LLMTextDeckContentAnalysis,
   options: TextDeckProjectPlanOptions,
 ): Promise<LLMTextDeckBrief> {
-  const result = await llm.generateObject(createDeckBriefRequest(inputPath, analysis, options))
+  const result = await generateDeckSchemaObject(llm, createDeckBriefRequest(inputPath, analysis, options))
 
   return result.object
 }
@@ -229,7 +237,7 @@ async function generateSlideOutline(
     issues: DeckPlanningValidationIssue[]
   },
 ): Promise<LLMTextDeckSlideOutline> {
-  const result = await llm.generateObject(createSlideOutlineRequest(inputPath, analysis, brief, options, rewrite))
+  const result = await generateDeckSchemaObject(llm, createSlideOutlineRequest(inputPath, analysis, brief, options, rewrite))
 
   return result.object
 }
@@ -247,9 +255,70 @@ async function generateSlidePlan(
     issues: DeckPlanningValidationIssue[]
   },
 ): Promise<LLMTextDeckSlidePlan> {
-  const result = await llm.generateObject(createSlidePlanRequest(inputPath, analysis, brief, slideOutline, options, rewrite))
+  const result = await generateDeckSchemaObject(llm, createSlidePlanRequest(inputPath, analysis, brief, slideOutline, options, rewrite))
 
-  return result.object
+  return normalizeSlidePlanGeneration(result.object)
+}
+
+function normalizeSlidePlanGeneration(output: LLMTextDeckSlidePlanGeneration): LLMTextDeckSlidePlan {
+  return {
+    ...output,
+    slides: output.slides.map((slide) => ({
+      ...slide,
+      ...(slide.chart === undefined
+        ? {}
+        : {chart: normalizeChart(slide.chart)}),
+      motion: normalizeMotion(slide.motion),
+      transitionOut: slide.transitionOut === null
+        ? null
+        : {
+            ...slide.transitionOut,
+            type: normalizeTransitionOutType(slide.transitionOut.type),
+          },
+    })),
+  }
+}
+
+function normalizeChart(chart: NonNullable<LLMTextDeckSlidePlanGeneration['slides'][number]['chart']>): NonNullable<LLMTextDeckSlidePlan['slides'][number]['chart']> {
+  return {
+    ...chart,
+    bars: chart.bars.map((bar) => ({
+      ...bar,
+      value: normalizeChartBarValue(bar.value),
+    })),
+  }
+}
+
+function normalizeChartBarValue(value: number): number {
+  if (value <= 1) {
+    return value
+  }
+
+  if (value <= 5) {
+    return value / 5
+  }
+
+  return value / 100
+}
+
+function normalizeMotion(motion: LLMTextDeckGeneratedMotion): LLMTextDeckMotion {
+  if (motion === 'crossfade' || motion === 'fade') {
+    return 'fade-in'
+  }
+
+  if (motion === 'slide-left') {
+    return 'slide-up'
+  }
+
+  return motion
+}
+
+function normalizeTransitionOutType(type: LLMTextDeckGeneratedTransitionType): LLMTextDeckTransitionType {
+  if (type === 'crossfade' || type === 'fade' || type === 'slide-left' || type === 'slide-up') {
+    return type
+  }
+
+  return 'fade'
 }
 
 async function generateScriptSemantics(
@@ -266,9 +335,20 @@ async function generateScriptSemantics(
     issues: DeckPlanningValidationIssue[]
   },
 ): Promise<LLMTextDeckScriptSemantics> {
-  const result = await llm.generateObject(createScriptSemanticsRequest(inputPath, analysis, brief, slideOutline, slidePlan, options, rewrite))
+  const result = await generateDeckSchemaObject(llm, createScriptSemanticsRequest(inputPath, analysis, brief, slideOutline, slidePlan, options, rewrite))
 
-  return result.object
+  return normalizeScriptSemanticsGeneration(result.object)
+}
+
+function normalizeScriptSemanticsGeneration(output: LLMTextDeckScriptSemanticsGeneration): LLMTextDeckScriptSemantics {
+  return {
+    ...output,
+    outline: Array.isArray(output.outline)
+      ? {sections: output.outline}
+      : 'sections' in output.outline
+        ? output.outline
+        : {sections: output.outline.source.sections},
+  }
 }
 
 async function generateCoherenceReview(
@@ -282,9 +362,105 @@ async function generateCoherenceReview(
   options: TextDeckProjectPlanOptions,
   previousIssues: LLMTextDeckCoherenceReview['issues'] = [],
 ): Promise<LLMTextDeckCoherenceReview> {
-  const result = await llm.generateObject(createCoherenceReviewRequest(inputPath, analysis, brief, slideOutline, slidePlan, scriptSemantics, options, previousIssues))
+  const result = await generateDeckSchemaObject(llm, createCoherenceReviewRequest(inputPath, analysis, brief, slideOutline, slidePlan, scriptSemantics, options, previousIssues))
 
   return normalizeCoherenceReview(result.object, previousIssues)
+}
+
+async function generateDeckSchemaObject<T>(
+  llm: LLMClient,
+  initialRequest: GenerateObjectRequest<T>,
+): Promise<GenerateObjectResult<T>> {
+  return attemptDeckSchemaObject(llm, initialRequest, {
+    attempt: 0,
+    lastError: undefined,
+  })
+}
+
+async function attemptDeckSchemaObject<T>(
+  llm: LLMClient,
+  initialRequest: GenerateObjectRequest<T>,
+  state: {
+    attempt: number
+    lastError: unknown
+  },
+): Promise<GenerateObjectResult<T>> {
+  if (state.attempt > DECK_LLM_SCHEMA_REWRITE_ATTEMPTS) {
+    throw new Error(`Deck LLM schema rewrite failed after ${DECK_LLM_SCHEMA_REWRITE_ATTEMPTS} validation feedback attempt(s): ${formatErrorMessage(state.lastError)}`, {
+      cause: state.lastError,
+    })
+  }
+
+  try {
+    return await llm.generateObject(state.attempt === 0
+      ? initialRequest
+      : createDeckSchemaRewriteRequest(initialRequest, {
+          attempt: state.attempt,
+          attemptsRemaining: DECK_LLM_SCHEMA_REWRITE_ATTEMPTS - state.attempt,
+          validationError: formatErrorMessage(state.lastError),
+        }))
+  } catch (error) {
+    if (!isDeckSchemaBoundaryError(error)) {
+      throw error
+    }
+
+    return attemptDeckSchemaObject(llm, initialRequest, {
+      attempt: state.attempt + 1,
+      lastError: error,
+    })
+  }
+}
+
+function createDeckSchemaRewriteRequest<T>(
+  initialRequest: GenerateObjectRequest<T>,
+  rewrite: {
+    attempt: number
+    attemptsRemaining: number
+    validationError: string
+  },
+): GenerateObjectRequest<T> {
+  const initialMessages = initialRequest.messages ?? (initialRequest.prompt === undefined
+    ? []
+    : [{content: initialRequest.prompt, role: 'user'} satisfies LLMMessage])
+
+  return {
+    ...initialRequest,
+    messages: [
+      ...initialMessages,
+      {
+        content: JSON.stringify({
+          attempt: rewrite.attempt,
+          attemptsRemaining: rewrite.attemptsRemaining,
+          goal: 'Rewrite the previous Deck planning response so it matches the requested structured schema exactly.',
+          instructions: [
+            'Return only one JSON object matching the schema for this exact stage.',
+            'Use the original request outputContract when it is present.',
+            'Do not return an object from a prior stage; rewrite for the current promptMetadata.stage only.',
+            'Use the schema field names exactly; do not rename fields, translate field names, or introduce an alternate envelope.',
+            'Do not wrap the response in analysis, data, result, output, meta, semantic, structure, or any other top-level object.',
+            'Do not return feedback fields from this repair prompt such as invalidOutput, issues, attempt, attemptsRemaining, validationError, repairStrategy, requiredAdditions, or forbiddenFixes.',
+            'If the schema requires language, title, summary, sections, slides, timings, issues, or another top-level field, put that field at the JSON root.',
+            'If the schema requires nested arrays such as sections[].keyClaims, return those exact nested field names instead of semanticKeyPoints or prose-only summaries.',
+            'For Deck transitionOut.type fields, use only crossfade, fade, slide-left, or slide-up. Do not use motion preset names such as fade-in as transition types.',
+            'Do not add fields that are not in the schema.',
+            'Use the validationError as binding feedback.',
+          ],
+          validationError: rewrite.validationError,
+        }),
+        role: 'user',
+      },
+    ],
+    prompt: undefined,
+  }
+}
+
+function isDeckSchemaBoundaryError(error: unknown): boolean {
+  const message = formatErrorMessage(error)
+
+  return message.includes('No object generated')
+    || message.includes('Type validation failed')
+    || message.includes('response did not match schema')
+    || message.includes('could not parse the response')
 }
 
 async function rewriteInvalidStagedDeckPlan(

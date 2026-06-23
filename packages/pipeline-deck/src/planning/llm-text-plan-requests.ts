@@ -8,14 +8,16 @@ import {
   LLMTextDeckBriefSchema,
   LLMTextDeckCoherenceReviewSchema,
   LLMTextDeckContentAnalysisSchema,
-  LLMTextDeckScriptSemanticsSchema,
+  LLMTextDeckScriptSemanticsGenerationSchema,
   LLMTextDeckSlideOutlineSchema,
-  LLMTextDeckSlidePlanSchema,
+  LLMTextDeckSlidePlanGenerationSchema,
   type LLMTextDeckBrief,
   type LLMTextDeckCoherenceReview,
   type LLMTextDeckContentAnalysis,
+  type LLMTextDeckScriptSemanticsGeneration,
   type LLMTextDeckScriptSemantics,
   type LLMTextDeckSlideOutline,
+  type LLMTextDeckSlidePlanGeneration,
   type LLMTextDeckSlidePlan,
 } from './llm-plan.js'
 import {createDeckPlanningTarget, requireDeckPlanningSourceType, type DeckPlanningSourceChunk} from './llm-text-plan-input.js'
@@ -61,6 +63,7 @@ function createDeckObjectPromptRequest<TInput, TOutput>(input: {
   id: string
   promptInput: TInput
   schema: GenerateObjectRequest<TOutput>['schema']
+  schemaDescription?: string
   schemaName: string
   stage: DeckLLMPlanningStage
   temperature: number
@@ -70,6 +73,7 @@ function createDeckObjectPromptRequest<TInput, TOutput>(input: {
     cache: (_promptInput, messages) => createDeckLLMCacheHint(input.stage, requireFirstPromptMessage(messages, input.id)),
     id: input.id,
     schema: input.schema,
+    ...(input.schemaDescription === undefined ? {} : {schemaDescription: input.schemaDescription}),
     schemaName: input.schemaName,
     stage: input.stage,
     temperature: input.temperature,
@@ -98,6 +102,7 @@ export function createContentAnalysisRequest(
     id: 'deck.content-analysis',
     promptInput: {chunk, inputPath, options, sourceMap},
     schema: LLMTextDeckContentAnalysisSchema,
+    schemaDescription: 'Deck content analysis object. Root must contain language, title, summary, and sections. Every sections[] item must contain id, importance, keyClaims, mustCover, role, summary, and title. keyClaims must be an array of objects with confidence, sourceQuoteText, text, and type.',
     schemaName: 'LLMTextDeckContentAnalysis',
     stage: DECK_LLM_CONTENT_ANALYSIS_STAGE,
     temperature: 0.2,
@@ -119,7 +124,9 @@ function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSour
         'When translating or rewriting, preserve the source-domain meaning of technical terms and object nouns. Do not substitute terms from unrelated domains unless the source uses them.',
         'Do not split text by character count for meaning. Merge related source details into coherent source-grounded sections.',
         'Do not author visible slide text, template choices, speaker notes, transitions, motion, or visual style in this stage.',
+        'Follow outputContract exactly. Use the listed field names, object shapes, and enum values; omit fields only when outputContract says optional.',
       ],
+      outputContract: createContentAnalysisOutputContract(),
       source: {
         chunkId: chunk.chunkId,
         durationSeconds: options.durationTargetSeconds,
@@ -133,6 +140,36 @@ function createContentAnalysisMessage(inputPath: string, chunk: DeckPlanningSour
       target: createDeckPlanningTarget(options, {includeTemplateManifest: false}),
     }),
     role: 'user',
+  }
+}
+
+function createContentAnalysisOutputContract() {
+  return {
+    root: {
+      optional: ['audience'],
+      required: ['language', 'title', 'summary', 'sections'],
+    },
+    section: {
+      forbiddenFieldNames: ['analysis', 'caveats', 'coverageNotes', 'evidence', 'examples', 'heading'],
+      optional: ['sourceRange', 'visualRole'],
+      required: ['id', 'importance', 'keyClaims', 'mustCover', 'role', 'summary', 'title'],
+    },
+    sectionShape: {
+      id: 'copy exactly from sourceMap.sections[].id',
+      importance: 'number from 0 to 1',
+      keyClaims: [{
+        confidence: 'number from 0 to 1',
+        sourceQuoteText: 'non-empty source-grounded quote or short source excerpt',
+        text: 'non-empty claim text',
+        type: 'one of: claim, data, recommendation, summary',
+      }],
+      mustCover: 'boolean',
+      role: 'short semantic purpose label',
+      sourceRange: 'optional [startNumber, endNumber]',
+      summary: 'non-empty section summary; do not use analysis instead',
+      title: 'non-empty section title; do not use heading instead',
+      visualRole: 'optional short visual purpose label',
+    },
   }
 }
 
@@ -185,23 +222,59 @@ export function createDeckBriefRequest(
           'If target.slideCount.target is absent, choose targetSlideCount from source complexity, required sections, target.contentDensity, and target duration.',
           'Never exceed target.slideCount.maximum, and keep targetSlideCount large enough that must-cover sections are not compressed into unrelated slides.',
           'Always set targetDurationSeconds. If target.durationSeconds is provided, copy it exactly. If it is absent, infer a realistic explainer duration from source complexity, targetSlideCount, target.contentDensity, and the amount of actionable detail required.',
-          'For procedural sources, output templates, code/config examples, checklists, caveats, or validation criteria, choose enough slides and duration for a viewer to understand the practical workflow, not just the headline.',
-          'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
-          'Write densityPolicy as concrete generation guidance that follows target.contentDensity while preserving source-grounded coverage.',
-        ],
-        inputPath: promptInput.inputPath,
-        stage: DECK_LLM_DECK_BRIEF_STAGE,
-        target: createDeckPlanningTarget(promptInput.options, {includeTemplateManifest: false}),
-      }),
+        'For procedural sources, output templates, code/config examples, checklists, caveats, or validation criteria, choose enough slides and duration for a viewer to understand the practical workflow, not just the headline.',
+        'Describe a narrativeArc that can guide slide ordering without writing slide titles.',
+        'Write densityPolicy as concrete generation guidance that follows target.contentDensity while preserving source-grounded coverage.',
+        'Follow outputContract exactly. Return only Deck brief fields at the JSON root; do not wrap them or copy the content-analysis object.',
+      ],
+      inputPath: promptInput.inputPath,
+      outputContract: createDeckBriefOutputContract(),
+      stage: DECK_LLM_DECK_BRIEF_STAGE,
+      target: createDeckPlanningTarget(promptInput.options, {includeTemplateManifest: false}),
+    }),
       role: 'user',
     }],
     id: 'deck.brief',
     promptInput: {analysis, inputPath, options},
     schema: LLMTextDeckBriefSchema,
+    schemaDescription: 'Deck brief object. Root must contain densityPolicy, language, narrativeArc, objective, optionalSectionIds, requiredSectionIds, styleIntent, targetDurationSeconds, targetSlideCount, and title. narrativeArc, optionalSectionIds, and requiredSectionIds must be arrays. Do not return sections, slides, slidePlan, output, deckBrief, or content-analysis fields.',
     schemaName: 'LLMTextDeckBrief',
     stage: DECK_LLM_DECK_BRIEF_STAGE,
     temperature: 0.2,
   })
+}
+
+function createDeckBriefOutputContract() {
+  return {
+    forbiddenRootFieldNames: ['analysis', 'deckBrief', 'output', 'sections', 'slidePlan', 'slides', 'summary'],
+    root: {
+      optional: ['audience'],
+      required: [
+        'densityPolicy',
+        'language',
+        'narrativeArc',
+        'objective',
+        'optionalSectionIds',
+        'requiredSectionIds',
+        'styleIntent',
+        'targetDurationSeconds',
+        'targetSlideCount',
+        'title',
+      ],
+    },
+    rootShape: {
+      densityPolicy: 'non-empty string with concrete generation guidance',
+      language: 'target language string, for example zh-CN',
+      narrativeArc: ['array of one or more non-empty strings; do not return one paragraph string'],
+      objective: 'non-empty string describing the deck objective',
+      optionalSectionIds: ['array of source section ids that may be omitted; use [] when none'],
+      requiredSectionIds: ['array of must-cover analysis.sections ids; preserve ids exactly'],
+      styleIntent: 'non-empty string describing presentation style intent',
+      targetDurationSeconds: 'positive number',
+      targetSlideCount: 'positive integer, maximum 24',
+      title: 'non-empty deck title',
+    },
+  }
 }
 
 export function createSlideOutlineRequest(
@@ -231,8 +304,10 @@ export function createSlideOutlineRequest(
         'For detailed content density, prefer adding a coherent slide within target.slideCount.maximum over compressing necessary examples, steps, caveats, or evidence into one slide.',
         'templateIntent must be one registered template type and should match the information role and source content.',
         'visualIntent should describe the visual job of the slide without CSS, fonts, or coordinates.',
+        'Follow outputContract exactly. Return root slides, not outline. Do not include slide title or visible text in this stage.',
       ],
       inputPath,
+      outputContract: createSlideOutlineOutputContract(),
       stage: DECK_LLM_SLIDE_OUTLINE_STAGE,
       target: createDeckPlanningTarget(options, {includeTemplateManifest: true}),
     }),
@@ -276,10 +351,34 @@ export function createSlideOutlineRequest(
     id: 'deck.slide-outline',
     promptInput: {analysis, brief, inputPath, options, rewrite},
     schema: LLMTextDeckSlideOutlineSchema,
+    schemaDescription: 'Deck slide outline object. Root must contain slides only. Every slides[] item must contain goal, informationRole, mustCover, narrationBudgetSeconds, outlineId, sourceSectionIds, templateIntent, and visualIntent. Do not return outline, title, visibleText, points, narration, or slide-plan fields.',
     schemaName: 'LLMTextDeckSlideOutline',
     stage: DECK_LLM_SLIDE_OUTLINE_STAGE,
     temperature: 0.2,
   })
+}
+
+function createSlideOutlineOutputContract() {
+  return {
+    forbiddenRootFieldNames: ['outline', 'slideOutline', 'slidePlan', 'slidesPlan'],
+    root: {
+      required: ['slides'],
+    },
+    slide: {
+      forbiddenFieldNames: ['narration', 'points', 'slideId', 'slideNumber', 'speakerNote', 'title', 'visibleText'],
+      required: ['goal', 'informationRole', 'mustCover', 'narrationBudgetSeconds', 'outlineId', 'sourceSectionIds', 'templateIntent', 'visualIntent'],
+    },
+    slideShape: {
+      goal: 'non-empty string describing what this outline slide covers',
+      informationRole: 'non-empty short semantic role label for this outline slide',
+      mustCover: 'boolean copied from whether the covered source section is required',
+      narrationBudgetSeconds: 'positive number pacing weight',
+      outlineId: 'stable non-empty id such as outline-001',
+      sourceSectionIds: ['array of one or more analysis section ids; preserve ids exactly'],
+      templateIntent: 'one registered template type from target.templateManifest.templates[].type',
+      visualIntent: 'non-empty description of visual job; no CSS, fonts, or coordinates',
+    },
+  }
 }
 
 export function createSlidePlanRequest(
@@ -293,7 +392,7 @@ export function createSlidePlanRequest(
     invalidOutput: LLMTextDeckSlidePlan
     issues: DeckPlanningValidationIssue[]
   },
-): GenerateObjectRequest<LLMTextDeckSlidePlan> {
+): GenerateObjectRequest<LLMTextDeckSlidePlanGeneration> {
   const baseMessage: LLMMessage = {
     content: JSON.stringify({
       analysis,
@@ -323,9 +422,12 @@ export function createSlidePlanRequest(
         'For explainer decks with more than three slides, end with a summary slide that restates the main takeaways and next practical action.',
         'Only use comparison, stat, chart, quote, or code when the matching structured field is complete.',
         'Return transitionOut for every slide. For the final slide, set transitionOut to null.',
+        'For transitionOut.type use only crossfade, fade, slide-left, or slide-up. Do not use motion preset names such as fade-in, blur-rise, zoom-focus, or cinematic-rise as transition types; use fade when you want a fade transition.',
         'Choose motion only from controlled presets; do not describe CSS, colors, fonts, or absolute positions.',
+        'Follow outputContract exactly. Return slide-plan fields only; do not return outline, narration, or script metadata.',
       ],
       inputPath,
+      outputContract: createSlidePlanOutputContract(),
       requiredSlides: createSlidePlanRequiredSlides(slideOutline),
       slideOutline,
       stage: DECK_LLM_SLIDE_PLAN_STAGE,
@@ -351,6 +453,8 @@ export function createSlidePlanRequest(
             attemptsRemaining: rewrite.attemptsRemaining,
             goal: 'Rewrite the slide-plan stage output so it satisfies the structured validation issues. Return a complete replacement slide-plan object, not a patch.',
             instructions: [
+              'Return only the replacement slide-plan object at the JSON root with slides, targetPlatform, theme, and title.',
+              'Do not wrap the response in invalidOutput, issues, feedback, repair, result, output, or any other envelope, and do not echo the validation feedback payload.',
               'Use issues as binding field-level feedback.',
               'Resolve every issue in the issues array before returning; do not stop after fixing only the first issue.',
               'If an issue includes repairStrategy, requiredAdditions, forbiddenFixes, repeatCount, or escalationReason, treat those fields as binding repair contract. Address each requiredAdditions item directly and avoid every forbiddenFixes item.',
@@ -360,6 +464,7 @@ export function createSlidePlanRequest(
               'For scoring-detail repairs, the returned visible fields must include the score scale meaning, named dimensions, and a score-band or evidence-state mapping to priority, watchlist, small test, add, reduce, or exit.',
               'If points cannot hold the needed detail, switch to a registered structured template such as process, comparison, chart, code, summary, or three-points and fill its visible structured data completely. For process, repair process.steps rather than expanding points.',
               'When attemptsRemaining is 0, also scan all workflow, validation, scoring, sizing, quality, and output-template slides for the same missing-practical-detail pattern and fix them proactively before returning.',
+              'For transitionOut.type fixes, use only crossfade, fade, slide-left, or slide-up. Replace fade-in or fade-out transition values with fade.',
               'Keep source-grounded meaning and required slide types.',
               'Do not write speaker notes, source ranges, outline, or semantic metadata in this stage.',
             ],
@@ -374,15 +479,40 @@ export function createSlidePlanRequest(
     id: 'deck.slide-plan',
     promptInput: {analysis, brief, inputPath, options, rewrite, slideOutline},
     schema: createExactSlidePlanSchema(slideOutline),
+    schemaDescription: 'Deck slide plan object. Root must contain slides, targetPlatform, theme, and title. Every slides[] item must contain durationIntent, motion, outlineId, points, sectionIds, title, transitionOut, type, and visual. transitionOut.type must be one of crossfade, fade, slide-left, or slide-up; fade-in is not valid there. Do not return speakerNote, narration, outline, semantic, or sourceRange in this stage.',
     schemaName: 'LLMTextDeckSlidePlan',
     stage: DECK_LLM_SLIDE_PLAN_STAGE,
     temperature: 0.2,
   })
 }
 
+function createSlidePlanOutputContract() {
+  return {
+    forbiddenRootFieldNames: ['outline', 'script', 'scriptSemantics'],
+    root: {
+      required: ['slides', 'targetPlatform', 'theme', 'title'],
+    },
+    slide: {
+      forbiddenFieldNames: ['narration', 'semantic', 'slideIndex', 'sourceRange', 'speakerNote'],
+      required: ['durationIntent', 'motion', 'outlineId', 'points', 'sectionIds', 'title', 'transitionOut', 'type', 'visual'],
+    },
+    slideShape: {
+      durationIntent: 'positive number',
+      motion: 'one controlled motion preset',
+      outlineId: 'copy exactly from slideOutline.slides[].outlineId',
+      points: ['array of visible point strings; use [] only when structured fields carry the visible content'],
+      sectionIds: ['array of one or more source section ids'],
+      title: 'non-empty visible slide title',
+      transitionOut: 'object with positive duration and type one of crossfade, fade, slide-left, slide-up; use null for final slide; do not use fade-in',
+      type: 'one registered template type',
+      visual: {assetRefs: [], kind: 'one of chart, code, process, table, text, title-card'},
+    },
+  }
+}
+
 function createExactSlidePlanSchema(slideOutline: LLMTextDeckSlideOutline) {
-  return LLMTextDeckSlidePlanSchema.extend({
-    slides: LLMTextDeckSlidePlanSchema.shape.slides.length(slideOutline.slides.length),
+  return LLMTextDeckSlidePlanGenerationSchema.extend({
+    slides: LLMTextDeckSlidePlanGenerationSchema.shape.slides.length(slideOutline.slides.length),
   })
 }
 
@@ -410,7 +540,7 @@ export function createScriptSemanticsRequest(
     invalidOutput: LLMTextDeckScriptSemantics
     issues: DeckPlanningValidationIssue[]
   },
-): GenerateObjectRequest<LLMTextDeckScriptSemantics> {
+): GenerateObjectRequest<LLMTextDeckScriptSemanticsGeneration> {
   const baseMessage: LLMMessage = {
     content: JSON.stringify({
       analysis,
@@ -438,12 +568,17 @@ export function createScriptSemanticsRequest(
         'For markdown or text sources, sourceRange is the planned presentation timeline range in seconds, not a source character offset. When requiredSlides[].sourceRangeHint is present, copy its range exactly into slides[].sourceRange.',
         'Never return a placeholder or zero-length sourceRange such as [0,0]; sourceRange must always have end greater than start.',
         'Return outline with exactly one section per slide in slide order.',
+        'Copy scriptOutlineObject exactly into the root outline field.',
+        'Root outline must be an object with sections: [{goal, title}]. Do not copy slideOutline.slides into outline, and do not return outline as an array.',
+        'Root slides must be script-semantics slides with duration, semantic, slideIndex, sourceRange, and speakerNote. Do not return slideOutline or slidePlan slide fields such as outlineId, sourceSectionIds, goal, informationRole, narrationBudgetSeconds, templateIntent, visualIntent, points, title, type, or visual.',
+        'Follow outputContract exactly. Return script-semantics fields only; do not return slide-plan visible fields as the root object.',
       ],
       inputPath,
+      outputContract: createScriptSemanticsOutputContract(),
       requiredSlides: createScriptSemanticsRequiredSlides(slideOutline, slidePlan, options),
+      scriptOutlineObject: createScriptOutlineObject(slideOutline, slidePlan),
       scriptTimingBudgets: createScriptTimingBudgets(slideOutline, slidePlan, options),
       slidePlan,
-      slideOutline,
       source: {
         durationSeconds: options.durationTargetSeconds,
         sourceType: requireDeckPlanningSourceType(options.sourceType),
@@ -491,15 +626,74 @@ export function createScriptSemanticsRequest(
     id: 'deck.script-semantics',
     promptInput: {analysis, brief, inputPath, options, rewrite, slideOutline, slidePlan},
     schema: createExactScriptSemanticsSchema(slidePlan),
+    schemaDescription: 'Deck script semantics object. Root must contain outline and slides. outline must be an object with outline.sections[].goal and outline.sections[].title, not an array. Every slides[] item must contain duration, semantic, slideIndex, sourceRange, and speakerNote. semantic must contain blockText, blockType, claim, momentReason, momentScore, momentSummary, sourceQuoteText, and visualStyle.',
     schemaName: 'LLMTextDeckScriptSemantics',
     stage: DECK_LLM_SCRIPT_SEMANTICS_STAGE,
     temperature: 0.2,
   })
 }
 
+function createScriptSemanticsOutputContract() {
+  return {
+    forbiddenRootFieldNames: ['slideOutline', 'slidePlan', 'script', 'storyboard'],
+    outline: {
+      forbiddenShape: 'array; slideOutline.slides entries; slide-plan entries',
+      required: ['sections'],
+    },
+    outlineSection: {
+      forbiddenFieldNames: ['informationRole', 'mustCover', 'narrationBudgetSeconds', 'outlineId', 'sourceSectionIds', 'templateIntent', 'visualIntent'],
+      required: ['goal', 'title'],
+    },
+    outlineShape: {
+      sections: [{
+        goal: 'non-empty string summarizing the script section goal for this slide',
+        title: 'non-empty section title for this slide',
+      }],
+      source: 'copy scriptOutlineObject exactly into root outline',
+    },
+    root: {
+      required: ['outline', 'slides'],
+    },
+    slide: {
+      forbiddenFieldNames: ['durationIntent', 'goal', 'informationRole', 'motion', 'mustCover', 'narrationBudgetSeconds', 'outlineId', 'points', 'sectionIds', 'sourceSectionIds', 'templateIntent', 'title', 'transitionOut', 'type', 'visual', 'visualIntent'],
+      required: ['duration', 'semantic', 'slideIndex', 'sourceRange', 'speakerNote'],
+    },
+    slideShape: {
+      duration: 'positive expected spoken duration in seconds',
+      semantic: 'object with semantic narration metadata, not a slide outline item',
+      slideIndex: 'zero-based integer matching requiredSlides[].slideIndex',
+      sourceRange: '[startSeconds, endSeconds] copied from requiredSlides[].sourceRangeHint.range when provided',
+      speakerNote: 'non-empty natural narration for this slide',
+    },
+    semantic: {
+      required: ['blockText', 'blockType', 'claim', 'momentReason', 'momentScore', 'momentSummary', 'sourceQuoteText', 'visualStyle'],
+    },
+    semanticClaimShape: {
+      claim: 'object with confidence, text, and type, or null when the slide carries no claim artifact',
+      sourceRange: '[startSeconds, endSeconds] with end greater than start',
+    },
+  }
+}
+
+function createScriptOutlineObject(
+  slideOutline: LLMTextDeckSlideOutline,
+  slidePlan: LLMTextDeckSlidePlan,
+): LLMTextDeckScriptSemantics['outline'] {
+  return {
+    sections: slidePlan.slides.map((slide, index) => {
+      const outlineSlide = requireScriptOutlineSlide(slideOutline, index)
+
+      return {
+        goal: outlineSlide.goal,
+        title: slide.title,
+      }
+    }),
+  }
+}
+
 function createExactScriptSemanticsSchema(slidePlan: LLMTextDeckSlidePlan) {
-  return LLMTextDeckScriptSemanticsSchema.extend({
-    slides: LLMTextDeckScriptSemanticsSchema.shape.slides.length(slidePlan.slides.length),
+  return LLMTextDeckScriptSemanticsGenerationSchema.extend({
+    slides: LLMTextDeckScriptSemanticsGenerationSchema.shape.slides.length(slidePlan.slides.length),
   })
 }
 
@@ -685,8 +879,10 @@ export function createCoherenceReviewRequest(
         'Check template variety: do not use repeated one-big-idea/summary cards when process, table, code, comparison, stat, quote, or chart would make the source structure clearer.',
         'For each issue choose the earliest responsible stage: slide-outline for coverage/order/budget/template intent, slide-plan for visible text/template choice, script-semantics for narration/duration/semantic metadata.',
         'Use severity error only when rewrite is required before artifact build; use warning for reviewable quality concerns.',
+        'Follow outputContract exactly. Return only issues and summary at the JSON root.',
       ],
       inputPath,
+      outputContract: createCoherenceReviewOutputContract(),
       previousIssues,
       scriptSemantics,
       slideOutline,
@@ -702,8 +898,22 @@ export function createCoherenceReviewRequest(
     id: 'deck.coherence-review',
     promptInput: {analysis, brief, inputPath, options, previousIssues, scriptSemantics, slideOutline, slidePlan},
     schema: LLMTextDeckCoherenceReviewSchema,
+    schemaDescription: 'Deck coherence review object. Root must contain issues and summary only. issues must be an array of objects with code, message, severity, and stage, plus optional path or slideIndex.',
     schemaName: 'LLMTextDeckCoherenceReview',
     stage: DECK_LLM_COHERENCE_REVIEW_STAGE,
     temperature: 0.1,
   })
+}
+
+function createCoherenceReviewOutputContract() {
+  return {
+    forbiddenRootFieldNames: ['analysis', 'report', 'review'],
+    issue: {
+      optional: ['path', 'slideIndex'],
+      required: ['code', 'message', 'severity', 'stage'],
+    },
+    root: {
+      required: ['issues', 'summary'],
+    },
+  }
 }

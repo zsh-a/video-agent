@@ -10,6 +10,7 @@ export interface ObjectPromptSpec<TInput, TOutput> {
   id: string
   providerOptions?: LLMProviderOptions
   schema: z.ZodType<TOutput>
+  schemaDescription?: string
   schemaName: string
   stage: string
   temperature?: number
@@ -34,6 +35,7 @@ export function createObjectPromptRequest<TInput, TOutput>(
     },
     ...(spec.providerOptions === undefined ? {} : {providerOptions: spec.providerOptions}),
     schema: spec.schema,
+    ...(spec.schemaDescription === undefined ? {} : {schemaDescription: spec.schemaDescription}),
     ...(spec.temperature === undefined ? {} : {temperature: spec.temperature}),
   }
 }

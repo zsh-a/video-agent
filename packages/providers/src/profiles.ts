@@ -61,6 +61,7 @@ export const MIMO_PROVIDER_PROFILE: ProviderProfile = {
     model: MIMO_PROVIDER_MODEL_IDS.llm,
     name: 'mimo',
     provider: OPENAI_COMPATIBLE_LLM_PROVIDER,
+    supportsStructuredOutputs: true,
   },
   models: MIMO_PROVIDER_MODELS,
   name: 'mimo',

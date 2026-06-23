@@ -34,6 +34,8 @@ export class AISDKLLMClient implements LLMClient {
         model: this.options.model,
         ...(request.providerOptions === undefined ? {} : {providerOptions: request.providerOptions}),
         schema: request.schema,
+        ...(request.schemaDescription === undefined ? {} : {schemaDescription: request.schemaDescription}),
+        ...(request.promptMetadata?.schemaName === undefined ? {} : {schemaName: request.promptMetadata.schemaName}),
         ...(request.temperature === undefined ? {} : {temperature: request.temperature}),
       })
 

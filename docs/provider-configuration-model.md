@@ -46,7 +46,8 @@ The simplified LLM path is resolved from the active profile or from explicit run
     "baseURL": "https://token-plan-cn.xiaomimimo.com/v1",
     "model": "mimo-v2.5",
     "apiKeyEnv": "VIDEO_AGENT_LLM_TOKEN",
-    "name": "mimo"
+    "name": "mimo",
+    "supportsStructuredOutputs": true
   }
 }
 ```
@@ -70,7 +71,7 @@ The profile writes only the selected profile to disk:
 }
 ```
 
-At runtime that resolves to `llm` ASR/VLM/TTS providers and the Mimo LLM config. `GET /config` and `config --json` return the resolved non-secret view. For TTS, the registry detects the Mimo profile and calls `mimo-v2.5-tts` through the chat-completions audio endpoint, writing wav files under `audio/tts/` and returning those paths in `tts-segments.json`.
+At runtime that resolves to `llm` ASR/VLM/TTS providers and the Mimo LLM config. The profile sets `supportsStructuredOutputs: true` so AI SDK object generation sends an OpenAI-compatible JSON schema response format instead of downgrading schema requests to generic JSON object mode. `GET /config` and `config --json` return the resolved non-secret view. For TTS, the registry detects the Mimo profile and calls `mimo-v2.5-tts` through the chat-completions audio endpoint, writing wav files under `audio/tts/` and returning those paths in `tts-segments.json`.
 
 All MiMo models in the profile use the same base URL, `https://token-plan-cn.xiaomimimo.com/v1`, and the same key resolution order.
 

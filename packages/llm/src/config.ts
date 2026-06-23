@@ -22,6 +22,7 @@ export interface LLMClientConfig {
   model: string
   name?: string
   provider: LLMProviderName
+  supportsStructuredOutputs?: boolean
 }
 
 export interface LLMClientFactoryOptions {
@@ -64,6 +65,7 @@ export function createLanguageModelFromConfig(config: LLMClientConfig, options: 
       ...(config.headers === undefined ? {} : {headers: config.headers}),
       includeUsage: true,
       name: config.name ?? OPENAI_COMPATIBLE_LLM_PROVIDER,
+      supportsStructuredOutputs: config.supportsStructuredOutputs ?? config.name === 'mimo',
       ...(config.name === 'mimo' ? {transformRequestBody: transformMimoRequestBody} : {}),
     })
 
@@ -112,14 +114,104 @@ function resolveFirstEnvValue(names: Array<string | undefined>, env: Record<stri
 }
 
 function transformMimoRequestBody(body: Record<string, unknown>): Record<string, unknown> {
-  if (!isMimoAsrRequestBody(body)) {
+  const transformedBody = transformMimoStructuredOutputSchema(body)
+
+  if (!isMimoAsrRequestBody(transformedBody)) {
+    return transformedBody
+  }
+
+  return {
+    ...transformedBody,
+    messages: Array.isArray(transformedBody.messages) ? transformedBody.messages.map((message) => transformMimoMessage(message)) : transformedBody.messages,
+  }
+}
+
+function transformMimoStructuredOutputSchema(body: Record<string, unknown>): Record<string, unknown> {
+  const responseFormat = body.response_format
+
+  if (!isRecord(responseFormat) || responseFormat.type !== 'json_schema') {
+    return body
+  }
+
+  const jsonSchema = responseFormat.json_schema
+
+  if (!isRecord(jsonSchema) || !isRecord(jsonSchema.schema)) {
     return body
   }
 
   return {
     ...body,
-    messages: Array.isArray(body.messages) ? body.messages.map((message) => transformMimoMessage(message)) : body.messages,
+    response_format: {
+      ...responseFormat,
+      json_schema: {
+        ...jsonSchema,
+        schema: normalizeMimoJsonSchema(jsonSchema.schema),
+      },
+    },
   }
+}
+
+function normalizeMimoJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const normalized: Record<string, unknown> = {}
+  const tupleItems = Array.isArray(schema.prefixItems)
+    ? schema.prefixItems
+    : Array.isArray(schema.items)
+      ? schema.items
+      : undefined
+
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === '$schema' || key === 'prefixItems' || (key === 'items' && Array.isArray(value))) {
+      continue
+    }
+
+    if (isSchemaMapKey(key) && isRecord(value)) {
+      normalized[key] = Object.fromEntries(
+        Object.entries(value).map(([schemaKey, nestedSchema]) => [
+          schemaKey,
+          normalizeMimoJsonSchemaValue(nestedSchema),
+        ]),
+      )
+      continue
+    }
+
+    normalized[key] = normalizeMimoJsonSchemaValue(value)
+  }
+
+  if (tupleItems !== undefined) {
+    const normalizedItems = tupleItems.map((item) => normalizeMimoJsonSchemaValue(item))
+
+    normalized.items = tupleItemsItemSchema(normalizedItems)
+    normalized.minItems = tupleItems.length
+    normalized.maxItems = tupleItems.length
+  }
+
+  return normalized
+}
+
+function normalizeMimoJsonSchemaValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeMimoJsonSchemaValue(item))
+  }
+
+  if (isRecord(value)) {
+    return normalizeMimoJsonSchema(value)
+  }
+
+  return value
+}
+
+function tupleItemsItemSchema(items: unknown[]): unknown {
+  const first = items[0]
+
+  if (first === undefined) {
+    return {}
+  }
+
+  return items.every((item) => JSON.stringify(item) === JSON.stringify(first)) ? first : {}
+}
+
+function isSchemaMapKey(key: string): boolean {
+  return key === '$defs' || key === 'definitions' || key === 'dependentSchemas' || key === 'properties' || key === 'patternProperties'
 }
 
 function isMimoAsrRequestBody(body: Record<string, unknown>): boolean {
