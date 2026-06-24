@@ -1,6 +1,8 @@
 import {
+  findLLMDeckStructuredTemplateDataRequirement,
   LLMTextDeckValidationError,
   type LLMTextDeckCoherenceReview,
+  type LLMDeckStructuredTemplateDataRequirement,
   type LLMTextDeckScriptSemantics,
   type LLMTextDeckSlideOutline,
   type LLMTextDeckSlidePlan,
@@ -23,6 +25,16 @@ const DECK_LLM_ENGLISH_WORDS_PER_SECOND = 2.6
 const DECK_LLM_CJK_CHARACTERS_PER_SECOND = 4.8
 const DECK_LLM_TOTAL_TIMING_ESTIMATE_TO_PLAN_RATIO = 1.35
 const DECK_LLM_TOTAL_TIMING_GRACE_SECONDS = 3
+const DECK_LLM_FORMATTED_ERROR_MESSAGE_MAX_CHARACTERS = 6_000
+const DECK_LLM_VISIBLE_DETAIL_CAPACITY_FORBIDDEN_FIXES = [
+  'Do not compress source items named by the issue into broader categories.',
+  'Do not move required visible detail into speakerNote, semantic metadata, or narration-only text.',
+]
+const DECK_LLM_VISIBLE_DETAIL_CAPACITY_REQUIRED_ADDITIONS = [
+  'If the issue names missing source items, copy those exact item names into visible slide-plan fields instead of summarizing them into categories.',
+  'Use a template with enough visible capacity for the full required structure: prefer code.language "text" with code.text as one short line per required item for dense ordered checklists, schemas, report structures, or output templates.',
+  'Use process.steps only when the complete visible sequence fits process step limits; otherwise switch to code and keep points empty or as a short summary.',
+]
 
 export type DeckPlanningRepairStrategy = 'rebalanceTimingOrNarration' | 'requireOperationalCriteria' | 'requirePracticalDetail' | 'requireTemplateReplan' | 'requireTransitionLogic' | 'satisfyValidation'
 
@@ -315,11 +327,66 @@ export function chooseRewriteStage(issues: DeckPlanningValidationIssue[]): DeckL
 }
 
 export function formatErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
+  const messages = uniqueStrings([
+    formatUnknownErrorMessage(error),
+    ...collectNestedErrorMessages(error),
+  ]).filter((message) => message.length > 0)
+  const formatted = messages.length === 0 ? String(error) : messages.join('\nCaused by: ')
+
+  return formatted.length <= DECK_LLM_FORMATTED_ERROR_MESSAGE_MAX_CHARACTERS
+    ? formatted
+    : `${formatted.slice(0, DECK_LLM_FORMATTED_ERROR_MESSAGE_MAX_CHARACTERS)}...`
+}
+
+function collectNestedErrorMessages(error: unknown, seen = new Set<unknown>()): string[] {
+  if (error === null || typeof error !== 'object' || seen.has(error)) {
+    return []
   }
 
-  return String(error)
+  seen.add(error)
+
+  const record = error as Record<string, unknown>
+  const details = record.details
+  const detailsRecord = details !== null && typeof details === 'object'
+    ? details as Record<string, unknown>
+    : undefined
+  const nested = [
+    record.cause,
+    detailsRecord?.cause,
+    detailsRecord?.error,
+  ].filter((value) => value !== undefined)
+
+  return nested.flatMap((value) => [
+    formatUnknownErrorMessage(value),
+    ...collectNestedErrorMessages(value, seen),
+  ])
+}
+
+function formatUnknownErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return compactValidationErrorMessage(error.message)
+  }
+
+  if (error !== null && typeof error === 'object' && 'message' in error && typeof (error as {message?: unknown}).message === 'string') {
+    return compactValidationErrorMessage((error as {message: string}).message)
+  }
+
+  return compactValidationErrorMessage(String(error))
+}
+
+function compactValidationErrorMessage(message: string): string {
+  const marker = 'Error message:'
+  const markerIndex = message.indexOf(marker)
+
+  if (markerIndex === -1) {
+    return message
+  }
+
+  return `Schema validation ${message.slice(markerIndex).trim()}`
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)]
 }
 
 function validateLLMTextDeckScriptSemanticsCardinality(
@@ -489,17 +556,31 @@ function createDeckPlanningIssueSignature(issue: DeckPlanningValidationIssue): s
 }
 
 function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): Pick<DeckPlanningValidationIssue, 'forbiddenFixes' | 'repairStrategy' | 'requiredAdditions'> {
+  if (issue.code === 'TEXT_CLEANLINESS' || issue.code === 'SCRIPT_TEXT_FIELD_CLEANLINESS') {
+    return createTextCleanlinessRepairContract(issue)
+  }
+
+  if (issue.code === 'TEMPLATE_REQUIRED_DATA_MISSING') {
+    return createStructuredTemplateDataRepairContract(issue, 'missing')
+  }
+
+  if (issue.code === 'TEMPLATE_EXTRANEOUS_DATA') {
+    return createStructuredTemplateDataRepairContract(issue, 'extraneous')
+  }
+
   if (issue.code === 'LOW_INFORMATION_DEPTH') {
     return {
       forbiddenFixes: [
         'Do not only restate the existing headline, formula, or visible points.',
         'Do not add generic adjectives such as clear, actionable, important, or practical without criteria.',
+        ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_FORBIDDEN_FIXES,
       ],
       repairStrategy: 'requireOperationalCriteria',
       requiredAdditions: [
         'Name the missing concrete method or decision criteria described by the issue.',
         'Add at least one source-grounded way to estimate, verify, or apply the concept.',
         'Add one compact example or judgment sentence that shows how the viewer would use the concept.',
+        ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_REQUIRED_ADDITIONS,
       ],
     }
   }
@@ -509,12 +590,14 @@ function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): P
       forbiddenFixes: [
         'Do not replace missing detail with a broad summary.',
         'Do not leave placeholders such as X/Y/company without explaining how to fill them.',
+        ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_FORBIDDEN_FIXES,
       ],
       repairStrategy: 'requirePracticalDetail',
       requiredAdditions: [
         'Add concrete thresholds, observable inputs, examples, or decision branches requested by the issue.',
         'If the issue asks for scoring, scale, or score-band detail, include the visible score scale meaning, named scoring criteria, and how score results change priority or action.',
         'Explain what the viewer should check and how the result changes the recommendation or next step.',
+        ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_REQUIRED_ADDITIONS,
       ],
     }
   }
@@ -558,6 +641,75 @@ function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): P
     repairStrategy: 'satisfyValidation',
     requiredAdditions: [
       'Satisfy the validation issue exactly at the reported field/path.',
+    ],
+  }
+}
+
+function createTextCleanlinessRepairContract(issue: DeckPlanningValidationIssue): Pick<DeckPlanningValidationIssue, 'forbiddenFixes' | 'repairStrategy' | 'requiredAdditions'> {
+  return {
+    forbiddenFixes: [
+      'Do not keep leading, trailing, repeated, tab, carriage-return, or newline whitespace in generated text fields.',
+      'Do not use spacing to separate multiple logical items inside one point.',
+      'Do not use Markdown bullets, tables, headings, blockquotes, fences, or page-number prefixes in visible text fields.',
+    ],
+    repairStrategy: issue.stage === DECK_LLM_SLIDE_PLAN_STAGE ? 'requireTemplateReplan' : 'satisfyValidation',
+    requiredAdditions: [
+      'Rewrite the reported field as clean single-line text with normal single spaces only.',
+      'If the field is trying to contain multiple steps, split the content into the appropriate visible structure: points for short parallel items, process.steps for ordered flows, comparison sides for two-way contrasts, or code.text for dense lists/schemas/templates.',
+      'Keep the source meaning unchanged while satisfying the exact reported path.',
+    ],
+  }
+}
+
+function createStructuredTemplateDataRepairContract(
+  issue: DeckPlanningValidationIssue,
+  kind: 'extraneous' | 'missing',
+): Pick<DeckPlanningValidationIssue, 'forbiddenFixes' | 'repairStrategy' | 'requiredAdditions'> {
+  const requirement = findLLMDeckStructuredTemplateDataRequirement(issue.field ?? issue.template)
+
+  if (requirement === undefined) {
+    return {
+      repairStrategy: 'requireTemplateReplan',
+      requiredAdditions: [
+        'Make the slide type and any template-specific structured fields match exactly.',
+        'Use only registered templates and remove structured fields that belong to another template.',
+      ],
+    }
+  }
+
+  return kind === 'missing'
+    ? createMissingStructuredTemplateDataRepairContract(requirement)
+    : createExtraneousStructuredTemplateDataRepairContract(requirement)
+}
+
+function createMissingStructuredTemplateDataRepairContract(
+  requirement: LLMDeckStructuredTemplateDataRequirement,
+): Pick<DeckPlanningValidationIssue, 'forbiddenFixes' | 'repairStrategy' | 'requiredAdditions'> {
+  return {
+    forbiddenFixes: [
+      `Do not keep type "${requirement.type}" without the ${requirement.field} object.`,
+      `Do not use points, title, visual.kind, speakerNote, or semantic metadata as a substitute for ${requirement.label}.`,
+    ],
+    repairStrategy: 'requireTemplateReplan',
+    requiredAdditions: [
+      `Either keep type "${requirement.type}" and provide ${requirement.field} with required fields: ${requirement.requiredFields.join(', ')}; or switch to a registered template whose required data can be fully provided.`,
+      `If switching templates, remove ${requirement.field} and make visual.kind match the new visible structure.`,
+      'Preserve the slide source meaning while also satisfying point count and character limits.',
+    ],
+  }
+}
+
+function createExtraneousStructuredTemplateDataRepairContract(
+  requirement: LLMDeckStructuredTemplateDataRequirement,
+): Pick<DeckPlanningValidationIssue, 'forbiddenFixes' | 'repairStrategy' | 'requiredAdditions'> {
+  return {
+    forbiddenFixes: [
+      `Do not leave ${requirement.field} on a non-${requirement.type} slide.`,
+    ],
+    repairStrategy: 'requireTemplateReplan',
+    requiredAdditions: [
+      `Either change type to "${requirement.type}" and provide complete ${requirement.field} fields: ${requirement.requiredFields.join(', ')}; or remove ${requirement.field} from the slide.`,
+      'Keep visible text, visual.kind, and template-specific data consistent with the final slide type.',
     ],
   }
 }
@@ -636,6 +788,19 @@ function classifyIssueCode(message: string): string {
 
   if (message.includes('speakerNote timing preflight') || message.includes('estimated total speakerNote') || message.includes('estimated total narration')) {
     return 'SCRIPT_TIMING'
+  }
+
+  if (
+    message.includes('contains repeated whitespace')
+    || message.includes('contains layout whitespace')
+    || message.includes('contains leading or trailing whitespace')
+    || message.includes('contains Markdown control syntax')
+    || message.includes('contains Markdown table syntax')
+    || message.includes('contains Markdown code fences')
+    || message.includes('contains YAML frontmatter')
+    || message.includes('contains a page-number prefix')
+  ) {
+    return 'TEXT_CLEANLINESS'
   }
 
   if (message.includes(DECK_LLM_SCRIPT_SEMANTICS_STAGE)) {

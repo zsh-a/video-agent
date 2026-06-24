@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto'
 import {createObjectPromptRequest} from '@video-agent/llm'
 
 import {
+  LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS,
   LLMTextDeckBriefSchema,
   LLMTextDeckCoherenceReviewSchema,
   LLMTextDeckContentAnalysisSchema,
@@ -413,6 +414,9 @@ export function createSlidePlanRequest(
         'Do not put multiple unrelated themes on one slide; split by topic before choosing a template.',
         'For workflow, checklist, validation, scoring, risk, sizing, and output-template slides, visible fields must carry the operational method: concrete observable inputs, metrics, thresholds, decision branches, examples, or falsification conditions from the source.',
         'Do not hide practical detail only in speakerNote or semantic metadata. If a viewer needs the detail to apply the method, put it in points, process.steps, comparison, chart, stat, code.text, or another visible structured field.',
+        'For dense ordered checklists, schemas, report structures, and output templates with more items than points or process.steps can hold, use the code template with code.language "text" and code.text as short newline-separated lines; keep points empty or as a short summary.',
+        'Every generated visible text field except code.text must be clean single-line text: no leading/trailing whitespace, repeated spaces, tabs, newlines, Markdown bullets, tables, headings, blockquotes, fences, or page-number prefixes.',
+        'For structured templates, type and template data must match outputContract.structuredTemplateData exactly: keep the type and fill the required object fields, or choose another registered template and omit that structured object.',
         'For verification-chain slides, include visible checkpoints such as revenue/guidance, backlog/orders, margin/mix, utilization/capacity, management commentary, and at least one confirm/weaken/falsify condition when the source supports it.',
         'For scoring slides, visible fields must show how to assign scores: include the scale meaning such as 1=weak/5=strong when the source uses a 1-5 scale, the concrete scoring dimensions, and how score bands change priority or next action.',
         'For position-sizing slides, show the visible mapping from evidence state or score band to next action; do not only say "score" or "conditional sizing".',
@@ -462,7 +466,8 @@ export function createSlidePlanRequest(
               'Only change slide structure, visible text, template data, visual kind, motion, theme, platform, and transition choices needed to satisfy the issues.',
               'For LOW_INFORMATION_DEPTH and MISSING_PRACTICAL_DETAIL issues, repair the visible slide-plan fields directly. Do not rely on speakerNote, scriptSemantics, semantic metadata, or later narration to carry the missing operational detail.',
               'For scoring-detail repairs, the returned visible fields must include the score scale meaning, named dimensions, and a score-band or evidence-state mapping to priority, watchlist, small test, add, reduce, or exit.',
-              'If points cannot hold the needed detail, switch to a registered structured template such as process, comparison, chart, code, summary, or three-points and fill its visible structured data completely. For process, repair process.steps rather than expanding points.',
+              'If points cannot hold the needed detail, switch to a registered structured template and fill its visible structured data completely. Use code.text for dense ordered lists, schemas, report structures, or output templates; use process.steps only when the full visible sequence fits process step limits.',
+              'For TEXT_CLEANLINESS repairs, rewrite the exact field with normal single spaces only. If repeated spacing was separating multiple items, split those items into points, process.steps, comparison, or code.text instead of preserving the spacing.',
               'When attemptsRemaining is 0, also scan all workflow, validation, scoring, sizing, quality, and output-template slides for the same missing-practical-detail pattern and fix them proactively before returning.',
               'For transitionOut.type fixes, use only crossfade, fade, slide-left, or slide-up. Replace fade-in or fade-out transition values with fade.',
               'Keep source-grounded meaning and required slide types.',
@@ -479,7 +484,7 @@ export function createSlidePlanRequest(
     id: 'deck.slide-plan',
     promptInput: {analysis, brief, inputPath, options, rewrite, slideOutline},
     schema: createExactSlidePlanSchema(slideOutline),
-    schemaDescription: 'Deck slide plan object. Root must contain slides, targetPlatform, theme, and title. Every slides[] item must contain durationIntent, motion, outlineId, points, sectionIds, title, transitionOut, type, and visual. transitionOut.type must be one of crossfade, fade, slide-left, or slide-up; fade-in is not valid there. Do not return speakerNote, narration, outline, semantic, or sourceRange in this stage.',
+    schemaDescription: `Deck slide plan object. Root must contain slides, targetPlatform, theme, and title. Every slides[] item must contain durationIntent, motion, outlineId, points, sectionIds, title, transitionOut, type, and visual. Structured templates require matching data objects: ${formatStructuredTemplateDataRequirements()}. transitionOut.type must be one of crossfade, fade, slide-left, or slide-up; fade-in is not valid there. Do not return speakerNote, narration, outline, semantic, or sourceRange in this stage.`,
     schemaName: 'LLMTextDeckSlidePlan',
     stage: DECK_LLM_SLIDE_PLAN_STAGE,
     temperature: 0.2,
@@ -507,7 +512,23 @@ function createSlidePlanOutputContract() {
       type: 'one registered template type',
       visual: {assetRefs: [], kind: 'one of chart, code, process, table, text, title-card'},
     },
+    structuredTemplateData: createStructuredTemplateDataOutputContract(),
   }
+}
+
+function createStructuredTemplateDataOutputContract() {
+  return LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS.map((requirement) => ({
+    rule: `When slides[].type is "${requirement.type}", slides[].${requirement.field} is required; when type is not "${requirement.type}", slides[].${requirement.field} is forbidden.`,
+    requiredFields: [...requirement.requiredFields],
+    structuredField: requirement.field,
+    type: requirement.type,
+  }))
+}
+
+function formatStructuredTemplateDataRequirements(): string {
+  return LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS
+    .map((requirement) => `${requirement.type}=>${requirement.field}(${requirement.requiredFields.join(', ')})`)
+    .join('; ')
 }
 
 function createExactSlidePlanSchema(slideOutline: LLMTextDeckSlideOutline) {
@@ -871,7 +892,7 @@ export function createCoherenceReviewRequest(
         'When a later review follows a rewrite, do not introduce a new LOW_INFORMATION_DEPTH or MISSING_PRACTICAL_DETAIL error for a slide that already had the same visible-text defect in the prior plan; report it in the earliest responsible pass.',
         'Use previousIssues to distinguish unresolved prior defects from newly introduced defects. Do not drip-feed same-pattern visible-detail issues across review rounds.',
         'If operational detail appears only in speakerNote or semantic metadata while the visible slide-plan text stays abstract, report the issue against slide-plan, because the viewer cannot see the method.',
-        'For process slides, review process.steps as the visible flowchart content. Do not treat empty points as a defect when process.steps carries concrete ordered labels and details.',
+        'For process slides, review process.steps as the visible flowchart content. process.steps[].label and process.steps[].detail are both rendered visibly; do not treat empty points as a defect when process.steps carries concrete ordered labels and details.',
         'For scoring slides, consider the visible text sufficient only when it includes the scoring scale meaning, named dimensions, and the decision or priority mapping produced by the score.',
         'Report LOW_INFORMATION_DEPTH or MISSING_PRACTICAL_DETAIL as severity error when the issue affects a must-cover section, workflow step sequence, output template, code/config example, validation criterion, or required caveat.',
         'Check timing realism at deck level: total slide durations and total estimated speakerNote duration should be close to target.durationSeconds. Per-slide budget mismatches are warnings unless they break narrative comprehension.',

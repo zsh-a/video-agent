@@ -30,6 +30,58 @@ const LLM_DECK_MOTION_GENERATION_TYPES = [...DECK_BASE_MOTION_PRESETS, 'crossfad
 const LLM_DECK_TRANSITION_OUT_GENERATION_TYPES = [...DECK_TRANSITION_TYPES, ...LLM_DECK_TRANSITION_OUT_ALIASES] as const
 export const LLM_TEXT_DECK_MAX_SLIDES = 24
 
+type LLMDeckStructuredTemplateDataField = 'chart' | 'code' | 'comparison' | 'process' | 'quote' | 'stat'
+
+export interface LLMDeckStructuredTemplateDataRequirement {
+  field: LLMDeckStructuredTemplateDataField
+  label: string
+  requiredFields: readonly string[]
+  type: Extract<DeckSlideType, LLMDeckStructuredTemplateDataField>
+}
+
+export const LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS = [
+  {
+    field: 'chart',
+    label: 'chart data',
+    requiredFields: ['chart.bars[].label', 'chart.bars[].value'],
+    type: 'chart',
+  },
+  {
+    field: 'code',
+    label: 'code data',
+    requiredFields: ['code.language', 'code.text'],
+    type: 'code',
+  },
+  {
+    field: 'comparison',
+    label: 'comparison data',
+    requiredFields: ['comparison.left.label', 'comparison.left.points[]', 'comparison.right.label', 'comparison.right.points[]'],
+    type: 'comparison',
+  },
+  {
+    field: 'process',
+    label: 'process steps',
+    requiredFields: ['process.steps[].label'],
+    type: 'process',
+  },
+  {
+    field: 'quote',
+    label: 'quote data',
+    requiredFields: ['quote.text'],
+    type: 'quote',
+  },
+  {
+    field: 'stat',
+    label: 'stat data',
+    requiredFields: ['stat.label', 'stat.value'],
+    type: 'stat',
+  },
+] as const satisfies readonly LLMDeckStructuredTemplateDataRequirement[]
+
+export function findLLMDeckStructuredTemplateDataRequirement(type: string | undefined): LLMDeckStructuredTemplateDataRequirement | undefined {
+  return LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS.find((requirement) => requirement.type === type || requirement.field === type)
+}
+
 const LLMDeckSourceRangeSchema = z.tuple([
   z.number().finite().nonnegative(),
   z.number().finite().nonnegative(),
@@ -647,32 +699,27 @@ function collectLLMProcessTemplateIssues(slide: LLMTextDeckTemplateValidationSli
 }
 
 function collectLLMSlideTemplateDataIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number): LLMTextDeckValidationIssue[] {
-  return [
-    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'chart', slide.chart, 'chart data'),
-    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'code', slide.code, 'code data'),
-    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'comparison', slide.comparison, 'comparison data'),
-    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'process', slide.process, 'process steps'),
-    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'quote', slide.quote, 'quote data'),
-    ...collectExclusiveTemplateDataIssues(slide, slideIndex, 'stat', slide.stat, 'stat data'),
-  ]
+  return LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS.flatMap((requirement) => collectExclusiveTemplateDataIssues(slide, slideIndex, requirement))
 }
 
-function collectExclusiveTemplateDataIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number, templateType: DeckSlideType, value: unknown, label: string): LLMTextDeckValidationIssue[] {
-  if (slide.type === templateType && value === undefined) {
+function collectExclusiveTemplateDataIssues(slide: LLMTextDeckTemplateValidationSlide, slideIndex: number, requirement: LLMDeckStructuredTemplateDataRequirement): LLMTextDeckValidationIssue[] {
+  const value = slide[requirement.field]
+
+  if (slide.type === requirement.type && value === undefined) {
     return [createLLMSlideTemplateIssue(slide, slideIndex, {
       code: 'TEMPLATE_REQUIRED_DATA_MISSING',
-      field: templateType,
-      message: `LLM Deck plan slide "${slide.title}" uses ${templateType} template without ${label}. Rewrite the slide in LLM output.`,
-      path: `slides[${slideIndex}].${templateType}`,
+      field: requirement.field,
+      message: `LLM Deck plan slide "${slide.title}" uses ${requirement.type} template without ${requirement.label}. Required fields: ${requirement.requiredFields.join(', ')}. Rewrite the slide in LLM output.`,
+      path: `slides[${slideIndex}].${requirement.field}`,
     })]
   }
 
-  if (slide.type !== templateType && value !== undefined) {
+  if (slide.type !== requirement.type && value !== undefined) {
     return [createLLMSlideTemplateIssue(slide, slideIndex, {
       code: 'TEMPLATE_EXTRANEOUS_DATA',
-      field: templateType,
-      message: `LLM Deck plan slide "${slide.title}" includes ${label} on non-${templateType} template ${slide.type}. Rewrite the slide in LLM output.`,
-      path: `slides[${slideIndex}].${templateType}`,
+      field: requirement.field,
+      message: `LLM Deck plan slide "${slide.title}" includes ${requirement.label} on non-${requirement.type} template ${slide.type}. Rewrite the slide in LLM output.`,
+      path: `slides[${slideIndex}].${requirement.field}`,
     })]
   }
 
