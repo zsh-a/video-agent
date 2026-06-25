@@ -462,6 +462,15 @@ function createDeckSchemaRewriteInstructions(stage: string | undefined): string[
 }
 
 function createDeckSchemaRewriteStageInstructions(stage: string | undefined): string[] {
+  if (stage === DECK_LLM_SLIDE_PLAN_STAGE) {
+    return [
+      'For slide-plan, every slides[] item must keep type and structured template data synchronized exactly.',
+      'If type is process, include process.steps with 2-7 items and each item must include label; if type is code, include code.language and code.text; if type is chart, include chart.bars[].label and chart.bars[].value; if type is quote, include quote.text; if type is stat, include stat.value and stat.label; if type is comparison, include both comparison sides.',
+      'Do not include structured data for a different type. For example, a process slide must not include code, chart, quote, stat, or comparison objects.',
+      'When changing a slide type to fix validationError, add the required object for the new type in the same response and remove incompatible objects from the old type.',
+    ]
+  }
+
   if (stage !== DECK_LLM_SCRIPT_SEMANTICS_STAGE) {
     return []
   }
@@ -689,12 +698,15 @@ async function attemptStagedDeckPlanRewrite(
     }
   }
 
+  let finalValidationIssueHistory = issueHistory
+
   try {
     validateLLMTextDeckSlideCount(stagedPlan.slideOutline, input.options)
     validateLLMTextDeckSlideOutlineCoverage(stagedPlan.analysis, stagedPlan.brief, stagedPlan.slideOutline)
     validateLLMTextDeckSlidePlanStructure(stagedPlan.slidePlan, stagedPlan.slideOutline)
     validateLLMTextDeckScriptSemanticsStructure(stagedPlan.scriptSemantics, stagedPlan.slideOutline)
     assertCoherenceReview(stagedPlan.coherenceReview)
+    finalValidationIssueHistory = []
     validateLLMTextDeckScriptSemanticsTiming(stagedPlan.scriptSemantics, stagedPlan.slideOutline, input.options)
     const finalPlan = assembleFinalDeckPlan(stagedPlan.analysis, stagedPlan.slidePlan, stagedPlan.scriptSemantics)
 
@@ -713,7 +725,7 @@ async function attemptStagedDeckPlanRewrite(
   } catch (error) {
     return attemptStagedDeckPlanRewrite(llm, input, {
       attempt: state.attempt + 1,
-      issueHistory,
+      issueHistory: finalValidationIssueHistory,
       lastError: error,
       stagedPlan,
     })

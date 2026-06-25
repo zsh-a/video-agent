@@ -273,29 +273,60 @@ const LLMTextDeckSlidePlanSlideShape = {
   visual: LLMDeckVisualSchema,
 }
 
+const LLMTextDeckSlidePlanGenerationSlideSchema = z.object({
+  ...LLMTextDeckSlidePlanSlideShape,
+  chart: LLMDeckChartGenerationSchema.optional(),
+  motion: z.enum(LLM_DECK_MOTION_GENERATION_TYPES, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+  transitionOut: LLMDeckTransitionOutGenerationSchema,
+}).superRefine(validateStructuredTemplateDataAtSchemaBoundary)
+
+const LLMTextDeckSlidePlanSlideSchema = z.object({
+  ...LLMTextDeckSlidePlanSlideShape,
+  chart: LLMDeckChartSchema.optional(),
+  motion: z.enum(DECK_BASE_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
+  transitionOut: LLMDeckTransitionOutSchema,
+}).superRefine(validateStructuredTemplateDataAtSchemaBoundary)
+
 export const LLMTextDeckSlidePlanGenerationSchema = z.object({
-  slides: z.array(z.object({
-    ...LLMTextDeckSlidePlanSlideShape,
-    chart: LLMDeckChartGenerationSchema.optional(),
-    motion: z.enum(LLM_DECK_MOTION_GENERATION_TYPES, {error: 'Motion must be one of the controlled Deck motion presets.'}),
-    transitionOut: LLMDeckTransitionOutGenerationSchema,
-  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+  slides: z.array(LLMTextDeckSlidePlanGenerationSlideSchema).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
   targetPlatform: z.enum(STORYBOARD_TARGET_PLATFORMS),
   theme: z.enum(DECK_PRESET_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
   title: z.string().min(1),
 })
 
 export const LLMTextDeckSlidePlanSchema = z.object({
-  slides: z.array(z.object({
-    ...LLMTextDeckSlidePlanSlideShape,
-    chart: LLMDeckChartSchema.optional(),
-    motion: z.enum(DECK_BASE_MOTION_PRESETS, {error: 'Motion must be one of the controlled Deck motion presets.'}),
-    transitionOut: LLMDeckTransitionOutSchema,
-  })).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
+  slides: z.array(LLMTextDeckSlidePlanSlideSchema).min(1).max(LLM_TEXT_DECK_MAX_SLIDES),
   targetPlatform: z.enum(STORYBOARD_TARGET_PLATFORMS),
   theme: z.enum(DECK_PRESET_THEMES, {error: 'Theme must be one of the supported Deck visual themes.'}),
   title: z.string().min(1),
 })
+
+function validateStructuredTemplateDataAtSchemaBoundary(
+  slide: {
+    type: DeckSlideType
+  } & Partial<Record<LLMDeckStructuredTemplateDataField, unknown>>,
+  context: z.RefinementCtx,
+): void {
+  for (const requirement of LLM_DECK_STRUCTURED_TEMPLATE_DATA_REQUIREMENTS) {
+    const value = slide[requirement.field]
+
+    if (slide.type === requirement.type && value === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: `Slide type "${slide.type}" requires ${requirement.field} data. Required fields: ${requirement.requiredFields.join(', ')}. Include ${requirement.field} when type is "${slide.type}", or choose another registered type and omit ${requirement.field}.`,
+        path: [requirement.field],
+      })
+    }
+
+    if (slide.type !== requirement.type && value !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: `Slide type "${slide.type}" must not include ${requirement.field} data. ${requirement.field} is only valid when type is "${requirement.type}". Change type to "${requirement.type}" or remove ${requirement.field}.`,
+        path: [requirement.field],
+      })
+    }
+  }
+}
 
 const LLMTextDeckScriptSemanticsSlideSchema = z.object({
   duration: z.number().finite().positive(),

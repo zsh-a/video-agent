@@ -6,7 +6,7 @@ import type {GenerateObjectRequest, GenerateTextRequest, LLMClient, LLMEvent, St
 import {LLMTextDeckPlanSchema, LLMTextDeckScriptSemanticsSchema, LLMTextDeckSlidePlanSchema, validateLLMTextDeckSlidePlanTemplateConstraints, type LLMTextDeckPlan} from '../../../packages/pipeline-deck/src/planning/llm-plan.js'
 import {createLLMTextDeckProjectPlan} from '../../../packages/pipeline-deck/src/planning/llm-text-plan.js'
 import {createContentAnalysisRequest, createDeckBriefRequest, createScriptSemanticsRequest} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-requests.js'
-import {validateLLMTextDeckScriptSemanticsTiming} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-validation.js'
+import {assertCoherenceReview, createDeckPlanningRepairIssues, createDeckPlanningValidationIssues, validateLLMTextDeckScriptSemanticsTiming} from '../../../packages/pipeline-deck/src/planning/llm-text-plan-validation.js'
 import {createDeckSourceMap} from '../../../packages/pipeline-deck/src/planning/source-map.js'
 import {createTextDeckProjectPlanFromLLM as createStrictTextDeckProjectPlanFromLLM} from '../../../packages/pipeline-deck/src/planning/text-plan-builder.js'
 import type {TextDeckProjectPlanOptions} from '../../../packages/pipeline-deck/src/planning/types.js'
@@ -936,7 +936,7 @@ describe('Deck Explainer LLM text planning', () => {
     expect(result.success).to.equal(true)
   })
 
-  it('lets Deck template validation report missing structured template data after schema parsing', () => {
+  it('rejects missing structured template data at the slide-plan schema boundary', () => {
     const result = LLMTextDeckSlidePlanSchema.safeParse({
       slides: [
         {
@@ -956,9 +956,38 @@ describe('Deck Explainer LLM text planning', () => {
       title: 'Scoring Chart',
     })
 
-    expect(result.success).to.equal(true)
-    expect(() => validateLLMTextDeckSlidePlanTemplateConstraints(result.data!)).to.throw('chart.bars[].label')
-    expect(() => validateLLMTextDeckSlidePlanTemplateConstraints(result.data!)).to.throw('chart.bars[].value')
+    expect(result.success).to.equal(false)
+    expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.chart')).to.equal(true)
+    expect(result.error?.issues.some((issue) => issue.message.includes('chart.bars[].label'))).to.equal(true)
+  })
+
+  it('rejects mismatched structured template data at the slide-plan schema boundary', () => {
+    const result = LLMTextDeckSlidePlanSchema.safeParse({
+      slides: [
+        {
+          code: {
+            language: 'text',
+            text: 'Step: fill the matching process.steps object instead.',
+          },
+          durationIntent: 12,
+          motion: 'line-draw',
+          outlineId: 'slide-001',
+          points: [],
+          sectionIds: ['source-section-001'],
+          title: 'Process Without Steps',
+          transitionOut: null,
+          type: 'process',
+          visual: deckVisual('process'),
+        },
+      ],
+      targetPlatform: 'generic',
+      theme: 'elegant-dark',
+      title: 'Process Without Steps',
+    })
+
+    expect(result.success).to.equal(false)
+    expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.process')).to.equal(true)
+    expect(result.error?.issues.some((issue) => issue.path.join('.') === 'slides.0.code')).to.equal(true)
   })
 
   it('reports quote text limit issues before Deck quality preflight', () => {
@@ -1451,6 +1480,56 @@ describe('Deck Explainer LLM text planning', () => {
     expect(retryPayload.instructions?.join('\n')).to.include('Do not return feedback fields from this repair prompt')
     expect(retryPayload.instructions?.join('\n')).to.include('sections[].keyClaims')
     expect(retryPayload.instructions?.join('\n')).to.include('use only crossfade, fade, slide-left, or slide-up')
+  })
+
+  it('retries slide-plan schema template data mismatches with type-specific feedback', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const rawPlan = createOneSlideRawPlan()
+    let failedSlidePlan = false
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+
+        if (requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && !failedSlidePlan) {
+          failedSlidePlan = true
+          throw new Error('No object generated: response did not match schema.', {
+            cause: new Error('Type validation failed: Error message: [{"path":["slides",0,"process"],"message":"Slide type \\"process\\" requires process data. Required fields: process.steps[].label."}]'),
+          })
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, rawPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    await createLLMTextDeckProjectPlan(llm, '/tmp/slide-plan-schema.md', 'Explain slide-plan schema repair.', {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 8,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    const slidePlanRequests = requests.filter((request) => requestStage(request) === 'slide-plan')
+    const retryMessage = slidePlanRequests[1]?.messages?.at(-1)
+    const retryPayload = JSON.parse(typeof retryMessage?.content === 'string' ? retryMessage.content : '{}') as {
+      instructions?: string[]
+      validationError?: string
+    }
+    const retryInstructions = retryPayload.instructions?.join('\n') ?? ''
+
+    expect(slidePlanRequests).to.have.length(2)
+    expect(retryPayload.validationError).to.include('process')
+    expect(retryInstructions).to.include('type and structured template data synchronized exactly')
+    expect(retryInstructions).to.include('If type is process, include process.steps')
+    expect(retryInstructions).to.include('When changing a slide type')
   })
 
   it('retries script semantic source quote schema failures with field-specific feedback', async () => {
@@ -2223,6 +2302,138 @@ describe('Deck Explainer LLM text planning', () => {
     expect(plan.coherenceReport.summary.warnings).to.equal(1)
   })
 
+  it('normalizes slideIndex mentioned only in coherence issue messages', () => {
+    let caught: unknown
+
+    try {
+      assertCoherenceReview({
+        issues: [{
+          code: 'LOW_INFORMATION_DEPTH',
+          message: '输出模板（slide-index 10）的slidePlan visible code.text仅列出了标题，需要补充字段规则。',
+          severity: 'error',
+          stage: 'slide-plan',
+        }],
+        summary: 'The output template is still too shallow.',
+      })
+    } catch (error) {
+      caught = error
+    }
+
+    const issues = createDeckPlanningValidationIssues(caught)
+    const repairIssues = createDeckPlanningRepairIssues(issues, [issues])
+
+    expect(issues[0]?.slideIndex).to.equal(10)
+    expect(repairIssues[0]?.repeatCount).to.equal(2)
+  })
+
+  it('does not carry resolved visible-detail issues after a clean coherence review', async () => {
+    const requests: Array<GenerateObjectRequest<unknown>> = []
+    const weakPlan = createOneSlideRawPlan([0, 16])
+    weakPlan.outline = deckOutline(2)
+    weakPlan.slides = [
+      {
+        ...weakPlan.slides[0]!,
+        duration: 8,
+        points: ['Template headings only'],
+        sourceRange: [0, 8],
+        title: 'Output Template',
+        transitionOut: null,
+      },
+      {
+        ...weakPlan.slides[0]!,
+        duration: 8,
+        points: ['Closing summary'],
+        sourceRange: [8, 16],
+        title: 'Closing',
+        transitionOut: null,
+      },
+    ]
+    const fixedPlan = {
+      ...weakPlan,
+      slides: weakPlan.slides.map((slide, index) => index === 0
+        ? {
+            ...slide,
+            points: ['Field: input -> decision'],
+          }
+        : slide),
+    }
+    const transitionFixedPlan = {
+      ...fixedPlan,
+      slides: fixedPlan.slides.map((slide, index) => index === 0
+        ? {
+            ...slide,
+            transitionOut: {duration: 0.5, type: 'crossfade' as const},
+          }
+        : slide),
+    }
+    let coherenceCalls = 0
+
+    const llm: LLMClient = {
+      async generateObject<T>(request: GenerateObjectRequest<T>) {
+        requests.push(request as GenerateObjectRequest<unknown>)
+        const stage = requestStage(request as GenerateObjectRequest<unknown>)
+
+        if (stage === 'coherence-review') {
+          coherenceCalls += 1
+
+          return {
+            object: coherenceCalls === 1
+              ? {
+                  issues: [{
+                    code: 'LOW_INFORMATION_DEPTH',
+                    message: 'Output template slide lacks visible field rules.',
+                    path: 'slidePlan.slides[0]',
+                    severity: 'error',
+                    slideIndex: 0,
+                    stage: 'slide-plan',
+                  }],
+                  summary: 'The output template is too shallow.',
+                }
+              : {
+                  issues: [],
+                  summary: 'The visible detail issue is resolved.',
+                } as T,
+          }
+        }
+
+        if (stage === 'slide-plan' && (request.messages?.length ?? 0) > 1) {
+          const payload = JSON.parse(String(request.messages?.at(-1)?.content ?? '{}')) as {issues?: Array<{code?: string}>}
+          const isTransitionRepair = payload.issues?.some((issue) => issue.code === 'TEMPLATE_CONSTRAINT')
+
+          return {
+            object: stagedDeckObjectForRequest(request, isTransitionRepair ? transitionFixedPlan : fixedPlan),
+          }
+        }
+
+        return {
+          object: stagedDeckObjectForRequest(request, weakPlan),
+        }
+      },
+      async generateText(_request: GenerateTextRequest) {
+        throw new Error('generateText is not used by this test.')
+      },
+      streamText(_request: StreamTextRequest): AsyncIterable<LLMEvent> {
+        throw new Error('streamText is not used by this test.')
+      },
+    }
+
+    await createLLMTextDeckProjectPlan(llm, '/tmp/clean-coherence-transition.md', 'Explain final validation context clearing.', {
+      deckFormat: 'landscape_1920x1080',
+      durationTargetSeconds: 16,
+      language: 'en-US',
+      maxSlideCharacters: 260,
+      sourceType: 'markdown',
+    })
+
+    const slidePlanRewritePayloads = requests
+      .filter((request) => requestStage(request as GenerateObjectRequest<unknown>) === 'slide-plan' && (request.messages?.length ?? 0) > 1)
+      .map((request) => JSON.parse(String(request.messages?.at(-1)?.content ?? '{}')) as {issues?: Array<{code?: string}>})
+    const finalValidationPayload = slidePlanRewritePayloads.find((payload) => payload.issues?.some((issue) => issue.code === 'TEMPLATE_CONSTRAINT'))
+
+    expect(coherenceCalls).to.equal(3)
+    expect(finalValidationPayload?.issues?.map((issue) => issue.code)).to.deep.equal(['TEMPLATE_CONSTRAINT'])
+  })
+
   it('sends scoring scale requirements to slide-plan repairs after coherence feedback', async () => {
     const requests: Array<GenerateObjectRequest<unknown>> = []
     const weakPlan = createOneSlideRawPlan()
@@ -2305,6 +2516,7 @@ describe('Deck Explainer LLM text planning', () => {
     expect(rewritePayload.instructions.join('\n')).to.include('score scale meaning')
     expect(rewritePayload.instructions.join('\n')).to.include('score-band or evidence-state mapping')
     expect(rewritePayload.issues[0]?.requiredAdditions?.join('\n')).to.include('score scale meaning')
+    expect(rewritePayload.issues[0]?.requiredAdditions?.join('\n')).to.include('switch from chart to code.text or process.steps')
     expect(plan.deck.slides[0]?.points).to.deep.equal(fixedPlan.slides[0]?.points)
   })
 
@@ -2576,17 +2788,17 @@ describe('Deck Explainer LLM text planning', () => {
       code: {
         language: 'text',
         text: [
-          '结论: 公司+因; 无标的写无',
-          '新闻: 一句触发',
-          '需求: 证据3项',
-          '财务: 收入/毛利/杠杆',
-          '链条: 一阶公司+路径',
-          '小票: 市值/纯度/弹性',
-          '误分: 旧标签→新定位',
-          '验证: 收入/毛利/订单阈',
-          '风险: 风险+证伪线',
+          '结论: 标的+Alpha因子; 无候选写无',
+          '新闻: 一句触发事件',
+          '需求: 用户/企业/供应商证据',
+          '财务: 收入/毛利/杠杆/现金',
+          '链条: 一阶受益者+收入路径',
+          '小票: 市值小+纯度高+关键位',
+          '误分: 旧标签→新定位+数字桥',
+          '验证: 收入/毛利/订单/库存阈',
+          '风险: 下行因素+证伪条件',
           '仓位: 观/小/加/退条件',
-          '末句: 公司+关键验证',
+          '末句: 标的+下一验证点',
         ].join('\n'),
       },
       points: [],
@@ -2649,8 +2861,9 @@ describe('Deck Explainer LLM text planning', () => {
     expect(rewritePayload.issues[0]?.requiredAdditions?.join('\n')).to.include('maxSlideCharacters')
     expect(rewritePayload.issues[0]?.requiredAdditions?.join('\n')).to.include('Field: fill rule')
     expect(rewritePayload.issues[0]?.forbiddenFixes?.join('\n')).to.include('parenthetical examples')
+    expect(rewritePayload.issues[0]?.forbiddenFixes?.join('\n')).to.include('symbol-only shorthand')
     expect(plan.deck.slides[0]?.points).to.deep.equal([])
-    expect(plan.deck.slides[0]?.code?.text).to.include('结论: 公司+因')
+    expect(plan.deck.slides[0]?.code?.text).to.include('结论: 标的+Alpha因子')
   })
 
   it('escalates repeated script-semantics coherence failures to slide-plan repair contracts', async () => {

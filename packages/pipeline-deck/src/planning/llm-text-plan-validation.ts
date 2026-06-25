@@ -56,11 +56,15 @@ const DECK_LLM_PLACEHOLDER_REQUIRED_ADDITIONS = [
 const DECK_LLM_COMPACT_VISIBLE_DETAIL_FORBIDDEN_FIXES = [
   'Do not add long examples, parenthetical examples, or repeated explanatory phrases to every line of a dense output template when a short field rule would satisfy the issue.',
   'Do not duplicate the same template content in both points and code.text; keep points empty or as one short caption when code.text carries the dense structure.',
+  'Do not shrink dense templates to headings plus symbol-only shorthand such as "公司+因", "证据3项", or "关键检查点" as the whole field rule.',
+  'Do not use empty verbs such as "summarize", "list", "evaluate", "概述", "列出", "评估", or "明确" as the main instruction without naming the concrete input, rule, threshold, example, or decision condition.',
 ]
 const DECK_LLM_COMPACT_VISIBLE_DETAIL_REQUIRED_ADDITIONS = [
   'Keep the repaired slide within maxSlideCharacters while adding detail; count title, subtitle, points, and structured visible text together.',
-  'For dense output templates, schemas, and report structures, prefer terse "Field: fill rule" lines over examples; remove parenthetical examples first when the slide is over budget.',
-  'Use compact field rules such as "结论: 公司+因; 无标的写无" rather than full sentences when the source requires many visible sections.',
+  'For dense output templates, schemas, and report structures, prefer terse "Field: fill rule" lines over examples, but every fill rule must name a concrete input, condition, example, or decision branch.',
+  'Use compact field rules such as "Field: required input + decision condition" rather than full sentences when the source requires many visible sections.',
+  'When issue.message names exact source examples, treat those named examples as required visible content and place them in the relevant field rule instead of replacing them with generic phrases.',
+  'If a field depends on another workflow step or validation chain, name the referenced step, metric, or checkpoint instead of writing a generic phrase such as "key checkpoints".',
 ]
 
 export type DeckPlanningRepairStrategy = 'rebalanceTimingOrNarration' | 'requireOperationalCriteria' | 'requirePracticalDetail' | 'requireTemplateReplan' | 'requireTransitionLogic' | 'satisfyValidation'
@@ -327,8 +331,8 @@ export function normalizedCoherenceIssueSeverity(issue: LLMTextDeckCoherenceRevi
   return issue.severity
 }
 
-function normalizeIssueSlideIndex(issue: Pick<LLMTextDeckCoherenceReview['issues'][number], 'path' | 'slideIndex'>): {slideIndex?: number} {
-  const slideIndex = issue.slideIndex ?? parseSlideIndexFromPath(issue.path)
+function normalizeIssueSlideIndex(issue: Pick<LLMTextDeckCoherenceReview['issues'][number], 'message' | 'path' | 'slideIndex'>): {slideIndex?: number} {
+  const slideIndex = issue.slideIndex ?? parseSlideIndexFromPath(issue.path) ?? parseSlideIndex(issue.message)
 
   return slideIndex === undefined ? {} : {slideIndex}
 }
@@ -398,6 +402,10 @@ function shouldCarryForwardVisibleDetailIssues(issues: DeckPlanningValidationIss
 
 function findLatestVisibleDetailIssueContext(issueHistory: DeckPlanningValidationIssue[][]): DeckPlanningValidationIssue[] {
   for (const issues of [...issueHistory].reverse()) {
+    if (issues.length === 0) {
+      return []
+    }
+
     const visibleDetailIssues = issues.filter((issue) => issue.stage === DECK_LLM_SLIDE_PLAN_STAGE && isVisibleDetailRepairIssue(issue))
 
     if (visibleDetailIssues.length > 0) {
@@ -612,7 +620,7 @@ function roundTimingIssueValue(value: number): number {
 function createCoherenceIssueRepeatKey(issue: LLMTextDeckCoherenceReview['issues'][number]): string {
   return [
     issue.code,
-    issue.slideIndex ?? parseSlideIndexFromPath(issue.path) ?? 'global',
+    issue.slideIndex ?? parseSlideIndexFromPath(issue.path) ?? parseSlideIndex(issue.message) ?? 'global',
     issue.path ?? 'no-path',
     issue.stage,
   ].join('|')
@@ -701,6 +709,7 @@ function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): P
       requiredAdditions: [
         'Add concrete thresholds, observable inputs, examples, or decision branches requested by the issue.',
         'If the issue asks for scoring, scale, or score-band detail, include the visible score scale meaning, named scoring criteria, and how score results change priority or action.',
+        'If a scoring issue names more than four dimensions or asks for score-to-action mapping, switch from chart to code.text or process.steps so all dimensions, scale meanings, and decision bands are visible.',
         'Explain what the viewer should check and how the result changes the recommendation or next step.',
         ...DECK_LLM_PROCESS_DETAIL_REQUIRED_ADDITIONS,
         ...DECK_LLM_PLACEHOLDER_REQUIRED_ADDITIONS,
@@ -979,6 +988,12 @@ function classifyIssueCode(message: string): string {
 }
 
 function parseSlideIndex(message: string): number | undefined {
+  const zeroBasedMatch = /slide[-_\s]*index\s*[:=]?\s*(\d+)|slideIndex\s*[:=]?\s*(\d+)/iu.exec(message)
+
+  if (zeroBasedMatch?.[1] !== undefined || zeroBasedMatch?.[2] !== undefined) {
+    return Number.parseInt(zeroBasedMatch[1] ?? zeroBasedMatch[2] ?? '', 10)
+  }
+
   const match = /slide\s+(\d+)/iu.exec(message)
 
   if (match?.[1] === undefined) {
