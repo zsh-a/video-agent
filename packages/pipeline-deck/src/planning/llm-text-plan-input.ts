@@ -40,6 +40,7 @@ interface DeckPlanningIntent {
   durationSeconds?: number
   format: NonNullable<TextDeckProjectPlanOptions['deckFormat']>
   language: string
+  maxSlideCharacters: number
   maxVisibleCharactersPerSlide: number
   requestedTheme?: string
   requestedTitle?: string
@@ -94,6 +95,7 @@ export function createDeckPlanningIntent(options: TextDeckProjectPlanOptions): D
     contentDensity: createDeckContentDensityTarget(options),
     format: options.deckFormat ?? DEFAULT_DECK_FORMAT,
     language: options.language,
+    maxSlideCharacters: options.maxSlideCharacters,
     maxVisibleCharactersPerSlide: options.maxSlideCharacters,
     ...(options.durationTargetSeconds === undefined ? {} : {durationSeconds: options.durationTargetSeconds}),
     ...(options.theme === undefined || options.theme === 'auto' ? {} : {requestedTheme: options.theme}),
@@ -112,6 +114,7 @@ export function createDeckPlanningTarget(options: TextDeckProjectPlanOptions, se
     durationSeconds: intent.durationSeconds,
     format: intent.format,
     language: intent.language,
+    maxSlideCharacters: intent.maxSlideCharacters,
     maxVisibleCharactersPerSlide: intent.maxVisibleCharactersPerSlide,
     requestedTheme: intent.requestedTheme,
     requestedTitle: intent.requestedTitle,

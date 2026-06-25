@@ -669,6 +669,8 @@ function collectLLMSlideTemplateIssues(slide: LLMTextDeckTemplateValidationSlide
     pushTextLimitIssue(issues, slide, slideIndex, `chart bar ${index + 1} label`, `slides[${slideIndex}].chart.bars[${index}].label`, bar.label, limits.point_chars)
   }
 
+  pushTextLimitIssue(issues, slide, slideIndex, 'quote text', `slides[${slideIndex}].quote.text`, slide.quote?.text, limits.quote_chars)
+
   return issues
 }
 

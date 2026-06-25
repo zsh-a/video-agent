@@ -41,6 +41,7 @@ import {
   validateLLMTextDeckScriptSemanticsStructure,
   validateLLMTextDeckScriptSemanticsTiming,
   validateLLMTextDeckSlideCount,
+  validateLLMTextDeckSlideOutlineCoverage,
   validateLLMTextDeckSlidePlanStructure,
   type DeckPlanningValidationIssue,
 } from './llm-text-plan-validation.js'
@@ -49,7 +50,7 @@ import {createDeckSourceMap} from './source-map.js'
 import {DECK_STAGE_IDS} from '../pipeline.js'
 
 const DECK_LLM_SCHEMA_REWRITE_ATTEMPTS = 3
-const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 5
+const DECK_LLM_VALIDATION_REWRITE_ATTEMPTS = 7
 
 type LLMTextDeckGeneratedTransitionType = NonNullable<LLMTextDeckSlidePlanGeneration['slides'][number]['transitionOut']>['type']
 type LLMTextDeckGeneratedMotion = LLMTextDeckSlidePlanGeneration['slides'][number]['motion']
@@ -87,6 +88,7 @@ export async function createLLMTextDeckProjectPlan(
 
   try {
     validateLLMTextDeckSlideCount(stagedPlan.slideOutline, effectiveOptions)
+    validateLLMTextDeckSlideOutlineCoverage(stagedPlan.analysis, stagedPlan.brief, stagedPlan.slideOutline)
     validateLLMTextDeckSlidePlanStructure(stagedPlan.slidePlan, stagedPlan.slideOutline)
     validateLLMTextDeckScriptSemanticsStructure(stagedPlan.scriptSemantics, stagedPlan.slideOutline)
     assertCoherenceReview(stagedPlan.coherenceReview)
@@ -432,19 +434,7 @@ function createDeckSchemaRewriteRequest<T>(
           attempt: rewrite.attempt,
           attemptsRemaining: rewrite.attemptsRemaining,
           goal: 'Rewrite the previous Deck planning response so it matches the requested structured schema exactly.',
-          instructions: [
-            'Return only one JSON object matching the schema for this exact stage.',
-            'Use the original request outputContract when it is present.',
-            'Do not return an object from a prior stage; rewrite for the current promptMetadata.stage only.',
-            'Use the schema field names exactly; do not rename fields, translate field names, or introduce an alternate envelope.',
-            'Do not wrap the response in analysis, data, result, output, meta, semantic, structure, or any other top-level object.',
-            'Do not return feedback fields from this repair prompt such as invalidOutput, issues, attempt, attemptsRemaining, validationError, repairStrategy, requiredAdditions, or forbiddenFixes.',
-            'If the schema requires language, title, summary, sections, slides, timings, issues, or another top-level field, put that field at the JSON root.',
-            'If the schema requires nested arrays such as sections[].keyClaims, return those exact nested field names instead of semanticKeyPoints or prose-only summaries.',
-            'For Deck transitionOut.type fields, use only crossfade, fade, slide-left, or slide-up. Do not use motion preset names such as fade-in as transition types.',
-            'Do not add fields that are not in the schema.',
-            'Use the validationError as binding feedback.',
-          ],
+          instructions: createDeckSchemaRewriteInstructions(initialRequest.promptMetadata?.stage),
           validationError: rewrite.validationError,
         }),
         role: 'user',
@@ -452,6 +442,35 @@ function createDeckSchemaRewriteRequest<T>(
     ],
     prompt: undefined,
   }
+}
+
+function createDeckSchemaRewriteInstructions(stage: string | undefined): string[] {
+  return [
+    'Return only one JSON object matching the schema for this exact stage.',
+    'Use the original request outputContract when it is present.',
+    'Do not return an object from a prior stage; rewrite for the current promptMetadata.stage only.',
+    'Use the schema field names exactly; do not rename fields, translate field names, or introduce an alternate envelope.',
+    'Do not wrap the response in analysis, data, result, output, meta, semantic, structure, or any other top-level object.',
+    'Do not return feedback fields from this repair prompt such as invalidOutput, issues, attempt, attemptsRemaining, validationError, repairStrategy, requiredAdditions, or forbiddenFixes.',
+    'If the schema requires language, title, summary, sections, slides, timings, issues, or another top-level field, put that field at the JSON root.',
+    'If the schema requires nested arrays such as sections[].keyClaims, return those exact nested field names instead of semanticKeyPoints or prose-only summaries.',
+    'For Deck transitionOut.type fields, use only crossfade, fade, slide-left, or slide-up. Do not use motion preset names such as fade-in as transition types.',
+    ...createDeckSchemaRewriteStageInstructions(stage),
+    'Do not add fields that are not in the schema.',
+    'Use the validationError as binding feedback.',
+  ]
+}
+
+function createDeckSchemaRewriteStageInstructions(stage: string | undefined): string[] {
+  if (stage !== DECK_LLM_SCRIPT_SEMANTICS_STAGE) {
+    return []
+  }
+
+  return [
+    'For script-semantics, every slides[].semantic.sourceQuoteText must be a non-empty source-backed evidence string; never return "", whitespace, N/A, none, or a placeholder.',
+    'If validationError names semantic.sourceQuoteText, repair each named slide by selecting or paraphrasing the closest source excerpt or source-backed evidence for that slide.',
+    'Summary, recap, and output-template slides still require semantic.sourceQuoteText; use the source passage that authorizes the summarized workflow, template, or conclusion.',
+  ]
 }
 
 function isDeckSchemaBoundaryError(error: unknown): boolean {
@@ -672,6 +691,7 @@ async function attemptStagedDeckPlanRewrite(
 
   try {
     validateLLMTextDeckSlideCount(stagedPlan.slideOutline, input.options)
+    validateLLMTextDeckSlideOutlineCoverage(stagedPlan.analysis, stagedPlan.brief, stagedPlan.slideOutline)
     validateLLMTextDeckSlidePlanStructure(stagedPlan.slidePlan, stagedPlan.slideOutline)
     validateLLMTextDeckScriptSemanticsStructure(stagedPlan.scriptSemantics, stagedPlan.slideOutline)
     assertCoherenceReview(stagedPlan.coherenceReview)

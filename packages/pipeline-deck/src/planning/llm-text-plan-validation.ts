@@ -1,7 +1,9 @@
 import {
   findLLMDeckStructuredTemplateDataRequirement,
   LLMTextDeckValidationError,
+  type LLMTextDeckBrief,
   type LLMTextDeckCoherenceReview,
+  type LLMTextDeckContentAnalysis,
   type LLMDeckStructuredTemplateDataRequirement,
   type LLMTextDeckScriptSemantics,
   type LLMTextDeckSlideOutline,
@@ -29,11 +31,36 @@ const DECK_LLM_FORMATTED_ERROR_MESSAGE_MAX_CHARACTERS = 6_000
 const DECK_LLM_VISIBLE_DETAIL_CAPACITY_FORBIDDEN_FIXES = [
   'Do not compress source items named by the issue into broader categories.',
   'Do not move required visible detail into speakerNote, semantic metadata, or narration-only text.',
+  'Do not turn an output template into a headings-only outline.',
 ]
 const DECK_LLM_VISIBLE_DETAIL_CAPACITY_REQUIRED_ADDITIONS = [
   'If the issue names missing source items, copy those exact item names into visible slide-plan fields instead of summarizing them into categories.',
   'Use a template with enough visible capacity for the full required structure: prefer code.language "text" with code.text as one short line per required item for dense ordered checklists, schemas, report structures, or output templates.',
+  'For output-template slides, every code.text line or section must pair the section name with a short field-specific instruction, filled example, required input, or validation condition from the source.',
   'Use process.steps only when the complete visible sequence fits process step limits; otherwise switch to code and keep points empty or as a short summary.',
+]
+const DECK_LLM_PROCESS_DETAIL_FORBIDDEN_FIXES = [
+  'Do not make process.steps[].detail a category label, a "current vs future" contrast, or a generic phrase such as "build a verification chain" without the actual check to run.',
+]
+const DECK_LLM_PROCESS_DETAIL_REQUIRED_ADDITIONS = [
+  'For process slides, each process.steps[].detail must be a visible executable instruction or verification criterion, not just a topic summary.',
+  'If the issue names missing questions, checkpoints, confirm/weaken/falsify conditions, observable inputs, metrics, or examples, put those exact concrete items into process.steps[].detail or switch to code.text if they do not fit.',
+  'Each repaired process detail should name what the viewer checks and how that observation changes the decision or next step.',
+]
+const DECK_LLM_PLACEHOLDER_FORBIDDEN_FIXES = [
+  'Do not leave a visible line as only a placeholder pattern such as Company / ticker, X/Y/Z, A/B/C, "...", or "原因是..." without explaining how to fill it.',
+]
+const DECK_LLM_PLACEHOLDER_REQUIRED_ADDITIONS = [
+  'When visible text uses placeholders, include the source-required filling instruction or decision rule on the same line, such as what to name, how many sentences to use, what reason or evidence to provide, and what to do when no candidate or multiple candidates exist.',
+]
+const DECK_LLM_COMPACT_VISIBLE_DETAIL_FORBIDDEN_FIXES = [
+  'Do not add long examples, parenthetical examples, or repeated explanatory phrases to every line of a dense output template when a short field rule would satisfy the issue.',
+  'Do not duplicate the same template content in both points and code.text; keep points empty or as one short caption when code.text carries the dense structure.',
+]
+const DECK_LLM_COMPACT_VISIBLE_DETAIL_REQUIRED_ADDITIONS = [
+  'Keep the repaired slide within maxSlideCharacters while adding detail; count title, subtitle, points, and structured visible text together.',
+  'For dense output templates, schemas, and report structures, prefer terse "Field: fill rule" lines over examples; remove parenthetical examples first when the slide is over budget.',
+  'Use compact field rules such as "结论: 公司+因; 无标的写无" rather than full sentences when the source requires many visible sections.',
 ]
 
 export type DeckPlanningRepairStrategy = 'rebalanceTimingOrNarration' | 'requireOperationalCriteria' | 'requirePracticalDetail' | 'requireTemplateReplan' | 'requireTransitionLogic' | 'satisfyValidation'
@@ -108,6 +135,33 @@ export function validateLLMTextDeckSlideCount(
   if (issues.length > 0) {
     throw new LLMTextDeckValidationError(issues)
   }
+}
+
+export function validateLLMTextDeckSlideOutlineCoverage(
+  analysis: LLMTextDeckContentAnalysis,
+  brief: LLMTextDeckBrief,
+  slideOutline: LLMTextDeckSlideOutline,
+): void {
+  const covered = new Set(slideOutline.slides.flatMap((slide) => slide.sourceSectionIds))
+  const requiredSectionIds = uniqueStrings([
+    ...brief.requiredSectionIds,
+    ...analysis.sections.filter((section) => section.mustCover).map((section) => section.id),
+  ])
+  const missing = requiredSectionIds.filter((sectionId) => !covered.has(sectionId))
+
+  if (missing.length === 0) {
+    return
+  }
+
+  throw new LLMTextDeckValidationError([{
+    actual: requiredSectionIds.length - missing.length,
+    code: 'SOURCE_COVERAGE',
+    field: 'sourceSectionIds',
+    limit: requiredSectionIds.length,
+    message: `Deck slide outline does not cover ${missing.length} required source section(s): ${missing.join(', ')}. Rewrite the slide outline before generating slides.`,
+    path: 'slideOutline.slides[].sourceSectionIds',
+    stage: DECK_LLM_SLIDE_OUTLINE_STAGE,
+  }])
 }
 
 export function validateLLMTextDeckScriptSemanticsStructure(
@@ -260,7 +314,7 @@ export function assertCoherenceReview(review: LLMTextDeckCoherenceReview): void 
     code: issue.code,
     message: issue.message,
     ...(issue.path === undefined ? {} : {path: issue.path}),
-    ...(issue.slideIndex === undefined ? {} : {slideIndex: issue.slideIndex}),
+    ...normalizeIssueSlideIndex(issue),
     stage: issue.stage,
   })))
 }
@@ -273,6 +327,12 @@ export function normalizedCoherenceIssueSeverity(issue: LLMTextDeckCoherenceRevi
   return issue.severity
 }
 
+function normalizeIssueSlideIndex(issue: Pick<LLMTextDeckCoherenceReview['issues'][number], 'path' | 'slideIndex'>): {slideIndex?: number} {
+  const slideIndex = issue.slideIndex ?? parseSlideIndexFromPath(issue.path)
+
+  return slideIndex === undefined ? {} : {slideIndex}
+}
+
 export function createDeckPlanningValidationIssues(error: unknown): DeckPlanningValidationIssue[] {
   if (error instanceof LLMTextDeckValidationError) {
     return error.issues
@@ -283,8 +343,8 @@ export function createDeckPlanningValidationIssues(error: unknown): DeckPlanning
   }
 
   const message = formatErrorMessage(error)
-  const slideIndex = parseSlideIndex(message)
   const path = parseIssuePath(message)
+  const slideIndex = parseSlideIndexFromPath(path) ?? parseSlideIndex(message)
 
   return [{
     code: classifyIssueCode(message),
@@ -299,7 +359,7 @@ export function createDeckPlanningRepairIssues(
   issues: DeckPlanningValidationIssue[],
   issueHistory: DeckPlanningValidationIssue[][],
 ): DeckPlanningValidationIssue[] {
-  return issues.map((issue) => {
+  return includeVisibleDetailRepairContext(issues, issueHistory).map((issue) => {
     const repeatCount = countPreviousMatchingIssues(issue, issueHistory) + 1
     const repair = createDeckPlanningRepairContract(issue)
     const shouldEscalateToSlidePlan = issue.stage === DECK_LLM_SCRIPT_SEMANTICS_STAGE && repeatCount >= 2 && shouldEscalateRepeatedScriptIssue(issue)
@@ -316,6 +376,40 @@ export function createDeckPlanningRepairIssues(
         : {}),
     }
   })
+}
+
+function includeVisibleDetailRepairContext(
+  issues: DeckPlanningValidationIssue[],
+  issueHistory: DeckPlanningValidationIssue[][],
+): DeckPlanningValidationIssue[] {
+  if (!shouldCarryForwardVisibleDetailIssues(issues)) {
+    return issues
+  }
+
+  const contextIssues = findLatestVisibleDetailIssueContext(issueHistory)
+    .filter((issue) => !issues.some((current) => createDeckPlanningIssueSignature(current) === createDeckPlanningIssueSignature(issue)))
+
+  return contextIssues.length === 0 ? issues : [...issues, ...contextIssues]
+}
+
+function shouldCarryForwardVisibleDetailIssues(issues: DeckPlanningValidationIssue[]): boolean {
+  return issues.some((issue) => issue.stage === DECK_LLM_SLIDE_PLAN_STAGE && !isVisibleDetailRepairIssue(issue))
+}
+
+function findLatestVisibleDetailIssueContext(issueHistory: DeckPlanningValidationIssue[][]): DeckPlanningValidationIssue[] {
+  for (const issues of [...issueHistory].reverse()) {
+    const visibleDetailIssues = issues.filter((issue) => issue.stage === DECK_LLM_SLIDE_PLAN_STAGE && isVisibleDetailRepairIssue(issue))
+
+    if (visibleDetailIssues.length > 0) {
+      return visibleDetailIssues
+    }
+  }
+
+  return []
+}
+
+function isVisibleDetailRepairIssue(issue: DeckPlanningValidationIssue): boolean {
+  return issue.code === 'LOW_INFORMATION_DEPTH' || issue.code === 'MISSING_PRACTICAL_DETAIL' || issue.code === 'COHERENCE_GAP'
 }
 
 export function chooseRewriteStage(issues: DeckPlanningValidationIssue[]): DeckLLMRewriteStage {
@@ -518,7 +612,7 @@ function roundTimingIssueValue(value: number): number {
 function createCoherenceIssueRepeatKey(issue: LLMTextDeckCoherenceReview['issues'][number]): string {
   return [
     issue.code,
-    issue.slideIndex ?? 'global',
+    issue.slideIndex ?? parseSlideIndexFromPath(issue.path) ?? 'global',
     issue.path ?? 'no-path',
     issue.stage,
   ].join('|')
@@ -550,7 +644,7 @@ function countPreviousMatchingIssues(issue: DeckPlanningValidationIssue, issueHi
 function createDeckPlanningIssueSignature(issue: DeckPlanningValidationIssue): string {
   return [
     issue.code,
-    issue.slideIndex ?? 'global',
+    issue.slideIndex ?? parseSlideIndexFromPath(issue.path) ?? 'global',
     issue.path ?? 'no-path',
   ].join('|')
 }
@@ -568,18 +662,26 @@ function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): P
     return createStructuredTemplateDataRepairContract(issue, 'extraneous')
   }
 
+  if (issue.code === 'TEMPLATE_TEXT_LENGTH_LIMIT') {
+    return createTemplateTextLengthRepairContract(issue)
+  }
+
   if (issue.code === 'LOW_INFORMATION_DEPTH') {
     return {
       forbiddenFixes: [
         'Do not only restate the existing headline, formula, or visible points.',
         'Do not add generic adjectives such as clear, actionable, important, or practical without criteria.',
+        ...DECK_LLM_PLACEHOLDER_FORBIDDEN_FIXES,
+        ...DECK_LLM_COMPACT_VISIBLE_DETAIL_FORBIDDEN_FIXES,
         ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_FORBIDDEN_FIXES,
       ],
       repairStrategy: 'requireOperationalCriteria',
       requiredAdditions: [
         'Name the missing concrete method or decision criteria described by the issue.',
         'Add at least one source-grounded way to estimate, verify, or apply the concept.',
-        'Add one compact example or judgment sentence that shows how the viewer would use the concept.',
+        'Add one compact example, field rule, or judgment sentence that shows how the viewer would use the concept.',
+        ...DECK_LLM_PLACEHOLDER_REQUIRED_ADDITIONS,
+        ...DECK_LLM_COMPACT_VISIBLE_DETAIL_REQUIRED_ADDITIONS,
         ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_REQUIRED_ADDITIONS,
       ],
     }
@@ -590,6 +692,9 @@ function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): P
       forbiddenFixes: [
         'Do not replace missing detail with a broad summary.',
         'Do not leave placeholders such as X/Y/company without explaining how to fill them.',
+        ...DECK_LLM_PROCESS_DETAIL_FORBIDDEN_FIXES,
+        ...DECK_LLM_PLACEHOLDER_FORBIDDEN_FIXES,
+        ...DECK_LLM_COMPACT_VISIBLE_DETAIL_FORBIDDEN_FIXES,
         ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_FORBIDDEN_FIXES,
       ],
       repairStrategy: 'requirePracticalDetail',
@@ -597,7 +702,26 @@ function createDeckPlanningRepairContract(issue: DeckPlanningValidationIssue): P
         'Add concrete thresholds, observable inputs, examples, or decision branches requested by the issue.',
         'If the issue asks for scoring, scale, or score-band detail, include the visible score scale meaning, named scoring criteria, and how score results change priority or action.',
         'Explain what the viewer should check and how the result changes the recommendation or next step.',
+        ...DECK_LLM_PROCESS_DETAIL_REQUIRED_ADDITIONS,
+        ...DECK_LLM_PLACEHOLDER_REQUIRED_ADDITIONS,
+        ...DECK_LLM_COMPACT_VISIBLE_DETAIL_REQUIRED_ADDITIONS,
         ...DECK_LLM_VISIBLE_DETAIL_CAPACITY_REQUIRED_ADDITIONS,
+      ],
+    }
+  }
+
+  if (issue.code === 'VISIBLE_TEXT_LIMIT') {
+    return {
+      forbiddenFixes: [
+        'Do not satisfy a character-limit issue by deleting source-required structure or leaving a headings-only outline.',
+        ...DECK_LLM_COMPACT_VISIBLE_DETAIL_FORBIDDEN_FIXES,
+      ],
+      repairStrategy: 'requireTemplateReplan',
+      requiredAdditions: [
+        'Rewrite the reported slide so total visible text is within maxSlideCharacters, including title, subtitle, points, and structured template text.',
+        'For dense output templates, schemas, and report structures, use code.language "text" with one short "Field: fill rule" line per required item.',
+        'Remove repeated examples, parenthetical examples, filler words, and duplicate points before removing source-required items.',
+        'Keep the source-required filling rules visible in compact form.',
       ],
     }
   }
@@ -657,6 +781,26 @@ function createTextCleanlinessRepairContract(issue: DeckPlanningValidationIssue)
       'Rewrite the reported field as clean single-line text with normal single spaces only.',
       'If the field is trying to contain multiple steps, split the content into the appropriate visible structure: points for short parallel items, process.steps for ordered flows, comparison sides for two-way contrasts, or code.text for dense lists/schemas/templates.',
       'Keep the source meaning unchanged while satisfying the exact reported path.',
+    ],
+  }
+}
+
+function createTemplateTextLengthRepairContract(issue: DeckPlanningValidationIssue): Pick<DeckPlanningValidationIssue, 'forbiddenFixes' | 'repairStrategy' | 'requiredAdditions'> {
+  return {
+    forbiddenFixes: [
+      'Do not fix a text-length issue only by changing unrelated fields; the reported path itself must fit the reported limit.',
+      'Do not keep long sentence examples inside point fields with tight template limits.',
+      ...DECK_LLM_COMPACT_VISIBLE_DETAIL_FORBIDDEN_FIXES,
+    ],
+    repairStrategy: 'requireTemplateReplan',
+    requiredAdditions: [
+      `Rewrite ${issue.path ?? 'the reported visible field'} so it is at or below ${issue.limit ?? 'the reported'} characters.`,
+      'For title or subtitle fields, shorten the reported field itself and move explanatory wording into a visible structured field with enough capacity.',
+      'For point fields, use a compact phrase, formula, or placeholder rule instead of a full sentence example.',
+      'After fixing the reported point-like field, scan sibling points, comparison points, and chart labels on the same slide for the same template limit before returning.',
+      'When the template point limit is 40 characters, prefer 36 characters or fewer to avoid off-by-one counting failures.',
+      'If the required detail cannot fit the current template point limit, switch to a registered template with enough visible capacity, such as code.text or process.steps, and fill its required structured data.',
+      'Preserve the source meaning and any required practical detail while satisfying the exact field limit.',
     ],
   }
 }
@@ -842,6 +986,16 @@ function parseSlideIndex(message: string): number | undefined {
   }
 
   return Number.parseInt(match[1], 10) - 1
+}
+
+function parseSlideIndexFromPath(path: string | undefined): number | undefined {
+  const match = /slides\[(\d+)\]/iu.exec(path ?? '')
+
+  if (match?.[1] === undefined) {
+    return undefined
+  }
+
+  return Number.parseInt(match[1], 10)
 }
 
 function parseIssuePath(message: string): string | undefined {

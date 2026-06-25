@@ -587,6 +587,8 @@ describe('deck explainer project', () => {
       const slidePrompt = JSON.parse(String(slidePlanRequest?.messages?.[0]?.content)) as {
         instructions: string[]
         target: {
+          maxSlideCharacters?: number
+          maxVisibleCharactersPerSlide?: number
           slideCount: {maximum: number; minimum: number; target?: number}
           speakerNoteCharactersPerSlide?: unknown
           speakerNotePlanning: {policy: string}
@@ -610,6 +612,9 @@ describe('deck explainer project', () => {
       expect(contentPrompt.source.structure).to.equal(undefined)
       expect(contentPrompt.source.text).to.equal(markdownSource)
       expect(slidePrompt.instructions.join(' ')).to.contain('target.templateManifest')
+      expect(slidePrompt.instructions.join(' ')).to.contain('aim for 36 characters or fewer')
+      expect(slidePrompt.target.maxSlideCharacters).to.equal(260)
+      expect(slidePrompt.target.maxVisibleCharactersPerSlide).to.equal(260)
       expect(slidePrompt.target.templateManifest.templates.map((template) => template.type)).to.include.members(['hero', 'three-points', 'comparison', 'process', 'summary'])
       expect(slidePrompt.target.templateManifest.templates.find((template) => template.type === 'three-points')?.limits.points).to.equal(3)
       expect(slidePrompt.target.slideCount).to.deep.include({maximum: 24, minimum: 1})
