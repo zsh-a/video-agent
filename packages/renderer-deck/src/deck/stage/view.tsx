@@ -26,6 +26,8 @@ export function DeckStageView({
 
   return (
     <Stage>
+      <div className="stage__orb stage__orb--tl" aria-hidden="true" />
+      <div className="stage__orb stage__orb--br" aria-hidden="true" />
       {slides.map((item) => <DeckSlide item={item} key={item.slide.slideId} language={deck.language} style={slideStyle?.(item)} />)}
     </Stage>
   )
@@ -100,6 +102,8 @@ export function slideDensityClass(slide: Slide, language: string): string {
     slide.stat?.value ?? '',
     slide.stat?.label ?? '',
     slide.stat?.caption ?? '',
+    slide.image?.caption ?? '',
+    ...(slide.gridCards?.cards.flatMap((card) => [card.label, card.description ?? '']) ?? []),
   ].join('').length
 
   const isChinese = language.startsWith('zh')

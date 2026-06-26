@@ -67,7 +67,7 @@ export const DECK_ADVANCED_MOTION_PRESETS = [
 
 export const DECK_MOTION_PRESETS = [...DECK_BASE_MOTION_PRESETS, ...DECK_ADVANCED_MOTION_PRESETS] as const
 
-export const DECK_TRANSITION_TYPES = ['crossfade', 'fade', 'slide-left', 'slide-up'] as const
+export const DECK_TRANSITION_TYPES = ['crossfade', 'fade', 'slide-left', 'slide-up', 'zoom-in', 'zoom-out', 'rotate'] as const
 
 export const DECK_SLIDE_TYPES = [
   'hero',
@@ -83,6 +83,8 @@ export const DECK_SLIDE_TYPES = [
   'code',
   'summary',
   'cta',
+  'image',
+  'grid-cards',
 ] as const
 
 export const DOCUMENT_SOURCE_TYPES = ['audio', 'html', 'markdown', 'pdf', 'text'] as const
@@ -398,12 +400,29 @@ export const DeckChartBarSchema = z.object({
 
 export const DeckChartSchema = z.object({
   bars: z.array(DeckChartBarSchema).min(1),
+  type: z.enum(['bar', 'donut']).optional(),
   valueLabel: z.string().min(1).optional(),
 })
 
 export const DeckCodeBlockSchema = z.object({
   language: z.string().min(1),
   text: z.string().min(1),
+})
+
+export const DeckImageSchema = z.object({
+  alt: z.string().min(1).optional(),
+  caption: z.string().min(1).optional(),
+  src: z.string().min(1),
+})
+
+export const DeckGridCardSchema = z.object({
+  description: z.string().min(1).optional(),
+  icon: z.string().min(1).optional(),
+  label: z.string().min(1),
+})
+
+export const DeckGridCardsSchema = z.object({
+  cards: z.array(DeckGridCardSchema).min(2).max(4),
 })
 
 export const DeckThemeTokensSchema = z.record(z.string().min(1), z.string().min(1))
@@ -415,6 +434,8 @@ export const SlideSchema = z.object({
   comparison: DeckComparisonSchema.optional(),
   duration: z.number().finite().positive().optional(),
   evidence: z.array(EvidenceSchema),
+  gridCards: DeckGridCardsSchema.optional(),
+  image: DeckImageSchema.optional(),
   motion: DeckMotionPresetSchema,
   points: z.array(z.string().min(1)),
   process: DeckProcessSchema.optional(),
@@ -568,6 +589,9 @@ export type DeckChart = z.infer<typeof DeckChartSchema>
 export type DeckChartBar = z.infer<typeof DeckChartBarSchema>
 export type DeckCodeBlock = z.infer<typeof DeckCodeBlockSchema>
 export type DeckComparison = z.infer<typeof DeckComparisonSchema>
+export type DeckGridCard = z.infer<typeof DeckGridCardSchema>
+export type DeckGridCards = z.infer<typeof DeckGridCardsSchema>
+export type DeckImage = z.infer<typeof DeckImageSchema>
 export type DeckComparisonSide = z.infer<typeof DeckComparisonSideSchema>
 export type DeckContentAnalysis = z.infer<typeof DeckContentAnalysisSchema>
 export type DeckContentDensity = z.infer<typeof DeckContentDensitySchema>

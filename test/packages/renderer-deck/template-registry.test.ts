@@ -6,13 +6,14 @@ import {findDeckTemplateManifestEntry, maxPointsForDeckTemplate, validateSlideAg
 import {resolveMotionStepsForTemplate, resolveSlideTemplate, slideTemplateModules, slideTemplateMotionSteps, slideTemplateRegistry, slideTemplateStyles} from '../../../packages/renderer-deck/src/deck/templates/registry.js'
 
 describe('slideTemplateModules', () => {
-  it('contains all 13 template types', () => {
+  it('contains all 15 template types', () => {
     const types = slideTemplateModules.map((m) => m.template.type)
 
-    expect(types).to.have.length(13)
+    expect(types).to.have.length(15)
     expect(types).to.include.members([
       'hero', 'section', 'one-big-idea', 'three-points', 'comparison',
       'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta',
+      'image', 'grid-cards',
     ])
   })
 
@@ -30,7 +31,7 @@ describe('slideTemplateModules', () => {
   })
 
   it('collects available template styles without requiring renderer support for text CSS imports', () => {
-    expect(slideTemplateStyles).to.have.length(13)
+    expect(slideTemplateStyles).to.have.length(15)
 
     for (const styles of slideTemplateStyles) {
       expect(styles).to.be.a('string')
@@ -154,6 +155,26 @@ describe('resolveSlideTemplate', () => {
       title: 'Timeline',
       type: 'timeline',
     })).to.throw('missing visible points')
+
+    expect(() => resolveSlideTemplate('image').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'blur-rise',
+      points: [],
+      slideId: 'slide-image',
+      title: 'Image',
+      type: 'image',
+    })).to.throw('missing image data')
+
+    expect(() => resolveSlideTemplate('grid-cards').render({
+      blockIds: [],
+      evidence: [],
+      motion: 'card-stack',
+      points: [],
+      slideId: 'slide-grid',
+      title: 'Grid',
+      type: 'grid-cards',
+    })).to.throw('missing grid cards data')
   })
 })
 
@@ -172,8 +193,8 @@ describe('findDeckTemplateManifestEntry', () => {
 })
 
 describe('slideTemplateRegistry', () => {
-  it('is a Map with all 13 types', () => {
-    expect(slideTemplateRegistry.size).to.equal(13)
+  it('is a Map with all 15 types', () => {
+    expect(slideTemplateRegistry.size).to.equal(15)
   })
 
   it('contains the same templates as slideTemplateModules', () => {
@@ -184,12 +205,12 @@ describe('slideTemplateRegistry', () => {
 })
 
 describe('slideTemplateMotionSteps', () => {
-  it('is a Map with all 13 types', () => {
-    expect(slideTemplateMotionSteps.size).to.equal(13)
+  it('is a Map with all 15 types', () => {
+    expect(slideTemplateMotionSteps.size).to.equal(15)
   })
 
   it('resolveMotionStepsForTemplate returns steps for all known types', () => {
-    const types = ['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta'] as const
+    const types = ['hero', 'section', 'one-big-idea', 'three-points', 'comparison', 'process', 'timeline', 'quote', 'stat', 'chart', 'code', 'summary', 'cta', 'image', 'grid-cards'] as const
 
     for (const type of types) {
       const steps = resolveMotionStepsForTemplate(type)
@@ -490,5 +511,7 @@ describe('maxPointsForDeckTemplate', () => {
     expect(maxPointsForDeckTemplate('summary')).to.equal(4)
     expect(maxPointsForDeckTemplate('cta')).to.equal(1)
     expect(maxPointsForDeckTemplate('comparison')).to.equal(6)
+    expect(maxPointsForDeckTemplate('image')).to.equal(0)
+    expect(maxPointsForDeckTemplate('grid-cards')).to.equal(0)
   })
 })

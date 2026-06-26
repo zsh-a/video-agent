@@ -31,6 +31,31 @@ body {
   width: var(--canvas-w);
 }
 
+/* Subtle corner accent orbs */
+.stage__orb {
+  border-radius: 999px;
+  filter: blur(80px);
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.stage__orb--tl {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  height: 320px;
+  left: -80px;
+  top: -60px;
+  width: 320px;
+}
+
+.stage__orb--br {
+  background: color-mix(in srgb, var(--accent-2) 6%, transparent);
+  bottom: -80px;
+  height: 280px;
+  right: -60px;
+  width: 280px;
+}
+
 .stage::before {
   background-image:
     linear-gradient(var(--line-soft) 1px, transparent 1px),
@@ -67,7 +92,7 @@ body {
   padding: var(--safe-top) var(--safe-x) var(--safe-bottom);
   pointer-events: none;
   position: absolute;
-  transform-origin: center;
+  transform-origin: center center;
   will-change: opacity, transform, filter;
   width: var(--canvas-w);
   z-index: 1;

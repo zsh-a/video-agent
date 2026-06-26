@@ -5,7 +5,9 @@ import {chartTemplateModule} from './chart/index.js'
 import {codeTemplateModule} from './code/index.js'
 import {comparisonTemplateModule} from './comparison/index.js'
 import {ctaTemplateModule} from './cta/index.js'
+import {gridCardsTemplateModule} from './grid-cards/index.js'
 import {heroTemplateModule} from './hero/index.js'
+import {imageTemplateModule} from './image/index.js'
 import {oneBigIdeaTemplateModule} from './one-big-idea/index.js'
 import {processTemplateModule} from './process/index.js'
 import {quoteTemplateModule} from './quote/index.js'
@@ -29,6 +31,8 @@ export const slideTemplateModules = [
   codeTemplateModule,
   summaryTemplateModule,
   ctaTemplateModule,
+  imageTemplateModule,
+  gridCardsTemplateModule,
 ] satisfies SlideTemplateModule[]
 
 export const slideTemplates = slideTemplateModules.map((module) => module.template) satisfies SlideTemplate[]

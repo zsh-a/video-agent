@@ -1,0 +1,52 @@
+.grid-cards--2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-cards--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-cards--4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-card {
+  background:
+    linear-gradient(135deg, var(--surface-strong), var(--surface-soft)),
+    var(--surface);
+}
+
+.grid-card__accent {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  border-radius: 999px;
+  bottom: 0;
+  height: 3px;
+  left: 28px;
+  position: absolute;
+  right: 28px;
+  opacity: 0.6;
+}
+
+.grid-card__icon {
+  line-height: 1;
+}
+
+body[data-format="portrait_1080x1920"] .grid-cards--3 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+body[data-format="portrait_1080x1920"] .grid-cards--4 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+body[data-format="portrait_1080x1920"] .grid-card {
+  padding: 24px;
+}
+
+body[data-format="landscape_1920x1080"] .grid-cards--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+body[data-format="landscape_1920x1080"] .grid-cards--4 {
+  grid-template-columns: repeat(4, 1fr);
+}

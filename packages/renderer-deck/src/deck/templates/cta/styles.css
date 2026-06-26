@@ -7,11 +7,33 @@
   text-align: center;
 }
 
-.cta-block__arrow {
-  letter-spacing: 0.08em;
-  opacity: 0.88;
+/* Arrow with directional emphasis */
+.cta-block__arrow-wrap {
+  position: relative;
+  z-index: 1;
 }
 
+.cta-block__arrow {
+  opacity: 0.92;
+  transform: translateX(0);
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+.cta-block__arrow-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%);
+  border-radius: 999px;
+  height: 80px;
+  left: 50%;
+  opacity: 0.5;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(1);
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+  width: 80px;
+  z-index: 0;
+}
+
+/* Background glow */
 .cta-block__glow {
   background: radial-gradient(ellipse 60% 55% at 50% 55%, color-mix(in srgb, var(--accent) 14%, transparent), transparent);
   inset: 0;
@@ -20,8 +42,31 @@
   z-index: 0;
 }
 
-.cta-block__label,
-.cta-block__arrow {
+/* Decorative ring */
+.cta-block__ring {
+  border: 2px solid color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+  bottom: -60px;
+  height: 200px;
+  pointer-events: none;
+  position: absolute;
+  right: -40px;
+  width: 200px;
+  z-index: 0;
+}
+
+.cta-block__label {
   position: relative;
   z-index: 1;
+}
+
+/* Top gradient bar */
+.cta-block::before {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--accent-warm));
+  content: "";
+  height: 4px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
 }

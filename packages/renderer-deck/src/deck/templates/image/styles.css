@@ -1,0 +1,43 @@
+.image-layout {
+  max-width: 100%;
+}
+
+.image-frame {
+  background:
+    linear-gradient(135deg, var(--surface-strong), var(--surface-soft)),
+    var(--surface);
+  padding: 12px;
+}
+
+.image-frame__img {
+  border-radius: calc(var(--radius-md) - 4px);
+}
+
+.image-frame__overlay {
+  background: linear-gradient(180deg, transparent 72%, color-mix(in srgb, var(--bg) 40%, transparent));
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.image-caption {
+  font-size: calc(var(--font-caption) * 0.92);
+  letter-spacing: 0.01em;
+}
+
+body[data-format="portrait_1080x1920"] .image-frame__img {
+  max-height: 820px;
+}
+
+body[data-format="portrait_1080x1920"] .image-frame {
+  padding: 10px;
+}
+
+body[data-format="landscape_1920x1080"] .image-frame__img {
+  max-height: 480px;
+}
+
+body[data-format="square_1080x1080"] .image-frame__img {
+  max-height: 560px;
+}

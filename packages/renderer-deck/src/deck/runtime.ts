@@ -241,6 +241,25 @@ function transformForTransition(type, amount, direction) {
     return 'translate3d(0, ' + value + 'px, 0)'
   }
 
+  if (type === 'zoom-in') {
+    const scale = direction === 'in' ? 0.85 + amount * 0.15 : 1 - amount * 0.15
+
+    return 'scale(' + scale + ')'
+  }
+
+  if (type === 'zoom-out') {
+    const scale = direction === 'in' ? 1.15 - amount * 0.15 : 1 + amount * 0.15
+
+    return 'scale(' + scale + ')'
+  }
+
+  if (type === 'rotate') {
+    const rotate = direction === 'in' ? amount * -8 : amount * 8
+    const scale = 0.95 + amount * 0.05
+
+    return 'rotate(' + rotate + 'deg) scale(' + scale + ')'
+  }
+
   return ''
 }
 

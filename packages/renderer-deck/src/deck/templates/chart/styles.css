@@ -11,3 +11,50 @@
   right: 0;
   width: 40%;
 }
+
+/* Bar chart with track */
+.chart-bar__fill {
+  width: var(--bar-value);
+}
+
+.chart-bar__track {
+  background:
+    linear-gradient(135deg, var(--surface-strong), var(--surface-soft)),
+    var(--surface);
+}
+
+.chart-bar__shine {
+  background: linear-gradient(90deg, transparent 50%, rgb(255 255 255 / 6%));
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+/* Donut chart */
+:root {
+  --donut-color-0: var(--accent);
+  --donut-color-1: var(--accent-2);
+  --donut-color-2: var(--accent-warm);
+  --donut-color-3: var(--muted);
+}
+
+.donut-ring__segment {
+  transition: stroke-dasharray 0.6s ease-out;
+}
+
+.donut-ring__center {
+  border-radius: 999px;
+}
+
+.donut-legend__dot {
+  flex-shrink: 0;
+}
+
+body[data-format="portrait_1080x1920"] .donut-layout {
+  grid-template-columns: 1fr;
+  gap: 28px;
+}
+
+body[data-format="portrait_1080x1920"] .donut-ring {
+  width: 200px;
+}

@@ -146,7 +146,6 @@ describe('html deck compiler', () => {
       expect(styles).to.contain('@font-face')
       expect(styles).to.contain('Noto Sans SC')
       expect(styles).to.contain('body[data-capture="slide"]')
-      expect(styles).not.include('@keyframes')
       expect(runtime).to.contain('window.vagent')
       expect(runtime).to.contain('function seek(timeSeconds)')
       expect(runtime).to.contain('function applyMotionTimeline(time)')

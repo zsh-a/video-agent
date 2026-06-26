@@ -13,11 +13,62 @@
   width: 4px;
 }
 
-.timeline__item span {
+/* Node variants - alternating accent colors */
+.timeline__node {
+  box-shadow: 0 0 18px transparent;
+  transition: box-shadow 0.3s ease;
+}
+
+.timeline__node--0 {
+  background: var(--accent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.timeline__node--1 {
+  background: var(--accent-2);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent-2) 40%, transparent);
+}
+
+.timeline__node--2 {
+  background: var(--accent-warm);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--accent-warm) 40%, transparent);
+}
+
+.timeline__node-inner {
+  opacity: 0.7;
+}
+
+/* Item hover emphasis */
+.timeline__item {
+  transition: transform 0.2s ease;
+}
+
+/* Subtle left accent per item */
+.timeline__item::before {
   background: var(--accent);
   border-radius: 999px;
-  box-shadow: 0 0 18px color-mix(in srgb, var(--accent) 40%, transparent);
+  content: "";
+  height: 100%;
+  left: -4px;
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  transition: opacity 0.2s ease;
+  width: 2px;
+}
+
+body[data-format="portrait_1080x1920"] .timeline {
+  padding-left: 38px;
+  gap: 16px;
+}
+
+body[data-format="portrait_1080x1920"] .timeline__node {
   height: 18px;
-  margin-left: -41px;
   width: 18px;
+  margin-left: -35px;
+}
+
+body[data-format="portrait_1080x1920"] .timeline__node-inner {
+  height: 8px;
+  width: 8px;
 }
